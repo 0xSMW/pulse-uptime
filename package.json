@@ -28,6 +28,8 @@
     "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   },
   "dependencies": {
+    "@base-ui/react": "^1.6.0",
+    "@radix-ui/react-select": "^2.3.3",
     "@react-email/components": "^1.0.4",
     "@vercel/edge-config": "^1.4.0",
     "argon2": "^0.44.0",
