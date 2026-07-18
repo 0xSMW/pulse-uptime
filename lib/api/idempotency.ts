@@ -38,6 +38,7 @@ export async function executeIdempotent<T>(input: {
   now?: Date;
   work: (context: IdempotencyContext) => Promise<StoredResponse<T>>;
   recover?: (context: IdempotencyContext) => Promise<StoredResponse<T> | null>;
+  rerunAfterRecoveryMiss?: boolean;
   persistBody?: (body: T) => unknown;
   replayBody?: (storedBody: unknown, context: IdempotencyContext) => Promise<T> | T;
   persistence?: IdempotencyPersistence;
@@ -126,6 +127,12 @@ export async function executeIdempotent<T>(input: {
         if (recovered) {
           await complete(persistence, recordId, recovered, input.persistBody);
           return { ...recovered, replayed: true };
+        }
+        if (input.rerunAfterRecoveryMiss === false) {
+          throw new IdempotencyError(
+            "REQUEST_IN_PROGRESS",
+            "The prior result cannot be recovered safely. Review current state, then retry with a new idempotency key.",
+          );
         }
       }
     }
