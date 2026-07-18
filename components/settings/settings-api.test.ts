@@ -18,6 +18,7 @@ describe("Settings form helpers", () => {
   it("generates a bounded lowercase slug", () => {
     expect(generatedMonitorId("  Main API / Health  ")).toBe("main-api-health-12345678");
     expect(generatedGroupId(" Core Services ")).toBe("core-services-12345678");
+    expect(generatedGroupId(`${"a".repeat(54)}-group`)).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
   });
 
   it("sorts groups alphabetically without mutating input", () => {
