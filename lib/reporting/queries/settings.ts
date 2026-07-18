@@ -3,6 +3,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { monitoringConfigSchema } from "@/lib/config/schema";
 import { DEFAULT_MONITOR_VALUES } from "@/lib/config/defaults";
 import { db } from "@/lib/db/client";
+import { getDatabaseHealth } from "@/lib/database-health";
 import {
   apiTokens,
   cliInstallations,
@@ -13,7 +14,7 @@ import {
 } from "@/lib/db/schema";
 
 export async function getSettingsOverview() {
-  const [registrations, accepted, agentTokens, sessions] = await Promise.all([
+  const [registrations, accepted, agentTokens, sessions, databaseHealth] = await Promise.all([
     db.select({
       id: monitorRegistry.id,
       name: monitorRegistry.name,
@@ -56,6 +57,7 @@ export async function getSettingsOverview() {
       .where(and(isNull(cliSessions.revokedAt), isNull(cliInstallations.revokedAt)))
       .orderBy(desc(cliSessions.createdAt))
       .limit(100),
+    getDatabaseHealth().catch(() => null),
   ]);
   const parsed = monitoringConfigSchema.safeParse(accepted[0]?.configJson);
   const config = parsed.success ? parsed.data : null;
@@ -105,5 +107,6 @@ export async function getSettingsOverview() {
       })),
     ],
     origin: process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "",
+    databaseHealth,
   };
 }
