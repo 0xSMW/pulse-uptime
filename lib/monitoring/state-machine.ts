@@ -36,10 +36,10 @@ function checkedState(current: MonitorStateSnapshot, event: CheckTransitionEvent
     next.lastSuccessAt = event.checkedAt;
     next.lastErrorCode = null;
     next.consecutiveFailures = 0;
-    next.firstFailureAt = null;
 
     if (current.state === "PENDING" || current.state === "UP" || current.state === "VERIFYING_DOWN") {
       next.state = "UP";
+      next.firstFailureAt = null;
       next.consecutiveSuccesses = 0;
       next.firstSuccessAt = null;
       return { next, incident: null };
@@ -51,21 +51,25 @@ function checkedState(current: MonitorStateSnapshot, event: CheckTransitionEvent
     const successes = current.state === "VERIFYING_UP" ? current.consecutiveSuccesses + 1 : 1;
     next.firstSuccessAt = firstSuccessAt;
     next.consecutiveSuccesses = successes;
+    next.firstFailureAt = current.firstFailureAt;
 
     if (successes < event.recoveryThreshold) {
       next.state = "VERIFYING_UP";
       return { next, incident: null };
     }
     if (!current.activeIncidentId) throw new Error("Cannot resolve DOWN monitor without an active incident");
+    if (!current.firstFailureAt) throw new Error("Cannot resolve DOWN monitor without a first failure time");
     next.state = "UP";
     next.consecutiveSuccesses = 0;
     next.firstSuccessAt = null;
+    next.firstFailureAt = null;
     next.activeIncidentId = null;
     return {
       next,
       incident: {
         type: "resolve",
         incidentId: current.activeIncidentId,
+        openedAt: current.firstFailureAt,
         resolvedAt: firstSuccessAt,
         firstSuccessAt,
       },
