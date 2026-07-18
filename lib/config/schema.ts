@@ -1,0 +1,123 @@
+import { z } from "zod";
+
+export const MONITOR_INTERVALS = [1, 5, 10, 15] as const;
+export const MAX_ACTIVE_MONITORS = 100;
+export const MAX_CONFIG_BYTES = 55 * 1024;
+
+const emailSchema = z.string().trim().email();
+const recipientsSchema = z.array(emailSchema).max(20);
+
+function isPublicHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) {
+      return false;
+    }
+
+    const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    if (!host || host === "localhost" || host.endsWith(".localhost")) return false;
+
+    // DNS resolution and rebinding protection belong to the secure checker. These
+    // checks reject literal addresses that are never valid public destinations.
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) {
+      const octets = host.split(".").map(Number);
+      if (octets.length !== 4 || octets.some((part) => !Number.isInteger(part) || part > 255)) return false;
+      const [a, b, c] = octets;
+      return !(
+        a === 0 || a === 10 || a === 127 || a >= 224 ||
+        (a === 100 && b >= 64 && b <= 127) ||
+        (a === 169 && b === 254) ||
+        (a === 172 && b >= 16 && b <= 31) ||
+        (a === 192 && b === 0) ||
+        (a === 192 && b === 168) ||
+        (a === 192 && b === 88 && c === 99) ||
+        (a === 198 && (b === 18 || b === 19)) ||
+        (a === 198 && b === 51 && c === 100) ||
+        (a === 203 && b === 0 && c === 113)
+      );
+    }
+
+    if (host.includes(":")) {
+      const compact = host.replace(/(^|:)0+(?=[0-9a-f])/g, "$1");
+      return !(
+        compact === "::" || compact === "::1" ||
+        compact.startsWith("fc") || compact.startsWith("fd") ||
+        compact.startsWith("fe8") || compact.startsWith("fe9") ||
+        compact.startsWith("fea") || compact.startsWith("feb") ||
+        compact.startsWith("ff") || compact.startsWith("::ffff:") ||
+        compact.startsWith("2001:db8:")
+      );
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export const expectedStatusSchema = z.object({
+  minimum: z.number().int().min(100).max(599),
+  maximum: z.number().int().min(100).max(599),
+}).strict().refine(({ minimum, maximum }) => maximum >= minimum, {
+  message: "Expected status maximum must be greater than or equal to minimum",
+  path: ["maximum"],
+});
+
+export const monitorConfigSchema = z.object({
+  id: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Must be a lowercase slug").min(3).max(64),
+  name: z.string().trim().min(1).max(80),
+  url: z.string().refine(isPublicHttpUrl, "Must be a public HTTP or HTTPS URL"),
+  enabled: z.boolean(),
+  group: z.string().trim().min(1).max(50).nullable(),
+  method: z.enum(["GET", "HEAD"]),
+  intervalMinutes: z.union([z.literal(1), z.literal(5), z.literal(10), z.literal(15)]),
+  timeoutMs: z.number().int().min(1_000).max(15_000),
+  expectedStatus: expectedStatusSchema,
+  failureThreshold: z.number().int().min(1).max(5),
+  recoveryThreshold: z.number().int().min(1).max(5),
+  recipients: recipientsSchema,
+}).strict();
+
+export const monitoringSettingsSchema = z.object({
+  concurrency: z.number().int().min(1),
+  defaultTimeoutMs: z.number().int().min(1_000).max(15_000),
+  defaultFailureThreshold: z.number().int().min(1).max(5),
+  defaultRecoveryThreshold: z.number().int().min(1).max(5),
+  defaultRecipients: recipientsSchema,
+  userAgent: z.string().trim().min(1),
+}).strict();
+
+function validateMonitorCollection(
+  value: { monitors: Array<{ id: string; enabled: boolean }> },
+  context: z.RefinementCtx,
+): void {
+  const seen = new Set<string>();
+  value.monitors.forEach((monitor, index) => {
+    if (seen.has(monitor.id)) {
+      context.addIssue({ code: "custom", message: "Monitor IDs must be unique", path: ["monitors", index, "id"] });
+    }
+    seen.add(monitor.id);
+  });
+
+  if (value.monitors.filter((monitor) => monitor.enabled).length > MAX_ACTIVE_MONITORS) {
+    context.addIssue({ code: "custom", message: `At most ${MAX_ACTIVE_MONITORS} monitors may be active`, path: ["monitors"] });
+  }
+}
+
+export const monitoringConfigSchema = z.object({
+  schemaVersion: z.literal(1),
+  configVersion: z.number().int().nonnegative(),
+  settings: monitoringSettingsSchema,
+  monitors: z.array(monitorConfigSchema),
+}).strict().superRefine(validateMonitorCollection);
+
+export const declarativeConfigSchema = z.object({
+  version: z.literal(1),
+  settings: monitoringSettingsSchema,
+  monitors: z.array(monitorConfigSchema),
+}).strict().superRefine(validateMonitorCollection);
+
+export type MonitorConfig = z.infer<typeof monitorConfigSchema>;
+export type MonitoringSettings = z.infer<typeof monitoringSettingsSchema>;
+export type MonitoringConfig = z.infer<typeof monitoringConfigSchema>;
+export type DeclarativeConfig = z.infer<typeof declarativeConfigSchema>;
