@@ -7,6 +7,7 @@ describe("performMaintenance", () => {
     const calls: Array<[string, ...unknown[]]> = [];
     const record = (name: string) => async (...args: unknown[]) => { calls.push([name, ...args]); return 1; };
     const measure = async (...args: unknown[]) => { calls.push(["measure", ...args]); return "full" as const; };
+    const now = new Date("2026-07-18T03:15:00Z");
     const summary = await performMaintenance({
       reconcileStaleOutbox: record("outbox"),
       reconcileStaleCronRuns: record("cron-stale"),
@@ -22,13 +23,14 @@ describe("performMaintenance", () => {
       deleteOldRollups: record("rollup-retention"),
       compact15Minute: record("compact-15m"),
       fillSchedulerGaps: record("fill-gaps"),
+      schedulerCoverageStart: async () => now,
       promoteRollups: record("promote"),
       measureAndSnapshotUsage: measure,
       enforceTelemetryRetention: record("telemetry-retention"),
       retainUsageSnapshots: record("usage-retention"),
       retainExceptions: record("exception-retention"),
       retainExceptionPayloads: record("payload-retention"),
-    }, new Date("2026-07-18T03:15:00Z"));
+    }, now);
     expect(calls.find(([name]) => name === "checks")?.[2]).toBe(10_000);
     expect(calls.find(([name]) => name === "snapshots")?.slice(2)).toEqual([50, 10_000]);
     expect(summary).toEqual({ staleOutbox: 1, staleCronRuns: 1, rollups: 3, deleted: 9, expired: 5, governorMode: "full" });
@@ -51,6 +53,7 @@ describe("performMaintenance", () => {
       deleteOldRollups: later,
       compact15Minute: later,
       fillSchedulerGaps: later,
+      schedulerCoverageStart: async () => new Date(),
       promoteRollups: later,
       measureAndSnapshotUsage: async () => "full",
       enforceTelemetryRetention: later,
@@ -82,6 +85,7 @@ describe("performMaintenance", () => {
       deleteOldRollups: zero,
       compact15Minute: zero,
       fillSchedulerGaps: zero,
+      schedulerCoverageStart: async (now) => now,
       promoteRollups: zero,
       measureAndSnapshotUsage: async () => "full",
       enforceTelemetryRetention: zero,
@@ -112,6 +116,7 @@ describe("performMaintenance", () => {
       deleteOldRollups: zero,
       compact15Minute: zero,
       fillSchedulerGaps: zero,
+      schedulerCoverageStart: async (now) => now,
       promoteRollups: zero,
       measureAndSnapshotUsage: async () => "full",
       enforceTelemetryRetention: zero,
@@ -120,5 +125,24 @@ describe("performMaintenance", () => {
       retainExceptionPayloads: zero,
     }, new Date(), { nowMs: () => clock++, deadlineAtMs: 5 });
     expect(raw).toHaveBeenCalledTimes(1);
+  });
+
+  it("recovers a scheduler outage longer than 48 hours in bounded daily chunks", async () => {
+    const now = new Date("2026-07-18T12:00:00Z");
+    const zero = vi.fn().mockResolvedValue(0);
+    const gaps = vi.fn().mockResolvedValue(0);
+    await performMaintenance({
+      reconcileStaleOutbox: zero, reconcileStaleCronRuns: zero, deleteRawChecks: zero,
+      deleteSentNotifications: zero, expireConfigApprovals: zero, expireApiIdempotency: zero,
+      markDeviceAuthorizationsExpired: zero, deleteExpiredDeviceAuthorizations: zero,
+      expireRateLimitBuckets: zero, retainConfigSnapshots: zero, deleteOldCronRuns: zero,
+      deleteOldRollups: zero, compact15Minute: zero, fillSchedulerGaps: gaps,
+      schedulerCoverageStart: async () => new Date(now.getTime() - 72 * 3_600_000),
+      promoteRollups: zero, measureAndSnapshotUsage: async () => "full",
+      enforceTelemetryRetention: zero, retainUsageSnapshots: zero, retainExceptions: zero,
+      retainExceptionPayloads: zero,
+    }, now);
+    expect(gaps).toHaveBeenCalledTimes(3);
+    expect(gaps.mock.calls.every(([start, end]) => (end as Date).getTime() - (start as Date).getTime() <= 86_400_000)).toBe(true);
   });
 });
