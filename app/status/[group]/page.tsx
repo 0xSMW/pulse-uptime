@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 
 import { StatusPageContent } from "@/components/status-page/status-page-content";
-import { getPublicStatus } from "@/lib/reporting/queries/status";
+import { StatusUnavailable } from "@/components/status-page/status-unavailable";
+import { getPublicStatus, StatusDataUnavailableError } from "@/lib/reporting/queries/status";
 
 export const revalidate = 30;
 
@@ -16,7 +17,14 @@ type GroupPageProps = {
 
 export default async function PublicGroupStatusPage({ params }: GroupPageProps) {
   const { group } = await params;
-  const data = await getPublicStatus(group);
+
+  let data;
+  try {
+    data = await getPublicStatus(group);
+  } catch (error) {
+    if (error instanceof StatusDataUnavailableError) return <StatusUnavailable />;
+    throw error;
+  }
 
   if (!data) notFound();
 

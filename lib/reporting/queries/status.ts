@@ -12,7 +12,33 @@ function failureLabel(statusCode: number | null): string {
   return "Availability check failed";
 }
 
+/**
+ * Thrown when the public status data can't be loaded because the database
+ * (or a query against it) failed. Public status pages are ISR + build-time
+ * prerendered, so this must never bubble up as an uncaught rejection: build
+ * environments without a reachable database (CI, preview builds) would fail
+ * the whole build, and in production it should degrade to an honest
+ * "temporarily unavailable" page rather than a 500.
+ */
+export class StatusDataUnavailableError extends Error {
+  constructor(cause: unknown) {
+    super("Public status data is temporarily unavailable");
+    this.name = "StatusDataUnavailableError";
+    this.cause = cause;
+  }
+}
+
 export async function getPublicStatus(group?: string) {
+  try {
+    return await loadPublicStatus(group);
+  } catch (error) {
+    if (error instanceof StatusDataUnavailableError) throw error;
+    console.error("[status] failed to load public status data", error);
+    throw new StatusDataUnavailableError(error);
+  }
+}
+
+async function loadPublicStatus(group?: string) {
   const now = new Date();
   const completedDay = new Date(now);
   completedDay.setUTCHours(0, 0, 0, 0);
