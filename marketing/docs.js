@@ -232,6 +232,10 @@
     for (const link of sidebarLinks) {
       link.classList.toggle("active", link.hash === `#${id}`);
     }
+    for (const group of $$(".sidebar-group")) {
+      const owns = $$("a", group).some((link) => link.hash === `#${id}`);
+      group.classList.toggle("expanded", owns);
+    }
   }
 
   window.addEventListener(
@@ -269,7 +273,7 @@
     {
       label: "Copy install command",
       hint: "cli",
-      run: () => copyText("brew install smw/tap/pulsectl"),
+      run: () => copyText("go install github.com/productos-ai/pulse-uptime/cli/cmd/pulsectl@latest"),
     },
     {
       label: "Open marketing page",

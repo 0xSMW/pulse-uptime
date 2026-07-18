@@ -298,6 +298,20 @@
             <div class="event-trail" id="event-trail">
               <div class="empty-trail"><span class="status-dot up"></span><p>No incidents yet</p></div>
             </div>
+
+            <div class="overlap-card" id="overlap-card" hidden>
+              <p class="app-kicker">Possible dependency overlap</p>
+              <div class="overlap-line">
+                <span class="overlap-icon" id="overlap-icon" aria-hidden="true"></span>
+                <div class="overlap-copy">
+                  <strong>Vercel Runtime</strong>
+                  <p>Provider incident began 3 minutes before this outage</p>
+                </div>
+                <span class="text-link overlap-link">View Provider Incident
+                  <svg class="arrow-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" /></svg>
+                </span>
+              </div>
+            </div>
           </article>
 
           <aside class="status-preview panel" data-reveal>
@@ -324,10 +338,52 @@
         </div>
       </section>
 
+      <section class="story shell section-rule" id="dependencies">
+        <div class="section-intro" data-reveal>
+          <div>
+            <p class="section-number">4.0 &nbsp; Attribute</p>
+            <h2>Is it us,<br />or them?</h2>
+          </div>
+          <p>Add OpenAI, Stripe, or Vercel in one click. Provider incidents appear beside your own checks.</p>
+        </div>
+
+        <div class="dependency-grid">
+          <div class="dep-sheet panel" data-reveal>
+            <div class="sheet-heading">
+              <div>
+                <p class="app-kicker">Add Dependency</p>
+                <h3>One click, no credentials</h3>
+              </div>
+            </div>
+            <div class="dep-search">
+              <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="7" cy="7" r="4.4" /><path d="m10.4 10.4 3.1 3.1" /></svg>
+              <input id="dep-search" type="text" placeholder="Search services…" autocomplete="off" spellcheck="false" aria-label="Search dependency catalog" />
+            </div>
+            <div class="dep-catalog" id="dep-catalog"></div>
+            <p class="form-note">Provider status is context, never proof</p>
+          </div>
+
+          <div class="dep-table panel" data-reveal>
+            <div class="dep-table-head">
+              <div>
+                <p class="app-kicker">Dependencies</p>
+                <h3>Beside your own checks</h3>
+              </div>
+              <span class="provider-tag mono">Provider reported</span>
+            </div>
+            <div class="dep-rows" id="dependency-rows"></div>
+            <p class="dep-note">No uptime percentage. Provider criteria differ, so Pulse never invents a cross-provider number.</p>
+          </div>
+        </div>
+
+        <div class="logo-strip" id="logo-strip" data-reveal aria-label="Supported providers"></div>
+        <p class="logo-caption">Works with the services you already run on</p>
+      </section>
+
       <section class="story shell section-rule" id="status-page">
         <div class="section-intro" data-reveal>
           <div>
-            <p class="section-number">4.0 &nbsp; Publish</p>
+            <p class="section-number">5.0 &nbsp; Publish</p>
             <h2>A status page users trust</h2>
           </div>
           <p>Every deployment serves a public status page from live monitor state. Nothing extra to run.</p>
@@ -381,7 +437,7 @@
       <section class="story shell section-rule" id="cli">
         <div class="section-intro" data-reveal>
           <div>
-            <p class="section-number">5.0 &nbsp; Automate</p>
+            <p class="section-number">6.0 &nbsp; Automate</p>
             <h2>Same controls everywhere</h2>
           </div>
           <p>Run <span class="mono">pulsectl</span> yourself, or hand your agent the CLI and let it manage the whole setup.</p>
@@ -406,8 +462,13 @@
                 <button class="command active" type="button" data-command="me"><span class="mono">pulsectl me</span><span>Run</span></button>
                 <button class="command" type="button" data-command="monitors"><span class="mono">pulsectl monitor list</span><span>Run</span></button>
                 <button class="command" type="button" data-command="incidents"><span class="mono">pulsectl incident list</span><span>Run</span></button>
+                <button class="command" type="button" data-command="deps"><span class="mono">pulsectl dependency list</span><span>Run</span></button>
               </div>
               <pre class="terminal-output" id="terminal-output" aria-live="polite"></pre>
+              <div class="terminal-prompt">
+                <span class="t-prompt mono">$</span>
+                <input id="terminal-input" class="mono" type="text" autocomplete="off" spellcheck="false" autocapitalize="none" enterkeyhint="go" aria-label="Type a command" placeholder="type help" />
+              </div>
             </div>
           </div>
 
@@ -426,7 +487,7 @@
       <section class="story shell section-rule" id="database">
         <div class="section-intro" data-reveal>
           <div>
-            <p class="section-number">6.0 &nbsp; Operate</p>
+            <p class="section-number">7.0 &nbsp; Operate</p>
             <h2>Built to stay small</h2>
           </div>
           <p>Pulse compacts routine checks and preserves incident history within a clear storage budget.</p>
@@ -455,11 +516,11 @@
             <div>
               <p class="meta-heading">Data Breakdown</p>
               <div class="breakdown-list">
-                <div data-breakdown="rollups"><span>Rollups</span><span class="bar"><i style="width:23%"></i></span><span class="mono">62 MB</span></div>
-                <div data-breakdown="exceptions"><span>Exceptions</span><span class="bar"><i style="width:7%"></i></span><span class="mono">18 MB</span></div>
-                <div data-breakdown="incidents"><span>Incidents</span><span class="bar"><i style="width:3%"></i></span><span class="mono">9 MB</span></div>
-                <div data-breakdown="recent"><span>Recent checks</span><span class="bar"><i style="width:1%"></i></span><span class="mono">3 MB</span></div>
-                <div data-breakdown="core"><span>Core and indexes</span><span class="bar"><i style="width:9%"></i></span><span class="mono">22 MB</span></div>
+                <div data-breakdown="rollups"><span>Rollups</span><span class="bar"><i style="width:23%"></i></span><span class="breakdown-value"><span class="mono value-mb">62 MB</span><span class="mono value-pct" aria-hidden="true">53%</span></span></div>
+                <div data-breakdown="exceptions"><span>Exceptions</span><span class="bar"><i style="width:7%"></i></span><span class="breakdown-value"><span class="mono value-mb">18 MB</span><span class="mono value-pct" aria-hidden="true">15%</span></span></div>
+                <div data-breakdown="incidents"><span>Incidents</span><span class="bar"><i style="width:3%"></i></span><span class="breakdown-value"><span class="mono value-mb">9 MB</span><span class="mono value-pct" aria-hidden="true">8%</span></span></div>
+                <div data-breakdown="recent"><span>Recent checks</span><span class="bar"><i style="width:1%"></i></span><span class="breakdown-value"><span class="mono value-mb">3 MB</span><span class="mono value-pct" aria-hidden="true">3%</span></span></div>
+                <div data-breakdown="core"><span>Core and indexes</span><span class="bar"><i style="width:9%"></i></span><span class="breakdown-value"><span class="mono value-mb">22 MB</span><span class="mono value-pct" aria-hidden="true">21%</span></span></div>
               </div>
             </div>
             <div>
@@ -479,7 +540,7 @@
       <section class="story shell section-rule" id="architecture">
         <div class="section-intro architecture-intro" data-reveal>
           <div>
-            <p class="section-number">7.0 &nbsp; Architecture</p>
+            <p class="section-number">8.0 &nbsp; Architecture</p>
             <h2>Runs where your app runs</h2>
           </div>
           <p>Pulse is Vercel-native, Postgres-backed, and small enough to understand end to end.</p>
@@ -556,7 +617,7 @@
       <div class="shell footer-inner">
         <a class="brand" href="#top"><span class="status-dot up"></span>Pulse</a>
         <p>Open-source uptime monitoring</p>
-        <div><a href="#product">Product</a><a href="#cli">CLI</a><a href="./docs.html">Docs</a><a href="https://github.com/pulse-uptime/pulse" target="_blank" rel="noreferrer">GitHub</a></div>
+        <div><a href="#product">Product</a><a href="#cli">CLI</a><a href="./docs.html">Docs</a><a href="https://github.com/pulse-uptime/pulse" target="_blank" rel="noreferrer">GitHub</a><a href="https://smw.ai" target="_blank" rel="noreferrer">SMW.AI</a></div>
       </div>
     </footer>
 

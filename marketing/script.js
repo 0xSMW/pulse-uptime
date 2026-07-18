@@ -72,6 +72,11 @@
     command: "me",
     theme: document.documentElement.dataset.theme || "dark",
     lastAdded: null,
+    dependencies: [
+      { id: "openai_api", region: null, fresh: false },
+      { id: "vercel_runtime", region: null, fresh: false },
+      { id: "neon_database", region: "us-east-1", fresh: false }
+    ],
     monitors: [
       { id: "api", name: "API", url: "https://api.example.com/health", uptime: "99.99%", latency: 42, status: "UP", checked: "18s ago" },
       { id: "web", name: "Web App", url: "https://app.example.com", uptime: "100%", latency: 36, status: "UP", checked: "31s ago" },
@@ -118,6 +123,22 @@
   const CHECK_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m3.5 8.5 3 3 6-7"/></svg>';
 
   const prefersReducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  const DEP_ICONS = {
+    openai: "M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z",
+    anthropic: "M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z",
+    googlecloud: "M12.19 2.38a9.344 9.344 0 0 0-9.234 6.893c.053-.02-.055.013 0 0-3.875 2.551-3.922 8.11-.247 10.941l.006-.007-.007.03a6.717 6.717 0 0 0 4.077 1.356h5.173l.03.03h5.192c6.687.053 9.376-8.605 3.835-12.35a9.365 9.365 0 0 0-2.821-4.552l-.043.043.006-.05A9.344 9.344 0 0 0 12.19 2.38zm-.358 4.146c1.244-.04 2.518.368 3.486 1.15a5.186 5.186 0 0 1 1.862 4.078v.518c3.53-.07 3.53 5.262 0 5.193h-5.193l-.008.009v-.04H6.785a2.59 2.59 0 0 1-1.067-.23h.001a2.597 2.597 0 1 1 3.437-3.437l3.013-3.012A6.747 6.747 0 0 0 8.11 8.24c.018-.01.04-.026.054-.023a5.186 5.186 0 0 1 3.67-1.69z",
+    vercel: "m12 1.608 12 20.784H0Z",
+    cloudflare: "M16.5088 16.8447c.1475-.5068.0908-.9707-.1553-1.3154-.2246-.3164-.6045-.499-1.0615-.5205l-8.6592-.1123a.1559.1559 0 0 1-.1333-.0713c-.0283-.042-.0351-.0986-.021-.1553.0278-.084.1123-.1484.2036-.1562l8.7359-.1123c1.0351-.0489 2.1601-.8868 2.5537-1.9136l.499-1.3013c.0215-.0561.0293-.1128.0147-.168-.5625-2.5463-2.835-4.4453-5.5499-4.4453-2.5039 0-4.6284 1.6177-5.3876 3.8614-.4927-.3658-1.1187-.5625-1.794-.499-1.2026.119-2.1665 1.083-2.2861 2.2856-.0283.31-.0069.6128.0635.894C1.5683 13.171 0 14.7754 0 16.752c0 .1748.0142.3515.0352.5273.0141.083.0844.1475.1689.1475h15.9814c.0909 0 .1758-.0645.2032-.1553l.12-.4268zm2.7568-5.5634c-.0771 0-.1611 0-.2383.0112-.0566 0-.1054.0415-.127.0976l-.3378 1.1744c-.1475.5068-.0918.9707.1543 1.3164.2256.3164.6055.498 1.0625.5195l1.8437.1133c.0557 0 .1055.0263.1329.0703.0283.043.0351.1074.0214.1562-.0283.084-.1132.1485-.204.1553l-1.921.1123c-1.041.0488-2.1582.8867-2.5527 1.914l-.1406.3585c-.0283.0713.0215.1416.0986.1416h6.5977c.0771 0 .1474-.0489.169-.126.1122-.4082.1757-.837.1757-1.2803 0-2.6025-2.125-4.727-4.7344-4.727",
+    clerk: "m21.47 20.829-2.881-2.881a.572.572 0 0 0-.7-.084 6.854 6.854 0 0 1-7.081 0 .576.576 0 0 0-.7.084l-2.881 2.881a.576.576 0 0 0-.103.69.57.57 0 0 0 .166.186 12 12 0 0 0 14.113 0 .58.58 0 0 0 .239-.423.576.576 0 0 0-.172-.453Zm.002-17.668-2.88 2.88a.569.569 0 0 1-.701.084A6.857 6.857 0 0 0 8.724 8.08a6.862 6.862 0 0 0-1.222 3.692 6.86 6.86 0 0 0 .978 3.764.573.573 0 0 1-.083.699l-2.881 2.88a.567.567 0 0 1-.864-.063A11.993 11.993 0 0 1 6.771 2.7a11.99 11.99 0 0 1 14.637-.405.566.566 0 0 1 .232.418.57.57 0 0 1-.168.448Zm-7.118 12.261a3.427 3.427 0 1 0 0-6.854 3.427 3.427 0 0 0 0 6.854Z",
+    supabase: "M11.9 1.036c-.015-.986-1.26-1.41-1.874-.637L.764 12.05C-.33 13.427.65 15.455 2.409 15.455h9.579l.113 7.51c.014.985 1.259 1.408 1.873.636l9.262-11.653c1.093-1.375.113-3.403-1.645-3.403h-9.642z",
+    upstash: "M13.8027 0C11.193 0 8.583.9952 6.5918 2.9863c-3.9823 3.9823-3.9823 10.4396 0 14.4219 1.9911 1.9911 5.2198 1.9911 7.211 0 1.991-1.9911 1.991-5.2198 0-7.211L12 12c.9956.9956.9956 2.6098 0 3.6055-.9956.9955-2.6099.9955-3.6055 0-2.9866-2.9868-2.9866-7.8297 0-10.8164 2.9868-2.9868 7.8297-2.9868 10.8164 0l1.8028-1.8028C19.0225.9952 16.4125 0 13.8027 0zM12 12c-.9956-.9956-.9956-2.6098 0-3.6055.9956-.9955 2.6098-.9955 3.6055 0 2.9867 2.9868 2.9867 7.8297 0 10.8164-2.9867 2.9868-7.8297 2.9868-10.8164 0l-1.8028 1.8028c3.9823 3.9822 10.4396 3.9822 14.4219 0 3.9823-3.9824 3.9823-10.4396 0-14.4219-.9956-.9956-2.3006-1.4922-3.6055-1.4922-1.3048 0-2.6099.4966-3.6054 1.4922-1.9912 1.9912-1.9912 5.2198 0 7.211z",
+    stripe: "M13.976 9.15c-2.172-.806-3.356-1.426-3.356-2.409 0-.831.683-1.305 1.901-1.305 2.227 0 4.515.858 6.09 1.631l.89-5.494C18.252.975 15.697 0 12.165 0 9.667 0 7.589.654 6.104 1.872 4.56 3.147 3.757 4.992 3.757 7.218c0 4.039 2.467 5.76 6.476 7.219 2.585.92 3.445 1.574 3.445 2.583 0 .98-.84 1.545-2.354 1.545-1.875 0-4.965-.921-6.99-2.109l-.9 5.555C5.175 22.99 8.385 24 11.714 24c2.641 0 4.843-.624 6.328-1.813 1.664-1.305 2.525-3.236 2.525-5.732 0-4.128-2.524-5.851-6.594-7.305h.003z",
+    resend: "M2.023 0v24h5.553v-8.434h2.998L15.326 24h6.65l-5.372-9.258a7.652 7.652 0 0 0 3.316-3.016c.709-1.21 1.062-2.57 1.062-4.08 0-1.462-.353-2.767-1.062-3.91-.709-1.165-1.692-2.079-2.95-2.742C15.737.331 14.355 0 12.823 0Zm5.553 4.87h4.219c.731 0 1.349.125 1.851.376.526.252.925.618 1.2 1.098.274.457.412.994.412 1.611S15.132 9.12 14.88 9.6c-.229.48-.572.856-1.03 1.13-.434.252-.948.38-1.542.38H7.576Z",
+    twilio: "M12 0C5.381-.008.008 5.352 0 11.971V12c0 6.64 5.359 12 12 12 6.64 0 12-5.36 12-12 0-6.641-5.36-12-12-12zm0 20.801c-4.846.015-8.786-3.904-8.801-8.75V12c-.014-4.846 3.904-8.786 8.75-8.801H12c4.847-.014 8.786 3.904 8.801 8.75V12c.015 4.847-3.904 8.786-8.75 8.801H12zm5.44-11.76c0 1.359-1.12 2.479-2.481 2.479-1.366-.007-2.472-1.113-2.479-2.479 0-1.361 1.12-2.481 2.479-2.481 1.361 0 2.481 1.12 2.481 2.481zm0 5.919c0 1.36-1.12 2.48-2.481 2.48-1.367-.008-2.473-1.114-2.479-2.48 0-1.359 1.12-2.479 2.479-2.479 1.361-.001 2.481 1.12 2.481 2.479zm-5.919 0c0 1.36-1.12 2.48-2.479 2.48-1.368-.007-2.475-1.113-2.481-2.48 0-1.359 1.12-2.479 2.481-2.479 1.358-.001 2.479 1.12 2.479 2.479zm0-5.919c0 1.359-1.12 2.479-2.479 2.479-1.367-.007-2.475-1.112-2.481-2.479 0-1.361 1.12-2.481 2.481-2.481 1.358 0 2.479 1.12 2.479 2.481z",
+    github: "M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"
+  };
+
 
   function stateClass(state) {
     if (state === "UP") return "up";
@@ -324,6 +345,9 @@
       elements.emailCard.classList.add("email-pop");
     }
     lastEmailKey = stage.emailTitle;
+
+    const overlap = $("#overlap-card");
+    if (overlap) overlap.hidden = demo.stage < 2;
   }
 
   function renderStatusPage() {
@@ -355,8 +379,133 @@
     $("#sp-updated").textContent = `Last updated ${new Date().toLocaleTimeString("en-GB", { hour12: false, timeZone: "UTC" })} UTC`;
   }
 
+  const DEP_CATALOG = [
+    { id: "openai_api", name: "OpenAI API", provider: "OpenAI", icon: "openai", group: "Popular" },
+    { id: "vercel_runtime", name: "Vercel Runtime", provider: "Vercel", icon: "vercel", group: "Popular" },
+    { id: "stripe_api", name: "Stripe API", provider: "Stripe", icon: "stripe", group: "Popular" },
+    { id: "cloudflare_cdn", name: "Cloudflare CDN", provider: "Cloudflare", icon: "cloudflare", group: "Popular" },
+    { id: "anthropic_api", name: "Anthropic API", provider: "Anthropic", icon: "anthropic", group: "Popular" },
+    { id: "neon_database", name: "Neon Database", provider: "Neon", icon: "neon", monogram: "N", group: "Data", region: "us-east-1" },
+    { id: "supabase_database", name: "Supabase Database", provider: "Supabase", icon: "supabase", group: "Data" },
+    { id: "upstash_redis", name: "Upstash Redis", provider: "Upstash", icon: "upstash", group: "Data" }
+  ];
+
+  const DEP_PROVIDERS = [
+    ["OpenAI", "openai"], ["Anthropic", "anthropic"], ["Google Cloud", "googlecloud"],
+    ["Vercel", "vercel"], ["Cloudflare", "cloudflare"], ["WorkOS", "workos"],
+    ["Clerk", "clerk"], ["Neon", "neon"], ["Supabase", "supabase"],
+    ["Upstash", "upstash"], ["Stripe", "stripe"], ["Resend", "resend"],
+    ["Postmark", "postmark"], ["Twilio", "twilio"], ["GitHub", "github"]
+  ];
+
+  const DEP_STATE_META = {
+    OPERATIONAL: { label: "Operational", dot: "up" },
+    DEGRADED: { label: "Degraded", dot: "verifying" },
+    OUTAGE: { label: "Outage", dot: "down" },
+    MAINTENANCE: { label: "Maintenance", dot: "neutral" },
+    UNKNOWN: { label: "Unknown", dot: "neutral" }
+  };
+
+  const DEP_ICONS_FULL = {
+    neon: {
+      vb: "0 0 64 64",
+      body: '<path fill="currentColor" d="M63 0.0177909V63.5526L38.4178 42.2501V63.5526H0V0L63 0.0177909ZM7.72251 55.8389H30.6953V25.3238L55.2779 47.0476V7.72922L7.72251 7.71559V55.8389Z"/>'
+    },
+    workos: {
+      vb: "0 0 55.4 48",
+      body: '<path fill="currentColor" d="M0,24c0,1.1,0.3,2.1,0.8,3l9.7,16.8c1,1.7,2.5,3.1,4.4,3.7c3.6,1.2,7.5-0.3,9.4-3.5l2.3-4.1l-9.2-16l9.8-16.9L29.5,3c0.7-1.2,1.6-2.2,2.7-3H17.2c-2.6,0-5.1,1.4-6.4,3.7L0.8,21C0.3,21.9,0,22.9,0,24z"/><path fill="currentColor" d="M55.4,24c0-1.1-0.3-2.1-0.8-3l-9.8-17c-1.9-3.3-5.8-4.7-9.4-3.5c-1.9,0.6-3.4,2-4.4,3.7L28.7,8L38,24l-9.8,16.9L25.9,45c-0.7,1.2-1.6,2.2-2.7,3h15.1c2.6,0,5.1-1.4,6.4-3.7l10-17.3C55.1,26.1,55.4,25.1,55.4,24z"/>'
+    },
+    postmark: {
+      vb: "0 0 30 30",
+      body: '<path fill-rule="evenodd" clip-rule="evenodd" fill="currentColor" d="M30 27.4219V28.8281C29.3528 28.8281 28.8281 29.3528 28.8281 30H27.4219C27.4219 29.3528 26.8972 28.8281 26.25 28.8281C25.6028 28.8281 25.0781 29.3528 25.0781 30H23.6719C23.6719 29.3528 23.1472 28.8281 22.5 28.8281C21.8528 28.8281 21.3281 29.3528 21.3281 30H19.9219C19.9219 29.3528 19.3972 28.8281 18.75 28.8281C18.1028 28.8281 17.5781 29.3528 17.5781 30H16.1719C16.1719 29.3528 15.6472 28.8281 15 28.8281C14.3528 28.8281 13.8281 29.3528 13.8281 30H12.4219C12.4219 29.3528 11.8972 28.8281 11.25 28.8281C10.6028 28.8281 10.0781 29.3528 10.0781 30H8.67188C8.67188 29.3528 8.14721 28.8281 7.5 28.8281C6.85279 28.8281 6.32812 29.3528 6.32812 30H4.92188C4.92188 29.5813 4.69852 29.1945 4.33594 28.9851C3.97336 28.7758 3.52664 28.7758 3.16406 28.9851C2.80148 29.1945 2.57812 29.5813 2.57812 30H1.17188C1.17188 29.3528 0.647209 28.8281 0 28.8281V27.4219C0.647209 27.4219 1.17188 26.8972 1.17188 26.25C1.17188 25.6028 0.647209 25.0781 0 25.0781V23.6719C0.647209 23.6719 1.17188 23.1472 1.17188 22.5C1.17188 21.8528 0.647209 21.3281 0 21.3281V19.9219C0.647209 19.9219 1.17188 19.3972 1.17188 18.75C1.17188 18.1028 0.647209 17.5781 0 17.5781V16.1719C0.647209 16.1719 1.17188 15.6472 1.17188 15C1.17188 14.3528 0.647209 13.8281 0 13.8281V12.4219C0.647209 12.4219 1.17188 11.8972 1.17188 11.25C1.17188 10.6028 0.647209 10.0781 0 10.0781V8.67188C0.647209 8.67188 1.17188 8.14721 1.17188 7.5C1.17188 6.85279 0.647209 6.32812 0 6.32812V4.92188C0.647209 4.92187 1.17188 4.39721 1.17188 3.75C1.17188 3.10279 0.647209 2.57813 0 2.57812V1.17188C0.647209 1.17188 1.17188 0.647209 1.17188 0H2.57812C2.57813 0.647209 3.10279 1.17188 3.75 1.17188C4.39721 1.17188 4.92187 0.647209 4.92188 0H6.32812C6.32812 0.647209 6.85279 1.17188 7.5 1.17188C8.14721 1.17188 8.67188 0.647209 8.67188 0H10.0781C10.0781 0.647209 10.6028 1.17188 11.25 1.17188C11.8972 1.17188 12.4219 0.647209 12.4219 0H13.8281C13.8281 0.647209 14.3528 1.17188 15 1.17188C15.6472 1.17188 16.1719 0.647209 16.1719 0H17.5781C17.5781 0.647209 18.1028 1.17188 18.75 1.17188C19.3972 1.17188 19.9219 0.647209 19.9219 0H21.3281C21.3281 0.647209 21.8528 1.17188 22.5 1.17188C23.1472 1.17188 23.6719 0.647209 23.6719 0H25.0781C25.0781 0.647209 25.6028 1.17188 26.25 1.17188C26.8972 1.17188 27.4219 0.647209 27.4219 0H28.8281C28.8281 0.647209 29.3528 1.17188 30 1.17188V2.57812C29.3528 2.57812 28.8281 3.10279 28.8281 3.75C28.8281 4.39721 29.3528 4.92188 30 4.92188V6.32812C29.3528 6.32812 28.8281 6.85279 28.8281 7.5C28.8281 8.14721 29.3528 8.67188 30 8.67188V10.0781C29.3528 10.0781 28.8281 10.6028 28.8281 11.25C28.8281 11.8972 29.3528 12.4219 30 12.4219V13.8281C29.5813 13.8281 29.1945 14.0515 28.9851 14.4141C28.7758 14.7766 28.7758 15.2234 28.9851 15.5859C29.1945 15.9485 29.5813 16.1719 30 16.1719V17.5781C29.3528 17.5781 28.8281 18.1028 28.8281 18.75C28.8281 19.3972 29.3528 19.9219 30 19.9219V21.3281C29.3528 21.3281 28.8281 21.8528 28.8281 22.5C28.8281 23.1472 29.3528 23.6719 30 23.6719V25.0781C29.3528 25.0781 28.8281 25.6028 28.8281 26.25C28.8281 26.8972 29.3528 27.4219 30 27.4219V27.4219Z"/><path fill="var(--bg)" d="M8.70312 21.3804H9.63846C10.1188 21.3804 10.4221 21.0705 10.4221 20.5798V9.62885C10.4221 9.13812 10.1188 8.82819 9.63846 8.82819H8.70312V6.40039H15.478C19.1182 6.40039 22 8.28581 22 11.8759C22 15.4917 19.1182 17.3772 15.478 17.3772H13.1523V20.5798C13.1523 21.0705 13.4556 21.3804 13.9612 21.3804H15.8571V23.8341H8.70312V21.3804ZM15.2757 14.846C17.6773 14.846 19.0676 13.8129 19.0676 11.9275C19.0676 9.99044 17.6773 9.00899 15.2757 9.00899H13.1523V14.8719H15.2757V14.846Z"/>'
+    }
+  };
+
+  function depIcon(iconSlug, monogram) {
+    const full = iconSlug ? DEP_ICONS_FULL[iconSlug] : null;
+    if (full) return `<svg class="dep-mark" viewBox="${full.vb}" aria-hidden="true">${full.body}</svg>`;
+    const path = iconSlug ? DEP_ICONS[iconSlug] : null;
+    if (path) return `<svg class="dep-mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="${path}"/></svg>`;
+    return `<span class="dep-mark dep-mark-mono" aria-hidden="true">${escapeHtml(monogram || "?")}</span>`;
+  }
+
+  function dependencyState(dep) {
+    if (dep.id === "vercel_runtime" && (demo.stage === 2 || demo.stage === 3)) {
+      return { state: "OUTAGE", incident: "Elevated errors in iad1" };
+    }
+    return { state: "OPERATIONAL", incident: null };
+  }
+
+  function depTimeline(dep, count) {
+    return Array.from({ length: count }, (_, index) => {
+      let cls = "up";
+      if (dep.fresh && index < count - 3) cls = "";
+      if (dep.id === "vercel_runtime" && demo.stage >= 2 && index >= count - 2) {
+        cls = demo.stage === 4 && index === count - 1 ? "up" : "down";
+      }
+      return `<span class="timeline-segment ${cls}" aria-hidden="true"></span>`;
+    }).join("");
+  }
+
+  function renderDependencies() {
+    const container = $("#dependency-rows");
+    if (!container) return;
+    container.innerHTML = demo.dependencies.map((dep) => {
+      const item = DEP_CATALOG.find((entry) => entry.id === dep.id);
+      const status = dependencyState(dep);
+      const meta = DEP_STATE_META[status.state];
+      const pulse = meta.dot === "down" ? " pulse" : "";
+      return `
+        <div class="dep-row${dep.fresh ? " row-enter" : ""}">
+          <span class="dep-status"><span class="status-dot ${meta.dot}${pulse}"></span>${meta.label}</span>
+          <span class="dep-name">${depIcon(item.icon, item.monogram)}<span class="dep-name-text"><strong>${escapeHtml(item.name)}${dep.region ? ` · ${escapeHtml(dep.region)}` : ""}</strong><small>${escapeHtml(item.provider)}</small></span></span>
+          <div class="mini-timeline dep-timeline" aria-label="${escapeHtml(item.name)} provider-reported timeline">${depTimeline(dep, 22)}</div>
+          <span class="dep-incident mono">${status.incident ? escapeHtml(status.incident) : "—"}</span>
+        </div>`;
+    }).join("");
+  }
+
+  function renderDepCatalog(filter) {
+    const container = $("#dep-catalog");
+    if (!container) return;
+    const query = (filter || "").trim().toLowerCase();
+    const groups = ["Popular", "Data"];
+    container.innerHTML = groups.map((group) => {
+      const items = DEP_CATALOG.filter((item) => item.group === group &&
+        (`${item.name} ${item.provider}`.toLowerCase().includes(query)));
+      if (!items.length) return "";
+      return `<p class="dep-group">${group}</p>` + items.map((item) => {
+        const installed = demo.dependencies.some((dep) => dep.id === item.id);
+        return `
+          <div class="dep-catalog-row">
+            ${depIcon(item.icon, item.monogram)}
+            <span class="dep-catalog-name">${escapeHtml(item.name)}</span>
+            ${item.region ? `<span class="dep-region mono">${escapeHtml(item.region)}</span>` : ""}
+            <button class="copy-button dep-add" type="button" data-dep="${item.id}" ${installed ? "disabled" : ""}>${installed ? "Added" : "Add"}</button>
+          </div>`;
+      }).join("");
+    }).join("") || '<p class="dep-empty">No matching service</p>';
+
+    $$(".dep-add", container).forEach((button) => button.addEventListener("click", () => {
+      const item = DEP_CATALOG.find((entry) => entry.id === button.dataset.dep);
+      if (!item || demo.dependencies.some((dep) => dep.id === item.id)) return;
+      demo.dependencies.push({ id: item.id, region: item.region || null, fresh: true });
+      renderDepCatalog($("#dep-search")?.value || "");
+      renderDependencies();
+      renderCLI(false);
+      showToast(`${item.name} added`);
+    }));
+  }
+
+  function renderLogoStrip() {
+    const strip = $("#logo-strip");
+    if (!strip) return;
+    const items = DEP_PROVIDERS.map(([name, icon, monogram]) =>
+      `<span class="logo-item">${depIcon(icon, monogram)}${escapeHtml(name)}</span>`).join("");
+    strip.innerHTML = `<div class="logo-track" aria-hidden="false">${items}${items}</div>`;
+  }
+
   function cliData() {
-    const stage = stages[demo.stage];
     const incidentStatus = demo.stage >= 2 && demo.stage < 4 ? "ONGOING" : demo.stage === 4 ? "RESOLVED" : "NONE";
 
     if (demo.command === "me") {
@@ -390,6 +539,20 @@
       return ["MONITOR        STATUS      LATENCY   UPTIME", ...rows].join("\n");
     }
 
+    if (demo.command === "deps") {
+      const rows = demo.dependencies.map((dep) => {
+        const item = DEP_CATALOG.find((entry) => entry.id === dep.id);
+        const status = dependencyState(dep);
+        const name = dep.region ? `${item.name} ${dep.region}` : item.name;
+        return { name, provider: item.provider, state: status.state };
+      });
+      if (demo.output === "json") {
+        return JSON.stringify(rows.map((row) => ({ name: row.name, provider: row.provider, state: row.state, source: "provider_reported" })), null, 2);
+      }
+      return ["DEPENDENCY               PROVIDER     STATE", ...rows.map((row) =>
+        `${row.name.padEnd(24)} ${row.provider.padEnd(12)} ${row.state}`)].join("\n");
+    }
+
     const duration = demo.stage === 2 ? "42s" : demo.stage === 3 ? "1m24s" : demo.stage === 4 ? "2m08s" : null;
     if (demo.output === "json") {
       return JSON.stringify({ monitor: "API", status: incidentStatus, cause: demo.stage >= 2 ? "TIMEOUT" : null, duration }, null, 2);
@@ -409,11 +572,15 @@
       .replace(/\bONGOING\b/g, '<span class="t-down">ONGOING</span>')
       .replace(/\bRESOLVED\b/g, '<span class="t-up">RESOLVED</span>')
       .replace(/\blinked\b/g, '<span class="t-up">linked</span>')
+      .replace(/\bOPERATIONAL\b/g, '<span class="t-up">OPERATIONAL</span>')
+      .replace(/\bOUTAGE\b/g, '<span class="t-down">OUTAGE</span>')
+      .replace(/\bDEGRADED\b/g, '<span class="t-verifying">DEGRADED</span>')
+      .replace(/\bUNKNOWN\b/g, '<span class="t-muted">UNKNOWN</span>')
       .replace(/\bNONE\b/g, '<span class="t-muted">NONE</span>');
   }
 
   function printCLI(command) {
-    elements.terminalOutput.innerHTML = `<span class="t-prompt">$</span> ${escapeHtml(command)}\n\n${decorateOutput(cliData())}\n\n<span class="t-prompt">$</span> <span class="terminal-cursor" aria-hidden="true"></span>`;
+    elements.terminalOutput.innerHTML = `<span class="t-prompt">$</span> ${escapeHtml(command)}\n\n${decorateOutput(cliData())}\n`;
   }
 
   let typeTimer = 0;
@@ -449,6 +616,7 @@
   function commandValue() {
     if (demo.command === "me") return "pulsectl me";
     if (demo.command === "monitors") return demo.output === "json" ? "pulsectl monitor list --output json" : "pulsectl monitor list";
+    if (demo.command === "deps") return demo.output === "json" ? "pulsectl dependency list --output json" : "pulsectl dependency list";
     return demo.output === "json" ? "pulsectl incident list --output json" : "pulsectl incident list";
   }
 
@@ -457,6 +625,7 @@
     renderSimulation();
     renderIncident();
     renderStatusPage();
+    renderDependencies();
     renderCLI(false);
   }
 
@@ -636,7 +805,8 @@
       if (!row) return;
       const mb = Math.max(1, Math.round(totalMB * share));
       $(".bar i", row).style.width = `${Math.min(100, (mb / 500) * 180).toFixed(1)}%`;
-      $(".mono", row).textContent = `${mb} MB`;
+      $(".value-mb", row).textContent = `${mb} MB`;
+      $(".value-pct", row).textContent = `${Math.round(share * 100)}%`;
     });
   }
 
@@ -699,6 +869,8 @@
     { label: "Run pulsectl me", hint: "cli", run: () => { demo.command = "me"; goTo("#cli"); renderCLI(true); } },
     { label: "Run pulsectl monitor list", hint: "cli", run: () => { demo.command = "monitors"; goTo("#cli"); renderCLI(true); } },
     { label: "Run pulsectl incident list", hint: "cli", run: () => { demo.command = "incidents"; goTo("#cli"); renderCLI(true); } },
+    { label: "Add a dependency", hint: "attribute", run: () => goTo("#dependencies") },
+    { label: "Run pulsectl dependency list", hint: "cli", run: () => { demo.command = "deps"; goTo("#cli"); renderCLI(true); } },
     { label: "Copy agent prompt", hint: "agents", run: () => copyText($("#agent-prompt code").textContent.trim()) },
     { label: "Toggle theme", hint: "appearance", run: () => setTheme(demo.theme === "dark" ? "light" : "dark") },
     { label: "View architecture", hint: "navigate", run: () => goTo("#architecture") },
@@ -811,12 +983,130 @@
 
   elements.copyCommand.addEventListener("click", () => copyText(elements.copyCommand.dataset.copyValue, elements.copyCommand));
 
+  const terminalInput = $("#terminal-input");
+  const typedHistory = [];
+  let historyIndex = -1;
+
+  const PULSECTL_TYPED = {
+    "pulsectl me": "me",
+    "pulsectl monitor list": "monitors",
+    "pulsectl incident list": "incidents",
+    "pulsectl dependency list": "deps"
+  };
+
+  const HELP_TEXT = [
+    "pulsectl me                      show linked deployment",
+    "pulsectl monitor list            list monitors",
+    "pulsectl incident list           list incidents",
+    "pulsectl dependency list         list dependencies",
+    "  add --output json to any list command",
+    "",
+    "clear · whoami · ls · uptime · ping · echo · date · history",
+    "…and a few undocumented ones"
+  ].join("\n");
+
+  function easterEgg(cmd) {
+    const lower = cmd.toLowerCase();
+    if (lower === "help" || lower === "pulsectl help" || lower === "pulsectl --help" || lower === "man pulsectl") return HELP_TEXT;
+    if (lower === "whoami") return "you@example.com";
+    if (lower === "ls" || lower === "ls -la") return "monitors/    incidents/    dependencies/    status/";
+    if (lower === "pwd") return "~/pulse";
+    if (lower === "uptime") return "up 247 days · 100.00% · this page monitors itself";
+    if (lower === "date") return new Date().toUTCString();
+    if (lower === "history") return typedHistory.map((entry, index) => `${String(index + 1).padStart(3)}  ${entry}`).join("\n") || "no history yet";
+    if (lower.startsWith("ping")) return `PONG from pulse.example.com: time=${18 + Math.round(Math.random() * 40)}ms`;
+    if (lower.startsWith("echo ")) return cmd.slice(5);
+    if (lower.startsWith("sudo")) return "You already own this. That's the point.";
+    if (/^rm(\s|$)/.test(lower)) return "Blocked. Pulse preserves history.";
+    if (lower === "vim" || lower === "vi") return ":q! You're free now.";
+    if (lower === "emacs") return "M-x lighten-up";
+    if (lower === "exit" || lower === "logout" || lower === "quit") return "There is no exit. Uptime is forever.";
+    if (lower === "make coffee" || lower === "brew coffee") return "Error 418: I'm a teapot.";
+    if (lower === "whois them") return "It was them. It's always them.";
+    if (lower === "pulse") return "▁▂▄█▇▅▂▁▁▂▄█▇▅▂▁▁▂▄█▇▅▂▁  all systems nominal";
+    if (lower === "pulsectl deploy") return "One prompt, live in 5 minutes. The Deploy Pulse button is right up top.";
+    if (lower.startsWith("pulsectl")) return `pulsectl: unknown command\ntry: me · monitor list · incident list · dependency list`;
+    return `command not found: ${cmd.split(" ")[0]}\ntry: help`;
+  }
+
+  function appendCLI(cmd, output) {
+    elements.terminalOutput.innerHTML += `<span class="t-prompt">$</span> ${escapeHtml(cmd)}\n\n${decorateOutput(output)}\n\n`;
+    elements.terminalOutput.scrollTop = elements.terminalOutput.scrollHeight;
+  }
+
+  function runTypedCommand(raw) {
+    const cmd = raw.trim();
+    if (!cmd) return;
+    typedHistory.push(cmd);
+    historyIndex = typedHistory.length;
+
+    if (cmd.toLowerCase() === "clear") {
+      elements.terminalOutput.innerHTML = "";
+      return;
+    }
+
+    const lower = cmd.toLowerCase();
+    const wantsJson = /\s--output\s+json$/.test(lower);
+    const base = lower.replace(/\s--output\s+json$/, "").replace(/\s+/g, " ");
+
+    if (PULSECTL_TYPED[base]) {
+      demo.command = PULSECTL_TYPED[base];
+      if (wantsJson) demo.output = "json";
+      $$(".command").forEach((button) => button.classList.toggle("active", button.dataset.command === demo.command));
+      $$("[data-output]").forEach((button) => button.classList.toggle("active", button.dataset.output === demo.output));
+      elements.copyCommand.dataset.copyValue = commandValue();
+      appendCLI(cmd, cliData());
+      return;
+    }
+
+    appendCLI(cmd, easterEgg(cmd));
+  }
+
+  if (terminalInput) {
+    terminalInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        runTypedCommand(terminalInput.value);
+        terminalInput.value = "";
+      } else if (event.key === "ArrowUp") {
+        if (!typedHistory.length) return;
+        event.preventDefault();
+        historyIndex = Math.max(0, historyIndex - 1);
+        terminalInput.value = typedHistory[historyIndex] || "";
+      } else if (event.key === "ArrowDown") {
+        if (!typedHistory.length) return;
+        event.preventDefault();
+        historyIndex = Math.min(typedHistory.length, historyIndex + 1);
+        terminalInput.value = typedHistory[historyIndex] || "";
+      }
+    });
+
+    $(".terminal-body").addEventListener("click", (event) => {
+      if (event.target.closest("button, input, a")) return;
+      terminalInput.focus({ preventScroll: true });
+    });
+  }
+
   $$("[data-copy-target]").forEach((button) => button.addEventListener("click", () => {
     const target = $(`#${button.dataset.copyTarget} code`);
     copyText(target.textContent.trim(), button);
   }));
 
-  $("#storage-range").addEventListener("input", (event) => renderDatabase(event.currentTarget.value));
+  function positionRangeTooltip() {
+    const wrap = $(".range-wrap");
+    const range = $("#storage-range");
+    if (!wrap || !range || !range.clientWidth) return;
+    const progress = (range.value - range.min) / (range.max - range.min);
+    const x = 8 + progress * (range.clientWidth - 16);
+    wrap.style.setProperty("--thumb-x", `${Math.round(x)}px`);
+  }
+
+  $("#storage-range").addEventListener("input", (event) => {
+    renderDatabase(event.currentTarget.value);
+    positionRangeTooltip();
+  });
+  window.addEventListener("resize", positionRangeTooltip);
+  positionRangeTooltip();
 
   const SYSTEM_DETAILS = {
     cron: {
@@ -977,6 +1267,13 @@
   } else {
     revealTargets.forEach((target) => target.classList.add("is-visible"));
   }
+
+  const depSearch = $("#dep-search");
+  if (depSearch) depSearch.addEventListener("input", () => renderDepCatalog(depSearch.value));
+  const overlapIcon = $("#overlap-icon");
+  if (overlapIcon) overlapIcon.innerHTML = depIcon("vercel");
+  renderDepCatalog("");
+  renderLogoStrip();
 
   setTheme(demo.theme);
   renderAll();

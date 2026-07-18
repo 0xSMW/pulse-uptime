@@ -78,8 +78,13 @@
 }
 
 .sidebar-group a.sub {
+  display: none;
   padding-left: 22px;
   font-size: 12px;
+}
+
+.sidebar-group.expanded a.sub {
+  display: block;
 }
 
 .docs-main {
@@ -191,6 +196,13 @@
   margin-top: 10px;
 }
 
+.docs-section > p + p,
+.docs-sub > p + p,
+.endpoint-doc > p + p,
+.step > p + p {
+  margin-top: 16px;
+}
+
 .docs-main p strong {
   color: var(--fg);
   font-weight: 500;
@@ -242,9 +254,12 @@
 
 /* Heading anchors */
 
+/* html already applies scroll-padding-top: 71px, and the two offsets add,
+   so keep this margin small enough that a clicked heading lands inside the
+   scrollspy's 120px detection window */
 .anchor-heading {
   position: relative;
-  scroll-margin-top: 88px;
+  scroll-margin-top: 24px;
 }
 
 .anchor-heading .anchor-link {
@@ -271,20 +286,20 @@
 
 .callout {
   display: grid;
-  grid-template-columns: 3px 1fr;
-  overflow: hidden;
+  grid-template-columns: 15px minmax(0, 1fr);
+  gap: 12px;
   margin-top: 20px;
-  border: 1px solid var(--border);
+  padding: 14px 16px;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   background: var(--surface);
 }
 
-.callout > i {
-  background: var(--focus);
-}
-
-.callout > div {
-  padding: 13px 16px;
+.callout-icon {
+  width: 15px;
+  height: 15px;
+  margin-top: 2px;
+  color: var(--fg-muted);
 }
 
 .callout p {
@@ -298,12 +313,12 @@
   font-weight: 500;
 }
 
-.callout.warn > i {
-  background: var(--verifying);
+.callout.warn .callout-icon {
+  color: var(--verifying-text);
 }
 
-.callout.danger > i {
-  background: var(--down);
+.callout.danger .callout-icon {
+  color: var(--down-text);
 }
 
 /* ---- Reference tables ---- */
@@ -557,6 +572,92 @@
   margin-top: 8px;
 }
 
+/* ---- Email previews ---- */
+
+.email-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.email-preview {
+  display: grid;
+  grid-template-areas:
+    "title meta"
+    "body  lines"
+    "cta   lines"
+    "foot  foot";
+  grid-template-columns: minmax(0, 1fr) minmax(180px, auto);
+  column-gap: 32px;
+  padding: 20px 22px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--bg);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 14%);
+}
+
+.email-preview .email-meta {
+  grid-area: meta;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.email-preview h4 {
+  grid-area: title;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.email-preview > p:not(.email-lines) {
+  grid-area: body;
+  margin-top: 6px;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.email-preview .email-lines {
+  grid-area: lines;
+  align-self: end;
+  margin: 0;
+  color: var(--fg-faint);
+  font-size: 11px;
+  line-height: 1.7;
+  text-align: right;
+}
+
+.email-cta {
+  grid-area: cta;
+  display: inline-flex;
+  justify-self: start;
+  margin-top: 14px;
+  padding: 6px 11px;
+  border-radius: 6px;
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.email-foot {
+  grid-area: foot;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+
+.email-foot .status-dot {
+  width: 7px;
+  height: 7px;
+}
+
 /* ---- Misc docs components ---- */
 
 .docs-main kbd {
@@ -605,6 +706,30 @@
 
   .endpoint {
     grid-template-columns: 1fr;
+  }
+
+  .email-preview {
+    grid-template-areas:
+      "meta"
+      "title"
+      "body"
+      "lines"
+      "cta"
+      "foot";
+    grid-template-columns: 1fr;
+  }
+
+  .email-preview .email-meta {
+    justify-content: space-between;
+  }
+
+  .email-preview h4 {
+    margin-top: 12px;
+  }
+
+  .email-preview .email-lines {
+    margin-top: 10px;
+    text-align: left;
   }
 
   .anchor-heading .anchor-link {

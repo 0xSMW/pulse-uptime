@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Pulse documentation — deploy the app, drive it from pulsectl, and integrate with the versioned HTTP API"
+      content="Pulse documentation: deploy the app, drive it from pulsectl, and integrate with the versioned HTTP API"
     />
-    <title>Pulse Docs — App, CLI, and API</title>
-    <meta property="og:title" content="Pulse Docs — App, CLI, and API" />
+    <title>Pulse Docs: App, CLI, and API</title>
+    <meta property="og:title" content="Pulse Docs: App, CLI, and API" />
     <meta property="og:description" content="Deploy Pulse, drive it from pulsectl, and integrate with the versioned HTTP API" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary" />
@@ -43,7 +43,6 @@
         </div>
 
         <div class="nav-actions">
-          <button class="command-key" type="button" data-open-palette data-tooltip="Search docs · ⌘K" aria-label="Search docs (Command K)">⌘K</button>
           <a class="icon-button" href="https://github.com/pulse-uptime/pulse" target="_blank" rel="noreferrer" aria-label="View Pulse on GitHub" data-tooltip="View on GitHub">
             <svg class="github-mark" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
           </a>
@@ -74,6 +73,8 @@
             <a class="sub" href="#architecture">Architecture</a>
             <a class="sub" href="#deploy">Deploy to Vercel</a>
             <a class="sub" href="#environment">Environment</a>
+            <a class="sub" href="#emails">Email alerts</a>
+            <a class="sub" href="#hardening">Hardening</a>
           </div>
           <div class="sidebar-group">
             <p class="meta-heading">Application</p>
@@ -126,7 +127,7 @@
         <div class="docs-hero">
           <p class="eyebrow">Documentation</p>
           <h1>Everything Pulse can do, in one place</h1>
-          <p class="lede">Deploy the app, drive it from <code>pulsectl</code>, and integrate people and agents through the same versioned API.</p>
+          <p class="lede">Deploy the app, drive it from <code>pulsectl</code>, and give people and agents the same versioned API.</p>
         </div>
 
         <!-- ============================== 1.0 ============================== -->
@@ -149,16 +150,16 @@
 
           <div class="docs-sub">
             <h3 id="architecture">Architecture</h3>
-            <p>Pulse is serverless end to end — there is no long-running process to babysit.</p>
+            <p>Pulse is serverless end to end. There is no long-running process to babysit.</p>
             <ul>
               <li><strong>Vercel Cron</strong> invokes <code>/api/cron/check-monitors</code> every minute. The scheduler packs due monitors into one batch, checks them concurrently, and resolves state transitions atomically.</li>
               <li><strong>Neon</strong> stores incidents, exception payloads, and compact rollups. An adaptive storage governor keeps the database inside a 500&nbsp;MB budget by compacting routine checks while preserving incident detail.</li>
               <li><strong>Edge Config</strong> serves the accepted monitoring configuration and the latest public state with minimal latency, and acts as a fallback if the database is unreachable.</li>
-              <li><strong>Resend</strong> delivers one clear email per state change — no alert storms.</li>
-              <li>A second cron, <code>/api/cron/maintenance</code>, runs daily at 03:17 to compact, roll up, and snapshot database usage.</li>
+              <li><strong>Resend</strong> sends one email when a monitor is confirmed down and one when it recovers.</li>
+              <li>A second cron, <code>/api/cron/maintenance</code>, runs daily at 03:17. It compacts routine checks, builds rollups, and snapshots database usage.</li>
             </ul>
             <div class="callout">
-              <i aria-hidden="true"></i>
+              <svg class="callout-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="8" cy="8" r="6.2" /><path d="M8 7.4v3.2" /><path d="M8 5.2v.1" /></svg>
               <div>
                 <p>Monitor states</p>
                 <p>A monitor moves through <code>UP</code> → <code>VERIFYING_DOWN</code> → <code>DOWN</code> → <code>VERIFYING_UP</code> → <code>UP</code>. Failures are confirmed over consecutive checks (the failure threshold) before an incident opens, and recoveries are confirmed the same way before it resolves. Monitors can also be <code>PENDING</code>, <code>PAUSED</code>, or <code>ARCHIVED</code>.</p>
@@ -178,7 +179,7 @@
             <div class="step">
               <span class="step-index">1</span>
               <h4>Create the Vercel project</h4>
-              <p>Link the repository to the intended Vercel team and confirm ownership before creating any resources.</p>
+              <p>Link the repository to the Vercel team that will own the deployment, then run the inspect command to confirm the project landed in that team before creating any resources.</p>
               <figure class="code-block">
                 <figcaption><span class="code-lang">bash</span><button class="code-copy" type="button">Copy</button></figcaption>
                 <pre><code class="language-bash">vercel link --yes --project pulse-uptime --scope &lt;team&gt;
@@ -227,7 +228,7 @@ pnpm db:migrate</code></pre>
             <div class="step">
               <span class="step-index">4</span>
               <h4>Configure Resend</h4>
-              <p>Verify the sending domain, create a sending-only API key, and set <code>RESEND_API_KEY</code> and <code>RESEND_FROM_EMAIL</code>. Setup is allowed without email — the readiness screen treats it as a warning — but production validation requires a real test message.</p>
+              <p>Verify the sending domain, create a sending-only API key, and set <code>RESEND_API_KEY</code> and <code>RESEND_FROM_EMAIL</code>. You can finish setup without email. The readiness screen flags missing email keys as a warning, not a blocker, and alerts stay unverified until a test message is delivered (<code>pulsectl notification test</code>).</p>
             </div>
 
             <div class="step">
@@ -236,7 +237,7 @@ pnpm db:migrate</code></pre>
               <p>Generate three independent random values of at least 32 bytes.</p>
               <figure class="code-block">
                 <figcaption><span class="code-lang">bash</span><button class="code-copy" type="button">Copy</button></figcaption>
-                <pre><code class="language-bash"># one value per secret — never reuse
+                <pre><code class="language-bash"># one value per secret, never reuse
 openssl rand -base64 32   # CRON_SECRET
 openssl rand -base64 32   # API_TOKEN_HASH_KEY
 openssl rand -base64 32   # DEVICE_AUTH_SECRET</code></pre>
@@ -257,18 +258,18 @@ vercel deploy --prod --scope &lt;team&gt;</code></pre>
 
           <div class="docs-sub">
             <h3 id="environment">Environment variables</h3>
-            <p>The canonical list lives in <code>.env.example</code>; values are validated at boot.</p>
+            <p>The canonical list lives in <code>.env.example</code>. Values are validated at boot.</p>
             <div class="ref-table-shell">
               <table class="ref-table">
                 <thead><tr><th>Variable</th><th>Required</th><th>Purpose</th></tr></thead>
                 <tbody>
                   <tr><td>DATABASE_URL</td><td>Yes</td><td>Pooled Neon Postgres connection string used by the app.</td></tr>
-                  <tr><td>DATABASE_URL_UNPOOLED</td><td>Yes</td><td>Direct connection string; required for migrations.</td></tr>
+                  <tr><td>DATABASE_URL_UNPOOLED</td><td>Yes</td><td>Direct connection string, required for migrations.</td></tr>
                   <tr><td>EDGE_CONFIG</td><td>Yes</td><td>Edge Config read connection string.</td></tr>
                   <tr><td>EDGE_CONFIG_ID</td><td>Yes</td><td>Edge Config to write accepted configuration to.</td></tr>
                   <tr><td>VERCEL_API_TOKEN</td><td>Yes</td><td>Token authorized to update the Edge Config.</td></tr>
-                  <tr><td>VERCEL_PROJECT_ID</td><td>Yes</td><td>Project identity for Vercel API calls.</td></tr>
-                  <tr><td>VERCEL_TEAM_ID</td><td>Yes</td><td>Team that owns the Edge Config.</td></tr>
+                  <tr><td>VERCEL_PROJECT_ID</td><td>No</td><td>Present in <code>.env.example</code> but not currently read by the app.</td></tr>
+                  <tr><td>VERCEL_TEAM_ID</td><td>No</td><td>Team that owns the Edge Config. Set it when the Edge Config is team-owned.</td></tr>
                   <tr><td>RESEND_API_KEY</td><td>Recommended</td><td>Resend key (<code>re_…</code>) for alert email.</td></tr>
                   <tr><td>RESEND_FROM_EMAIL</td><td>Recommended</td><td>Verified sender, e.g. <code>Pulse &lt;alerts@example.com&gt;</code>.</td></tr>
                   <tr><td>CRON_SECRET</td><td>Yes</td><td>Authenticates Vercel Cron requests. ≥ 32 characters.</td></tr>
@@ -280,6 +281,83 @@ vercel deploy --prod --scope &lt;team&gt;</code></pre>
               </table>
             </div>
           </div>
+
+          <div class="docs-sub">
+            <h3 id="emails">Email alerts</h3>
+            <p>Pulse sends exactly three kinds of email, all from <code>RESEND_FROM_EMAIL</code>. When the failure threshold confirms an outage, every recipient on the monitor gets one message. When the recovery threshold confirms the fix, they get one more. Delivery runs through a durable outbox, so retries never duplicate a message.</p>
+            <div class="email-grid">
+              <article class="email-preview">
+                <div class="email-meta"><span>Pulse</span><span class="mono">incident.opened</span></div>
+                <h4>API is down</h4>
+                <p>Pulse confirmed an outage after repeated failed checks</p>
+                <p class="email-lines mono">Started 08:14 UTC<br />Cause HTTP 503</p>
+                <span class="email-cta">View incident</span>
+                <div class="email-foot"><span class="status-dot down"></span>Once per recipient when the incident opens</div>
+              </article>
+              <article class="email-preview">
+                <div class="email-meta"><span>Pulse</span><span class="mono">incident.resolved</span></div>
+                <h4>API recovered</h4>
+                <p>Pulse confirmed the endpoint is responding again</p>
+                <p class="email-lines mono">Recovered 08:31 UTC<br />Duration 17m</p>
+                <span class="email-cta">View incident</span>
+                <div class="email-foot"><span class="status-dot up"></span>Once when the incident resolves</div>
+              </article>
+              <article class="email-preview">
+                <div class="email-meta"><span>Pulse</span><span class="mono">notification.test</span></div>
+                <h4>Notifications are working</h4>
+                <p>Pulse Uptime can deliver outage and recovery alerts</p>
+                <p class="email-lines mono">Subject: Pulse notification test</p>
+                <div class="email-foot"><span class="status-dot"></span>Sent by <code>pulsectl notification test</code></div>
+              </article>
+            </div>
+            <p>The subject line is the headline: a monitor named API pages you as “API is down”. Both incident emails deep-link to <code>/incidents/:id</code>, and that is the whole surface. There are no digests, reminders, or marketing follow-ups.</p>
+          </div>
+
+          <div class="docs-sub">
+            <h3 id="hardening">Hardening your deployment</h3>
+            <p class="section-lede">A default deploy works, but a production deployment should tighten a few operator-side controls so a self-hoster reaches the same posture Pulse ships with.</p>
+
+            <p><strong>Run under a least-privilege database role.</strong> Create a dedicated Postgres login with only the grants the app needs, and point the pooled <code>DATABASE_URL</code> at it. Keep the Neon owner (<code>neondb_owner</code>) and the unpooled <code>DATABASE_URL_UNPOOLED</code> credential for migrations only, and remove it from the application environment so the running app never authenticates as the schema owner.</p>
+
+            <p><strong>Protect the production branch.</strong> The Vercel production branch (<code>master</code>) should never deploy from an unreviewed push. Require pull requests and passing status checks before merge, and SHA-pin every allowlisted GitHub Action before it runs against production.</p>
+            <div class="ref-table-shell">
+              <table class="ref-table">
+                <thead><tr><th>Gate</th><th>What it enforces</th></tr></thead>
+                <tbody>
+                  <tr><td>Pull request required</td><td>No direct pushes to the production branch; every change is reviewed.</td></tr>
+                  <tr><td>lint / typecheck</td><td>Static correctness before a build is attempted.</td></tr>
+                  <tr><td>test / build</td><td>The suite and a production build must pass.</td></tr>
+                  <tr><td>audit / govulncheck</td><td>Dependency and Go vulnerability scans block known-vulnerable releases.</td></tr>
+                  <tr><td>SHA-pinned Actions</td><td>Allowlisted GitHub Actions pinned to a commit SHA, never a mutable tag.</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <p><strong>Add the browser security headers.</strong> Production ships HSTS; add the rest of the central policy so the dashboard is defended in depth.</p>
+            <div class="ref-table-shell">
+              <table class="ref-table">
+                <thead><tr><th>Header</th><th>Value</th></tr></thead>
+                <tbody>
+                  <tr><td>Content-Security-Policy</td><td>Restrict script/style/connect sources and set <code>frame-ancestors</code>.</td></tr>
+                  <tr><td>X-Frame-Options</td><td><code>DENY</code> — legacy clickjacking defense alongside <code>frame-ancestors</code>.</td></tr>
+                  <tr><td>X-Content-Type-Options</td><td><code>nosniff</code></td></tr>
+                  <tr><td>Referrer-Policy</td><td><code>strict-origin-when-cross-origin</code></td></tr>
+                  <tr><td>Permissions-Policy</td><td>Deny the browser features the app does not use.</td></tr>
+                  <tr><td>Strict-Transport-Security</td><td>Already shipped in production.</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <p><strong>Claim the first admin immediately.</strong> A fresh deployment boots into onboarding with no administrator. Claim the initial account the moment the deploy is live so no one else can. Creating that first admin requires a one-time bootstrap credential supplied through the <code>PULSE_BOOTSTRAP_TOKEN</code> environment variable; set it before first run, use it to create the admin, then remove it.</p>
+
+            <p><strong>Rotate provider secrets and scope them tightly.</strong> Generate fresh values for <code>RESEND_API_KEY</code>, <code>CRON_SECRET</code>, <code>DEVICE_AUTH_SECRET</code>, and <code>API_TOKEN_HASH_KEY</code> for your own deployment rather than reusing any shared value, and scope the Resend key to sending only.</p>
+
+            <p><strong>Install the CLI only from the official source.</strong> Until signed release artifacts exist, build <code>pulsectl</code> from source with Go and nothing else.</p>
+            <figure class="code-block">
+              <figcaption><span class="code-lang">bash</span><button class="code-copy" type="button">Copy</button></figcaption>
+              <pre><code class="language-bash">go install github.com/productos-ai/pulse-uptime/cli/cmd/pulsectl@latest</code></pre>
+            </figure>
+          </div>
         </section>
 
         <!-- ============================== 3.0 ============================== -->
@@ -290,36 +368,36 @@ vercel deploy --prod --scope &lt;team&gt;</code></pre>
           <p class="section-lede">Five screens, no configuration sprawl. Everything the app can do is also available from the CLI and API.</p>
 
           <div class="docs-sub">
-            <h3 id="app-overview">Overview — <code>/</code></h3>
-            <p>The home screen lists every monitor with its live state, 24-hour uptime, check timeline, and latency. A health banner summarizes the whole system, and the <kbd>⌘K</kbd> command palette jumps anywhere or runs quick actions. <strong>New Monitor</strong> opens a sheet where the first decision is deliberately simple — name, URL, group, interval — with method, timeout, expected status, and thresholds tucked behind Advanced.</p>
+            <h3 id="app-overview">Overview · <code>/</code></h3>
+            <p>The home screen lists every monitor with its live state, 24-hour uptime, check timeline, and latency. A health banner summarizes the whole system, and the <kbd>⌘K</kbd> command palette jumps anywhere or runs quick actions. <strong>New Monitor</strong> opens a sheet that asks for four fields: name, URL, group, and interval. Method, timeout, expected status, and thresholds are tucked behind Advanced.</p>
           </div>
 
           <div class="docs-sub">
-            <h3 id="app-monitors">Monitor detail — <code>/monitors/:id</code></h3>
-            <p>One monitor's full story: the current state with its confirmation progress, a segmented check timeline, a latency chart, and recent transitions. Pause, resume, edit, test, and archive actions live here; archiving keeps history and can be reversed by re-creating the monitor with the same id through the config plane.</p>
+            <h3 id="app-monitors">Monitor detail · <code>/monitors/:id</code></h3>
+            <p>One monitor's full story: the current state with its confirmation progress, a segmented check timeline, a latency chart, and recent transitions. Pause, resume, edit, test, and archive actions live here. Archiving keeps history. Re-create a monitor with the same id, through the API or <code>config apply</code>, and it comes back.</p>
           </div>
 
           <div class="docs-sub">
-            <h3 id="app-incidents">Incidents — <code>/incidents</code></h3>
-            <p>Every failure gets a durable record. The list filters by monitor and resolution state; the detail view (<code>/incidents/:id</code>) shows the cause, the event trail of every state transition with timestamps, and which notifications were delivered. Incidents open only after the failure threshold confirms an outage — flapping checks don't page you.</p>
+            <h3 id="app-incidents">Incidents · <code>/incidents</code></h3>
+            <p>Every failure gets a durable record. The list filters by monitor and resolution state. The detail view (<code>/incidents/:id</code>) shows the cause, the event trail of every state transition with timestamps, and which notifications were delivered. Incidents open only after the failure threshold confirms an outage, so flapping checks don't page you.</p>
           </div>
 
           <div class="docs-sub">
-            <h3 id="app-settings">Settings — <code>/settings</code></h3>
+            <h3 id="app-settings">Settings · <code>/settings</code></h3>
             <p>Four areas on one page:</p>
             <ul>
-              <li><strong>Monitoring</strong> — global defaults: concurrency, timeout, thresholds, default recipients, user agent.</li>
-              <li><strong>Access</strong> — create scoped API tokens for agents and automation, review linked CLI installations, and revoke either.</li>
-              <li><strong>Groups</strong> — organize monitors into groups that structure the dashboard and the public status page.</li>
-              <li><strong>Database health</strong> — live storage budget, category breakdown, retention ladder, and the governor's current mode.</li>
+              <li><strong>Monitoring</strong>: global defaults for concurrency, timeout, thresholds, recipients, and user agent.</li>
+              <li><strong>Access</strong>: create scoped API tokens for agents and automation, review linked CLI installations, and revoke either.</li>
+              <li><strong>Groups</strong>: organize monitors into groups that structure the dashboard and the public status page.</li>
+              <li><strong>Database health</strong>: live storage budget, per-category usage, how long each data category is kept, and the governor's current mode.</li>
             </ul>
           </div>
 
           <div class="docs-sub">
-            <h3 id="app-status">Status page — <code>/status</code></h3>
+            <h3 id="app-status">Status page · <code>/status</code></h3>
             <p>A public, indexable status page that revalidates every 30 seconds, with per-group views at <code>/status/:group</code>. It shows current operational state per monitor without exposing internal detail. The page title comes from <code>NEXT_PUBLIC_STATUS_PAGE_NAME</code>.</p>
             <div class="callout">
-              <i aria-hidden="true"></i>
+              <svg class="callout-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="8" cy="8" r="6.2" /><path d="M8 7.4v3.2" /><path d="M8 5.2v.1" /></svg>
               <div>
                 <p>First run</p>
                 <p>A fresh deployment boots into onboarding: create the administrator account, verify email and environment readiness, then activate monitoring. Sign in afterwards at <code>/login</code>.</p>
@@ -333,16 +411,16 @@ vercel deploy --prod --scope &lt;team&gt;</code></pre>
         <section class="docs-section section-rule">
           <p class="section-number">4.0 &nbsp; CLI</p>
           <h2 id="cli">pulsectl</h2>
-          <p class="section-lede">One Go binary for monitors, incidents, status, tokens, and complete configuration. Humans link through the browser; agents use scoped tokens.</p>
+          <p class="section-lede">One Go binary for monitors, incidents, status, tokens, and complete configuration. Humans link through the browser and agents use scoped tokens.</p>
 
           <div class="docs-sub">
             <h3 id="cli-install">Install &amp; link</h3>
             <figure class="code-block">
               <figcaption><span class="code-lang">bash</span><button class="code-copy" type="button">Copy</button></figcaption>
-              <pre><code class="language-bash">brew install smw/tap/pulsectl
+              <pre><code class="language-bash">go install github.com/productos-ai/pulse-uptime/cli/cmd/pulsectl@latest
 pulsectl me --server https://pulse.example.com</code></pre>
             </figure>
-            <p>Replace the example URL with your deployment. <code>pulsectl me</code> triggers an interactive browser approval on first run and stores the session in your operating-system keyring. Once linked, it reports who you are and which scopes you hold.</p>
+            <p>Build the CLI from source with Go until signed release artifacts are published. Replace the example URL with your deployment. <code>pulsectl me</code> triggers an interactive browser approval on first run and stores the session in your operating-system keyring. Once linked, it reports who you are and which scopes you hold.</p>
           </div>
 
           <div class="docs-sub">
@@ -351,7 +429,7 @@ pulsectl me --server https://pulse.example.com</code></pre>
             <ol>
               <li>The CLI requests a device authorization and prints a short user code.</li>
               <li>Your browser opens <code>/cli/authorize</code> on the server, where you confirm the code as a signed-in administrator.</li>
-              <li>The CLI polls until approval, then stores the session token in the OS keyring — never on disk.</li>
+              <li>The CLI polls until approval, then stores the session token in the OS keyring, never on disk.</li>
             </ol>
             <figure class="code-block">
               <figcaption><span class="code-lang">bash</span><button class="code-copy" type="button">Copy</button></figcaption>
@@ -364,7 +442,7 @@ export PULSECTL_TOKEN=pulse_live_...
 echo "$PULSECTL_TOKEN" | pulsectl monitor list --token-stdin</code></pre>
             </figure>
             <div class="callout">
-              <i aria-hidden="true"></i>
+              <svg class="callout-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="8" cy="8" r="6.2" /><path d="M8 7.4v3.2" /><path d="M8 5.2v.1" /></svg>
               <div>
                 <p>No token flag, on purpose</p>
                 <p>pulsectl accepts tokens only through the environment or stdin, so secrets stay out of shell history and process listings.</p>
@@ -393,7 +471,7 @@ pulsectl monitor list --context staging</code></pre>
                   <tr><td>--timeout</td><td class="muted">PULSECTL_TIMEOUT</td><td>Per-request timeout.</td></tr>
                   <tr><td>--token-stdin</td><td class="muted">PULSECTL_TOKEN</td><td>Read a bearer token from stdin / the environment.</td></tr>
                   <tr><td>--no-color</td><td class="muted">NO_COLOR</td><td>Disable ANSI color.</td></tr>
-                  <tr><td>--debug</td><td class="muted">—</td><td>Verbose request diagnostics on stderr.</td></tr>
+                  <tr><td>--debug</td><td class="muted">None</td><td>Verbose request diagnostics on stderr.</td></tr>
                 </tbody>
               </table>
             </div>
@@ -401,29 +479,29 @@ pulsectl monitor list --context staging</code></pre>
 
           <div class="docs-sub">
             <h3 id="cli-commands">Command reference</h3>
-            <p>Every command declares the API scope it needs — the same scopes you grant to tokens. <code>authenticated</code> means any signed-in principal.</p>
+            <p>Every command declares the API scope it needs, the same scopes you grant to tokens. <code>authenticated</code> means any signed-in principal.</p>
             <div class="ref-table-shell">
               <table class="ref-table">
                 <thead><tr><th>Command</th><th>Purpose</th><th>Scope</th></tr></thead>
                 <tbody>
                   <tr><td>me</td><td>Show the current principal, scopes, and installation.</td><td class="muted">authenticated</td></tr>
                   <tr><td>auth login | status | logout</td><td>Link, inspect, or remove a device session.</td><td class="muted">authenticated</td></tr>
-                  <tr><td>context add | list | show | use | remove</td><td>Manage named server profiles (local only).</td><td class="muted">—</td></tr>
+                  <tr><td>context add | list | show | use | remove</td><td>Manage named server profiles (local only).</td><td class="muted">None</td></tr>
                   <tr><td>status</td><td>Public service status snapshot.</td><td class="muted">status:read</td></tr>
-                  <tr><td>monitor list | get | watch</td><td>Read monitors; <code>watch</code> streams state changes.</td><td class="muted">monitors:read</td></tr>
+                  <tr><td>monitor list | get | watch</td><td>Read monitors. <code>watch</code> streams state changes.</td><td class="muted">monitors:read</td></tr>
                   <tr><td>monitor create | update</td><td>Create or edit a monitor with flags mirroring the API fields.</td><td class="muted">monitors:write</td></tr>
-                  <tr><td>monitor pause | resume | delete</td><td>Lifecycle operations; <code>delete</code> archives and asks for <code>--yes</code>.</td><td class="muted">monitors:write</td></tr>
-                  <tr><td>monitor test</td><td>Run one live check now; exit code 4 if the target fails.</td><td class="muted">monitors:write</td></tr>
+                  <tr><td>monitor pause | resume | delete</td><td>Lifecycle operations. <code>delete</code> archives and asks for <code>--yes</code>.</td><td class="muted">monitors:write</td></tr>
+                  <tr><td>monitor test</td><td>Run one live check now. Exits 4 if the target fails.</td><td class="muted">monitors:write</td></tr>
                   <tr><td>group list</td><td>List groups with monitor counts.</td><td class="muted">monitors:read</td></tr>
-                  <tr><td>group create | rename | delete</td><td>Manage groups; only empty groups can be deleted.</td><td class="muted">monitors:write</td></tr>
+                  <tr><td>group create | rename | delete</td><td>Manage groups. Only empty groups can be deleted.</td><td class="muted">monitors:write</td></tr>
                   <tr><td>incident list | get</td><td>Read incident history and detail.</td><td class="muted">incidents:read</td></tr>
                   <tr><td>config export | schema</td><td>Export accepted configuration / print its JSON schema.</td><td class="muted">config:read</td></tr>
-                  <tr><td>config validate | plan | apply</td><td>The declarative workflow — see <a href="#configuration">§5</a>.</td><td class="muted">config:write</td></tr>
+                  <tr><td>config validate | plan | apply</td><td>The declarative workflow. See <a href="#configuration">§5</a>.</td><td class="muted">config:write</td></tr>
                   <tr><td>token create | list | revoke</td><td>Manage scoped API tokens.</td><td class="muted">tokens:manage</td></tr>
                   <tr><td>notification test</td><td>Send a test email to confirm delivery.</td><td class="muted">notifications:test</td></tr>
-                  <tr><td>version</td><td>CLI version plus server compatibility check.</td><td class="muted">—</td></tr>
-                  <tr><td>doctor</td><td>Diagnose config, context, connectivity, and auth.</td><td class="muted">—</td></tr>
-                  <tr><td>completion | help</td><td>Shell completions; <code>help --output json</code> emits a machine-readable manifest.</td><td class="muted">—</td></tr>
+                  <tr><td>version</td><td>CLI version plus server compatibility check.</td><td class="muted">None</td></tr>
+                  <tr><td>doctor</td><td>Diagnose config, context, connectivity, and auth.</td><td class="muted">None</td></tr>
+                  <tr><td>completion | help</td><td>Shell completions. <code>help --output json</code> emits a machine-readable manifest.</td><td class="muted">None</td></tr>
                 </tbody>
               </table>
             </div>
@@ -431,7 +509,7 @@ pulsectl monitor list --context staging</code></pre>
 
           <div class="docs-sub">
             <h3 id="cli-output">Output formats</h3>
-            <p>Data goes to <strong>stdout</strong>, diagnostics to <strong>stderr</strong>. On a TTY the default is a table; when piped, output defaults to <code>json</code> (<code>jsonl</code> for <code>monitor watch</code>), so scripts never parse table art.</p>
+            <p>Data goes to <strong>stdout</strong>, diagnostics to <strong>stderr</strong>. On a TTY the default is a table. When piped, output defaults to <code>json</code> (<code>jsonl</code> for <code>monitor watch</code>), so scripts never parse table art.</p>
             <figure class="code-block">
               <figcaption><span class="code-lang">bash</span><button class="code-copy" type="button">Copy</button></figcaption>
               <pre><code class="language-bash">pulsectl monitor list -o json | jq '.[].id'
@@ -448,14 +526,16 @@ pulsectl incident list -o yaml</code></pre>
                 <thead><tr><th>Code</th><th>Meaning</th></tr></thead>
                 <tbody>
                   <tr><td>0</td><td>Success.</td></tr>
-                  <tr><td>2</td><td>Invalid input — bad flag, malformed value, unusable file.</td></tr>
+                  <tr><td>1</td><td>Unexpected error.</td></tr>
+                  <tr><td>2</td><td>Invalid input: a bad flag, malformed value, or unusable file.</td></tr>
                   <tr><td>3</td><td>Authentication required or the session is no longer valid.</td></tr>
-                  <tr><td>4</td><td>Operational failure — e.g. <code>monitor test</code> against a failing target.</td></tr>
-                  <tr><td>5</td><td>Permission denied — the principal lacks the required scope.</td></tr>
-                  <tr><td>6</td><td>Not found.</td></tr>
-                  <tr><td>7</td><td>Rate limited — retry after the server-provided delay.</td></tr>
-                  <tr><td>8</td><td>Conflict — the resource changed underneath you (stale ETag, duplicate id).</td></tr>
+                  <tr><td>4</td><td>Operational failure, such as <code>monitor test</code> against a failing target.</td></tr>
+                  <tr><td>5</td><td>Not found.</td></tr>
+                  <tr><td>6</td><td>Conflict: the resource changed underneath you (stale ETag, duplicate id).</td></tr>
+                  <tr><td>7</td><td>Permission denied: the principal lacks the required scope.</td></tr>
+                  <tr><td>8</td><td>Rate limited. Retry after the server-provided delay.</td></tr>
                   <tr><td>9</td><td>Server unavailable or unreachable.</td></tr>
+                  <tr><td>10</td><td>Partial success.</td></tr>
                   <tr><td>130</td><td>Interrupted with Ctrl-C.</td></tr>
                 </tbody>
               </table>
@@ -464,7 +544,7 @@ pulsectl incident list -o yaml</code></pre>
 
           <div class="docs-sub">
             <h3 id="cli-agents">Agents</h3>
-            <p>Agents get the same control plane as people. Create a scoped token in <strong>Settings → Access</strong>, export three variables, and the CLI becomes fully machine-operable — including a JSON manifest of every command, flag, and required scope.</p>
+            <p>Agents get the same control plane as people. Create a scoped token in <strong>Settings → Access</strong> and export three variables. The CLI then runs without a browser, and <code>help --output json</code> hands your agent a manifest of every command, flag, and required scope.</p>
             <figure class="code-block">
               <figcaption><span class="code-lang">bash</span><button class="code-copy" type="button">Copy</button></figcaption>
               <pre><code class="language-bash">export PULSECTL_URL=https://pulse.example.com
@@ -487,7 +567,7 @@ pulsectl monitor list</code></pre>
         <section class="docs-section section-rule">
           <p class="section-number">5.0 &nbsp; Configuration</p>
           <h2 id="configuration">Config as code</h2>
-          <p class="section-lede">The entire monitoring setup — settings, groups, and monitors — is one declarative document you can export, diff, review, and apply. Terraform-style, with the guardrails built in.</p>
+          <p class="section-lede">The entire monitoring setup (settings, groups, and monitors) is one declarative document you can export, diff, review, and apply. Terraform style, with conflict detection and destructive-change approval built in.</p>
 
           <div class="docs-sub">
             <h3 id="config-file">The config file</h3>
@@ -523,17 +603,17 @@ monitors:
               <table class="ref-table">
                 <thead><tr><th>Field</th><th>Constraints</th></tr></thead>
                 <tbody>
-                  <tr><td>id</td><td>Kebab-case, 3–64 chars (<code>^[a-z0-9]+(-[a-z0-9]+)*$</code>). Stable — it names the monitor in the API and CLI.</td></tr>
-                  <tr><td>name</td><td>1–80 characters.</td></tr>
-                  <tr><td>url</td><td>Public <code>http(s)</code> URL without embedded credentials; private and reserved addresses are rejected.</td></tr>
+                  <tr><td>id</td><td>Kebab-case, 3-64 chars (<code>^[a-z0-9]+(-[a-z0-9]+)*$</code>). Stable, since it names the monitor in the API and CLI.</td></tr>
+                  <tr><td>name</td><td>1-80 characters.</td></tr>
+                  <tr><td>url</td><td>Public <code>http(s)</code> URL without embedded credentials. Private and reserved addresses are rejected.</td></tr>
                   <tr><td>method</td><td><code>GET</code> or <code>HEAD</code>.</td></tr>
                   <tr><td>intervalMinutes</td><td>1, 5, 10, or 15.</td></tr>
-                  <tr><td>timeoutMs</td><td>1000–15000.</td></tr>
-                  <tr><td>expectedStatus</td><td>Inclusive range, each bound 100–599, <code>maximum ≥ minimum</code>.</td></tr>
-                  <tr><td>failureThreshold</td><td>1–5 consecutive failed checks before an incident opens.</td></tr>
-                  <tr><td>recoveryThreshold</td><td>1–5 consecutive passing checks before it resolves.</td></tr>
+                  <tr><td>timeoutMs</td><td>1000-15000.</td></tr>
+                  <tr><td>expectedStatus</td><td>Inclusive range, each bound 100-599, <code>maximum ≥ minimum</code>.</td></tr>
+                  <tr><td>failureThreshold</td><td>1-5 consecutive failed checks before an incident opens.</td></tr>
+                  <tr><td>recoveryThreshold</td><td>1-5 consecutive passing checks before it resolves.</td></tr>
                   <tr><td>recipients</td><td>Up to 20 unique email addresses.</td></tr>
-                  <tr><td>groups</td><td>Up to 100, each <code>{ id, name }</code>; monitors reference <code>groupId</code>.</td></tr>
+                  <tr><td>groups</td><td>Up to 100, each <code>{ id, name }</code>. Monitors reference <code>groupId</code>.</td></tr>
                 </tbody>
               </table>
             </div>
@@ -550,21 +630,21 @@ pulsectl config validate --file monitors.yaml
 pulsectl config plan --file monitors.yaml
 pulsectl config apply --file monitors.yaml --wait</code></pre>
             </figure>
-            <p><code>validate</code> checks the document against the schema and semantic rules without touching the server state. <code>plan</code> computes an exact diff — settings changes, group creates/updates/deletes, monitor creates, updates with changed fields, pauses, resumes, and archives — plus content hashes of the base and target. <code>apply</code> submits the plan and, with <code>--wait</code>, polls the resulting operation until it is <code>accepted</code> (written to Edge Config) or <code>rejected</code>.</p>
+            <p><code>validate</code> checks the document against the schema and semantic rules without touching the server state. <code>plan</code> computes an exact diff plus content hashes of the base and target. The diff covers settings changes. For groups it lists creates, renames, and deletes. For monitors it lists creates, field-level updates, pauses, resumes, and archives. <code>apply</code> submits the plan and, with <code>--wait</code>, polls the resulting operation until it is <code>accepted</code> (written to Edge Config) or <code>rejected</code>.</p>
           </div>
 
           <div class="docs-sub">
             <h3 id="config-safety">Safety rails</h3>
             <ul>
-              <li><strong>Optimistic concurrency.</strong> Every export carries an ETag; apply sends it back as <code>If-Match</code> along with the base, target, and plan hashes. If anyone changed configuration in between, the apply fails with a conflict instead of silently clobbering.</li>
+              <li><strong>Optimistic concurrency.</strong> Every export carries an ETag. Apply sends it back as <code>If-Match</code> along with the base, target, and plan hashes. If anyone changed configuration in between, the apply fails with a conflict instead of silently clobbering.</li>
               <li><strong>Destructive-change tripwire.</strong> A plan that archives monitors or deletes groups sets <code>destructiveApprovalRequired</code>. Non-interactive applies must state intent twice: <code>--allow-delete --yes</code>.</li>
-              <li><strong>Archives, not deletes.</strong> Removing a monitor archives it with its history; re-adding the same id restores it.</li>
+              <li><strong>Archives, not deletes.</strong> Removing a monitor archives it with its history. Re-adding the same id restores it.</li>
             </ul>
             <div class="callout warn">
-              <i aria-hidden="true"></i>
+              <svg class="callout-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.4 14.4 13.2H1.6Z" /><path d="M8 6.6v2.9" /><path d="M8 11.7v.1" /></svg>
               <div>
                 <p>Review plans like code</p>
-                <p>Treat <code>config plan</code> output as a pull-request diff for your monitoring. Agents should always run plan and show it before apply.</p>
+                <p>Treat <code>config plan</code> output as a pull-request diff for your monitoring. Agents should run plan and show the diff to a human before applying.</p>
               </div>
             </div>
           </div>
@@ -579,7 +659,7 @@ pulsectl config apply --file monitors.yaml --wait</code></pre>
 
           <div class="docs-sub">
             <h3 id="api-conventions">Conventions</h3>
-            <p>The base URL is your deployment — Pulse is self-hosted, so there is no shared api.pulse.dev. Every response is a typed envelope:</p>
+            <p>The base URL is your deployment. Pulse is self-hosted, so there is no shared api.pulse.dev. Every response is a typed envelope:</p>
             <figure class="code-block">
               <figcaption><span class="code-lang">json</span><button class="code-copy" type="button">Copy</button></figcaption>
               <pre><code class="language-json">{
@@ -593,9 +673,9 @@ pulsectl config apply --file monitors.yaml --wait</code></pre>
 }</code></pre>
             </figure>
             <ul>
-              <li><strong>Kinds.</strong> <code>kind</code> names the payload shape — <code>Monitor</code>, <code>MonitorList</code>, <code>Incident</code>, <code>ConfigurationPlan</code>, <code>Error</code>, and so on.</li>
-              <li><strong>Pagination.</strong> List endpoints take <code>limit</code> and <code>cursor</code>; follow <code>meta.nextCursor</code> until it is <code>null</code>.</li>
-              <li><strong>Idempotency.</strong> Mutating requests accept an <code>Idempotency-Key</code> header; retries with the same key return the original result.</li>
+              <li><strong>Kinds.</strong> <code>kind</code> names the payload shape: <code>Monitor</code>, <code>MonitorList</code>, <code>Incident</code>, <code>ConfigurationPlan</code>, <code>Error</code>, and so on.</li>
+              <li><strong>Pagination.</strong> List endpoints take <code>limit</code> and <code>cursor</code>. Follow <code>meta.nextCursor</code> until it is <code>null</code>.</li>
+              <li><strong>Idempotency.</strong> Every mutating request must include an <code>Idempotency-Key</code> header containing a UUID. Retries with the same key return the original result.</li>
               <li><strong>Request ids.</strong> Every response carries <code>meta.requestId</code> for correlation.</li>
             </ul>
           </div>
@@ -609,9 +689,9 @@ pulsectl config apply --file monitors.yaml --wait</code></pre>
             </figure>
             <p>Three principal types share one permission model:</p>
             <ul>
-              <li><strong>Humans</strong> — first-party cookie sessions from the web app; hold every scope, mutations require an allowed origin.</li>
-              <li><strong>API tokens</strong> — created in Settings or via <code>pulsectl token create</code>; carry exactly the scopes you grant, expire by default after 90 days (365 max), and are stored only as keyed digests.</li>
-              <li><strong>CLI sessions</strong> — device-flow linked installations of pulsectl.</li>
+              <li><strong>Humans</strong>: first-party cookie sessions from the web app. They hold every scope, and mutations are origin-checked against the deployment URL as CSRF protection.</li>
+              <li><strong>API tokens</strong>: created in Settings or via <code>pulsectl token create</code>. They carry exactly the scopes you grant, require an explicit expiry of at most 365 days (the CLI defaults to 90d), and are stored only as keyed digests.</li>
+              <li><strong>CLI sessions</strong>: pulsectl installations linked through the browser device flow. Approval grants the full administrator scope set.</li>
             </ul>
             <div class="chip-row">
               <span class="scope-chip">monitors:read</span>
@@ -623,7 +703,7 @@ pulsectl config apply --file monitors.yaml --wait</code></pre>
               <span class="scope-chip">tokens:manage</span>
               <span class="scope-chip">status:read</span>
             </div>
-            <p>Requests without credentials get <code>401</code> with a <code>WWW-Authenticate</code> header; authenticated requests missing a scope get <code>403</code> with error code <code>SCOPE_DENIED</code>.</p>
+            <p>Requests without credentials get <code>401</code> with a <code>WWW-Authenticate</code> header. Authenticated requests missing a scope get <code>403</code> with error code <code>SCOPE_DENIED</code>.</p>
           </div>
 
           <div class="docs-sub">
@@ -641,7 +721,7 @@ pulsectl config apply --file monitors.yaml --wait</code></pre>
   }
 }</code></pre>
             </figure>
-            <p>Rate limits are per principal over a five-minute window: <strong>600 reads</strong> and <strong>120 mutations</strong>. Exceeding either returns <code>429</code> with a <code>Retry-After</code> header. Validation failures return <code>400</code> with field-level detail in <code>error.details</code>; concurrency conflicts (stale <code>If-Match</code>, duplicate ids, reused idempotency keys with different bodies) return <code>409</code>.</p>
+            <p>Rate limits are per principal over a five-minute window: <strong>600 reads</strong> and <strong>120 mutations</strong>. Exceeding either returns <code>429</code> with a <code>Retry-After</code> header. Validation failures return <code>400</code> with field-level detail in <code>error.details</code>. Concurrency conflicts (stale <code>If-Match</code>, duplicate ids, reused idempotency keys with different bodies) return <code>409</code>.</p>
           </div>
 
           <!-- ---- Version & principal ---- -->
@@ -652,7 +732,7 @@ pulsectl config apply --file monitors.yaml --wait</code></pre>
             <div class="endpoint">
               <div class="endpoint-doc">
                 <h4 class="endpoint-title" id="ep-version"><span class="method get">GET</span><code class="path">/api/v1/version</code></h4>
-                <p>Supported API versions plus the minimum and latest compatible CLI versions. Unauthenticated — used by pulsectl for compatibility checks and by deploy verification.</p>
+                <p>Supported API versions plus the minimum and latest compatible CLI versions. Unauthenticated, used by pulsectl for compatibility checks and by deploy verification.</p>
               </div>
               <div class="endpoint-code">
                 <figure class="code-block">
@@ -762,7 +842,7 @@ pulsectl monitor list --state DOWN -o json</code></pre>
             <div class="endpoint">
               <div class="endpoint-doc">
                 <h4 class="endpoint-title" id="ep-monitors-create"><span class="method post">POST</span><code class="path">/api/v1/monitors</code></h4>
-                <p>Create a monitor. <code>id</code>, <code>name</code>, and <code>url</code> are required; everything else falls back to the global defaults. Field constraints are the same as the <a href="#config-file">config file</a>.</p>
+                <p>Create a monitor. <code>id</code>, <code>name</code>, and <code>url</code> are required. Everything else falls back to the global defaults. Field constraints are the same as the <a href="#config-file">config file</a>.</p>
                 <span class="scope-chip">monitors:write</span>
               </div>
               <div class="endpoint-code">
@@ -771,7 +851,7 @@ pulsectl monitor list --state DOWN -o json</code></pre>
                   <pre><code class="language-bash">curl -X POST https://pulse.example.com/api/v1/monitors \
   -H "Authorization: Bearer $PULSE_TOKEN" \
   -H "Content-Type: application/json" \
-  -H "Idempotency-Key: 5f2a…" \
+  -H "Idempotency-Key: $(uuidgen)" \
   -d '{"id": "web", "name": "Web app", "url": "https://app.example.com"}'
 
 # equivalent
@@ -798,7 +878,7 @@ pulsectl monitor create --id web --name "Web app" --url https://app.example.com<
             <div class="endpoint">
               <div class="endpoint-doc">
                 <h4 class="endpoint-title" id="ep-monitors-update"><span class="method patch">PATCH</span><code class="path">/api/v1/monitors/{monitorId}</code></h4>
-                <p>Partial update — send only the fields you're changing. Group assignment uses <code>groupId</code> (or <code>null</code> to clear).</p>
+                <p>Partial update. Send only the fields you are changing. Group assignment uses <code>groupId</code> (or <code>null</code> to clear).</p>
                 <span class="scope-chip">monitors:write</span>
               </div>
               <div class="endpoint-code">
@@ -807,6 +887,7 @@ pulsectl monitor create --id web --name "Web app" --url https://app.example.com<
                   <pre><code class="language-bash">curl -X PATCH https://pulse.example.com/api/v1/monitors/api \
   -H "Authorization: Bearer $PULSE_TOKEN" \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $(uuidgen)" \
   -d '{"intervalMinutes": 5, "timeoutMs": 10000}'</code></pre>
                 </figure>
               </div>
@@ -815,14 +896,15 @@ pulsectl monitor create --id web --name "Web app" --url https://app.example.com<
             <div class="endpoint">
               <div class="endpoint-doc">
                 <h4 class="endpoint-title" id="ep-monitors-delete"><span class="method delete">DELETE</span><code class="path">/api/v1/monitors/{monitorId}</code></h4>
-                <p>Archive the monitor. History is preserved; re-creating the same id restores it.</p>
+                <p>Archive the monitor. History is preserved. Re-creating the same id restores it.</p>
                 <span class="scope-chip">monitors:write</span>
               </div>
               <div class="endpoint-code">
                 <figure class="code-block">
                   <figcaption><span class="code-lang">bash</span><button class="code-copy" type="button">Copy</button></figcaption>
                   <pre><code class="language-bash">curl -X DELETE https://pulse.example.com/api/v1/monitors/api \
-  -H "Authorization: Bearer $PULSE_TOKEN"</code></pre>
+  -H "Authorization: Bearer $PULSE_TOKEN" \
+  -H "Idempotency-Key: $(uuidgen)"</code></pre>
                 </figure>
               </div>
             </div>
@@ -830,16 +912,18 @@ pulsectl monitor create --id web --name "Web app" --url https://app.example.com<
             <div class="endpoint">
               <div class="endpoint-doc">
                 <h4 class="endpoint-title" id="ep-monitors-pause"><span class="method post">POST</span><code class="path">/api/v1/monitors/{monitorId}/pause</code></h4>
-                <p>Stop checking without losing state; the companion <span class="method post">POST</span> <code>…/resume</code> re-enables checks.</p>
+                <p>Stop checking without losing state. The companion <span class="method post">POST</span> <code>…/resume</code> re-enables checks.</p>
                 <span class="scope-chip">monitors:write</span>
               </div>
               <div class="endpoint-code">
                 <figure class="code-block">
                   <figcaption><span class="code-lang">bash</span><button class="code-copy" type="button">Copy</button></figcaption>
                   <pre><code class="language-bash">curl -X POST https://pulse.example.com/api/v1/monitors/api/pause \
-  -H "Authorization: Bearer $PULSE_TOKEN"
+  -H "Authorization: Bearer $PULSE_TOKEN" \
+  -H "Idempotency-Key: $(uuidgen)"
 curl -X POST https://pulse.example.com/api/v1/monitors/api/resume \
-  -H "Authorization: Bearer $PULSE_TOKEN"</code></pre>
+  -H "Authorization: Bearer $PULSE_TOKEN" \
+  -H "Idempotency-Key: $(uuidgen)"</code></pre>
                 </figure>
               </div>
             </div>
@@ -847,7 +931,7 @@ curl -X POST https://pulse.example.com/api/v1/monitors/api/resume \
             <div class="endpoint">
               <div class="endpoint-doc">
                 <h4 class="endpoint-title" id="ep-monitors-test"><span class="method post">POST</span><code class="path">/api/v1/monitors/{monitorId}/test</code></h4>
-                <p>Run one live check immediately without affecting monitor state — ideal for verifying a fix before resuming.</p>
+                <p>Run one live check immediately without affecting monitor state, ideal for verifying a fix before resuming.</p>
                 <span class="scope-chip">monitors:write</span>
               </div>
               <div class="endpoint-code">
@@ -911,6 +995,7 @@ curl -X POST https://pulse.example.com/api/v1/monitors/api/resume \
                   <pre><code class="language-bash">curl -X POST https://pulse.example.com/api/v1/groups \
   -H "Authorization: Bearer $PULSE_TOKEN" \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $(uuidgen)" \
   -d '{"id": "marketing", "name": "Marketing"}'</code></pre>
                 </figure>
               </div>
@@ -919,7 +1004,7 @@ curl -X POST https://pulse.example.com/api/v1/monitors/api/resume \
             <div class="endpoint">
               <div class="endpoint-doc">
                 <h4 class="endpoint-title" id="ep-groups-update"><span class="method patch">PATCH</span><code class="path">/api/v1/groups/{groupId}</code></h4>
-                <p>Rename a group. The id is permanent; only <code>name</code> changes.</p>
+                <p>Rename a group. The id is permanent. Only <code>name</code> changes.</p>
                 <span class="scope-chip">monitors:write</span>
               </div>
               <div class="endpoint-code">
@@ -928,6 +1013,7 @@ curl -X POST https://pulse.example.com/api/v1/monitors/api/resume \
                   <pre><code class="language-bash">curl -X PATCH https://pulse.example.com/api/v1/groups/marketing \
   -H "Authorization: Bearer $PULSE_TOKEN" \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $(uuidgen)" \
   -d '{"name": "Marketing Site"}'</code></pre>
                 </figure>
               </div>
@@ -943,7 +1029,8 @@ curl -X POST https://pulse.example.com/api/v1/monitors/api/resume \
                 <figure class="code-block">
                   <figcaption><span class="code-lang">bash</span><button class="code-copy" type="button">Copy</button></figcaption>
                   <pre><code class="language-bash">curl -X DELETE https://pulse.example.com/api/v1/groups/marketing \
-  -H "Authorization: Bearer $PULSE_TOKEN"</code></pre>
+  -H "Authorization: Bearer $PULSE_TOKEN" \
+  -H "Idempotency-Key: $(uuidgen)"</code></pre>
                 </figure>
               </div>
             </div>
@@ -1007,7 +1094,7 @@ pulsectl incident get 8f4e2c10-…</code></pre>
             <div class="endpoint">
               <div class="endpoint-doc">
                 <h4 class="endpoint-title" id="ep-status"><span class="method get">GET</span><code class="path">/api/v1/status</code></h4>
-                <p>The service status snapshot that also powers the public status page — overall state plus per-monitor operational status.</p>
+                <p>The service status snapshot that also powers the public status page: overall state plus per-monitor operational status.</p>
                 <span class="scope-chip">status:read</span>
               </div>
               <div class="endpoint-code">
@@ -1027,7 +1114,7 @@ pulsectl status</code></pre>
 
           <div class="docs-sub">
             <h3 id="api-config">Configuration</h3>
-            <p>The API surface behind <a href="#config-workflow">plan &amp; apply</a>. Exports carry an <code>ETag</code>; applies send it back as <code>If-Match</code>.</p>
+            <p>The API surface behind <a href="#config-workflow">plan &amp; apply</a>. Exports carry an <code>ETag</code>. Applies send it back as <code>If-Match</code>.</p>
 
             <div class="endpoint">
               <div class="endpoint-doc">
@@ -1048,7 +1135,7 @@ pulsectl status</code></pre>
             <div class="endpoint">
               <div class="endpoint-doc">
                 <h4 class="endpoint-title" id="ep-config-schema"><span class="method get">GET</span><code class="path">/api/v1/config/schema</code></h4>
-                <p>The JSON Schema for the configuration document — agents validate locally before submitting.</p>
+                <p>The JSON Schema for the configuration document, so agents can validate locally before submitting.</p>
                 <span class="scope-chip">config:read</span>
               </div>
               <div class="endpoint-code">
@@ -1095,8 +1182,14 @@ pulsectl status</code></pre>
     "targetConfigHash": "sha256:9d1a…",
     "planHash": "sha256:77b0…",
     "diff": {
+      "settingsChanged": [ ],
+      "groupCreates": [ ],
+      "groupUpdates": [ ],
+      "groupDeletes": [ ],
       "creates": [ ],
       "updates": [ ],
+      "pauses": [ ],
+      "resumes": [ ],
       "archives": [ ],
       "unchanged": [ ]
     },
@@ -1111,7 +1204,7 @@ pulsectl status</code></pre>
             <div class="endpoint">
               <div class="endpoint-doc">
                 <h4 class="endpoint-title" id="ep-config-apply"><span class="method post">POST</span><code class="path">/api/v1/config/apply</code></h4>
-                <p>Apply a previously planned change. Requires <code>If-Match</code> with the export ETag and the three hashes from the plan; destructive plans additionally require <code>allowDelete: true</code>. Returns an operation to poll.</p>
+                <p>Apply a previously planned change. Requires <code>If-Match</code> with the export ETag and the three hashes from the plan. Destructive plans also require <code>allowDelete: true</code>. Returns an operation to poll.</p>
                 <span class="scope-chip">config:write</span>
               </div>
               <div class="endpoint-code">
@@ -1120,6 +1213,7 @@ pulsectl status</code></pre>
                   <pre><code class="language-bash">curl -X POST https://pulse.example.com/api/v1/config/apply \
   -H "Authorization: Bearer $PULSE_TOKEN" \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $(uuidgen)" \
   -H 'If-Match: "sha256:2c26…"' \
   -d '{
     "baseConfigHash": "sha256:2c26…",
@@ -1160,7 +1254,7 @@ pulsectl status</code></pre>
             <div class="endpoint">
               <div class="endpoint-doc">
                 <h4 class="endpoint-title" id="ep-tokens-create"><span class="method post">POST</span><code class="path">/api/v1/tokens</code></h4>
-                <p>Create a scoped token. The secret appears <strong>once</strong> in the response and is stored only as a keyed digest — copy it immediately.</p>
+                <p>Create a scoped token. The secret appears <strong>once</strong> in the response and is stored only as a keyed digest. Copy it immediately.</p>
                 <span class="scope-chip">tokens:manage</span>
               </div>
               <div class="endpoint-code">
@@ -1246,7 +1340,7 @@ pulsectl status</code></pre>
             <div class="endpoint">
               <div class="endpoint-doc">
                 <h4 class="endpoint-title" id="ep-cli-device"><span class="method post">POST</span><code class="path">/api/v1/cli-auth/device</code></h4>
-                <p>Start a device authorization for a named installation. Returns the user code and verification URIs; the code expires in 10 minutes.</p>
+                <p>Start a device authorization for a named installation. Returns the user code and verification URIs. The code expires in 10 minutes.</p>
               </div>
               <div class="endpoint-code">
                 <figure class="code-block">
@@ -1271,7 +1365,7 @@ pulsectl status</code></pre>
             <div class="endpoint">
               <div class="endpoint-doc">
                 <h4 class="endpoint-title" id="ep-cli-token"><span class="method post">POST</span><code class="path">/api/v1/cli-auth/token</code></h4>
-                <p>Poll with the <code>deviceCode</code> every <code>interval</code> seconds until the administrator approves in the browser; then the response carries the bearer session token.</p>
+                <p>Poll with the <code>deviceCode</code> every <code>interval</code> seconds until the administrator approves in the browser. The response then carries the bearer session token.</p>
               </div>
               <div class="endpoint-code">
                 <figure class="code-block">
@@ -1294,7 +1388,7 @@ pulsectl status</code></pre>
             <div class="endpoint">
               <div class="endpoint-doc">
                 <h4 class="endpoint-title" id="ep-cli-revoke"><span class="method post">POST</span><code class="path">/api/v1/cli-auth/revoke</code></h4>
-                <p>Revoke the calling CLI session — what <code>pulsectl auth logout</code> uses.</p>
+                <p>Revoke the calling CLI session. This is what <code>pulsectl auth logout</code> uses.</p>
                 <span class="scope-chip">authenticated</span>
               </div>
               <div class="endpoint-code">
@@ -1314,7 +1408,8 @@ pulsectl status</code></pre>
             <div class="endpoint">
               <div class="endpoint-doc">
                 <h4 class="endpoint-title" id="ep-db-health"><span class="method get">GET</span><code class="path">/api/v1/database-health</code></h4>
-                <p>Storage budget usage, category breakdown, retention ladder, and the governor's mode (<code>FULL_DETAIL</code> through <code>ESSENTIALS_ONLY</code>). Health is one of <code>HEALTHY</code>, <code>WATCHING</code>, <code>OPTIMIZING</code>, <code>PROTECTING</code>, <code>CRITICAL</code>, or <code>UNKNOWN</code>.</p>
+                <p>Storage budget usage, per-category byte counts, retention windows for each data category, and the governor's mode (<code>FULL_DETAIL</code> through <code>ESSENTIALS_ONLY</code>). Health is one of <code>HEALTHY</code>, <code>WATCHING</code>, <code>OPTIMIZING</code>, <code>PROTECTING</code>, <code>CRITICAL</code>, or <code>UNKNOWN</code>.</p>
+                <span class="scope-chip">config:read</span>
               </div>
               <div class="endpoint-code">
                 <figure class="code-block">
@@ -1342,13 +1437,15 @@ pulsectl status</code></pre>
             <div class="endpoint">
               <div class="endpoint-doc">
                 <h4 class="endpoint-title" id="ep-db-refresh"><span class="method post">POST</span><code class="path">/api/v1/database-health/refresh</code></h4>
-                <p>Request a fresh usage measurement. Responses are cached for 15 minutes; <code>data.refresh.status</code> tells you whether you got <code>CURRENT</code>, <code>CACHED</code>, or a <code>STALE_FALLBACK</code> snapshot.</p>
+                <p>Request a new usage measurement. Measurements are cached for 15 minutes, so a call inside that window returns the cached snapshot. <code>data.refresh.status</code> reports which you got: <code>CURRENT</code>, <code>CACHED</code>, or <code>STALE_FALLBACK</code>.</p>
+                <span class="scope-chip">config:write</span>
               </div>
               <div class="endpoint-code">
                 <figure class="code-block">
                   <figcaption><span class="code-lang">bash</span><button class="code-copy" type="button">Copy</button></figcaption>
                   <pre><code class="language-bash">curl -X POST https://pulse.example.com/api/v1/database-health/refresh \
-  -H "Authorization: Bearer $PULSE_TOKEN"</code></pre>
+  -H "Authorization: Bearer $PULSE_TOKEN" \
+  -H "Idempotency-Key: $(uuidgen)"</code></pre>
                 </figure>
               </div>
             </div>
@@ -1363,7 +1460,7 @@ pulsectl status</code></pre>
       <div class="shell footer-inner">
         <a class="brand" href="./index.html"><span class="status-dot up"></span>Pulse</a>
         <p>Open-source uptime monitoring</p>
-        <div><a href="./index.html#product">Product</a><a href="./index.html#cli">CLI</a><a href="./docs.html">Docs</a><a href="https://github.com/pulse-uptime/pulse" target="_blank" rel="noreferrer">GitHub</a></div>
+        <div><a href="./index.html#product">Product</a><a href="./index.html#cli">CLI</a><a href="./docs.html">Docs</a><a href="https://github.com/pulse-uptime/pulse" target="_blank" rel="noreferrer">GitHub</a><a href="https://smw.ai" target="_blank" rel="noreferrer">SMW.AI</a></div>
       </div>
     </footer>
 
