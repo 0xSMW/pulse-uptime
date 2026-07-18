@@ -1,6 +1,6 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
 
-import { monitoringConfigSchema } from "@/lib/config/schema";
+import { validateMonitoringConfig } from "@/lib/config";
 import { DEFAULT_MONITOR_VALUES } from "@/lib/config/defaults";
 import { db } from "@/lib/db/client";
 import { getDatabaseHealth } from "@/lib/database-health";
@@ -61,15 +61,18 @@ export async function getSettingsOverview() {
       .then((data) => ({ data, error: false }))
       .catch(() => ({ data: null, error: true })),
   ]);
-  const parsed = monitoringConfigSchema.safeParse(accepted[0]?.configJson);
-  const config = parsed.success ? parsed.data : null;
+  let config = null;
+  try { config = accepted[0] ? validateMonitoringConfig(accepted[0].configJson) : null; } catch { config = null; }
   const configById = new Map(config?.monitors.map((monitor) => [monitor.id, monitor]) ?? []);
+  const groupNames = new Map(config?.groups.map((group) => [group.id, group.name]) ?? []);
 
   return {
     monitors: registrations.map((monitor) => {
       const details = configById.get(monitor.id);
       return {
         ...monitor,
+        groupId: details?.groupId ?? null,
+        group: details?.groupId ? groupNames.get(details.groupId) ?? monitor.group : null,
         state: monitor.state === "ARCHIVED" || monitor.state === null ? "PENDING" as const : monitor.state,
         method: details?.method ?? DEFAULT_MONITOR_VALUES.method,
         intervalMinutes: details?.intervalMinutes ?? DEFAULT_MONITOR_VALUES.intervalMinutes,
@@ -81,6 +84,10 @@ export async function getSettingsOverview() {
         recipients: details?.recipients ?? [],
       };
     }),
+    groups: (config?.groups ?? []).map((group) => ({
+      ...group,
+      monitorCount: config?.monitors.filter((monitor) => monitor.groupId === group.id).length ?? 0,
+    })),
     notifications: {
       defaultRecipients: config?.settings.defaultRecipients ?? [],
       userAgent: config?.settings.userAgent ?? "Not configured",
