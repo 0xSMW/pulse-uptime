@@ -9,7 +9,7 @@ import {
   monitorState,
 } from "@/lib/db/schema";
 import { DEFAULT_MONITOR_VALUES } from "@/lib/config/defaults";
-import { monitoringConfigSchema, type MonitorConfig } from "@/lib/config/schema";
+import { validateMonitoringConfig, type MonitorConfig } from "@/lib/config";
 
 import { buildRollupTimeline, summarizeRollupCoverage } from "./timeline";
 
@@ -117,10 +117,10 @@ export async function getMonitorDetail(id: string) {
       .limit(1),
   ]);
 
-  const parsedConfig = monitoringConfigSchema.safeParse(accepted[0]?.configJson);
-  const config: MonitorConfig | undefined = parsedConfig.success
-    ? parsedConfig.data.monitors.find((candidate) => candidate.id === id)
-    : undefined;
+  let acceptedConfig = null;
+  try { acceptedConfig = accepted[0] ? validateMonitoringConfig(accepted[0].configJson) : null; } catch { acceptedConfig = null; }
+  const config: MonitorConfig | undefined = acceptedConfig?.monitors.find((candidate) => candidate.id === id);
+  const groupName = config?.groupId ? acceptedConfig?.groups.find((group) => group.id === config.groupId)?.name ?? monitor.group : null;
   const responsePoints = (rows: typeof rollups24h) => rows
     .filter((row) => row.latencyCount > 0)
     .map((row) => ({
@@ -140,7 +140,8 @@ export async function getMonitorDetail(id: string) {
     name: monitor.name,
     url: monitor.url,
     method: config?.method ?? DEFAULT_MONITOR_VALUES.method,
-    group: config?.group ?? monitor.group,
+    groupId: config?.groupId ?? null,
+    group: groupName,
     enabled: config?.enabled ?? monitor.enabled,
     intervalMinutes: config?.intervalMinutes ?? DEFAULT_MONITOR_VALUES.intervalMinutes,
     timeoutMs: config?.timeoutMs ?? DEFAULT_MONITOR_VALUES.timeoutMs,
@@ -153,7 +154,7 @@ export async function getMonitorDetail(id: string) {
     failureThreshold: config?.failureThreshold ?? DEFAULT_MONITOR_VALUES.failureThreshold,
     recoveryThreshold: config?.recoveryThreshold ?? DEFAULT_MONITOR_VALUES.recoveryThreshold,
     recipientCount: config
-      ? (config.recipients.length || (parsedConfig.success ? parsedConfig.data.settings.defaultRecipients.length : 0))
+      ? (config.recipients.length || (acceptedConfig?.settings.defaultRecipients.length ?? 0))
       : 0,
     latestLatencyMs: monitor.latestLatencyMs,
     p95LatencyMs: p95Latency(rollups24h),
