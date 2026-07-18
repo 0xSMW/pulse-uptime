@@ -13,11 +13,18 @@ describe("monitor API request parsing", () => {
   });
 
   it("requires a nonempty strict patch and preserves nested fields", () => {
-    const monitor = parseCreateMonitor({ id: "site-home", name: "Site", url: "https://example.com", expectedStatus: { minimum: 200, maximum: 299 } });
+    const groups = [{ id: "production", name: "Production" }];
+    const monitor = parseCreateMonitor({ id: "site-home", name: "Site", url: "https://example.com", groupId: "production", expectedStatus: { minimum: 200, maximum: 299 } }, groups);
     expect(() => parsePatchMonitor({})).toThrow();
     expect(() => parsePatchMonitor({ unknown: true })).toThrow();
     expect(mergeMonitorPatch(monitor, parsePatchMonitor({ name: "Renamed" }))).toMatchObject({
-      name: "Renamed", expectedStatus: { minimum: 200, maximum: 299 },
+      name: "Renamed", groupId: "production", expectedStatus: { minimum: 200, maximum: 299 },
     });
+  });
+
+  it("accepts a group ID or legacy group name but never both", () => {
+    const groups = [{ id: "production", name: "Production" }];
+    expect(parseCreateMonitor({ id: "site-one", name: "One", url: "https://one.example.com", group: "production" }, groups).groupId).toBe("production");
+    expect(() => parseCreateMonitor({ id: "site-two", name: "Two", url: "https://two.example.com", group: "Production", groupId: "production" }, groups)).toThrow();
   });
 });
