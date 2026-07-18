@@ -40,14 +40,16 @@ export async function listDashboardMonitors() {
     .where(isNull(monitorRegistry.archivedAt));
 
   return rows
-    .filter((row) => row.state !== "ARCHIVED")
-    .map((row) => ({
-      ...row,
-      state: row.state ?? ("PENDING" as const),
-      lastCheckedAt: row.lastCheckedAt?.toISOString() ?? null,
-      activeIncidentOpenedAt: row.activeIncidentOpenedAt?.toISOString() ?? null,
-      uptime24h: row.uptime24h === null ? null : Number(row.uptime24h),
-    }))
+    .flatMap((row) => {
+      if (row.state === "ARCHIVED") return [];
+      return [{
+        ...row,
+        state: row.state ?? ("PENDING" as const),
+        lastCheckedAt: row.lastCheckedAt?.toISOString() ?? null,
+        activeIncidentOpenedAt: row.activeIncidentOpenedAt?.toISOString() ?? null,
+        uptime24h: row.uptime24h === null ? null : Number(row.uptime24h),
+      }];
+    })
     .sort((left, right) => {
       const state = stateOrder.indexOf(left.state) - stateOrder.indexOf(right.state);
       return state || left.name.localeCompare(right.name);
