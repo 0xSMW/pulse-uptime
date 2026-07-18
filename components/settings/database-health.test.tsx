@@ -19,9 +19,9 @@ const report: DatabaseHealth = {
   governor: { mode: "FULL_DETAIL", action: "Keeping full configured detail", lastCompactionAt: "2026-07-18T03:17:00.000Z" },
   schedulerCoverage: 0.9999,
   transfer: { usedBytes: 420_000_000, budgetBytes: 5_000_000_000, projectedBytes: 690_000_000 },
-  freshness: { capturedAt: "2026-07-18T11:55:00.000Z", ageSeconds: 300, stale: false, providerMetricsAvailable: true },
+  freshness: { capturedAt: "2026-07-18T11:55:00.000Z", ageSeconds: 300, stale: false, providerMetricsAvailable: true, providerCapturedAt: "2026-07-18T11:54:00.000Z", providerAgeSeconds: 360 },
   maintenanceHealthy: true,
-  refresh: { cached: false, nextEligibleAt: "2026-07-18T12:10:00.000Z" },
+  refresh: { cached: false, status: "CURRENT", nextEligibleAt: "2026-07-18T12:10:00.000Z" },
 };
 
 describe("DatabaseHealthCard", () => {
@@ -43,6 +43,28 @@ describe("DatabaseHealthCard", () => {
     const html = renderToStaticMarkup(<DatabaseHealthCard initialData={null} />);
     expect(html).toContain("No usage snapshot yet");
     expect(html).toContain(">Refresh</button>");
+  });
+
+  it("distinguishes a failed read from an empty database", () => {
+    const html = renderToStaticMarkup(<DatabaseHealthCard initialData={null} initialError />);
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("Database health unavailable");
+    expect(html).not.toContain("No usage snapshot yet");
+  });
+
+  it("keeps partial relation data and marks unknown usage as indeterminate", () => {
+    const partial: DatabaseHealth = {
+      ...report,
+      health: "UNKNOWN",
+      usedBytes: null,
+      availableBytes: null,
+      freshness: { ...report.freshness, providerMetricsAvailable: false, providerCapturedAt: null, providerAgeSeconds: null },
+    };
+    const html = renderToStaticMarkup(<DatabaseHealthCard initialData={partial} />);
+    expect(html).toContain("Provider metrics unavailable, relation usage remains current");
+    expect(html).toContain('aria-valuetext="Storage usage unavailable"');
+    expect(html).not.toContain("aria-valuenow");
+    expect(html).toContain("Rollups");
   });
 });
 
