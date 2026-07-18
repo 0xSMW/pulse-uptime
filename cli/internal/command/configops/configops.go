@@ -306,13 +306,26 @@ func makePlan(ctx context.Context, d Dependencies, doc map[string]any) (planEnve
 	if err != nil {
 		return planEnvelope{}, err
 	}
-	base := strings.Trim(headers.Get("ETag"), "\"")
+	base := configHashFromETag(headers.Get("ETag"))
 	if base == "" {
-		return planEnvelope{}, &Error{Exit: 1, Code: "INVALID_RESPONSE", Message: "configuration response did not include an ETag"}
+		return planEnvelope{}, &Error{Exit: 1, Code: "INVALID_RESPONSE", Message: "configuration response did not include a valid ETag"}
 	}
 	var result planEnvelope
 	_, err = d.Client.Do(ctx, http.MethodPost, "/api/v1/config/plan", map[string]any{"baseConfigHash": base, "targetConfig": doc}, nil, &result)
 	return result, err
+}
+
+func configHashFromETag(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) >= 2 && strings.EqualFold(value[:2], "W/") {
+		value = strings.TrimSpace(value[2:])
+	}
+	if len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"' {
+		value = value[1 : len(value)-1]
+	} else if strings.ContainsRune(value, '"') {
+		return ""
+	}
+	return strings.TrimSpace(value)
 }
 
 func waitForOperation(ctx context.Context, d Dependencies, value map[string]any, timeout time.Duration) (map[string]any, error) {
