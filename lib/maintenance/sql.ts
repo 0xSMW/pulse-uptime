@@ -15,51 +15,12 @@ export interface QueryExecutor {
 
 const count = (rows: readonly unknown[]) => rows.length;
 
-export const ROLLUP_DAY_SQL = `
-insert into daily_rollups (
-  monitor_id, day, total_checks, successful_checks, failed_checks,
-  uptime_percentage, average_latency_ms, p50_latency_ms, p95_latency_ms, incident_seconds
-)
-select registry.id, $1::date,
-  coalesce(checks.total_checks, 0), coalesce(checks.successful_checks, 0), coalesce(checks.failed_checks, 0),
-  case when coalesce(checks.total_checks, 0) = 0 then null
-       else round(100.0 * checks.successful_checks / checks.total_checks, 4) end,
-  checks.average_latency_ms, checks.p50_latency_ms, checks.p95_latency_ms,
-  coalesce(incident_time.incident_seconds, 0)
-from monitor_registry registry
-left join lateral (
-  select count(*)::integer total_checks,
-    count(*) filter (where successful)::integer successful_checks,
-    count(*) filter (where not successful)::integer failed_checks,
-    round(avg(latency_ms))::integer average_latency_ms,
-    round(percentile_cont(0.5) within group (order by latency_ms))::integer p50_latency_ms,
-    round(percentile_cont(0.95) within group (order by latency_ms))::integer p95_latency_ms
-  from check_results
-  where monitor_id = registry.id and checked_at >= $1::date and checked_at < $1::date + interval '1 day'
-) checks on true
-left join lateral (
-  select round(coalesce(sum(extract(epoch from (
-    least(coalesce(resolved_at, $1::date + interval '1 day'), $1::date + interval '1 day') -
-    greatest(opened_at, $1::date)
-  ))), 0))::integer incident_seconds
-  from incidents
-  where monitor_id = registry.id
-    and opened_at < $1::date + interval '1 day'
-    and coalesce(resolved_at, $2) > $1::date
-) incident_time on true
-where registry.first_seen_at < $1::date + interval '1 day'
-  and (registry.archived_at is null or registry.archived_at >= $1::date)
-on conflict (monitor_id, day) do update set
-  total_checks = excluded.total_checks,
-  successful_checks = excluded.successful_checks,
-  failed_checks = excluded.failed_checks,
-  uptime_percentage = excluded.uptime_percentage,
-  average_latency_ms = excluded.average_latency_ms,
-  p50_latency_ms = excluded.p50_latency_ms,
-  p95_latency_ms = excluded.p95_latency_ms,
-  incident_seconds = excluded.incident_seconds
-returning monitor_id
-`;
+const SCHEDULER_COVERAGE_START_SQL = `select coalesce(
+  (select max(bucket_start + case resolution when '15m' then interval '15 minutes'
+    when 'hour' then interval '1 hour' else interval '1 day' end) from metric_rollups),
+  greatest((select min(scheduled_minute) from check_batches), $1::timestamptz - interval '48 hours'),
+  $1::timestamptz - interval '48 hours'
+) coverage_start`;
 
 const RECONCILE_CRON_SQL = `update cron_runs set status = 'failed', completed_at = $1,
 error_message = 'Stale running cron reconciled' where status = 'running' and started_at < $2 returning id`;
@@ -98,8 +59,10 @@ const RETAIN_TELEMETRY_SQL = `with doomed as (
   returning check_batches.scheduled_minute
 ), doomed_rollups as (
   select monitor_id, resolution, bucket_start from metric_rollups
-  where (resolution = '15m' and bucket_start < $4)
-     or (resolution = 'hour' and bucket_start < $5 and ($6::boolean or not has_incident))
+  where (resolution = '15m' and bucket_start < $4
+      and (not $9::boolean or not has_incident or bucket_start < $10))
+     or (resolution = 'hour' and bucket_start < $5
+      and ($6::boolean or not has_incident or bucket_start < $10))
      or (resolution = 'day' and bucket_start < $7)
   order by bucket_start limit $3
 ), deleted_rollups as (
@@ -164,6 +127,10 @@ export function createSqlMaintenanceStore(db: QueryExecutor): MaintenanceStore {
     async fillSchedulerGaps(start, end, now) {
       return count(await db.query(FILL_SCHEDULER_GAPS_SQL, [start, end, now]));
     },
+    async schedulerCoverageStart(now) {
+      const rows = await db.query<{ coverage_start: Date }>(SCHEDULER_COVERAGE_START_SQL, [now]);
+      return rows[0]?.coverage_start ?? new Date(now.getTime() - 48 * 3_600_000);
+    },
     async promoteRollups(source, target, start, end) {
       return count(await db.query(PROMOTE_ROLLUP_SQL, [source, target, start, end]));
     },
@@ -180,6 +147,7 @@ export function createSqlMaintenanceStore(db: QueryExecutor): MaintenanceStore {
       return count(await db.query(RETAIN_TELEMETRY_SQL, [
         minuteCutoff, mode === "shortened" || mode === "incident_only", limit, quarterCutoff, hourCutoff,
         mode === "essential", dayCutoff, new Date(now.getTime() - 7 * 86_400_000),
+        mode === "shortened" || mode === "incident_only", new Date(now.getTime() - 90 * 86_400_000),
       ]));
     },
     async retainUsageSnapshots(now, limit) { return count(await db.query(RETAIN_USAGE_SQL, [now, limit])); },
