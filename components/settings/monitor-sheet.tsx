@@ -5,6 +5,8 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiRequest, generatedMonitorId, messageForError } from "./settings-api";
+import { GroupDialog } from "./group-dialog";
+import { sortSettingsGroups, type SettingsGroup } from "./settings-api";
 import { Sheet, SheetIconButton } from "./sheet";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -15,6 +17,7 @@ export type EditableMonitor = {
   name: string;
   url: string;
   enabled: boolean;
+  groupId: string | null;
   group: string | null;
   method: string;
   intervalMinutes: number;
@@ -26,7 +29,7 @@ export type EditableMonitor = {
   recipients: string[];
 };
 
-export type MonitorFormValues = Omit<EditableMonitor, "id"> & { recipientsText: string };
+export type MonitorFormValues = Omit<EditableMonitor, "id" | "group"> & { recipientsText: string };
 export type MonitorFormErrors = Partial<Record<keyof MonitorFormValues, string>>;
 
 const advancedMonitorFields = ["timeoutMs", "expectedStatusMin", "expectedStatusMax", "failureThreshold", "recoveryThreshold", "recipientsText"] as const;
@@ -42,7 +45,7 @@ export function monitorSheetActionLabels(enabled: boolean) {
 const emptyValues: MonitorFormValues = {
   name: "",
   url: "",
-  group: null,
+  groupId: null,
   method: "GET",
   intervalMinutes: 1,
   timeoutMs: 8000,
@@ -56,7 +59,22 @@ const emptyValues: MonitorFormValues = {
 };
 
 function valuesFor(monitor: EditableMonitor | null): MonitorFormValues {
-  return monitor ? { ...monitor, recipientsText: monitor.recipients.join("\n") } : emptyValues;
+  if (!monitor) return emptyValues;
+  return {
+    name: monitor.name,
+    url: monitor.url,
+    enabled: monitor.enabled,
+    groupId: monitor.groupId,
+    method: monitor.method,
+    intervalMinutes: monitor.intervalMinutes,
+    timeoutMs: monitor.timeoutMs,
+    expectedStatusMin: monitor.expectedStatusMin,
+    expectedStatusMax: monitor.expectedStatusMax,
+    failureThreshold: monitor.failureThreshold,
+    recoveryThreshold: monitor.recoveryThreshold,
+    recipients: monitor.recipients,
+    recipientsText: monitor.recipients.join("\n"),
+  };
 }
 
 export function parseRecipients(value: string): string[] {
@@ -85,7 +103,6 @@ export function validateMonitorForm(values: MonitorFormValues): MonitorFormError
   if (!values.name.trim()) errors.name = "Enter a monitor name";
   else if (values.name.trim().length > 80) errors.name = "Use 80 characters or fewer";
   if (!isPublicMonitorUrl(values.url)) errors.url = "Enter a public HTTP or HTTPS URL";
-  if (values.group && values.group.trim().length > 50) errors.group = "Use 50 characters or fewer";
   if (!Number.isInteger(values.timeoutMs) || values.timeoutMs < 1000 || values.timeoutMs > 15000) errors.timeoutMs = "Enter 1000–15000";
   if (!Number.isInteger(values.expectedStatusMin) || values.expectedStatusMin < 100 || values.expectedStatusMin > 599) errors.expectedStatusMin = "Enter 100–599";
   if (!Number.isInteger(values.expectedStatusMax) || values.expectedStatusMax < values.expectedStatusMin || values.expectedStatusMax > 599) errors.expectedStatusMax = "Enter a value from minimum to 599";
@@ -115,7 +132,7 @@ function ArchiveDialog({ monitorName, value, busy, status, onValueChange, onCanc
   return <dialog ref={ref} aria-labelledby="archive-title" onCancel={(event) => { event.preventDefault(); onCancel(); }} className="fixed inset-0 z-50 m-auto w-[min(400px,calc(100vw-32px))] rounded-[8px] border border-[var(--border-strong)] bg-[var(--bg)] p-5 text-[var(--fg)] shadow-2xl backdrop:bg-black/45"><h3 id="archive-title" className="text-base font-semibold">Archive Monitor</h3><p className="mt-2 text-[13px] text-[var(--fg-muted)]">Checks stop and history stays available</p><label className="mt-4 block text-[13px]"><span className="mb-2 block">Type <strong>{monitorName}</strong> to confirm</span><input autoFocus value={value} onChange={(e) => onValueChange(e.target.value)} className="h-10 w-full rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-3 text-[13px]" /></label>{status ? <p className={`mt-3 text-[13px] ${status === "Monitor archived" ? "text-[var(--fg-muted)]" : "text-[var(--down-text)]"}`} aria-live="polite">{status}</p> : null}<div className="mt-5 flex justify-end gap-2"><Button variant="secondary" onClick={onCancel} disabled={busy}>Cancel</Button><Button variant="error" onClick={onConfirm} disabled={value !== monitorName || busy}>{busy ? "Archiving…" : "Archive Monitor"}</Button></div></dialog>;
 }
 
-export function MonitorSheet({ open, monitor, onClose }: { open: boolean; monitor: EditableMonitor | null; onClose: () => void }) {
+export function MonitorSheet({ open, monitor, groups, onGroupCreated, onMonitorGroupChanged, onClose }: { open: boolean; monitor: EditableMonitor | null; groups: readonly SettingsGroup[]; onGroupCreated: (group: SettingsGroup) => void; onMonitorGroupChanged?: (previousGroupId: string | null, nextGroupId: string | null) => void; onClose: () => void }) {
   const router = useRouter();
   const firstField = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
@@ -125,6 +142,7 @@ export function MonitorSheet({ open, monitor, onClose }: { open: boolean; monito
   const [status, setStatus] = useState("");
   const [archiveName, setArchiveName] = useState("");
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const [createGroup, setCreateGroup] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const propagationTimer = useRef<number | null>(null);
 
@@ -151,7 +169,7 @@ export function MonitorSheet({ open, monitor, onClose }: { open: boolean; monito
     setBusy("save"); setStatus("");
     const body = {
       name: values.name.trim(), url: values.url.trim(), enabled: values.enabled,
-      group: values.group?.trim() || null, method: values.method,
+      groupId: values.groupId, method: values.method,
       intervalMinutes: values.intervalMinutes, timeoutMs: values.timeoutMs,
       expectedStatus: { minimum: values.expectedStatusMin, maximum: values.expectedStatusMax },
       failureThreshold: values.failureThreshold, recoveryThreshold: values.recoveryThreshold,
@@ -160,6 +178,7 @@ export function MonitorSheet({ open, monitor, onClose }: { open: boolean; monito
     try {
       if (monitor) await apiRequest(`/api/v1/monitors/${encodeURIComponent(monitor.id)}`, { method: "PATCH", body: JSON.stringify(body) }, true);
       else await apiRequest("/api/v1/monitors", { method: "POST", body: JSON.stringify({ id: generatedMonitorId(values.name), ...body }) }, true);
+      onMonitorGroupChanged?.(monitor?.groupId ?? null, values.groupId);
       setStatus("Updating configuration…");
       setBusy("propagation");
       propagationTimer.current = window.setTimeout(() => {
@@ -187,6 +206,7 @@ export function MonitorSheet({ open, monitor, onClose }: { open: boolean; monito
     setBusy("archive"); setStatus("");
     try {
       await apiRequest(`/api/v1/monitors/${encodeURIComponent(monitor.id)}`, { method: "DELETE" }, true);
+      onMonitorGroupChanged?.(monitor.groupId, null);
       setStatus("Monitor archived");
       setBusy("archived");
       propagationTimer.current = window.setTimeout(() => { router.refresh(); onClose(); }, 800);
@@ -197,6 +217,12 @@ export function MonitorSheet({ open, monitor, onClose }: { open: boolean; monito
   const inputClass = "h-10 w-full rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-3 text-[13px]";
   const [testLabel, toggleLabel, archiveLabel] = monitorSheetActionLabels(monitor?.enabled ?? true);
   const actionBusyDescription = "Another monitor action is in progress";
+  const sortedGroups = sortSettingsGroups(groups);
+  function createdGroup(group: SettingsGroup) {
+    onGroupCreated(group);
+    set("groupId", group.id);
+    setCreateGroup(false);
+  }
   return (
     <Fragment><Sheet
       open={open}
@@ -219,7 +245,24 @@ export function MonitorSheet({ open, monitor, onClose }: { open: boolean; monito
       <form ref={formRef} onSubmit={submit} className="space-y-4">
         <label className="block"><span className="mb-1.5 block text-[13px] font-medium">Name</span><input ref={firstField} value={values.name} onChange={(e) => set("name", e.target.value)} aria-invalid={Boolean(errors.name)} className={inputClass} />{errors.name ? <span className="mt-1 block text-xs text-[var(--down-text)]">{errors.name}</span> : null}</label>
         <label className="block"><span className="mb-1.5 block text-[13px] font-medium">URL</span><input value={values.url} onChange={(e) => set("url", e.target.value)} aria-invalid={Boolean(errors.url)} className={`${inputClass} font-data`} placeholder="https://example.com/health" />{errors.url ? <span className="mt-1 block text-xs text-[var(--down-text)]">{errors.url}</span> : null}</label>
-        <label className="block"><span className="mb-1.5 block text-[13px] font-medium">Group</span><input value={values.group ?? ""} onChange={(e) => set("group", e.target.value || null)} aria-invalid={Boolean(errors.group)} className={inputClass} placeholder="Ungrouped" />{errors.group ? <span className="mt-1 block text-xs text-[var(--down-text)]">{errors.group}</span> : null}</label>
+        <div>
+          <label id="monitor-group-label" className="mb-1.5 block text-[13px] font-medium">Group</label>
+          {sortedGroups.length === 0 ? (
+            <Button className="w-full" variant="secondary" onClick={() => setCreateGroup(true)}>Create Group</Button>
+          ) : (
+            <Select value={values.groupId ?? "__ungrouped__"} onValueChange={(value) => {
+              if (value === "__create__") setCreateGroup(true);
+              else set("groupId", value === "__ungrouped__" ? null : value);
+            }}>
+              <SelectTrigger aria-labelledby="monitor-group-label"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__ungrouped__">Ungrouped</SelectItem>
+                {sortedGroups.map((group) => <SelectItem key={group.id} value={group.id}>{group.name}</SelectItem>)}
+                <SelectItem value="__create__">Create group</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+        </div>
         <div><label id="monitor-method-label" className="mb-1.5 block text-[13px] font-medium">Method</label><Select value={values.method} onValueChange={(value) => set("method", value)}><SelectTrigger aria-labelledby="monitor-method-label"><SelectValue /></SelectTrigger><SelectContent>{["GET", "HEAD"].map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div>
         <div><label id="monitor-interval-label" className="mb-1.5 block text-[13px] font-medium">Interval</label><Select value={String(values.intervalMinutes)} onValueChange={(value) => set("intervalMinutes", Number(value))}><SelectTrigger aria-labelledby="monitor-interval-label"><SelectValue /></SelectTrigger><SelectContent>{[1,5,10,15].map((value) => <SelectItem key={value} value={String(value)}>{value} min</SelectItem>)}</SelectContent></Select></div>
         <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen} className="border-y border-[var(--border)]">
@@ -239,6 +282,7 @@ export function MonitorSheet({ open, monitor, onClose }: { open: boolean; monito
         <div className="flex justify-end gap-2"><Button type="button" variant="secondary" onClick={onClose} disabled={Boolean(busy)}>Cancel</Button><Button type="submit" disabled={Boolean(busy)}>{busy === "save" ? "Saving…" : busy === "propagation" ? "Updating…" : monitor ? "Save Monitor" : "Create Monitor"}</Button></div>
       </form>
     </Sheet>
-    {monitor && confirmArchive ? <ArchiveDialog monitorName={monitor.name} value={archiveName} busy={Boolean(busy)} status={status} onValueChange={setArchiveName} onCancel={() => { setConfirmArchive(false); setArchiveName(""); }} onConfirm={archive} /> : null}</Fragment>
+    {monitor && confirmArchive ? <ArchiveDialog monitorName={monitor.name} value={archiveName} busy={Boolean(busy)} status={status} onValueChange={setArchiveName} onCancel={() => { setConfirmArchive(false); setArchiveName(""); }} onConfirm={archive} /> : null}
+    {createGroup ? <GroupDialog open onClose={() => setCreateGroup(false)} onSaved={createdGroup} /> : null}</Fragment>
   );
 }
