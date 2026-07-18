@@ -79,7 +79,7 @@ func (a *App) runMe(ctx context.Context, noBrowser bool) error {
 		}
 	}
 	if !a.opts.StdinTTY {
-		return cliError(ExitAuthentication, "AUTHENTICATION_REQUIRED", authRequired)
+		return cliError(ExitPermission, "INTERACTIVE_AUTH_REQUIRED", "interactive authorization required. Run pulsectl me in a terminal or set PULSECTL_TOKEN")
 	}
 	token, err := a.linkInstallation(ctx, r, noBrowser)
 	if err != nil {
