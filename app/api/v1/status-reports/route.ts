@@ -2,12 +2,13 @@ import { apiError, apiJson, listEnvelope, objectEnvelope } from "@/lib/api/envel
 import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, isApiResponse } from "@/lib/api/middleware";
 import { pageLimit } from "@/lib/api/pagination";
-import { revalidateStatusReportPaths, statusReportRouteError } from "@/lib/api/status-report-http";
+import { revalidateStatusReportPaths, statusReportRouteError, storedStatusReportError } from "@/lib/api/status-report-http";
 import {
   createStatusReport,
   listStatusReportSummaries,
   parseStatusReportListQuery,
   recoverCreatedStatusReport,
+  StatusReportError,
 } from "@/lib/api/status-reports";
 
 export async function GET(request: Request) {
@@ -50,9 +51,22 @@ export async function POST(request: Request) {
       },
       rerunAfterRecoveryMiss: false,
       work: async ({ operationId }) => {
-        const report = await createStatusReport(body, { reportId: operationId });
-        await revalidateStatusReportPaths(report);
-        return { status: 201, body: objectEnvelope("StatusReport", report, context.requestId) };
+        try {
+          const report = await createStatusReport(body, { reportId: operationId });
+          await revalidateStatusReportPaths(report);
+          return { status: 201, body: objectEnvelope("StatusReport", report, context.requestId) };
+        } catch (error) {
+          // VALIDATION_ERROR is a deterministic outcome of the request body,
+          // not proof this operation ever ran — recorded here rather than
+          // thrown past executeIdempotent so a retry with the same key
+          // replays the recorded 400 verbatim via the ordinary
+          // completed-record path instead of leaving the record stuck
+          // "running" until a stale reclaim's recover callback (which can't
+          // tell "genuinely never ran" from "validation failed") forces a
+          // REQUEST_IN_PROGRESS 409 demanding a new key.
+          if (error instanceof StatusReportError) return storedStatusReportError(error, context.requestId);
+          throw error;
+        }
       },
     });
     return apiJson(result.body, { status: result.status });

@@ -93,23 +93,42 @@ export async function getAccountSettings(userId: string) {
   return row ?? null;
 }
 
+const sessionColumns = {
+  id: humanSessions.id,
+  userAgent: humanSessions.userAgent,
+  ipAddress: humanSessions.ipAddress,
+  createdAt: humanSessions.createdAt,
+  lastSeenAt: humanSessions.lastSeenAt,
+};
+
 export async function getSecuritySettings(userId: string, currentSessionId: string, now = new Date()) {
-  const rows = await db.select({
-    id: humanSessions.id,
-    userAgent: humanSessions.userAgent,
-    ipAddress: humanSessions.ipAddress,
-    createdAt: humanSessions.createdAt,
-    lastSeenAt: humanSessions.lastSeenAt,
-  }).from(humanSessions)
-    .where(and(
-      eq(humanSessions.userId, userId),
-      isNull(humanSessions.revokedAt),
-      gt(humanSessions.expiresAt, now),
-    ))
+  const activeFilter = and(
+    eq(humanSessions.userId, userId),
+    isNull(humanSessions.revokedAt),
+    gt(humanSessions.expiresAt, now),
+  );
+  const rows = await db.select(sessionColumns).from(humanSessions)
+    .where(activeFilter)
     .orderBy(desc(humanSessions.createdAt))
     .limit(100);
 
-  const sessions = rows.map((row) => {
+  // The 100-row cap ranks by recency, so a session that's still current but
+  // was created long ago could rank past the cutoff and be dropped entirely
+  // (finding: the page then shows no "current session" row at all, even
+  // though the caller is using that very session right now). Rather than
+  // trust recency alone to carry it, fetch the current session directly by
+  // id whenever the capped batch didn't already include it, and prepend it —
+  // still subject to the same active-session bounds, so a revoked or expired
+  // "current" session is intentionally not force-included.
+  let allRows = rows;
+  if (!rows.some((row) => row.id === currentSessionId)) {
+    const currentRows = await db.select(sessionColumns).from(humanSessions)
+      .where(and(eq(humanSessions.id, currentSessionId), activeFilter))
+      .limit(1);
+    if (currentRows[0]) allRows = [currentRows[0], ...rows];
+  }
+
+  const sessions = allRows.map((row) => {
     const { browser, os } = parseUserAgent(row.userAgent);
     return {
       id: row.id,

@@ -39,9 +39,21 @@ export async function PATCH(request: Request, { params }: Params) {
         return recovered ? { status: 200, body: objectEnvelope("StatusReport", recovered, context.requestId) } : null;
       },
       work: async () => {
-        const report = await editReportUpdate(reportId, updateId, body);
-        await revalidateStatusReportPaths(report);
-        return { status: 200, body: objectEnvelope("StatusReport", report, context.requestId) };
+        try {
+          const report = await editReportUpdate(reportId, updateId, body);
+          await revalidateStatusReportPaths(report);
+          return { status: 200, body: objectEnvelope("StatusReport", report, context.requestId) };
+        } catch (error) {
+          // VALIDATION_ERROR / REPORT_NOT_FOUND / UPDATE_NOT_FOUND are
+          // deterministic outcomes of the request/CURRENT state, not proof
+          // this operation ever ran — recorded here rather than thrown past
+          // executeIdempotent (finding: a thrown error left the idempotency
+          // record stuck "running" until a stale reclaim's recover callback
+          // fell through to `true` for an invalid patch body and replayed a
+          // false 200 instead of the genuine 400).
+          if (error instanceof StatusReportError) return storedStatusReportError(error, context.requestId);
+          throw error;
+        }
       },
     });
     return apiJson(result.body, { status: result.status });

@@ -17,7 +17,7 @@ import { errorEnvelope } from "@/lib/api/envelopes";
 import { executeIdempotent, type IdempotencyPersistence, type IdempotencyRecord } from "@/lib/api/idempotency";
 import { databaseStatusReportsStore, StatusReportError } from "@/lib/api/status-reports";
 
-import { revalidateStatusReportPaths, storedStatusReportError } from "./status-report-http";
+import { revalidateStatusReportPaths, statusReportPatchAlreadyApplied, storedStatusReportError } from "./status-report-http";
 
 beforeEach(() => {
   vi.mocked(revalidatePath).mockReset();
@@ -76,6 +76,27 @@ describe("revalidateStatusReportPaths", () => {
   it("never calls findMonitors when no monitor was ever affected", async () => {
     await revalidateStatusReportPaths({ id: "rep-1", affected: [] });
     expect(databaseStatusReportsStore.findMonitors).not.toHaveBeenCalled();
+  });
+});
+
+describe("statusReportPatchAlreadyApplied (finding: an INVALID patch retry was recovered as a false 200)", () => {
+  const current = {
+    title: "API outage",
+    startsAt: "2026-07-18T09:00:00.000Z",
+    endsAt: null,
+    affected: [{ monitorId: "api-prod", impact: "down" }],
+  };
+
+  it("returns false for an empty body — patchSchema requires at least one field", () => {
+    expect(statusReportPatchAlreadyApplied(current, {})).toBe(false);
+  });
+
+  it("returns false for a body with only unsupported keys (fails patchSchema's .strict())", () => {
+    expect(statusReportPatchAlreadyApplied(current, { foo: 1 })).toBe(false);
+  });
+
+  it("still returns true for a genuinely already-applied, schema-valid patch", () => {
+    expect(statusReportPatchAlreadyApplied(current, { title: "API outage" })).toBe(true);
   });
 });
 
@@ -160,5 +181,68 @@ describe("storedStatusReportError + executeIdempotent (finding: publish/report-d
     });
     expect(work).toHaveBeenCalledOnce();
     expect(second).toMatchObject({ status: 200, body: { ok: true }, replayed: true });
+  });
+});
+
+describe("statusReportPatchAlreadyApplied + executeIdempotent: a stale retry of an INVALID patch reproduces the genuine 400, never a false 200", () => {
+  const CURRENT = {
+    title: "API outage",
+    startsAt: "2026-07-18T09:00:00.000Z",
+    endsAt: null as string | null,
+    affected: [] as Array<{ monitorId: string; impact: string }>,
+  };
+
+  function patchRequest(body: unknown) {
+    return new Request("https://pulse.test/api/v1/status-reports/rep-1", {
+      method: "PATCH",
+      headers: { "Idempotency-Key": "00000000-0000-4000-8000-000000000002" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** Mirrors the FIXED route's work(): an invalid patch throws VALIDATION_ERROR, caught and recorded via storedStatusReportError instead of thrown past executeIdempotent. */
+  const invalidPatchWork = async () => {
+    try {
+      throw new StatusReportError("VALIDATION_ERROR", "Provide at least one field to update");
+    } catch (error) {
+      if (error instanceof StatusReportError) return storedStatusReportError(error, "req-1");
+      throw error;
+    }
+  };
+
+  async function staleRetryReproducesGenuine400(body: unknown) {
+    const persistence = new MemoryPersistence();
+    const firstNow = new Date("2026-07-18T12:00:00.000Z");
+    const staleNow = new Date(firstNow.getTime() + 6 * 60_000); // past the 5-minute stale threshold
+
+    // First attempt: simulate a genuine crash mid-request — work() never
+    // returns, so complete() never persists a response, leaving the record
+    // stuck "running" with the real computed request hash.
+    await expect(executeIdempotent({
+      request: patchRequest(body), principalKey: "human:1", routeKey: "test-patch", body, persistence, now: firstNow,
+      work: async () => { throw new Error("simulated crash"); },
+    })).rejects.toThrow("simulated crash");
+    expect(persistence.owner?.state).toBe("running");
+
+    // Stale retry, same Idempotency-Key + body, 6+ minutes later: recover()
+    // must see the patch fails patchSchema and return null instead of
+    // falling through to `true` (no recognized field mismatched a body with
+    // no recognized fields at all) — so work() reruns and reproduces the
+    // real 400, rather than a recover callback manufacturing a false 200.
+    const retried = await executeIdempotent({
+      request: patchRequest(body), principalKey: "human:1", routeKey: "test-patch", body, persistence, now: staleNow,
+      recover: async () => (statusReportPatchAlreadyApplied(CURRENT, body) ? { status: 200, body: { ok: true } } : null),
+      work: invalidPatchWork,
+    });
+    expect(retried.status).toBe(400);
+    expect(retried.body).toMatchObject({ error: { code: "VALIDATION_ERROR" } });
+  }
+
+  it("stale retry of {} replays a genuine 400", async () => {
+    await staleRetryReproducesGenuine400({});
+  });
+
+  it("stale retry of {foo:1} (unsupported key) replays a genuine 400", async () => {
+    await staleRetryReproducesGenuine400({ foo: 1 });
   });
 });

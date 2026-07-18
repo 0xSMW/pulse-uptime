@@ -148,6 +148,18 @@ describe("PATCH /api/v1/status-reports/{reportId}", () => {
     await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
   });
 
+  it("maps VALIDATION_ERROR / REPORT_NOT_FOUND inside work() itself (finding: a thrown error left the idempotency record stuck 'running' until a stale reclaim's recover callback fell through to true for an invalid patch body and replayed a false 200 instead of the genuine 400)", async () => {
+    vi.mocked(updateStatusReport).mockRejectedValue(new StatusReportError("VALIDATION_ERROR", "Provide at least one field to update"));
+    await PATCH(request("PATCH", {}), params);
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      work: (context: { operationId: string }) => Promise<{ status: number; body: unknown }>;
+    };
+    await expect(options.work({ operationId: "op-1" })).resolves.toEqual({
+      status: 400,
+      body: errorEnvelope("VALIDATION_ERROR", "Provide at least one field to update", context.requestId, {}),
+    });
+  });
+
   it("recover compares affected as an order-independent set and rejects a genuinely different set", async () => {
     await PATCH(request("PATCH", { affected: [{ monitorId: "api-prod", impact: "down" }] }), params);
     const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {

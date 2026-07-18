@@ -23,7 +23,7 @@ vi.mock("@/lib/api/status-reports", async (importOriginal) => ({
 
 import { revalidatePath } from "next/cache";
 
-import { apiError, objectEnvelope } from "@/lib/api/envelopes";
+import { apiError, errorEnvelope, objectEnvelope } from "@/lib/api/envelopes";
 import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, type ApiContext } from "@/lib/api/middleware";
 import {
@@ -171,5 +171,17 @@ describe("POST /api/v1/status-reports", () => {
     }));
     expect(response.status).toBe(400);
     expect((await response.json()).error.code).toBe("INVALID_JSON");
+  });
+
+  it("maps VALIDATION_ERROR inside work() itself, not thrown past executeIdempotent (finding: consistency with the delete/publish routes — a thrown error left the idempotency record stuck 'running' until a stale reclaim's recover callback, which can't tell 'never ran' from 'validation failed', forced a REQUEST_IN_PROGRESS 409 demanding a new key)", async () => {
+    vi.mocked(createStatusReport).mockRejectedValue(new StatusReportError("VALIDATION_ERROR", "Title is required"));
+    await POST(postRequest({}));
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      work: (context: { operationId: string }) => Promise<{ status: number; body: unknown }>;
+    };
+    await expect(options.work({ operationId: "op-1" })).resolves.toEqual({
+      status: 400,
+      body: errorEnvelope("VALIDATION_ERROR", "Title is required", context.requestId, {}),
+    });
   });
 });

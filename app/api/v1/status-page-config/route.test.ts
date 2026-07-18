@@ -22,7 +22,7 @@ vi.mock("@/lib/api/status-page-config", async (importOriginal) => ({
 
 import { revalidatePath } from "next/cache";
 
-import { apiError } from "@/lib/api/envelopes";
+import { apiError, errorEnvelope } from "@/lib/api/envelopes";
 import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, type ApiContext } from "@/lib/api/middleware";
 import {
@@ -206,48 +206,86 @@ describe("PUT /api/v1/status-page-config", () => {
     expect(payload.error.code).toBe("INVALID_JSON");
   });
 
-  it("wires a recover callback that returns the current document as success when it already matches the submitted one (finding: a committed save + crash makes the retry 412 against its own write)", async () => {
+  it("wires a recover callback that returns the current document as success when the retry's own If-Match is FRESH against the current ETag and the document already matches what was submitted (finding: a committed save + crash makes the retry 412 against its own write; a well-behaved client refreshes If-Match before retrying under the same Idempotency-Key, which If-Match isn't part of, so this is exactly how a genuine crash-after-commit retry looks)", async () => {
     const submitted = fullDocument({ name: "Acme Status" });
     await PUT(putRequest(submitted, { "If-Match": '"1784332800000"' }));
     const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
       recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
     };
 
-    // Recovery hit: the current document (whatever its updatedAt) already
-    // deep-equals what was submitted — a prior attempt committed the write
-    // before crashing — so the retry must recover with the CURRENT ETag
-    // rather than rerunning putStatusPageConfig against a stale If-Match.
+    // Recovery hit: this retry's own If-Match ("1784332800000") matches the
+    // CURRENT etag, and the current document already deep-equals what was
+    // submitted — a prior attempt committed the write before crashing — so
+    // the retry recovers with the current state instead of rerunning
+    // putStatusPageConfig.
     vi.mocked(getStatusPageConfig).mockResolvedValue({
-      data: { ...submitted, updatedAt: "2026-07-18T00:18:20.000Z" } as never,
-      etag: '"1784333900000"',
+      data: { ...submitted, updatedAt: "2026-07-18T00:00:00.000Z" } as never,
+      etag: '"1784332800000"',
     });
     await expect(options.recover({ operationId: "op-1" })).resolves.toEqual({
       status: 200,
-      body: { ...submitted, updatedAt: "2026-07-18T00:18:20.000Z" },
+      body: { ...submitted, updatedAt: "2026-07-18T00:00:00.000Z" },
     });
 
     // Recovery miss: the current document genuinely differs (the crash hit
     // before the write committed, or something else changed it since) — fall
     // through so work() reruns the real If-Match-guarded write.
     vi.mocked(getStatusPageConfig).mockResolvedValue({
-      data: { ...submitted, name: "Something Else", updatedAt: "2026-07-18T00:18:20.000Z" } as never,
-      etag: '"1784333900000"',
+      data: { ...submitted, name: "Something Else", updatedAt: "2026-07-18T00:00:00.000Z" } as never,
+      etag: '"1784332800000"',
     });
     await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
   });
 
-  it("recover ignores field order and the read-only updatedAt when comparing documents", async () => {
+  it("returns null (never a recovered 200) when this retry's If-Match is STALE against the current ETag, even if the current document coincidentally already matches what was submitted (finding: someone else making the identical edit must not mask a genuine precondition failure — recover must not manufacture success just because the resulting content looks the same; work() reruns and reproduces the real 412)", async () => {
     const submitted = fullDocument({ name: "Acme Status" });
     await PUT(putRequest(submitted, { "If-Match": '"1784332800000"' }));
     const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
       recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
     };
 
-    // Reordered keys and a different updatedAt must still compare equal.
+    // Current ETag has moved on to "1784333900000" — someone else's write —
+    // while this retry still carries the ORIGINAL, now-stale If-Match
+    // ("1784332800000"). The document coincidentally matches, but that must
+    // not be treated as this operation's own success.
+    vi.mocked(getStatusPageConfig).mockResolvedValue({
+      data: { ...submitted, updatedAt: "2026-07-18T00:18:20.000Z" } as never,
+      etag: '"1784333900000"',
+    });
+    await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
+  });
+
+  it("recover ignores field order and the read-only updatedAt when comparing documents (with a fresh If-Match)", async () => {
+    const submitted = fullDocument({ name: "Acme Status" });
+    await PUT(putRequest(submitted, { "If-Match": '"1784332800000"' }));
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
+    };
+
+    // Reordered keys and a different updatedAt must still compare equal, as
+    // long as the ETag itself is fresh against this retry's If-Match.
     const reordered = Object.fromEntries(Object.entries(submitted).reverse());
     vi.mocked(getStatusPageConfig).mockResolvedValue({
       data: { ...reordered, updatedAt: "2099-01-01T00:00:00.000Z" } as never,
-      etag: '"whatever"',
+      etag: '"1784332800000"',
+    });
+    await expect(options.recover({ operationId: "op-1" })).resolves.not.toBeNull();
+  });
+
+  it("recover still recognizes a semantically-equal-but-syntactically-different submitted body (finding: normalization drift check — the schema's only normalization, trim(), is idempotent and applied identically to both the originally-persisted document and this retry's reparse, so a body differing only in incidental whitespace must still compare equal)", async () => {
+    // Extra leading/trailing whitespace in `name` that parseStatusPageConfigDocument's
+    // trim() will normalize away — the stored document (itself normalized at
+    // write time) never has this whitespace, so a byte-for-byte body compare
+    // would spuriously diverge; the schema-level parse must not.
+    const submitted = fullDocument({ name: "  Acme Status  " });
+    await PUT(putRequest(submitted, { "If-Match": '"1784332800000"' }));
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
+    };
+
+    vi.mocked(getStatusPageConfig).mockResolvedValue({
+      data: { ...fullDocument({ name: "Acme Status" }), updatedAt: "2026-07-18T00:00:00.000Z" } as never,
+      etag: '"1784332800000"',
     });
     await expect(options.recover({ operationId: "op-1" })).resolves.not.toBeNull();
   });
@@ -259,5 +297,19 @@ describe("PUT /api/v1/status-page-config", () => {
       recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
     };
     await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
+  });
+
+  it("maps a StatusPageConfigError inside work() itself, not thrown past executeIdempotent (finding: a thrown 412 left the idempotency record stuck 'running' until a stale reclaim's recover callback ran against a body that no longer parsed or a document that didn't match)", async () => {
+    vi.mocked(putStatusPageConfig).mockRejectedValue(
+      new StatusPageConfigError("PRECONDITION_FAILED", "changed since read"),
+    );
+    await PUT(putRequest({}, { "If-Match": '"9"' }));
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      work: (context: { operationId: string }) => Promise<{ status: number; body: unknown }>;
+    };
+    await expect(options.work({ operationId: "op-1" })).resolves.toEqual({
+      status: 412,
+      body: errorEnvelope("PRECONDITION_FAILED", "changed since read", "req_status_page", {}),
+    });
   });
 });

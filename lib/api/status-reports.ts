@@ -191,6 +191,17 @@ export interface StatusReportsStore {
   }): Promise<StatusReportRow | null>;
   deleteReport(id: string): Promise<boolean>;
   insertUpdate(row: StatusReportUpdateRow): Promise<void>;
+  /**
+   * Row-locked insert for addReportUpdate: locks the report (`FOR UPDATE`,
+   * mirroring deleteUpdate/recomputeResolution) and re-verifies it still
+   * exists INSIDE the same transaction as the insert, closing the race where
+   * a concurrent DELETE commits between an earlier existence check and this
+   * insert (finding: an unguarded insert let that race surface as a raw
+   * report_id foreign-key-violation 500 instead of REPORT_NOT_FOUND). Returns
+   * the locked report row, or null if it no longer exists — in which case
+   * nothing is inserted.
+   */
+  insertReportUpdate(input: { reportId: string; update: StatusReportUpdateRow }): Promise<StatusReportRow | null>;
   editUpdate(input: {
     reportId: string;
     updateId: string;
@@ -332,6 +343,18 @@ const patchSchema = z
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, { message: "Provide at least one field to update" });
+
+/**
+ * Whether `body` would satisfy patchSchema (finding: statusReportPatchAlreadyApplied
+ * in lib/api/status-report-http.ts otherwise falls through to `true` for an
+ * INVALID patch — `{}` or a body with only unsupported keys — since no
+ * recognized field mismatches, which recovers a stale retry as a false 200
+ * instead of reproducing the original VALIDATION_ERROR). Exported so that
+ * idempotency-recovery gate without duplicating patchSchema's shape.
+ */
+export function isValidStatusReportPatch(body: unknown): boolean {
+  return patchSchema.safeParse(body).success;
+}
 
 const updateCreateSchema = z
   .object({
@@ -719,11 +742,11 @@ export async function addReportUpdate(
   const now = dependencies.now?.() ?? new Date();
   const newId = dependencies.newId ?? (() => crypto.randomUUID());
   const parsed = parseOrThrow(updateCreateSchema, input);
-  const report = await store.getReport(reportId);
-  if (!report) throw new StatusReportError("REPORT_NOT_FOUND", "Status report was not found");
-  assertStatusMatchesType(report.type, parsed.status);
+  const existing = await store.getReport(reportId);
+  if (!existing) throw new StatusReportError("REPORT_NOT_FOUND", "Status report was not found");
+  assertStatusMatchesType(existing.type, parsed.status);
 
-  await store.insertUpdate({
+  const update: StatusReportUpdateRow = {
     id: dependencies.updateId ?? newId(),
     reportId,
     status: parsed.status,
@@ -731,7 +754,14 @@ export async function addReportUpdate(
     publishedAt: parsed.publishedAt ?? now,
     createdAt: now,
     updatedAt: now,
-  });
+  };
+  // Row-locked insert: closes the race where a concurrent DELETE commits
+  // between the existence check above and the insert (finding: an FK
+  // violation surfacing as a raw 500 instead of REPORT_NOT_FOUND). A report
+  // deleted in that window is re-detected here, inside the lock, instead of
+  // letting the insert crash against a gone-but-still-referenced report_id.
+  const report = await store.insertReportUpdate({ reportId, update });
+  if (!report) throw new StatusReportError("REPORT_NOT_FOUND", "Status report was not found");
   return persistResolutionAndSerialize(store, report, now);
 }
 
@@ -819,6 +849,11 @@ function reportUpdatePatchAlreadyApplied(
   current: Pick<StatusReportUpdateRow, "status" | "markdown" | "publishedAt">,
   body: unknown,
 ): boolean {
+  // Gate on the SAME schema the real edit would have to pass (finding: an
+  // INVALID patch — `{}`, or a body with only unsupported keys — otherwise
+  // falls through to `true` since no recognized field mismatches, turning a
+  // stale retry's genuine VALIDATION_ERROR into a false recovered 200).
+  if (!updateEditSchema.safeParse(body).success) return false;
   if (body === null || typeof body !== "object") return false;
   const patch = body as Record<string, unknown>;
   if ("status" in patch && patch.status !== current.status) return false;
@@ -1265,6 +1300,26 @@ export const databaseStatusReportsStore: StatusReportsStore = {
 
   async insertUpdate(row) {
     await db.insert(statusReportUpdates).values(row);
+  },
+
+  async insertReportUpdate({ reportId, update }) {
+    if (!isUuid(reportId)) return null;
+    // `SELECT ... FOR UPDATE` on the report serializes against a concurrent
+    // DELETE on the SAME row (mirrors deleteUpdate/recomputeResolution): a
+    // racing delete either commits first — the lock then finds zero rows,
+    // so this returns null before ever attempting the insert — or blocks
+    // behind this transaction, closing the window where an unguarded insert
+    // could hit the report_id foreign key after the row was already gone.
+    return db.transaction(async (tx) => {
+      const [locked] = await tx
+        .select(reportSelection)
+        .from(statusReports)
+        .where(eq(statusReports.id, reportId))
+        .for("update");
+      if (!locked) return null;
+      await tx.insert(statusReportUpdates).values(update);
+      return locked;
+    });
   },
 
   async editUpdate({ reportId, updateId, patch, now }) {

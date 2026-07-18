@@ -22,7 +22,7 @@ vi.mock("@/lib/api/status-reports", async (importOriginal) => ({
 
 import { revalidatePath } from "next/cache";
 
-import { apiError, objectEnvelope } from "@/lib/api/envelopes";
+import { apiError, errorEnvelope, objectEnvelope } from "@/lib/api/envelopes";
 import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, type ApiContext } from "@/lib/api/middleware";
 import {
@@ -122,5 +122,17 @@ describe("POST /api/v1/status-reports/{reportId}/updates", () => {
     // retry (rerunAfterRecoveryMiss: false) instead of re-running work().
     vi.mocked(recoverAddedReportUpdate).mockResolvedValue(null);
     await expect(options.recover({ operationId: "op-100" })).resolves.toBeNull();
+  });
+
+  it("maps REPORT_NOT_FOUND/VALIDATION_ERROR inside work() itself, not thrown past executeIdempotent (finding: consistency with the delete/publish routes)", async () => {
+    vi.mocked(addReportUpdate).mockRejectedValue(new StatusReportError("REPORT_NOT_FOUND", "missing"));
+    await POST(request({ status: "resolved", markdown: "Fixed." }), params);
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      work: (context: { operationId: string }) => Promise<{ status: number; body: unknown }>;
+    };
+    await expect(options.work({ operationId: "op-1" })).resolves.toEqual({
+      status: 404,
+      body: errorEnvelope("REPORT_NOT_FOUND", "missing", context.requestId, {}),
+    });
   });
 });

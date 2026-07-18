@@ -143,6 +143,19 @@ function memoryStore(monitors: Array<{ id: string; name: string; groupName: stri
     async insertUpdate(row) {
       updates.set(row.id, { ...row });
     },
+    async insertReportUpdate({ reportId, update }) {
+      // Mirrors the DB's locked contract: re-check existence, then insert,
+      // as one atomic step — a report deleted between an earlier
+      // (unlocked) existence check and this call is caught here rather
+      // than corrupting an FK relationship the way an unguarded insert
+      // would.
+      return withReportLock(reportId, async () => {
+        const row = reports.get(reportId);
+        if (!row) return null;
+        updates.set(update.id, { ...update });
+        return { ...row };
+      });
+    },
     async editUpdate({ reportId, updateId, patch, now }) {
       const row = updates.get(updateId);
       if (!row || row.reportId !== reportId) return null;
@@ -485,6 +498,45 @@ describe("report update lifecycle", () => {
     for (const update of report.updates) {
       expect(update.createdAt).toBe(NOW.toISOString());
     }
+  });
+
+  it("maps a concurrent-delete race to REPORT_NOT_FOUND instead of crashing on a foreign-key violation (finding: getReport succeeding then a concurrent DELETE committing before the insert used to bubble a raw FK-violation 500)", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const created = await createStatusReport(validCreate, deps);
+
+    // Simulate the report being deleted in the window between addReportUpdate's
+    // existence check and the row-locked insert: the guarded store method
+    // re-checks existence and finds the report gone, so it returns null
+    // instead of ever attempting an insert against a missing report_id.
+    const originalInsert = store.insertReportUpdate.bind(store);
+    store.insertReportUpdate = async (input) => {
+      await store.deleteReport(created.id);
+      return originalInsert(input);
+    };
+
+    await expect(addReportUpdate(created.id, { status: "monitoring", markdown: "Watching." }, deps))
+      .rejects.toMatchObject({ code: "REPORT_NOT_FOUND" });
+    // The report (and, via cascade, its updates) is gone; nothing was
+    // inserted for the raced attempt.
+    expect([...store.updates.values()].filter((row) => row.reportId === created.id)).toHaveLength(0);
+  });
+
+  it("store contract: insertReportUpdate re-checks existence and inserts atomically, returning null (and inserting nothing) once the report is gone", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const created = await createStatusReport(validCreate, deps);
+    await store.deleteReport(created.id);
+
+    const result = await store.insertReportUpdate({
+      reportId: created.id,
+      update: {
+        id: "orphan-update", reportId: created.id, status: "monitoring", markdown: "Watching.",
+        publishedAt: NOW, createdAt: NOW, updatedAt: NOW,
+      },
+    });
+    expect(result).toBeNull();
+    expect(store.updates.has("orphan-update")).toBe(false);
   });
 
   it("reports UPDATE_NOT_FOUND and REPORT_NOT_FOUND distinctly", async () => {
@@ -914,6 +966,15 @@ describe("idempotent-edit recovery (finding: PATCH /updates/{updateId} was the o
     const created = await createStatusReport(validCreate, deps);
     await expect(recoverEditedReportUpdate("missing-report", "missing-update", { status: "monitoring" }, deps)).resolves.toBeNull();
     await expect(recoverEditedReportUpdate(created.id, "missing-update", { status: "monitoring" }, deps)).resolves.toBeNull();
+  });
+
+  it("returns null for an INVALID patch body (finding: {} or unsupported-key bodies fell through to true since no recognized field mismatched, recovering a stale retry of a genuine VALIDATION_ERROR as a false 200)", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const created = await createStatusReport(validCreate, deps);
+    const updateId = created.updates[0].id;
+    await expect(recoverEditedReportUpdate(created.id, updateId, {}, deps)).resolves.toBeNull();
+    await expect(recoverEditedReportUpdate(created.id, updateId, { foo: 1 }, deps)).resolves.toBeNull();
   });
 });
 

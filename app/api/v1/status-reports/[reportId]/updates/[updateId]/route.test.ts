@@ -110,6 +110,18 @@ describe("PATCH /api/v1/status-reports/{reportId}/updates/{updateId}", () => {
     vi.mocked(recoverEditedReportUpdate).mockResolvedValue(null);
     await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
   });
+
+  it("maps UPDATE_NOT_FOUND/VALIDATION_ERROR inside work() itself (finding: a thrown error left the idempotency record stuck 'running' until a stale reclaim's recover callback — which can fall through to true for an invalid patch body — replayed a false 200 instead of the genuine error)", async () => {
+    vi.mocked(editReportUpdate).mockRejectedValue(new StatusReportError("UPDATE_NOT_FOUND", "missing"));
+    await PATCH(request("PATCH", { status: "monitoring" }), params);
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      work: (context: { operationId: string }) => Promise<{ status: number; body: unknown }>;
+    };
+    await expect(options.work({ operationId: "op-1" })).resolves.toEqual({
+      status: 404,
+      body: errorEnvelope("UPDATE_NOT_FOUND", "missing", context.requestId, {}),
+    });
+  });
 });
 
 describe("DELETE /api/v1/status-reports/{reportId}/updates/{updateId}", () => {

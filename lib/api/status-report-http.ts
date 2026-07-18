@@ -7,7 +7,7 @@ import { statusGroupSlug } from "@/lib/reporting/queries/timeline";
 import { apiError, errorEnvelope } from "./envelopes";
 import type { StoredResponse } from "./idempotency";
 import { routeError } from "./route";
-import { databaseStatusReportsStore, StatusReportError } from "./status-reports";
+import { databaseStatusReportsStore, isValidStatusReportPatch, StatusReportError } from "./status-reports";
 
 function statusReportErrorStatus(error: StatusReportError): number {
   return error.code === "VALIDATION_ERROR" || error.code === "INVALID_CURSOR"
@@ -63,6 +63,11 @@ export function statusReportPatchAlreadyApplied(
   },
   body: unknown,
 ): boolean {
+  // Gate on the SAME schema the real patch would have to pass (finding: an
+  // INVALID patch — `{}`, or a body with only unsupported keys — otherwise
+  // falls through to `true` since no recognized field mismatches, turning a
+  // stale retry's genuine VALIDATION_ERROR into a false recovered 200).
+  if (!isValidStatusReportPatch(body)) return false;
   if (body === null || typeof body !== "object") return false;
   const patch = body as Record<string, unknown>;
   if ("title" in patch && patch.title !== current.title) return false;

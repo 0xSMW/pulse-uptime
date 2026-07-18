@@ -47,14 +47,27 @@ export async function PATCH(request: Request, { params }: Params) {
         return { status: 200, body: objectEnvelope("StatusReport", current, context.requestId) };
       },
       work: async () => {
-        // Replacing the affected set can move the report between group pages;
-        // capture the pre-patch snapshot so the pages it leaves refresh too.
-        const previous = body !== null && typeof body === "object" && "affected" in body
-          ? await getStatusReport(reportId).catch(() => null)
-          : null;
-        const report = await updateStatusReport(reportId, body);
-        await revalidateStatusReportPaths(report, previous?.affected ?? []);
-        return { status: 200, body: objectEnvelope("StatusReport", report, context.requestId) };
+        try {
+          // Replacing the affected set can move the report between group
+          // pages; capture the pre-patch snapshot so the pages it leaves
+          // refresh too.
+          const previous = body !== null && typeof body === "object" && "affected" in body
+            ? await getStatusReport(reportId).catch(() => null)
+            : null;
+          const report = await updateStatusReport(reportId, body);
+          await revalidateStatusReportPaths(report, previous?.affected ?? []);
+          return { status: 200, body: objectEnvelope("StatusReport", report, context.requestId) };
+        } catch (error) {
+          // VALIDATION_ERROR / REPORT_NOT_FOUND are deterministic outcomes of
+          // the request/CURRENT state, not proof this operation ever ran —
+          // recorded here rather than thrown past executeIdempotent (finding:
+          // a thrown error left the idempotency record stuck "running" until
+          // a stale reclaim's recover callback fell through to `true` for an
+          // invalid patch body and replayed a false 200 instead of the
+          // genuine 400).
+          if (error instanceof StatusReportError) return storedStatusReportError(error, context.requestId);
+          throw error;
+        }
       },
     });
     return apiJson(result.body, { status: result.status });
