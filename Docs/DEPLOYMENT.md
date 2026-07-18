@@ -92,5 +92,4 @@ pnpm verify
 vercel deploy --prod --scope <team>
 ```
 
-After deployment, confirm `/api/v1/version`, `/openapi/v1.json`, `/status`, both authenticated cron routes, onboarding readiness, database migrations, Edge Config acceptance, and Resend delivery. Finish the production checklist in `Docs/INIT.md` before declaring the installation ready.
-
+After deployment, confirm `/api/v1/version`, `/openapi/v1.json`, `/status`, both authenticated cron routes, onboarding readiness, database migrations, Edge Config acceptance, and Resend delivery before declaring the installation ready.
