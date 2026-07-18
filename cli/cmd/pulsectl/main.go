@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/productos-ai/pulse-uptime/cli/internal/command"
+	"golang.org/x/term"
 )
 
 func main() {
@@ -37,6 +38,5 @@ func main() {
 }
 
 func isTerminal(file *os.File) bool {
-	info, err := file.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
+	return file != nil && term.IsTerminal(int(file.Fd()))
 }
