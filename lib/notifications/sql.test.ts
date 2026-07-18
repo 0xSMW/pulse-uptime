@@ -3,6 +3,8 @@ import {
   CLAIM_NOTIFICATIONS_SQL,
   MARK_NOTIFICATION_FAILED_SQL,
   MARK_NOTIFICATION_SENT_SQL,
+  PROVIDER_IDEMPOTENCY_RETRY_MARGIN_MS,
+  PROVIDER_IDEMPOTENCY_WINDOW_MS,
   RECONCILE_STALE_CLAIMS_SQL,
   claimNotifications,
   markNotificationFailed,
@@ -36,9 +38,11 @@ describe("outbox SQL", () => {
     expect(rows[0]).toMatchObject({ id: "notification-1", claimToken: "claim-1", attemptCount: 1 });
   });
 
-  it("recovers only sending claims older than five minutes", async () => {
+  it("retries stale claims only inside the provider idempotency window", async () => {
     expect(RECONCILE_STALE_CLAIMS_SQL).toMatch(/status = 'sending'/i);
     expect(RECONCILE_STALE_CLAIMS_SQL).toMatch(/claim_token = null/i);
+    expect(RECONCILE_STALE_CLAIMS_SQL).toMatch(/claimed_at <= \$3 then 'dead'/i);
+    expect(RECONCILE_STALE_CLAIMS_SQL).toContain("AMBIGUOUS_PROVIDER_RESULT");
     const query = vi.fn(async (text: string, values: readonly unknown[]) => {
       void text;
       void values;
@@ -49,6 +53,10 @@ describe("outbox SQL", () => {
     expect(query).toHaveBeenCalledWith(RECONCILE_STALE_CLAIMS_SQL, [
       now,
       new Date("2026-07-18T00:05:00Z"),
+      new Date(
+        now.getTime() -
+          (PROVIDER_IDEMPOTENCY_WINDOW_MS - PROVIDER_IDEMPOTENCY_RETRY_MARGIN_MS),
+      ),
     ]);
   });
 
