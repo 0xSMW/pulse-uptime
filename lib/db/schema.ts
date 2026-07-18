@@ -403,6 +403,7 @@ export const deviceAuthorizations = pgTable("device_authorizations", {
   platform: text("platform").notNull(),
   architecture: text("architecture").notNull(),
   clientVersion: text("client_version").notNull(),
+  requestIp: inet("request_ip"),
   state: text("state", { enum: deviceAuthorizationStates }).notNull(),
   createdAt: timestamptz("created_at").notNull(),
   expiresAt: timestamptz("expires_at").notNull(),
