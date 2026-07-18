@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, X } from "lucide-react";
+import { Activity, Archive, Pause, Pencil, Play, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   type FormEvent,
@@ -265,6 +265,48 @@ function MutationMessage({ state }: { state: MutationState }) {
   );
 }
 
+function HeaderIconAction({
+  label,
+  disabled,
+  disabledDescription,
+  onClick,
+  children,
+}: {
+  label: string;
+  disabled: boolean;
+  disabledDescription?: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  const tooltipId = useId();
+
+  return (
+    <span
+      className="group relative inline-flex"
+      tabIndex={disabled ? 0 : undefined}
+      aria-label={disabled && disabledDescription ? `${label}. ${disabledDescription}` : undefined}
+    >
+      <Button
+        variant="secondary"
+        size="icon"
+        disabled={disabled}
+        aria-label={label}
+        aria-describedby={tooltipId}
+        onClick={onClick}
+      >
+        {children}
+      </Button>
+      <span
+        id={tooltipId}
+        role="tooltip"
+        className="pointer-events-none absolute top-[calc(100%+8px)] left-1/2 z-20 -translate-x-1/2 rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-2 py-1 text-xs font-medium whitespace-nowrap text-[var(--fg)] opacity-0 shadow-[var(--popover-shadow)] transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none"
+      >
+        {label}
+      </span>
+    </span>
+  );
+}
+
 export function MonitorActions({ monitor }: { monitor: EditableMonitor }) {
   const router = useRouter();
   const [editOpen, setEditOpen] = useState(false);
@@ -294,26 +336,30 @@ export function MonitorActions({ monitor }: { monitor: EditableMonitor }) {
     <>
       <div className="flex flex-col items-start gap-2">
         <div className="flex flex-wrap gap-2">
-          <Button
-            variant="secondary"
+          <HeaderIconAction
+            label="Test Monitor"
             disabled={isBusy || paused}
-            title={paused ? "Resume this monitor to run a test" : undefined}
+            disabledDescription={paused ? "Resume this monitor to run a test" : "Another monitor action is in progress"}
             onClick={() => void runAction("test")}
           >
-            {action.status === "loading" && action.message === "Checking…" ? "Checking…" : "Test Monitor"}
-          </Button>
-          <Button
-            variant="secondary"
+            <Activity className="size-4" aria-hidden />
+          </HeaderIconAction>
+          <HeaderIconAction
+            label={paused ? "Resume Monitor" : "Pause Monitor"}
             disabled={isBusy}
+            disabledDescription="Another monitor action is in progress"
             onClick={() => void runAction(paused ? "resume" : "pause")}
           >
-            {action.status === "loading" && (action.message === "Pausing…" || action.message === "Resuming…")
-              ? action.message
-              : paused ? "Resume Monitor" : "Pause Monitor"}
-          </Button>
-          <Button variant="secondary" disabled={isBusy} onClick={() => setEditOpen(true)}>
-            Edit Monitor
-          </Button>
+            {paused ? <Play className="size-4" aria-hidden /> : <Pause className="size-4" aria-hidden />}
+          </HeaderIconAction>
+          <HeaderIconAction
+            label="Edit Monitor"
+            disabled={isBusy}
+            disabledDescription="Another monitor action is in progress"
+            onClick={() => setEditOpen(true)}
+          >
+            <Pencil className="size-4" aria-hidden />
+          </HeaderIconAction>
         </div>
         <MutationMessage state={action} />
       </div>
