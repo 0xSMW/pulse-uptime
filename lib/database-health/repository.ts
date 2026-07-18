@@ -1,26 +1,32 @@
 import "server-only";
 
 import { sql } from "@/lib/db/client";
-import { STORAGE_BUDGET_BYTES } from "@/lib/storage/governor";
+import { portableQueryValues } from "@/lib/db/query-values";
 import { MEASURE_USAGE_SQL } from "@/lib/storage/sql";
 
 import type {
   AttributedDatabaseCategoryKey,
+  DatabaseHealthCategoryKey,
   DatabaseGovernorMode,
   DatabaseHealthMeasurement,
   DatabaseHealthRepository,
 } from "./types";
+import { DATABASE_STORAGE_BUDGET_BYTES } from "./types";
+
+type RuntimeDate = Date | string | number;
 
 type SnapshotRow = {
-  captured_at: Date;
+  captured_at: RuntimeDate;
   storage_bytes: bigint | string;
-  category_bytes: Record<string, bigint | number | string>;
+  index_bytes: bigint | string;
+  category_bytes: Record<string, bigint | number | string> | string;
+  history_bytes: bigint | string | null;
   monthly_transfer_bytes: bigint | string | null;
   projected_30_day_bytes: bigint | string;
   governor_mode: string;
-  last_compaction_at: Date | null;
+  last_compaction_at: RuntimeDate | null;
   scheduler_coverage: number | string | null;
-  provider_metrics_captured_at: Date | null;
+  provider_metrics_captured_at: RuntimeDate | null;
   maintenance_status: string | null;
 };
 
@@ -28,7 +34,7 @@ type RetentionRow = {
   key: string;
   label: string;
   configured_seconds: number | string | null;
-  oldest_at: Date | null;
+  oldest_at: RuntimeDate | null;
 };
 
 const RETENTION_AGES_SQL = `
@@ -50,6 +56,31 @@ function finiteNumber(value: bigint | number | string | null | undefined): numbe
   if (value === null || value === undefined) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function finiteDate(value: RuntimeDate | null | undefined): Date | null {
+  if (value === null || value === undefined) return null;
+  try {
+    const isoValue = Object.prototype.toString.call(value) === "[object Date]"
+      ? (value as Date).toISOString()
+      : value;
+    const date = new Date(isoValue);
+    return Number.isFinite(date.valueOf()) ? date : null;
+  } catch {
+    return null;
+  }
+}
+
+function categoryRecord(value: SnapshotRow["category_bytes"]): Record<string, bigint | number | string> {
+  if (typeof value !== "string") return value ?? {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, bigint | number | string>
+      : {};
+  } catch {
+    return {};
+  }
 }
 
 function publicGovernorMode(value: string): DatabaseGovernorMode {
@@ -84,32 +115,59 @@ async function readLatest(): Promise<DatabaseHealthMeasurement | null> {
   const rows = await sql.unsafe(LATEST_SNAPSHOT_SQL) as unknown as SnapshotRow[];
   const snapshot = rows[0];
   if (!snapshot) return null;
+  const capturedAt = finiteDate(snapshot.captured_at);
+  if (!capturedAt) throw new Error("Invalid database usage snapshot timestamp");
   const retention = await sql.unsafe(RETENTION_AGES_SQL) as unknown as RetentionRow[];
-  const categoryBytes = Object.fromEntries(Object.entries(snapshot.category_bytes ?? {})
-    .filter(([key]) => key !== "other")
+  const rawCategories = categoryRecord(snapshot.category_bytes);
+  const allowedCategories = new Set<DatabaseHealthCategoryKey>([
+    "recentCheckBatches", "rollups", "exceptions", "incidents", "coreData", "operations", "indexes", "other",
+  ]);
+  const categoryBytes = Object.fromEntries(Object.entries(rawCategories)
+    .filter(([key]) => key !== "other" && allowedCategories.has(key as DatabaseHealthCategoryKey))
     .map(([key, value]) => [key, finiteNumber(value) ?? 0])) as Partial<Record<AttributedDatabaseCategoryKey, number>>;
+  categoryBytes.indexes ??= finiteNumber(snapshot.index_bytes) ?? 0;
+  const persistedOtherBytes = finiteNumber(rawCategories.other) ?? finiteNumber(snapshot.history_bytes) ?? 0;
+  const relationStorageBytes = finiteNumber(snapshot.storage_bytes);
+  const providerStorageBytes = relationStorageBytes === null ? null : relationStorageBytes + persistedOtherBytes;
   const governorMode = publicGovernorMode(snapshot.governor_mode);
   const monthlyTransferBytes = finiteNumber(snapshot.monthly_transfer_bytes);
+  const providerMetricsCapturedAt = finiteDate(snapshot.provider_metrics_captured_at);
   return {
-    capturedAt: snapshot.captured_at,
-    storageBytes: finiteNumber(snapshot.storage_bytes),
-    projected30DayBytes: finiteNumber(snapshot.projected_30_day_bytes),
+    capturedAt,
+    storageBytes: providerStorageBytes,
+    otherBytes: persistedOtherBytes,
+    projected30DayBytes: finiteNumber(snapshot.projected_30_day_bytes) === null
+      ? null
+      : finiteNumber(snapshot.projected_30_day_bytes)! + persistedOtherBytes,
     categoryBytes,
     retention: retention.map((row) => ({
       key: row.key,
       label: row.label,
-      configuredSeconds: finiteNumber(row.configured_seconds),
-      oldestAt: row.oldest_at,
+      configuredSeconds: effectiveRetentionSeconds(row.key, governorMode, finiteNumber(row.configured_seconds)),
+      oldestAt: finiteDate(row.oldest_at),
     })),
     governorMode,
     governorAction: governorAction(governorMode),
-    lastCompactionAt: snapshot.last_compaction_at,
+    lastCompactionAt: finiteDate(snapshot.last_compaction_at),
     schedulerCoverage: finiteNumber(snapshot.scheduler_coverage),
     monthlyTransferBytes,
-    projectedMonthlyTransferBytes: projectMonthlyTransfer(monthlyTransferBytes, snapshot.captured_at),
-    providerMetricsAvailable: snapshot.provider_metrics_captured_at !== null,
-    maintenanceHealthy: snapshot.maintenance_status === null ? null : snapshot.maintenance_status === "completed",
+    projectedMonthlyTransferBytes: projectMonthlyTransfer(monthlyTransferBytes, capturedAt),
+    providerMetricsAvailable: providerMetricsCapturedAt !== null,
+    providerMetricsCapturedAt,
+    maintenanceHealthy: snapshot.maintenance_status === "completed"
+      ? true
+      : snapshot.maintenance_status === "failed" ? false : null,
   };
+}
+
+function effectiveRetentionSeconds(key: string, mode: DatabaseGovernorMode, fallback: number | null): number | null {
+  const byMode: Partial<Record<DatabaseGovernorMode, Partial<Record<string, number>>>> = {
+    EARLY_COMPACTION: { minute: 36 * 3_600 },
+    SHORTENED_RETENTION: { minute: 24 * 3_600, "15m": 3 * 86_400 },
+    INCIDENT_HOURLY_ONLY: { minute: 12 * 3_600, "15m": 86_400, hour: 14 * 86_400 },
+    ESSENTIALS_ONLY: { minute: 0, "15m": 0, hour: 0 },
+  };
+  return byMode[mode]?.[key] ?? fallback;
 }
 
 /**
@@ -122,7 +180,10 @@ export const databaseHealthRepository: DatabaseHealthRepository = {
   },
   async capture() {
     const now = new Date();
-    await sql.unsafe(MEASURE_USAGE_SQL, [now, STORAGE_BUDGET_BYTES, null, null, null] as never[]);
+    await sql.unsafe(
+      MEASURE_USAGE_SQL,
+      portableQueryValues([now, DATABASE_STORAGE_BUDGET_BYTES, null, null, null]) as never[],
+    );
     return readLatest();
   },
 };
