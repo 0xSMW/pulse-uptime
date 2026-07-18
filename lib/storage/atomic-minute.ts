@@ -37,7 +37,8 @@ with batch_insert as materialized (
     scheduled_minute, encoding_version, config_version, monitor_ids,
     expected_bitmap, completed_bitmap, failure_bitmap, latency_values,
     scheduler_started_at, scheduler_completed_at, created_at
-  ) values ($1, $2, $3, $4::text[], $5::bytea, $6::bytea, $7::bytea, $8::bytea, $9, $10, $10)
+  ) values ($1, $2, $3, array(select jsonb_array_elements_text($4::jsonb)),
+    decode($5, 'hex'), decode($6, 'hex'), decode($7, 'hex'), decode($8, 'hex'), $9, $10, $10)
   on conflict (scheduled_minute) do nothing returning scheduled_minute
 ), state_rows as materialized (
   select r.* from jsonb_to_recordset($11::jsonb) as r(
@@ -210,7 +211,9 @@ export async function persistAtomicMinute(db: PackedMinuteExecutor, input: Atomi
   }
 
   await db.query(PERSIST_ATOMIC_MINUTE_SQL, [input.scheduledMinute, packed.encodingVersion, input.configVersion,
-    monitorIds, packed.expectedBitmap, packed.completedBitmap, packed.failureBitmap, packed.latencyValues,
-    input.schedulerStartedAt, input.schedulerCompletedAt, stateRows, opened,
-    progressed, resolved, outbox, payloads, exceptions]);
+    JSON.stringify(monitorIds), packed.expectedBitmap.toString("hex"), packed.completedBitmap.toString("hex"),
+    packed.failureBitmap.toString("hex"), packed.latencyValues.toString("hex"),
+    input.schedulerStartedAt, input.schedulerCompletedAt, JSON.stringify(stateRows), JSON.stringify(opened),
+    JSON.stringify(progressed), JSON.stringify(resolved), JSON.stringify(outbox), JSON.stringify(payloads),
+    JSON.stringify(exceptions)]);
 }
