@@ -1,4 +1,4 @@
-import { hashCanonical } from "./canonical";
+import { hashCanonical, hashDeclarativeConfig } from "./canonical";
 import type { DeclarativeConfig, MonitorConfig, MonitoringSettings } from "./schema";
 import { evaluateDestructiveChange, type DestructiveChangeEvaluation } from "./tripwire";
 import { validateDeclarativeConfig } from "./validation";
@@ -128,8 +128,8 @@ export function createConfigurationPlan(
 ): ConfigurationPlan {
   const current = validateDeclarativeConfig(currentInput);
   const targetConfig = validateDeclarativeConfig(targetInput);
-  const baseConfigHash = options.baseConfigHash ?? hashCanonical(current);
-  const targetConfigHash = hashCanonical(targetConfig);
+  const baseConfigHash = options.baseConfigHash ?? hashDeclarativeConfig(current);
+  const targetConfigHash = hashDeclarativeConfig(targetConfig);
   const diff = calculateConfigurationDiff(current, targetConfig, options.archivedMonitors);
   const destructiveChange = evaluateDestructiveChange(current, targetConfig);
   const planHash = hashCanonical({ baseConfigHash, targetConfigHash, diff });
@@ -143,4 +143,3 @@ export function createConfigurationPlan(
     destructiveChange,
   };
 }
-
