@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { createClient } from "@vercel/edge-config";
 import { and, desc, eq, gt, isNull, notInArray, sql as drizzleSql } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
 
 import { createHttpChecker } from "@/lib/checker/checker";
 import {
@@ -336,6 +337,7 @@ export async function runMonitoringCron() {
         states: stateSnapshots,
         schedulerStartedAt,
         schedulerCompletedAt,
+        invalidatePublicStatus: async () => revalidatePath("/status", "layout"),
       });
     },
   });
