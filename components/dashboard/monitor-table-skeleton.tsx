@@ -3,7 +3,9 @@
 export function MonitorTableSkeleton({ rows = 3 }: { rows?: number }) {
   return (
     <div aria-busy="true" aria-label="Loading monitors">
-      <div className="mb-4 h-10 animate-pulse rounded-lg border border-[var(--border)] bg-[var(--chip-bg)]" />
+      {/* Chrome copied from components/ui/input.tsx (md) so the swap to the
+          real search input changes nothing visually. */}
+      <div className="mb-4 h-10 animate-pulse rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)]" />
       <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
         <table className="w-full min-w-[760px] border-collapse text-left text-[13px]">
           <thead className="text-xs text-[var(--fg-muted)]">

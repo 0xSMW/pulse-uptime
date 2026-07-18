@@ -204,11 +204,32 @@ function PaletteDialogFrame({ children }: { children: ReactNode }) {
   );
 }
 
+// Mirrors the resolved dialog's input row and footer, and autofocuses so
+// keystrokes cannot leak to shortcuts behind the aria-modal overlay while the
+// streamed palette data is still resolving.
 function PaletteDialogLoading() {
   return (
-    <div className="px-4 py-12 text-center text-[13px] text-[var(--fg-muted)]" aria-busy="true">
-      Loading…
-    </div>
+    <>
+      <div className="relative border-b border-[var(--border)]">
+        <Search className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-[var(--fg-muted)]" aria-hidden />
+        <input
+          autoFocus
+          aria-label="Search commands"
+          placeholder="Search pages and monitors"
+          className="h-14 w-full border-0 bg-transparent pr-4 pl-11 text-sm outline-none placeholder:text-[var(--fg-faint)]"
+        />
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-2" aria-busy="true" aria-label="Loading commands">
+        {Array.from({ length: 4 }, (_, index) => (
+          <div key={index} className="my-1 h-10 animate-pulse rounded-[6px] bg-[var(--chip-bg)]" />
+        ))}
+      </div>
+      <footer className="flex items-center justify-end gap-4 border-t border-[var(--border)] px-4 py-2.5 font-data text-[10px] text-[var(--fg-faint)]">
+        <span><kbd>↑↓</kbd> Navigate</span>
+        <span><kbd>↵</kbd> Open</span>
+        <span><kbd>esc</kbd> Close</span>
+      </footer>
+    </>
   );
 }
 

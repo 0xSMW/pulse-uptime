@@ -27,16 +27,29 @@ function failureLabel(errorCode: string | null, statusCode: number | null): stri
   return errorCode ?? "Unknown failure";
 }
 
-function summarizeNotifications(rows: NotificationRow[]) {
-  const sentCount = rows.filter((row) => row.status === "sent").length;
-  const state = rows.some((row) => row.status === "dead")
+// Single source of truth for the sent/retrying/dead/none precedence, shared
+// by the SQL aggregate path (listIncidents) and the row path (getIncidentDetail).
+export function summarizeNotificationAggregate(aggregate: {
+  sentCount: number;
+  anyDead: boolean;
+  anyUnsent: boolean;
+}) {
+  const state = aggregate.anyDead
     ? "dead" as const
-    : rows.some((row) => row.status !== "sent")
+    : aggregate.anyUnsent
       ? "retrying" as const
-      : sentCount > 0
+      : aggregate.sentCount > 0
         ? "sent" as const
         : "none" as const;
-  return { state, sentCount };
+  return { state, sentCount: aggregate.sentCount };
+}
+
+function summarizeNotifications(rows: NotificationRow[]) {
+  return summarizeNotificationAggregate({
+    sentCount: rows.filter((row) => row.status === "sent").length,
+    anyDead: rows.some((row) => row.status === "dead"),
+    anyUnsent: rows.some((row) => row.status !== "sent"),
+  });
 }
 
 // Slim projection for the command palette: no notification data, so the
@@ -107,18 +120,9 @@ export async function listIncidents(filter: IncidentFilter = "all") {
       durationSeconds: durationSeconds(row.openedAt, row.resolvedAt),
       openingFailure: failureLabel(row.openingErrorCode, row.openingStatusCode),
       status: row.openingStatusCode?.toString() ?? null,
-      notificationSummary: summary
-        ? {
-            state: summary.anyDead
-              ? "dead" as const
-              : summary.anyUnsent
-                ? "retrying" as const
-                : summary.sentCount > 0
-                  ? "sent" as const
-                  : "none" as const,
-            sentCount: summary.sentCount,
-          }
-        : { state: "none" as const, sentCount: 0 },
+      notificationSummary: summarizeNotificationAggregate(
+        summary ?? { sentCount: 0, anyDead: false, anyUnsent: false },
+      ),
     };
   });
 }

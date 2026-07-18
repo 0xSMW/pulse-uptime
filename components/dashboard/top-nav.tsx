@@ -46,7 +46,7 @@ export function TopNav({ email }: { email: string }) {
               >
                 {link.label}
                 {"external" in link && link.external ? <ArrowUpRight className="size-3" aria-hidden="true" /> : null}
-                <LinkPendingPulse />
+                <LinkPendingPulse className="-right-2.5" />
               </Link>
             );
           })}

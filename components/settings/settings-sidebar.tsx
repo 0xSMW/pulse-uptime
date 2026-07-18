@@ -76,12 +76,12 @@ export function SettingsSidebar() {
                   prefetch={true}
                   aria-current={active ? "page" : undefined}
                   className={cn(
-                    "flex h-8 items-center gap-2 rounded-[6px] px-3 text-[13px] whitespace-nowrap text-[var(--fg-muted)] hover:bg-[var(--hover)] hover:text-[var(--fg)]",
+                    "relative flex h-8 items-center rounded-[6px] px-3 pr-6 text-[13px] whitespace-nowrap text-[var(--fg-muted)] hover:bg-[var(--hover)] hover:text-[var(--fg)]",
                     active && "bg-[var(--hover)] font-medium text-[var(--fg)]",
                   )}
                 >
                   {item.label}
-                  <LinkPendingPulse />
+                  <LinkPendingPulse className="right-2.5" />
                 </Link>
               </li>
             );

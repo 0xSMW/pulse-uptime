@@ -1,7 +1,7 @@
 import { and, eq, isNull, sql as dsql } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
-import { incidents, metricRollups, monitorRegistry, monitorState } from "@/lib/db/schema";
+import { checkResults, incidents, metricRollups, monitorRegistry, monitorState } from "@/lib/db/schema";
 
 const stateOrder = [
   "DOWN",
@@ -36,7 +36,10 @@ export async function listDashboardMonitors() {
   // Uptime from pre-aggregated 15m rollups instead of rescanning 24h of raw
   // check_results per monitor. Rollups close at quarter-hour boundaries, so
   // the figure lags up to 15 minutes — acceptable for a 24h aggregate; the
-  // state/latency columns stay real-time.
+  // state/latency columns stay real-time. Monitors younger than one closed
+  // bucket have no rollups yet, so COALESCE falls back to their raw checks
+  // (still present pre-compaction) instead of rendering "no data" next to a
+  // live latency value.
   const end15m = new Date();
   end15m.setUTCMinutes(Math.floor(end15m.getUTCMinutes() / 15) * 15, 0, 0);
   const start15m = new Date(end15m.getTime() - 86_400_000);
@@ -49,14 +52,23 @@ export async function listDashboardMonitors() {
       lastLatencyMs: monitorState.lastLatencyMs,
       lastCheckedAt: monitorState.lastCheckedAt,
       activeIncidentOpenedAt: incidents.openedAt,
-      uptime24h: dsql<number | null>`(
-        select case when coalesce(sum(${metricRollups.completedChecks}), 0) = 0 then null
-          else 100.0 * sum(${metricRollups.successfulChecks}) / sum(${metricRollups.completedChecks}) end
-        from ${metricRollups}
-        where ${metricRollups.monitorId} = ${monitorRegistry.id}
-          and ${metricRollups.resolution} = '15m'
-          and ${metricRollups.bucketStart} >= ${start15m}
-          and ${metricRollups.bucketStart} < ${end15m}
+      uptime24h: dsql<number | null>`coalesce(
+        (
+          select case when coalesce(sum(${metricRollups.completedChecks}), 0) = 0 then null
+            else 100.0 * sum(${metricRollups.successfulChecks}) / sum(${metricRollups.completedChecks}) end
+          from ${metricRollups}
+          where ${metricRollups.monitorId} = ${monitorRegistry.id}
+            and ${metricRollups.resolution} = '15m'
+            and ${metricRollups.bucketStart} >= ${start15m}
+            and ${metricRollups.bucketStart} < ${end15m}
+        ),
+        (
+          select case when count(*) = 0 then null
+            else 100.0 * count(*) filter (where ${checkResults.successful}) / count(*) end
+          from ${checkResults}
+          where ${checkResults.monitorId} = ${monitorRegistry.id}
+            and ${checkResults.checkedAt} >= now() - interval '24 hours'
+        )
       )`,
     })
     .from(monitorRegistry)
