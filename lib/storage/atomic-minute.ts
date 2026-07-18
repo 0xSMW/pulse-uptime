@@ -19,6 +19,7 @@ export type AtomicMinuteInput = {
   states: ReadonlyMap<string, MonitorStateSnapshot>;
   schedulerStartedAt: Date;
   schedulerCompletedAt: Date;
+  invalidatePublicStatus?: (reason: "state-transition" | "completed-rollup-bucket") => Promise<void>;
 };
 
 function deterministicUuid(value: string): string {
@@ -148,6 +149,7 @@ export async function persistAtomicMinute(db: PackedMinuteExecutor, input: Atomi
   const payloads: unknown[] = [];
   const exceptions: unknown[] = [];
   const seenAt = input.scheduledMinute.toISOString();
+  let stateChanged = false;
 
   for (const monitorId of monitorIds) {
     const check = results.get(monitorId);
@@ -165,6 +167,7 @@ export async function persistAtomicMinute(db: PackedMinuteExecutor, input: Atomi
       statusCode: check.statusCode, latencyMs: check.latencyMs, errorCode: check.errorCode,
       failureThreshold: check.failureThreshold, recoveryThreshold: check.recoveryThreshold,
     });
+    stateChanged ||= transition.changed;
     if (transition.state !== current) {
       let incidentId = transition.state.activeIncidentId;
       if (transition.incident?.type === "open") {
@@ -216,4 +219,10 @@ export async function persistAtomicMinute(db: PackedMinuteExecutor, input: Atomi
     input.schedulerStartedAt, input.schedulerCompletedAt, JSON.stringify(stateRows), JSON.stringify(opened),
     JSON.stringify(progressed), JSON.stringify(resolved), JSON.stringify(outbox), JSON.stringify(payloads),
     JSON.stringify(exceptions)]);
+  if (input.invalidatePublicStatus) {
+    if (stateChanged) await input.invalidatePublicStatus("state-transition");
+    else if ((Math.floor(input.scheduledMinute.getTime() / 60_000) + 1) % 15 === 0) {
+      await input.invalidatePublicStatus("completed-rollup-bucket");
+    }
+  }
 }
