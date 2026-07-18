@@ -1,5 +1,13 @@
 import type { MaintenanceStore } from "./coordinator";
 import { reconcileStaleClaims } from "@/lib/notifications/sql";
+import { retentionFor, STORAGE_BUDGET_BYTES } from "@/lib/storage/governor";
+import {
+  COMPACT_15_MINUTE_SQL,
+  FILL_SCHEDULER_GAPS_SQL,
+  MEASURE_USAGE_SQL,
+  PROMOTE_ROLLUP_SQL,
+  type UsageModeRow,
+} from "@/lib/storage/sql";
 
 export interface QueryExecutor {
   query<T>(text: string, values: readonly unknown[]): Promise<readonly T[]>;
@@ -80,6 +88,49 @@ const RETAIN_SNAPSHOTS_SQL = `with doomed as (
     from monitoring_config_snapshots where status = 'accepted') accepted where position > $2
 ), batch as (select id from doomed limit $3)
 delete from monitoring_config_snapshots using batch where monitoring_config_snapshots.id = batch.id returning monitoring_config_snapshots.id`;
+const RETAIN_TELEMETRY_SQL = `with doomed as (
+  select scheduled_minute from check_batches
+  where scheduled_minute < $1
+    and (not $2::boolean or failure_bitmap = decode(repeat('00', octet_length(failure_bitmap)), 'hex') or scheduled_minute < $8)
+  order by scheduled_minute limit $3
+), deleted_batches as (
+  delete from check_batches using doomed where check_batches.scheduled_minute = doomed.scheduled_minute
+  returning check_batches.scheduled_minute
+), doomed_rollups as (
+  select monitor_id, resolution, bucket_start from metric_rollups
+  where (resolution = '15m' and bucket_start < $4)
+     or (resolution = 'hour' and bucket_start < $5 and ($6::boolean or not has_incident))
+     or (resolution = 'day' and bucket_start < $7)
+  order by bucket_start limit $3
+), deleted_rollups as (
+  delete from metric_rollups using doomed_rollups
+  where metric_rollups.monitor_id = doomed_rollups.monitor_id
+    and metric_rollups.resolution = doomed_rollups.resolution
+    and metric_rollups.bucket_start = doomed_rollups.bucket_start
+  returning metric_rollups.bucket_start
+)
+select scheduled_minute::text from deleted_batches union all select bucket_start::text from deleted_rollups`;
+const RETAIN_USAGE_SQL = `with ranked as (
+  select captured_at,
+    max(captured_at) over (partition by date_trunc('day', captured_at)) daily_point,
+    max(captured_at) over (partition by date_trunc('month', captured_at)) monthly_point,
+    max(captured_at) over () latest_point
+  from database_usage_snapshots
+), doomed as (
+  select captured_at from ranked
+  where captured_at <> latest_point and (
+    (captured_at < $1::timestamptz - interval '90 days' and captured_at <> monthly_point)
+    or (captured_at < $1::timestamptz - interval '1 day'
+      and captured_at >= $1::timestamptz - interval '90 days'
+      and captured_at <> daily_point)
+  ) order by captured_at limit $2
+)
+delete from database_usage_snapshots using doomed
+where database_usage_snapshots.captured_at = doomed.captured_at returning database_usage_snapshots.captured_at`;
+const RETAIN_EXCEPTIONS_SQL = `with doomed as (select id from monitor_exceptions where last_seen_at < $1::timestamptz - interval '2 years' order by last_seen_at limit $2)
+delete from monitor_exceptions using doomed where monitor_exceptions.id = doomed.id returning monitor_exceptions.id`;
+const RETAIN_PAYLOADS_SQL = `with doomed as (select id from exception_payloads where expires_at < $1 order by expires_at limit $2)
+delete from exception_payloads using doomed where exception_payloads.id = doomed.id returning exception_payloads.id`;
 
 export function createSqlMaintenanceStore(db: QueryExecutor): MaintenanceStore {
   return {
@@ -88,9 +139,6 @@ export function createSqlMaintenanceStore(db: QueryExecutor): MaintenanceStore {
     },
     async reconcileStaleCronRuns(now) {
       return count(await db.query(RECONCILE_CRON_SQL, [now, new Date(now.getTime() - 5 * 60_000)]));
-    },
-    async upsertDailyRollup(day, now) {
-      return count(await db.query(ROLLUP_DAY_SQL, [day, now]));
     },
     async deleteRawChecks(cutoff, limit) { return count(await db.query(DELETE_CHECKS_SQL, [cutoff, limit])); },
     async deleteSentNotifications(cutoff, limit) { return count(await db.query(DELETE_SENT_SQL, [cutoff, limit])); },
@@ -110,5 +158,32 @@ export function createSqlMaintenanceStore(db: QueryExecutor): MaintenanceStore {
     },
     async deleteOldCronRuns(cutoff, limit) { return count(await db.query(DELETE_CRON_SQL, [cutoff, limit])); },
     async deleteOldRollups(dayCutoff, limit) { return count(await db.query(DELETE_ROLLUPS_SQL, [dayCutoff, limit])); },
+    async compact15Minute(start, end, now) {
+      return count(await db.query(COMPACT_15_MINUTE_SQL, [start, end, now]));
+    },
+    async fillSchedulerGaps(start, end, now) {
+      return count(await db.query(FILL_SCHEDULER_GAPS_SQL, [start, end, now]));
+    },
+    async promoteRollups(source, target, start, end) {
+      return count(await db.query(PROMOTE_ROLLUP_SQL, [source, target, start, end]));
+    },
+    async measureAndSnapshotUsage(now) {
+      const rows = await db.query<UsageModeRow>(MEASURE_USAGE_SQL, [now, STORAGE_BUDGET_BYTES, null, null, null]);
+      return rows[0]?.governor_mode ?? "essential";
+    },
+    async enforceTelemetryRetention(now, mode, limit) {
+      const policy = retentionFor(mode);
+      const minuteCutoff = new Date(now.getTime() - policy.minuteHours * 3_600_000);
+      const quarterCutoff = new Date(now.getTime() - policy.quarterHourDays * 86_400_000);
+      const hourCutoff = new Date(now.getTime() - policy.hourlyDays * 86_400_000);
+      const dayCutoff = new Date(now.getTime() - 730 * 86_400_000);
+      return count(await db.query(RETAIN_TELEMETRY_SQL, [
+        minuteCutoff, mode === "shortened" || mode === "incident_only", limit, quarterCutoff, hourCutoff,
+        mode === "essential", dayCutoff, new Date(now.getTime() - 7 * 86_400_000),
+      ]));
+    },
+    async retainUsageSnapshots(now, limit) { return count(await db.query(RETAIN_USAGE_SQL, [now, limit])); },
+    async retainExceptions(now, limit) { return count(await db.query(RETAIN_EXCEPTIONS_SQL, [now, limit])); },
+    async retainExceptionPayloads(now, limit) { return count(await db.query(RETAIN_PAYLOADS_SQL, [now, limit])); },
   };
 }
