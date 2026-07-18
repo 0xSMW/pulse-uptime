@@ -21,6 +21,18 @@ export function hashCanonical(value: unknown): string {
   return `sha256:${createHash("sha256").update(canonicalSerialize(value)).digest("hex")}`;
 }
 
+export function hashDeclarativeConfig(config: DeclarativeConfig): string {
+  return hashCanonical(normalizeDeclarativeConfig(config));
+}
+
+export function hashMonitoringConfig(config: MonitoringConfig): string {
+  return hashDeclarativeConfig({
+    version: 1,
+    settings: config.settings,
+    monitors: config.monitors,
+  });
+}
+
 function normalizeRecipients(recipients: string[]): string[] {
   return [...new Set(recipients.map((email) => email.trim().toLowerCase()))].sort(compareLexically);
 }
