@@ -13,6 +13,7 @@ const scheduledAt = new Date("2026-01-01T00:01:00.000Z");
 function check(overrides: Partial<ScheduledCheck> = {}): ScheduledCheck {
   return {
     monitorId: "api",
+    monitorName: "Public API",
     runId: "714749f7-46de-4af6-8a0c-166ae9698bc5",
     scheduledAt,
     checkedAt,
@@ -100,6 +101,13 @@ describe("processCheckWithStore", () => {
     expect(first.captured.outbox?.map((row) => row.idempotencyKey))
       .toEqual(second.captured.outbox?.map((row) => row.idempotencyKey));
     expect(first.captured.outbox?.every((row) => String(row.idempotencyKey).includes("/opened/"))).toBe(true);
+    expect(first.captured.outbox?.every((row) => {
+      const payload = row.payload as Record<string, unknown>;
+      return payload.type === "incident.opened"
+        && payload.monitorName === "Public API"
+        && payload.startedAt === checkedAt.toISOString()
+        && payload.cause === "Unexpected status 503";
+    })).toBe(true);
   });
 
   it("resolves an incident and queues recovery after the configured success threshold", async () => {
@@ -109,6 +117,7 @@ describe("processCheckWithStore", () => {
       state: "VERIFYING_UP",
       activeIncidentId: incidentId,
       consecutiveSuccesses: 1,
+      firstFailureAt: new Date("2026-01-01T00:00:00.000Z"),
       firstSuccessAt,
     }) });
     const result = await processCheckWithStore(fake.store, check({
@@ -119,6 +128,13 @@ describe("processCheckWithStore", () => {
       "begin", "insert-check", "lock-state", "resolve-incident", "insert-outbox", "update-state", "commit",
     ]);
     expect(fake.captured.outbox?.every((row) => String(row.idempotencyKey).includes("/resolved/"))).toBe(true);
+    expect(fake.captured.outbox?.every((row) => {
+      const payload = row.payload as Record<string, unknown>;
+      return payload.type === "incident.resolved"
+        && payload.monitorName === "Public API"
+        && payload.recoveredAt === firstSuccessAt.toISOString()
+        && payload.duration === "5s";
+    })).toBe(true);
   });
 
   it("updates state without emitting an event during verification", async () => {
@@ -132,6 +148,7 @@ describe("processCheckWithStore", () => {
     const fake = fakeStore({ state: monitor({
       state: "DOWN",
       activeIncidentId: "8c751cd3-bcf0-4cab-8348-c9b5793339ed",
+      firstFailureAt: new Date("2026-01-01T00:00:00.000Z"),
     }) });
     const result = await processCheckWithStore(fake.store, check({
       successful: true, statusCode: 200, errorCode: null, errorMessage: null,
@@ -146,6 +163,7 @@ describe("processCheckWithStore", () => {
     const fake = fakeStore({ state: monitor({
       state: "VERIFYING_UP",
       activeIncidentId: "8c751cd3-bcf0-4cab-8348-c9b5793339ed",
+      firstFailureAt: new Date("2026-01-01T00:00:00.000Z"),
       consecutiveSuccesses: 1,
       firstSuccessAt: new Date("2026-01-01T00:00:05.000Z"),
     }) });
