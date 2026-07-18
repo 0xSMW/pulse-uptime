@@ -79,7 +79,8 @@ with minute_slots as (
     else null end latency_ms
   from check_batches batch
   cross join lateral unnest(batch.monitor_ids) with ordinality ids(monitor_id, position)
-  where batch.scheduled_minute >= $1 and batch.scheduled_minute < $2
+  where batch.scheduled_minute >= $1
+    and batch.scheduled_minute < date_bin(interval '15 minutes', $2::timestamptz, timestamptz '2000-01-01')
 ), buckets as (
   select slots.monitor_id, date_bin(interval '15 minutes', slots.scheduled_minute, timestamptz '2000-01-01') bucket_start,
     count(*)::integer expected_checks,
@@ -141,7 +142,8 @@ insert into metric_rollups (
   histogram_version, has_incident, compacted_at
 )
 select monitor_id, $2,
-  case when $2 = 'hour' then date_trunc('hour', bucket_start) else date_trunc('day', bucket_start) end,
+  case when $2 = 'hour' then date_trunc('hour', bucket_start at time zone 'UTC') at time zone 'UTC'
+    else date_trunc('day', bucket_start at time zone 'UTC') at time zone 'UTC' end,
   sum(expected_checks)::integer, sum(completed_checks)::integer, sum(successful_checks)::integer,
   sum(failed_checks)::integer, sum(unknown_checks)::integer, sum(downtime_seconds)::integer,
   sum(unknown_seconds)::integer, sum(latency_count)::integer, sum(latency_sum_ms)::bigint,
@@ -150,8 +152,13 @@ select monitor_id, $2,
     sum(latency_histogram[5]), sum(latency_histogram[6]), sum(latency_histogram[7]), sum(latency_histogram[8])]::integer[],
   1, bool_or(has_incident), $4
 from metric_rollups
-where resolution = $1 and bucket_start >= $3 and bucket_start < $4
-group by monitor_id, case when $2 = 'hour' then date_trunc('hour', bucket_start) else date_trunc('day', bucket_start) end
+where resolution = $1
+  and bucket_start >= case when $2 = 'hour' then date_trunc('hour', $3::timestamptz at time zone 'UTC') at time zone 'UTC'
+    else date_trunc('day', $3::timestamptz at time zone 'UTC') at time zone 'UTC' end
+  and bucket_start < case when $2 = 'hour' then date_trunc('hour', $4::timestamptz at time zone 'UTC') at time zone 'UTC'
+    else date_trunc('day', $4::timestamptz at time zone 'UTC') at time zone 'UTC' end
+group by monitor_id, case when $2 = 'hour' then date_trunc('hour', bucket_start at time zone 'UTC') at time zone 'UTC'
+  else date_trunc('day', bucket_start at time zone 'UTC') at time zone 'UTC' end
 on conflict (monitor_id, resolution, bucket_start) do update set
   expected_checks = excluded.expected_checks, completed_checks = excluded.completed_checks,
   successful_checks = excluded.successful_checks, failed_checks = excluded.failed_checks,
@@ -180,7 +187,7 @@ with relations as (
       'exceptions', coalesce(sum(table_bytes) filter (where relname in ('monitor_exceptions','exception_payloads')), 0),
       'incidents', coalesce(sum(table_bytes) filter (where relname in ('incidents','incident_events')), 0),
       'coreData', coalesce(sum(table_bytes) filter (where relname in ('monitor_registry','monitor_state','monitoring_config_snapshots','admin_users')), 0),
-      'operations', coalesce(sum(table_bytes) filter (where relname in ('cron_runs','notification_outbox')), 0),
+      'operations', coalesce(sum(table_bytes) filter (where relname in ('cron_runs','notification_outbox','atomic_minute_commits')), 0),
       'indexes', coalesce(sum(index_bytes), 0)
     ) category_bytes
   from relations
