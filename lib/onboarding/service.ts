@@ -111,9 +111,10 @@ export async function activateFirstMonitor(
     const monitor = createMonitorWithDefaults({ id: monitorIdFor(draft.name, draft.url), name: draft.name, url: draft.url });
     const configuredMonitor: MonitorConfig = { ...monitor, recipients };
     const config = validateMonitoringConfig({
-      schemaVersion: 1,
+      schemaVersion: 2,
       configVersion: 1,
       settings: { ...DEFAULT_MONITOR_SETTINGS, defaultRecipients: recipients },
+      groups: [],
       monitors: [configuredMonitor],
     }) as MonitoringConfig;
     const hash = hashMonitoringConfig(config);
