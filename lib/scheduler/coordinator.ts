@@ -15,6 +15,12 @@ export type MonitoringCoordinatorDependencies = {
   reconcileOutbox(now: Date): Promise<number>;
   deliverOutbox(): Promise<DeliverySummary>;
   runMonitor(monitor: MonitorConfig, scheduledAt: Date, runId: string): Promise<MonitorRunOutcome>;
+  persistMinute?(
+    config: MonitoringConfig,
+    scheduledMinute: Date,
+    schedulerStartedAt: Date,
+    schedulerCompletedAt: Date,
+  ): Promise<void>;
   now?: () => Date;
   nowMs?: () => number;
   createId?: () => string;
@@ -58,6 +64,9 @@ export async function runMonitoringCoordinator(
         concurrency: config.settings.concurrency,
         run: (monitor, scheduledAt) => dependencies.runMonitor(monitor, scheduledAt, runId),
       });
+      if (dependencies.persistMinute) {
+        await dependencies.persistMinute(config, scheduledMinute, startedAt, now());
+      }
       await dependencies.deliverOutbox();
       await dependencies.runs.complete(runId, now(), counts);
       return { status: "completed", runId, counts, staleClaims } as const;
