@@ -30,12 +30,14 @@ export async function GET(request: Request) {
   const sortValue = search.get("sort") ?? "state";
   const sorts = ["state", "name", "id"] as const;
   if (!sorts.includes(sortValue as (typeof sorts)[number])) return apiError(context.requestId, 400, "INVALID_REQUEST", "Sort is invalid");
+  if (search.has("group") && search.has("groupId")) return apiError(context.requestId, 400, "INVALID_REQUEST", "Use either group or groupId");
   try {
     const result = await listMonitors({
       cursor: search.get("cursor"),
       limit,
       state: state as (typeof states)[number] | undefined,
       group: search.get("group") ?? undefined,
+      groupId: search.get("groupId") ?? undefined,
       enabled: enabledValue === null ? undefined : enabledValue === "true",
       sort: sortValue as (typeof sorts)[number],
     });
@@ -55,6 +57,7 @@ export async function POST(request: Request) {
         const monitor = await recoverCreatedMonitor(body);
         return monitor ? { status: 201, body: objectEnvelope("Monitor", monitor, context.requestId) } : null;
       },
+      rerunAfterRecoveryMiss: false,
       work: async () => ({ status: 201, body: objectEnvelope("Monitor", await createMonitor(body, context.principalKey), context.requestId) }),
     });
     return apiJson(result.body, { status: result.status });
