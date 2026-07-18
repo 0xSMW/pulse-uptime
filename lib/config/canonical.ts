@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { MAX_CONFIG_BYTES, type DeclarativeConfig, type MonitorConfig, type MonitoringConfig } from "./schema";
+import { MAX_CONFIG_BYTES, type DeclarativeConfig, type GroupConfig, type LegacyMonitoringConfig, type MonitorConfig, type MonitoringConfig } from "./schema";
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
@@ -25,12 +25,11 @@ export function hashDeclarativeConfig(config: DeclarativeConfig): string {
   return hashCanonical(normalizeDeclarativeConfig(config));
 }
 
-export function hashMonitoringConfig(config: MonitoringConfig): string {
-  return hashDeclarativeConfig({
-    version: 1,
-    settings: config.settings,
-    monitors: config.monitors,
-  });
+export function hashMonitoringConfig(config: MonitoringConfig | LegacyMonitoringConfig): string {
+  if (config.schemaVersion === 1) {
+    return hashCanonical(normalizeLegacyDocument({ version: 1, settings: config.settings, monitors: config.monitors }));
+  }
+  return hashDeclarativeConfig({ version: 2, settings: config.settings, groups: config.groups, monitors: config.monitors });
 }
 
 function normalizeRecipients(recipients: string[]): string[] {
@@ -48,27 +47,43 @@ export function normalizeMonitor(monitor: MonitorConfig): MonitorConfig {
     ...monitor,
     name: monitor.name.trim(),
     url: url.toString(),
-    group: monitor.group?.trim() || null,
+    groupId: monitor.groupId,
     expectedStatus: { ...monitor.expectedStatus },
     recipients: normalizeRecipients(monitor.recipients),
   };
 }
 
+export function normalizeGroup(group: GroupConfig): GroupConfig {
+  return { id: group.id, name: group.name.trim() };
+}
+
 export function normalizeDeclarativeConfig(config: DeclarativeConfig): DeclarativeConfig {
   return {
-    version: 1,
+    version: 2,
     settings: {
       ...config.settings,
       defaultRecipients: normalizeRecipients(config.settings.defaultRecipients),
       userAgent: config.settings.userAgent.trim(),
     },
+    groups: config.groups.map(normalizeGroup).sort((a, b) => compareLexically(a.id, b.id)),
     monitors: config.monitors.map(normalizeMonitor).sort((a, b) => compareLexically(a.id, b.id)),
   };
 }
 
 export function normalizeMonitoringConfig(config: MonitoringConfig): MonitoringConfig {
-  const document = normalizeDeclarativeConfig({ version: 1, settings: config.settings, monitors: config.monitors });
-  return { schemaVersion: 1, configVersion: config.configVersion, settings: document.settings, monitors: document.monitors };
+  const document = normalizeDeclarativeConfig({ version: 2, settings: config.settings, groups: config.groups, monitors: config.monitors });
+  return { schemaVersion: 2, configVersion: config.configVersion, settings: document.settings, groups: document.groups, monitors: document.monitors };
+}
+
+function normalizeLegacyDocument(config: { version: 1; settings: MonitoringConfig["settings"]; monitors: LegacyMonitoringConfig["monitors"] }) {
+  return {
+    version: 1 as const,
+    settings: { ...config.settings, defaultRecipients: normalizeRecipients(config.settings.defaultRecipients), userAgent: config.settings.userAgent.trim() },
+    monitors: config.monitors.map((monitor) => {
+      const url = new URL(monitor.url); url.hostname = url.hostname.toLowerCase();
+      return { ...monitor, name: monitor.name.trim(), url: url.toString(), group: monitor.group?.trim() || null, expectedStatus: { ...monitor.expectedStatus }, recipients: normalizeRecipients(monitor.recipients) };
+    }).sort((a, b) => compareLexically(a.id, b.id)),
+  };
 }
 
 export function serializedByteLength(value: unknown): number {
