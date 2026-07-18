@@ -10,7 +10,7 @@ function monitor(id: string, overrides: Partial<MonitorConfig> = {}): MonitorCon
     name: id,
     url: "https://example.com",
     enabled: true,
-    group: null,
+    groupId: null,
     method: "GET",
     intervalMinutes: 1,
     timeoutMs: 8_000,
