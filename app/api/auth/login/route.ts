@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { login } from "@/lib/auth/service";
+import { AuthServiceError, login } from "@/lib/auth/service";
 import { getCurrentSession, sessionCookie } from "@/lib/auth/session";
 import { safeReturnTo } from "@/lib/auth/return-to";
 import { mutationOriginAllowed } from "@/lib/onboarding/http";
@@ -20,7 +20,16 @@ export async function POST(request: Request) {
     });
     response.cookies.set(sessionCookie(result.token, result.expiresAt));
     return response;
-  } catch {
-    return NextResponse.json({ error: "Sign in failed" }, { status: 401 });
+  } catch (error) {
+    return loginFailure(error);
   }
+}
+
+export function loginFailure(error: unknown) {
+  if (error instanceof AuthServiceError && error.code === "RATE_LIMITED") {
+    const response = NextResponse.json({ error: "Sign in failed" }, { status: 429 });
+    response.headers.set("Retry-After", String(Math.max(1, error.retryAfterSeconds ?? 1)));
+    return response;
+  }
+  return NextResponse.json({ error: "Sign in failed" }, { status: 401 });
 }
