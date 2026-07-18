@@ -4,6 +4,9 @@ export interface SqlExecutor {
   query<T>(text: string, values: readonly unknown[]): Promise<readonly T[]>;
 }
 
+export const PROVIDER_IDEMPOTENCY_WINDOW_MS = 24 * 60 * 60_000;
+export const PROVIDER_IDEMPOTENCY_RETRY_MARGIN_MS = 5 * 60_000;
+
 interface ClaimedRow {
   id: string;
   incident_id: string | null;
@@ -41,15 +44,18 @@ returning outbox.id, outbox.incident_id, outbox.monitor_id, outbox.event_type,
 
 export const RECONCILE_STALE_CLAIMS_SQL = `
 update notification_outbox
-set status = 'failed',
+set status = case when claimed_at <= $3 then 'dead' else 'failed' end,
     next_attempt_at = $1,
     claim_token = null,
     claimed_at = null,
-    last_error = 'STALE_CLAIM',
+    last_error = case
+      when claimed_at <= $3 then 'AMBIGUOUS_PROVIDER_RESULT'
+      else 'STALE_CLAIM'
+    end,
     updated_at = $1
 where status = 'sending'
   and claimed_at < $2
-returning id
+returning id, status
 `;
 
 export const MARK_NOTIFICATION_SENT_SQL = `
@@ -112,7 +118,13 @@ export async function reconcileStaleClaims(
   staleAfterMs = 5 * 60_000,
 ): Promise<number> {
   const cutoff = new Date(now.getTime() - staleAfterMs);
-  const rows = await db.query<{ id: string }>(RECONCILE_STALE_CLAIMS_SQL, [now, cutoff]);
+  const safeRetryCutoff = new Date(
+    now.getTime() - (PROVIDER_IDEMPOTENCY_WINDOW_MS - PROVIDER_IDEMPOTENCY_RETRY_MARGIN_MS),
+  );
+  const rows = await db.query<{ id: string; status: "failed" | "dead" }>(
+    RECONCILE_STALE_CLAIMS_SQL,
+    [now, cutoff, safeRetryCutoff],
+  );
   return rows.length;
 }
 
