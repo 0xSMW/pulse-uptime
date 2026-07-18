@@ -58,7 +58,8 @@ export function generatedMonitorId(name: string): string {
     .normalize("NFKD")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 55);
+    .slice(0, 55)
+    .replace(/-+$/g, "");
   const prefix = base || "monitor";
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`.slice(0, 64);
 }
@@ -69,7 +70,8 @@ export function generatedGroupId(name: string): string {
     .normalize("NFKD")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 55);
+    .slice(0, 55)
+    .replace(/-+$/g, "");
   const prefix = base || "group";
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`.slice(0, 64);
 }
