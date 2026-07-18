@@ -83,32 +83,31 @@ export function createEdgeConfigProbe(
       const items = await withTimeout(client.getAll(), PROBE_TIMEOUT_MS, null);
       if (!items) throw new Error("Edge Config read timed out");
 
-      const current = items.monitoring ?? initialMonitoringConfig();
       const teamQuery = env.VERCEL_TEAM_ID
         ? `?teamId=${encodeURIComponent(env.VERCEL_TEAM_ID)}`
         : "";
-      const response = await withTimeout(
-        fetcher(
-          `https://api.vercel.com/v1/edge-config/${encodeURIComponent(configId)}/items${teamQuery}`,
-          {
-            method: "PATCH",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              items: [
-                {
-                  operation: "upsert",
-                  key: "monitoring",
-                  value: current,
-                },
-              ],
-            }),
+      // Verify write access against a dedicated sentinel key. Never echo `monitoring`
+      // back: reading it and PATCH-upserting the read value races a concurrent
+      // legitimate config write and can silently roll it back.
+      const response = await fetcher(
+        `https://api.vercel.com/v1/edge-config/${encodeURIComponent(configId)}/items${teamQuery}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
           },
-        ),
-        PROBE_TIMEOUT_MS,
-        null,
+          body: JSON.stringify({
+            items: [
+              {
+                operation: "upsert",
+                key: "readinessProbe",
+                value: { ok: true },
+              },
+            ],
+          }),
+          signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+        },
       );
       if (!response?.ok) throw new Error("Edge Config write failed");
       return ready("edge", "EDGE_READY");
@@ -169,22 +168,6 @@ export function createEmailProbe(
     } catch {
       return emailWarning("EMAIL_API_UNAVAILABLE");
     }
-  };
-}
-
-function initialMonitoringConfig() {
-  return {
-    schemaVersion: 1,
-    configVersion: 1,
-    settings: {
-      concurrency: 5,
-      defaultTimeoutMs: 8_000,
-      defaultFailureThreshold: 2,
-      defaultRecoveryThreshold: 2,
-      defaultRecipients: [],
-      userAgent: "Pulse/1.0",
-    },
-    monitors: [],
   };
 }
 
