@@ -12,3 +12,14 @@ test-results/
 
 # Local operator and deployment context
 AGENTS.md
+
+# Internal product and deployment documentation
+/Docs/INIT.md
+/Docs/prototype.html
+/Docs/onboarding-prototype.html
+/Docs/MARKETING_SPEC.md
+/Docs/geist-design-dark.md
+/Docs/geist-design-light.md
+/Docs/ADAPTIVE-DATA-STORAGE-STRATEGY.md
+/Docs/DEPENDENCY-MONITORING.md
+/Docs/USER-MENU-HELP-PLAN.md
