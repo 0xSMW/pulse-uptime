@@ -945,7 +945,7 @@ No silent settings merge is permitted.
 
 Group IDs use the same lowercase-slug rule as monitor IDs, contain 3–64 characters, and remain stable across renames. Group names are trimmed, contain 1–50 characters, and are unique ignoring case. A document contains at most 100 groups. Every non-null monitor `groupId` must reference an entry in `groups`; use `null` for an ungrouped monitor.
 
-The CLI continues to read version 1 documents. Before validation, plan, or apply, it upgrades each distinct trimmed legacy `monitor.group` name into a version 2 group with the deterministic ID `group-<first 12 hex characters of SHA-256(lowercased name)>`, replaces `group` with `groupId`, and sends version 2 to the service. Legacy names that differ only by case are ambiguous and rejected. Export always returns version 2. The first accepted mutation of a version 1 installation persists version 2.
+The CLI continues to read version 1 documents. Before validation, plan, or apply, it upgrades each distinct trimmed legacy `monitor.group` name into a version 2 group with the deterministic ID `group-<first 12 hex characters of SHA-256(lowercased name)>`, replaces `group` with `groupId`, and sends version 2 to the service. Legacy names that differ only by case fold into one group and retain the first display spelling. Export always returns version 2. The first accepted mutation of a version 1 installation persists version 2.
 
 ### Export
 
