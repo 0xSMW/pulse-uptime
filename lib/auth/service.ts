@@ -4,6 +4,8 @@ import { and, eq, gt, isNull, sql as drizzleSql } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 import { adminUsers, humanSessions, onboardingProgress } from "@/lib/db/schema";
+import { enforceRateLimit, type RateLimitPolicy, type RateLimitResult } from "@/lib/api/rate-limit";
+import { digestBearerToken } from "@/lib/api/tokens";
 import type { ReadinessReport } from "@/lib/readiness/types";
 
 import {
@@ -32,6 +34,7 @@ export class AuthServiceError extends Error {
       | "INVALID_LOGIN"
       | "RATE_LIMITED",
     message: string,
+    readonly retryAfterSeconds?: number,
   ) {
     super(message);
     this.name = "AuthServiceError";
@@ -149,40 +152,112 @@ const databaseAdminCreationStore: AdminCreationStore = {
   },
 };
 
-type Attempt = { count: number; resetAt: number };
-const attempts = new Map<string, Attempt>();
 const LOGIN_LIMIT = 5;
-const LOGIN_WINDOW_MS = 15 * 60_000;
+const LOGIN_WINDOW_SECONDS = 15 * 60;
+const LOGIN_RATE_LIMIT_POLICY: RateLimitPolicy = {
+  routeKey: "human-login",
+  limit: LOGIN_LIMIT,
+  windowSeconds: LOGIN_WINDOW_SECONDS,
+};
 
-export async function login(input: { email: string; password: string; ip: string; currentSessionId?: string | null }) {
+type LoginUser = {
+  id: string;
+  passwordDigest: string;
+  onboardingCompletedAt: Date | null;
+};
+
+export interface LoginStore {
+  findUser(email: string): Promise<LoginUser | null>;
+  insertSession(input: {
+    userId: string;
+    currentSessionId?: string | null;
+    sessionDigest: Buffer;
+    now: Date;
+    expiresAt: Date;
+  }): Promise<void>;
+}
+
+export type LoginDependencies = {
+  store?: LoginStore;
+  enforceLimit?: (principalKey: string, policy: RateLimitPolicy, now: Date) => Promise<RateLimitResult>;
+  digestKey?: (value: string) => Buffer;
+  verify?: typeof verifyPassword;
+  createToken?: typeof createSessionToken;
+  now?: () => Date;
+};
+
+export function loginRateLimitKey(
+  kind: "email" | "ip",
+  value: string,
+  digest: (value: string) => Buffer = digestBearerToken,
+) {
+  return `login-${kind}:${digest(`human-login:${kind}:${value}`).toString("hex")}`;
+}
+
+export async function login(
+  input: { email: string; password: string; ip: string; currentSessionId?: string | null },
+  dependencies: LoginDependencies = {},
+) {
   const email = normalizeEmail(input.email);
-  const now = new Date();
-  const keys = [`email:${email}`, `ip:${input.ip}`];
-  if (keys.some((key) => isLimited(key, now.getTime()))) {
-    throw new AuthServiceError("RATE_LIMITED", "Sign in failed");
+  const now = dependencies.now?.() ?? new Date();
+  const digest = dependencies.digestKey ?? digestBearerToken;
+  const keys = [
+    loginRateLimitKey("email", email, digest),
+    loginRateLimitKey("ip", input.ip, digest),
+  ];
+  const limiter = dependencies.enforceLimit ?? enforceRateLimit;
+  const limits = await Promise.all(
+    keys.map((key) => limiter(key, LOGIN_RATE_LIMIT_POLICY, now)),
+  );
+  const blocked = limits.filter((result) => !result.allowed);
+  if (blocked.length > 0) {
+    throw new AuthServiceError(
+      "RATE_LIMITED",
+      "Sign in failed",
+      Math.max(...blocked.map((result) => result.retryAfterSeconds)),
+    );
   }
 
-  const [user] = await db.select().from(adminUsers).where(eq(adminUsers.email, email)).limit(1);
-  const valid = user ? await verifyPassword(user.passwordDigest, input.password) : false;
-  if (!valid) {
-    keys.forEach((key) => recordFailure(key, now.getTime()));
+  const store = dependencies.store ?? databaseLoginStore;
+  const user = await store.findUser(email);
+  const verify = dependencies.verify ?? verifyPassword;
+  if (!user || !(await verify(user.passwordDigest, input.password))) {
     throw new AuthServiceError("INVALID_LOGIN", "Sign in failed");
   }
 
-  keys.forEach((key) => attempts.delete(key));
-  const token = createSessionToken();
+  const token = (dependencies.createToken ?? createSessionToken)();
   const expiresAt = sessionExpiresAt(now);
-  await db.transaction(async (tx) => {
-    if (input.currentSessionId) {
-      await tx.update(humanSessions).set({ revokedAt: now }).where(eq(humanSessions.id, input.currentSessionId));
-    }
-    await tx.insert(humanSessions).values({
-      id: crypto.randomUUID(), userId: user.id, tokenDigest: token.digest,
-      createdAt: now, expiresAt,
-    });
+  await store.insertSession({
+    userId: user.id,
+    currentSessionId: input.currentSessionId,
+    sessionDigest: token.digest,
+    now,
+    expiresAt,
   });
   return { token: token.raw, expiresAt, onboardingComplete: Boolean(user.onboardingCompletedAt) };
 }
+
+const databaseLoginStore: LoginStore = {
+  async findUser(email) {
+    const [user] = await db.select({
+      id: adminUsers.id,
+      passwordDigest: adminUsers.passwordDigest,
+      onboardingCompletedAt: adminUsers.onboardingCompletedAt,
+    }).from(adminUsers).where(eq(adminUsers.email, email)).limit(1);
+    return user ?? null;
+  },
+  async insertSession(input) {
+    await db.transaction(async (tx) => {
+      if (input.currentSessionId) {
+        await tx.update(humanSessions).set({ revokedAt: input.now }).where(eq(humanSessions.id, input.currentSessionId));
+      }
+      await tx.insert(humanSessions).values({
+        id: crypto.randomUUID(), userId: input.userId, tokenDigest: input.sessionDigest,
+        createdAt: input.now, expiresAt: input.expiresAt,
+      });
+    });
+  },
+};
 
 export async function revokeSession(sessionId: string) {
   await db.update(humanSessions).set({ revokedAt: new Date() }).where(eq(humanSessions.id, sessionId));
@@ -208,20 +283,4 @@ export async function findSessionByDigest(digest: Buffer, now = new Date()): Pro
 
 function isEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-}
-
-function isLimited(key: string, now: number) {
-  const attempt = attempts.get(key);
-  if (!attempt || attempt.resetAt <= now) {
-    attempts.delete(key);
-    return false;
-  }
-  return attempt.count >= LOGIN_LIMIT;
-}
-
-function recordFailure(key: string, now: number) {
-  const current = attempts.get(key);
-  attempts.set(key, current && current.resetAt > now
-    ? { ...current, count: current.count + 1 }
-    : { count: 1, resetAt: now + LOGIN_WINDOW_MS });
 }
