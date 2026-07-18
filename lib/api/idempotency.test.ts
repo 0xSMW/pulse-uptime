@@ -95,6 +95,25 @@ describe("idempotency retention reclamation", () => {
     expect(persistence.owner?.id).not.toBe(oldId);
   });
 
+  it("does not rerun unsafe work after a stale recovery miss", async () => {
+    const firstNow = new Date("2026-07-18T12:00:00.000Z");
+    const persistence = new MemoryPersistence();
+    await executeIdempotent({
+      ...request({ value: "same" }), now: firstNow, persistence,
+      work: async () => ({ status: 200, body: { value: "first" } }),
+    });
+    persistence.owner = {
+      ...persistence.owner!, state: "running", responseStatus: null, responseBody: null, completedAt: null,
+      createdAt: new Date(firstNow.getTime() - 10 * 60_000),
+    };
+    const work = vi.fn(async () => ({ status: 200, body: { value: "unsafe-rerun" } }));
+    await expect(executeIdempotent({
+      ...request({ value: "same" }), now: firstNow, persistence, work,
+      recover: async () => null, rerunAfterRecoveryMiss: false,
+    })).rejects.toMatchObject({ code: "REQUEST_IN_PROGRESS" });
+    expect(work).not.toHaveBeenCalled();
+  });
+
   it("makes a boundary loser observe the replacement owner", async () => {
     const now = new Date("2026-07-18T12:00:00.000Z");
     const persistence = new MemoryPersistence(stored("running", now));
