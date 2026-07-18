@@ -29,6 +29,7 @@ import { deliverPendingNotifications } from "@/lib/notifications/delivery";
 import { createResendSender } from "@/lib/notifications/provider";
 import { reconcileStaleClaims, type SqlExecutor } from "@/lib/notifications/sql";
 import { persistAtomicMinute, type CompletedMinuteCheck } from "@/lib/storage/atomic-minute";
+import { completesQuarterHourBucket, refreshRecentRollups } from "@/lib/storage/rollup-refresh";
 
 import { runMonitoringCoordinator } from "./coordinator";
 import { evaluateConfigurationSource, requireApprovalConsumption } from "./configuration";
@@ -342,6 +343,18 @@ export async function runMonitoringCron() {
         schedulerCompletedAt,
         invalidatePublicStatus: async () => revalidatePath("/status", "layout"),
       });
+      if (completesQuarterHourBucket(scheduledMinute)) {
+        try {
+          await refreshRecentRollups(queryExecutor, scheduledMinute, new Date());
+        } catch (error) {
+          // Rollups are display-only and self-heal on the next boundary or
+          // during daily maintenance; never fail the check run over them.
+          console.warn(JSON.stringify({
+            event: "rollup.refresh.failed",
+            error: error instanceof Error ? error.message : String(error),
+          }));
+        }
+      }
     },
   });
 }
