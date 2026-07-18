@@ -23,7 +23,7 @@ func (f *fakeTransport) Do(_ context.Context, method, path string, body any, hea
 	switch path {
 	case "/api/v1/config":
 		if target, ok := out.(*envelope); ok {
-			target.APIVersion, target.Kind, target.Data = "v1", "Configuration", json.RawMessage(`{"version":1,"settings":{},"monitors":[]}`)
+			target.APIVersion, target.Kind, target.Data = "v1", "Configuration", json.RawMessage(`{"version":2,"settings":{},"groups":[],"monitors":[]}`)
 		}
 		headers := make(http.Header)
 		headers.Set("ETag", `"sha256:base"`)
@@ -39,7 +39,7 @@ func (f *fakeTransport) Do(_ context.Context, method, path string, body any, hea
 	return nil, nil
 }
 
-func validConfig() string { return "version: 1\nsettings: {}\nmonitors: []\n" }
+func validConfig() string { return "version: 2\nsettings: {}\ngroups: []\nmonitors: []\n" }
 
 func TestApplyCarriesPlanMetadataAndIfMatch(t *testing.T) {
 	client := &fakeTransport{}
@@ -79,5 +79,89 @@ func TestValidateDocumentFindsDuplicateIDsAndRanges(t *testing.T) {
 	issues := ValidateDocument(doc)
 	if len(issues) != 2 {
 		t.Fatalf("issues = %#v", issues)
+	}
+}
+
+func TestReadDocumentUpgradesV1GroupsDeterministically(t *testing.T) {
+	doc, err := ReadDocument(defaults(Dependencies{In: strings.NewReader(`version: 1
+settings: {}
+monitors:
+  - {id: web, name: Web, url: https://web.example, group: Production}
+  - {id: api, name: API, url: https://api.example, group: Production}
+  - {id: jobs, name: Jobs, url: https://jobs.example, group: null}
+`)}), "-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc["version"] != float64(2) {
+		t.Fatalf("version = %v", doc["version"])
+	}
+	groups := doc["groups"].([]any)
+	if len(groups) != 1 {
+		t.Fatalf("groups = %#v", groups)
+	}
+	group := groups[0].(map[string]any)
+	if group["id"] != "group-ab8e18ef4ebe" || group["name"] != "Production" {
+		t.Fatalf("group = %#v", group)
+	}
+	monitors := doc["monitors"].([]any)
+	if monitors[0].(map[string]any)["id"] != "api" || monitors[0].(map[string]any)["groupId"] != group["id"] {
+		t.Fatalf("monitors = %#v", monitors)
+	}
+	if monitors[1].(map[string]any)["groupId"] != nil {
+		t.Fatalf("ungrouped monitor = %#v", monitors[1])
+	}
+	if _, exists := monitors[2].(map[string]any)["group"]; exists {
+		t.Fatal("legacy group field survived upgrade")
+	}
+}
+
+func TestReadDocumentRejectsAmbiguousV1GroupNames(t *testing.T) {
+	_, err := ReadDocument(defaults(Dependencies{In: strings.NewReader(`version: 1
+settings: {}
+monitors:
+  - {id: one, name: One, url: https://one.example, group: Production}
+  - {id: two, name: Two, url: https://two.example, group: production}
+`)}), "-")
+	if err == nil {
+		t.Fatal("expected ambiguous group error")
+	}
+	configErr, ok := err.(*Error)
+	if !ok {
+		t.Fatalf("error type = %T", err)
+	}
+	details, _ := configErr.Details.(map[string]any)
+	cause, _ := details["cause"].(string)
+	if !strings.Contains(cause, "ambiguous") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestValidateDocumentChecksV2GroupReferencesAndUniqueness(t *testing.T) {
+	doc := map[string]any{
+		"version": float64(2), "settings": map[string]any{},
+		"groups": []any{
+			map[string]any{"id": "prod", "name": "Production"},
+			map[string]any{"id": "prod", "name": "production"},
+		},
+		"monitors": []any{map[string]any{"id": "api", "name": "API", "url": "https://api.example", "groupId": "missing"}},
+	}
+	issues := ValidateDocument(doc)
+	if len(issues) != 3 {
+		t.Fatalf("issues = %#v", issues)
+	}
+}
+
+func TestPlanSendsUpgradedV2Target(t *testing.T) {
+	client := &fakeTransport{}
+	cmd := NewCommand(Dependencies{Client: client, In: strings.NewReader("version: 1\nsettings: {}\nmonitors: []\n"), Out: io.Discard, Output: func(string) string { return "json" }})
+	cmd.SetArgs([]string{"plan", "--file", "-"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	body := client.calls[1].body.(map[string]any)
+	target := body["targetConfig"].(map[string]any)
+	if target["version"] != float64(2) || target["groups"] == nil {
+		t.Fatalf("targetConfig = %#v", target)
 	}
 }
