@@ -14,6 +14,7 @@ test-results/
 AGENTS.md
 
 # Internal product and deployment documentation
+/PERF.md
 /Docs/INIT.md
 /Docs/design.md
 /Docs/prototype.html
