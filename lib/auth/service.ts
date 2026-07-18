@@ -6,6 +6,7 @@ import { db } from "@/lib/db/client";
 import { adminUsers, humanSessions, onboardingProgress } from "@/lib/db/schema";
 import { enforceRateLimit, type RateLimitPolicy, type RateLimitResult } from "@/lib/api/rate-limit";
 import { digestBearerToken } from "@/lib/api/tokens";
+import { verifyBootstrapToken } from "@/lib/onboarding/bootstrap";
 import type { ReadinessReport } from "@/lib/readiness/types";
 
 import {
@@ -31,6 +32,7 @@ export class AuthServiceError extends Error {
       | "INVALID_INPUT"
       | "NOT_READY"
       | "ADMIN_EXISTS"
+      | "BOOTSTRAP_REQUIRED"
       | "INVALID_LOGIN"
       | "RATE_LIMITED",
     message: string,
@@ -57,10 +59,17 @@ export interface AdminCreationStore {
 }
 
 export async function createOnlyAdmin(
-  input: { email: string; password: string; passwordConfirmation: string; acknowledgeEmailWarning?: boolean },
+  input: {
+    email: string;
+    password: string;
+    passwordConfirmation: string;
+    acknowledgeEmailWarning?: boolean;
+    bootstrapToken?: string;
+  },
   dependencies: {
     store?: AdminCreationStore;
     checkReadiness: () => Promise<ReadinessReport>;
+    verifyBootstrap?: (token: string | undefined) => boolean;
     now?: () => Date;
   },
 ) {
@@ -72,13 +81,31 @@ export async function createOnlyAdmin(
     throw new AuthServiceError("INVALID_INPUT", "Passwords do not match");
   }
 
+  const verifyBootstrap = dependencies.verifyBootstrap ?? ((token) => verifyBootstrapToken(token));
+  // Gate the claim on operator-held proof before any expensive work. This closes the
+  // public first-admin takeover and prevents unauthenticated Argon2 amplification.
+  if (!verifyBootstrap(input.bootstrapToken)) {
+    throw new AuthServiceError("BOOTSTRAP_REQUIRED", "A valid setup token is required to create the administrator");
+  }
+
+  const store = dependencies.store ?? databaseAdminCreationStore;
+  // Reject already-initialized installs before paying the Argon2 cost.
+  // The authoritative recheck still happens under the advisory lock below.
+  if (await store.hasAdmin()) {
+    throw new AuthServiceError("ADMIN_EXISTS", "Account setup is already complete");
+  }
+
   const passwordDigest = await hashPassword(input.password);
   const session = createSessionToken();
-  const store = dependencies.store ?? databaseAdminCreationStore;
 
   return store.withAdminLock(async (lockedStore) => {
     if (await lockedStore.hasAdmin()) {
       throw new AuthServiceError("ADMIN_EXISTS", "Account setup is already complete");
+    }
+    // Re-validate the bootstrap credential atomically inside the lock so the winning
+    // caller is provably the operator, not whoever raced to the advisory lock first.
+    if (!verifyBootstrap(input.bootstrapToken)) {
+      throw new AuthServiceError("BOOTSTRAP_REQUIRED", "A valid setup token is required to create the administrator");
     }
     const readiness = await dependencies.checkReadiness();
     if (!readiness.canContinue) {
@@ -201,27 +228,33 @@ export async function login(
   const email = normalizeEmail(input.email);
   const now = dependencies.now?.() ?? new Date();
   const digest = dependencies.digestKey ?? digestBearerToken;
-  const keys = [
-    loginRateLimitKey("email", email, digest),
-    loginRateLimitKey("ip", input.ip, digest),
-  ];
   const limiter = dependencies.enforceLimit ?? enforceRateLimit;
-  const limits = await Promise.all(
-    keys.map((key) => limiter(key, LOGIN_RATE_LIMIT_POLICY, now)),
-  );
-  const blocked = limits.filter((result) => !result.allowed);
-  if (blocked.length > 0) {
-    throw new AuthServiceError(
-      "RATE_LIMITED",
-      "Sign in failed",
-      Math.max(...blocked.map((result) => result.retryAfterSeconds)),
-    );
+
+  // Enforce the stable source-IP limit first and short-circuit before touching any
+  // variable-cardinality bucket: a stream of unique emails can no longer create
+  // unbounded rate-limit rows, and the expensive password verify is gated.
+  const ipLimit = await limiter(loginRateLimitKey("ip", input.ip, digest), LOGIN_RATE_LIMIT_POLICY, now);
+  if (!ipLimit.allowed) {
+    throw new AuthServiceError("RATE_LIMITED", "Sign in failed", ipLimit.retryAfterSeconds);
   }
 
   const store = dependencies.store ?? databaseLoginStore;
   const user = await store.findUser(email);
   const verify = dependencies.verify ?? verifyPassword;
-  if (!user || !(await verify(user.passwordDigest, input.password))) {
+  const credentialsValid = user ? await verify(user.passwordDigest, input.password) : false;
+
+  // A correct password from an IP that is not blocked always recovers: the
+  // account-wide bucket is never a hard pre-verification denial, so a stale email
+  // bucket can no longer lock the administrator out of a fresh sign-in.
+  if (!user || !credentialsValid) {
+    // Only account-wide bucket a known administrator's failed attempts. Unknown
+    // emails add nothing to the IP counter here, keeping bucket cardinality bounded.
+    if (user) {
+      const emailLimit = await limiter(loginRateLimitKey("email", email, digest), LOGIN_RATE_LIMIT_POLICY, now);
+      if (!emailLimit.allowed) {
+        throw new AuthServiceError("RATE_LIMITED", "Sign in failed", emailLimit.retryAfterSeconds);
+      }
+    }
     throw new AuthServiceError("INVALID_LOGIN", "Sign in failed");
   }
 
@@ -258,6 +291,10 @@ const databaseLoginStore: LoginStore = {
     });
   },
 };
+
+export async function hasAdministrator(): Promise<boolean> {
+  return databaseAdminCreationStore.hasAdmin();
+}
 
 export async function revokeSession(sessionId: string) {
   await db.update(humanSessions).set({ revokedAt: new Date() }).where(eq(humanSessions.id, sessionId));
