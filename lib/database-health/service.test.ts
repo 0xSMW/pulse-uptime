@@ -79,8 +79,9 @@ describe("database health presentation", () => {
   it("attributes provider-only bytes to Other and exposes budget safety", () => {
     const report = presentDatabaseHealth(measurement(), { now });
     expect(report.categories.map(({ key }) => key)).toEqual([
-      "recentCheckBatches", "rollups", "exceptions", "incidents", "coreData", "operations", "indexes", "other",
+      "recentCheckBatches", "rollups", "exceptions", "incidents", "coreData", "operations", "content", "indexes", "other",
     ]);
+    expect(report.categories.find(({ key }) => key === "content")).toMatchObject({ label: "Images & reports" });
     expect(report.categories.at(-1)).toMatchObject({ key: "other", bytes: 4_000_000 });
     expect(report.availableBytes).toBe(382_000_000);
     expect(report.governor.action).toBe("Keeping full configured detail");

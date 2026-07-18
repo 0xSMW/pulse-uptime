@@ -28,6 +28,9 @@ describe("storage maintenance SQL", () => {
   it("measures relation and index allocation and writes one daily snapshot", () => {
     expect(MEASURE_USAGE_SQL).toContain("pg_total_relation_size");
     expect(MEASURE_USAGE_SQL).toContain("pg_indexes_size");
+    // Images and status report content are TOASTed, so the category uses the
+    // total-relation measure (minus indexes, which have their own category).
+    expect(MEASURE_USAGE_SQL).toContain("'content', coalesce(sum(total_bytes - index_bytes) filter (where relname in ('images','status_page_config','status_reports','status_report_updates','status_report_affected')), 0)");
     expect(MEASURE_USAGE_SQL).toContain("select $1::timestamptz");
     expect(MEASURE_USAGE_SQL).not.toContain("select date_trunc('day', $1");
     expect(MEASURE_USAGE_SQL).toContain("on conflict (captured_at) do update");

@@ -105,6 +105,24 @@ func TestMeMapsServiceErrorsAndPreservesRequestID(t *testing.T) {
 	}
 }
 
+func TestReportScopeDenialIncludesRolloutHint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, `{"apiVersion":"v1","kind":"Error","error":{"code":"SCOPE_DENIED","message":"Scope denied","details":{"scope":"reports:read"},"requestId":"req_scope"}}`)
+	}))
+	defer server.Close()
+	t.Setenv("PULSECTL_URL", server.URL)
+	t.Setenv("PULSECTL_TOKEN", "pulse_live_legacy")
+	t.Setenv("PULSECTL_OUTPUT", "json")
+	code, _, stderr := execute(t, "report", "list")
+	if code != ExitPermission || !strings.Contains(stderr, `"code": "SCOPE_DENIED"`) {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stderr, "token lacks reports:*") || !strings.Contains(stderr, "re-run pulsectl login") {
+		t.Fatalf("hint missing from stderr: %s", stderr)
+	}
+}
+
 func TestMapAPIErrorUsesStableExitCodes(t *testing.T) {
 	cases := map[int]int{0: 9, 400: 2, 401: 3, 403: 7, 404: 5, 408: 8, 409: 6, 412: 6, 422: 2, 429: 8, 503: 9}
 	for status, want := range cases {
@@ -121,7 +139,7 @@ func TestRootHelpListsEveryLeafAndFitsBudget(t *testing.T) {
 	if code != 0 || stderr != "" {
 		t.Fatalf("code=%d stderr=%q", code, stderr)
 	}
-	for _, path := range []string{"auth login", "context remove", "token create", "monitor watch", "group rename", "incident get", "config apply", "notification test", "status", "doctor", "completion", "version"} {
+	for _, path := range []string{"auth login", "context remove", "token create", "monitor watch", "group rename", "incident get", "incident promote", "report create", "report publish", "status-page set", "status-page apply", "config apply", "notification test", "status", "doctor", "completion", "version"} {
 		if !strings.Contains(stdout, path) {
 			t.Errorf("root help missing %q", path)
 		}
@@ -141,7 +159,7 @@ func TestJSONHelpIsGeneratedFromCommandTree(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.SchemaVersion != 1 || got.Binary != "pulsectl" || len(got.Commands) != 37 {
+	if got.SchemaVersion != 1 || got.Binary != "pulsectl" || len(got.Commands) != 51 {
 		t.Fatalf("incomplete manifest: %#v", got)
 	}
 	for _, item := range got.Commands {

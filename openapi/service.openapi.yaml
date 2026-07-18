@@ -38,9 +38,400 @@
     },
     {
       "name": "CLI authorization"
+    },
+    {
+      "name": "Status page"
+    },
+    {
+      "name": "Images"
+    },
+    {
+      "name": "Status reports"
     }
   ],
   "paths": {
+    "/api/v1/status-reports": {
+      "get": {
+        "operationId": "listStatusReports",
+        "tags": ["Status reports"],
+        "summary": "List status reports",
+        "description": "Newest first by creation. State (all|draft|ongoing|resolved) and type (all|incident|maintenance) filters compose independently.",
+        "x-required-scopes": ["reports:read"],
+        "security": [
+          {"bearerAuth": []},
+          {"humanSession": []}
+        ],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"},
+          {"$ref": "#/components/parameters/Cursor"},
+          {"$ref": "#/components/parameters/Limit"},
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["all", "draft", "ongoing", "resolved"],
+              "default": "all"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["all", "incident", "maintenance"],
+              "default": "all"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Status report page",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/StatusReportListEnvelope"}
+              }
+            }
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      },
+      "post": {
+        "operationId": "createStatusReport",
+        "tags": ["Status reports"],
+        "summary": "Create a status report",
+        "description": "Creates the report together with its required first update. Publishes immediately unless draft is true.",
+        "x-required-scopes": ["reports:write"],
+        "security": [
+          {"bearerAuth": []},
+          {"humanSession": []}
+        ],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/StatusReportCreateRequest"}
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created status report",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/StatusReportEnvelope"}
+              }
+            }
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      }
+    },
+    "/api/v1/status-reports/{reportId}": {
+      "get": {
+        "operationId": "getStatusReport",
+        "tags": ["Status reports"],
+        "summary": "Get a status report",
+        "x-required-scopes": ["reports:read"],
+        "security": [
+          {"bearerAuth": []},
+          {"humanSession": []}
+        ],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"},
+          {"$ref": "#/components/parameters/ReportId"}
+        ],
+        "responses": {
+          "200": {
+            "description": "Status report",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/StatusReportEnvelope"}
+              }
+            }
+          },
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      },
+      "patch": {
+        "operationId": "updateStatusReport",
+        "tags": ["Status reports"],
+        "summary": "Edit a status report",
+        "description": "Edits the title, window, or affected monitors. The affected array is a full replacement and is re-snapshotted from the monitor registry.",
+        "x-required-scopes": ["reports:write"],
+        "security": [
+          {"bearerAuth": []},
+          {"humanSession": []}
+        ],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"},
+          {"$ref": "#/components/parameters/IdempotencyKey"},
+          {"$ref": "#/components/parameters/ReportId"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/StatusReportPatchRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated status report",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/StatusReportEnvelope"}
+              }
+            }
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      },
+      "delete": {
+        "operationId": "deleteStatusReport",
+        "tags": ["Status reports"],
+        "summary": "Delete a status report",
+        "description": "Deletes the report and its updates. Published reports disappear from the public status page.",
+        "x-required-scopes": ["reports:write"],
+        "security": [
+          {"bearerAuth": []},
+          {"humanSession": []}
+        ],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"},
+          {"$ref": "#/components/parameters/IdempotencyKey"},
+          {"$ref": "#/components/parameters/ReportId"}
+        ],
+        "responses": {
+          "200": {
+            "description": "Deletion confirmation",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/StatusReportDeletedEnvelope"}
+              }
+            }
+          },
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      }
+    },
+    "/api/v1/status-reports/{reportId}/publish": {
+      "post": {
+        "operationId": "publishStatusReport",
+        "tags": ["Status reports"],
+        "summary": "Publish a draft status report",
+        "description": "One-way: sets publishedAt once. Publishing an already-published report fails with ALREADY_PUBLISHED.",
+        "x-required-scopes": ["reports:write"],
+        "security": [
+          {"bearerAuth": []},
+          {"humanSession": []}
+        ],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"},
+          {"$ref": "#/components/parameters/IdempotencyKey"},
+          {"$ref": "#/components/parameters/ReportId"}
+        ],
+        "responses": {
+          "200": {
+            "description": "Published status report",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/StatusReportEnvelope"}
+              }
+            }
+          },
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      }
+    },
+    "/api/v1/status-reports/{reportId}/updates": {
+      "post": {
+        "operationId": "addStatusReportUpdate",
+        "tags": ["Status reports"],
+        "summary": "Post a report update",
+        "description": "Appends a timeline update and recomputes the report's resolution from the full update set. Returns the refreshed report.",
+        "x-required-scopes": ["reports:write"],
+        "security": [
+          {"bearerAuth": []},
+          {"humanSession": []}
+        ],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"},
+          {"$ref": "#/components/parameters/IdempotencyKey"},
+          {"$ref": "#/components/parameters/ReportId"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/StatusReportUpdateCreateRequest"}
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Refreshed status report",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/StatusReportEnvelope"}
+              }
+            }
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      }
+    },
+    "/api/v1/status-reports/{reportId}/updates/{updateId}": {
+      "patch": {
+        "operationId": "editStatusReportUpdate",
+        "tags": ["Status reports"],
+        "summary": "Edit a report update",
+        "description": "Edits or backdates an existing update; only changed keys are sent. The report's resolution is recomputed.",
+        "x-required-scopes": ["reports:write"],
+        "security": [
+          {"bearerAuth": []},
+          {"humanSession": []}
+        ],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"},
+          {"$ref": "#/components/parameters/IdempotencyKey"},
+          {"$ref": "#/components/parameters/ReportId"},
+          {"$ref": "#/components/parameters/UpdateId"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/StatusReportUpdateEditRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Refreshed status report",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/StatusReportEnvelope"}
+              }
+            }
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      },
+      "delete": {
+        "operationId": "deleteStatusReportUpdate",
+        "tags": ["Status reports"],
+        "summary": "Delete a report update",
+        "description": "Deletes a timeline update and recomputes the report's resolution. Deleting the only update fails with LAST_UPDATE.",
+        "x-required-scopes": ["reports:write"],
+        "security": [
+          {"bearerAuth": []},
+          {"humanSession": []}
+        ],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"},
+          {"$ref": "#/components/parameters/IdempotencyKey"},
+          {"$ref": "#/components/parameters/ReportId"},
+          {"$ref": "#/components/parameters/UpdateId"}
+        ],
+        "responses": {
+          "200": {
+            "description": "Refreshed status report",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/StatusReportEnvelope"}
+              }
+            }
+          },
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      }
+    },
+    "/api/v1/incidents/{incidentId}/promote": {
+      "post": {
+        "operationId": "promoteIncident",
+        "tags": ["Status reports"],
+        "summary": "Promote an incident to a draft status report",
+        "description": "Creates a DRAFT report prefilled from the auto-detected incident (title, window, affected monitor, sanitized investigating update). Idempotent: promoting the same incident again returns the existing report with 200.",
+        "x-required-scopes": ["reports:write"],
+        "security": [
+          {"bearerAuth": []},
+          {"humanSession": []}
+        ],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"},
+          {"$ref": "#/components/parameters/IdempotencyKey"},
+          {"$ref": "#/components/parameters/IncidentId"}
+        ],
+        "responses": {
+          "200": {
+            "description": "Existing draft report for the incident",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/StatusReportEnvelope"}
+              }
+            }
+          },
+          "201": {
+            "description": "Newly created draft report",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/StatusReportEnvelope"}
+              }
+            }
+          },
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      }
+    },
     "/api/v1/version": {
       "get": {
         "operationId": "getVersion",
@@ -105,6 +496,201 @@
           "429": {
             "$ref": "#/components/responses/RateLimited"
           }
+        }
+      },
+      "patch": {
+        "operationId": "updateAccountProfile",
+        "tags": ["Principal"],
+        "summary": "Update account profile",
+        "description": "Session-only: bearer credentials receive 403. Updates the administrator's display name and account time zone.",
+        "security": [{"humanSession": []}],
+        "parameters": [{"$ref": "#/components/parameters/RequestId"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ProfileUpdateRequest"}}}},
+        "responses": {
+          "200": {"description": "Updated principal with the new profile", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MeEnvelope"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      }
+    },
+    "/api/v1/me/email": {
+      "post": {
+        "operationId": "changeAccountEmail",
+        "tags": ["Principal"],
+        "summary": "Change account email",
+        "description": "Session-only: bearer credentials receive 403. Requires the confirmation email to match and the current password. Revokes every other human session and synchronizes the denormalized CLI session and installation email copies in the same transaction; machine credentials are deliberately not revoked.",
+        "security": [{"humanSession": []}],
+        "parameters": [{"$ref": "#/components/parameters/RequestId"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EmailChangeRequest"}}}},
+        "responses": {
+          "200": {"description": "The new sign-in address", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EmailChangeEnvelope"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      }
+    },
+    "/api/v1/me/password": {
+      "post": {
+        "operationId": "changeAccountPassword",
+        "tags": ["Principal"],
+        "summary": "Change account password",
+        "description": "Session-only: bearer credentials receive 403. Verifies the current password, re-hashes with Argon2id, stamps passwordChangedAt, and revokes every other human session. Failed attempts share the sign-in rate-limit buckets.",
+        "security": [{"humanSession": []}],
+        "parameters": [{"$ref": "#/components/parameters/RequestId"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PasswordChangeRequest"}}}},
+        "responses": {
+          "200": {"description": "Password changed and other sessions revoked", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ActionEnvelope"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      }
+    },
+    "/api/v1/me/sessions/{sessionId}": {
+      "delete": {
+        "operationId": "revokeAccountSession",
+        "tags": ["Principal"],
+        "summary": "Revoke a dashboard session",
+        "description": "Session-only: bearer credentials receive 403. Signs out one of the administrator's other dashboard sessions; revoking the current session is refused with 409.",
+        "security": [{"humanSession": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"},
+          {"name": "sessionId", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "responses": {
+          "200": {"description": "Session revoked", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ActionEnvelope"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      }
+    },
+    "/api/v1/me/sessions/revoke-others": {
+      "post": {
+        "operationId": "revokeOtherAccountSessions",
+        "tags": ["Principal"],
+        "summary": "Sign out all other sessions",
+        "description": "Session-only: bearer credentials receive 403. Revokes every human session except the current one and reports the count.",
+        "security": [{"humanSession": []}],
+        "parameters": [{"$ref": "#/components/parameters/RequestId"}],
+        "responses": {
+          "200": {"description": "Other sessions revoked", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ActionEnvelope"}}}},
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      }
+    },
+    "/api/v1/status-page-config": {
+      "get": {
+        "operationId": "getStatusPageConfig",
+        "tags": ["Status page"],
+        "summary": "Get status page configuration",
+        "x-required-scopes": ["config:read"],
+        "security": [{"bearerAuth": []}, {"humanSession": []}],
+        "parameters": [{"$ref": "#/components/parameters/RequestId"}],
+        "responses": {
+          "200": {
+            "description": "The status page configuration document",
+            "headers": {"ETag": {"description": "Quoted updatedAt-derived configuration ETag; resend in If-Match on PUT", "schema": {"type": "string"}}},
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StatusPageConfigEnvelope"}}}
+          },
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"description": "The seeded configuration row is missing (run migrations)", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope"}}}}
+        }
+      },
+      "put": {
+        "operationId": "replaceStatusPageConfig",
+        "tags": ["Status page"],
+        "summary": "Replace status page configuration",
+        "description": "Full-document replacement guarded by optimistic concurrency: If-Match must carry the ETag from the last read (428 PRECONDITION_REQUIRED when missing, 412 PRECONDITION_FAILED on mismatch). The read-only updatedAt field in the body is ignored. Referenced logo and favicon image ids must exist with the matching kind; image rows dropped by the new document are deleted after the write commits.",
+        "x-required-scopes": ["config:write"],
+        "security": [{"bearerAuth": []}, {"humanSession": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"},
+          {"name": "If-Match", "in": "header", "required": true, "schema": {"type": "string"}, "description": "Quoted updatedAt-derived ETag captured on the last read"}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StatusPageConfig"}}}},
+        "responses": {
+          "200": {
+            "description": "The stored configuration document",
+            "headers": {"ETag": {"description": "The new updatedAt-derived configuration ETag", "schema": {"type": "string"}}},
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StatusPageConfigEnvelope"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "412": {"description": "The configuration changed since it was read; re-read and reapply", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope"}}}},
+          "428": {"description": "The If-Match header is missing", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope"}}}},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"description": "The seeded configuration row is missing (run migrations)", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope"}}}}
+        }
+      }
+    },
+    "/api/v1/images": {
+      "post": {
+        "operationId": "uploadImage",
+        "tags": ["Images"],
+        "summary": "Upload an image",
+        "description": "Multipart upload for status page branding and account avatars. PNG, JPEG, SVG, WebP, or ICO; 512 KB cap, 32 KB for kind=favicon. File content is verified against the declared type. Accepts a dashboard session or any config:write credential. Public logos are later served from /status/assets/{imageId}; favicons are inlined by the status page; avatars stay dashboard-private.",
+        "x-required-scopes": ["config:write"],
+        "security": [{"bearerAuth": []}, {"humanSession": []}],
+        "parameters": [{"$ref": "#/components/parameters/RequestId"}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["file", "kind"],
+                "properties": {
+                  "file": {"type": "string", "format": "binary"},
+                  "kind": {"enum": ["logo-light", "logo-dark", "favicon", "avatar"]}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {"description": "Stored image reference", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ImageEnvelope"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      }
+    },
+    "/api/v1/images/{imageId}": {
+      "get": {
+        "operationId": "getImageBytes",
+        "tags": ["Images"],
+        "summary": "Get image bytes",
+        "description": "Session-only: bearer credentials receive 403. Serves stored image bytes for dashboard rendering (avatars and branding previews) with a short private cache.",
+        "security": [{"humanSession": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"},
+          {"name": "imageId", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "responses": {
+          "200": {"description": "Image bytes with the stored content type", "content": {"image/*": {"schema": {"type": "string", "format": "binary"}}}},
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
         }
       }
     },
@@ -1543,6 +2129,24 @@
           "format": "uuid"
         }
       },
+      "ReportId": {
+        "name": "reportId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "UpdateId": {
+        "name": "updateId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
       "OperationId": {
         "name": "operationId",
         "in": "path",
@@ -1874,7 +2478,9 @@
           "config:write",
           "notifications:test",
           "tokens:manage",
-          "status:read"
+          "status:read",
+          "reports:read",
+          "reports:write"
         ]
       },
       "Meta": {
@@ -2041,7 +2647,10 @@
           "tokenId",
           "tokenName",
           "scopes",
-          "installation"
+          "installation",
+          "name",
+          "timezone",
+          "avatarImageId"
         ],
         "properties": {
           "principalType": {
@@ -2087,7 +2696,73 @@
                 "type": "null"
               }
             ]
+          },
+          "name": {
+            "type": ["string", "null"],
+            "maxLength": 120,
+            "description": "Human display name; null for machine principals or when unset."
+          },
+          "timezone": {
+            "type": ["string", "null"],
+            "description": "Account-level IANA time zone; null means follow the system zone."
+          },
+          "avatarImageId": {
+            "type": ["string", "null"],
+            "format": "uuid",
+            "description": "References an uploaded kind=avatar image; null when unset."
           }
+        }
+      },
+      "ProfileUpdateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "name": {"type": "string", "minLength": 1, "maxLength": 120},
+          "timezone": {"type": ["string", "null"], "description": "IANA zone name; null resets the account to the system zone."},
+          "avatarImageId": {
+            "type": ["string", "null"],
+            "format": "uuid",
+            "description": "Must reference an uploaded kind=avatar image; null clears the avatar."
+          }
+        }
+      },
+      "EmailChangeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["email", "emailConfirm", "currentPassword"],
+        "properties": {
+          "email": {"type": "string", "format": "email"},
+          "emailConfirm": {"type": "string", "format": "email", "description": "Must match email; the address is the sole login identifier."},
+          "currentPassword": {"type": "string"}
+        }
+      },
+      "PasswordChangeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["currentPassword", "newPassword"],
+        "properties": {
+          "currentPassword": {"type": "string"},
+          "newPassword": {"type": "string", "minLength": 12, "maxLength": 128}
+        }
+      },
+      "EmailChange": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["email"],
+        "properties": {
+          "email": {"type": "string", "format": "email"}
+        }
+      },
+      "EmailChangeEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["apiVersion", "kind", "data", "meta"],
+        "properties": {
+          "apiVersion": {"$ref": "#/components/schemas/ApiVersion"},
+          "kind": {"const": "EmailChange"},
+          "data": {"$ref": "#/components/schemas/EmailChange"},
+          "meta": {"$ref": "#/components/schemas/Meta"}
         }
       },
       "MeEnvelope": {
@@ -3547,6 +4222,338 @@
             "type": "string",
             "pattern": "^sha256:[0-9a-f]{64}$"
           }
+        }
+      },
+      "StatusPageNavLink": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["label", "url"],
+        "properties": {
+          "label": {"type": "string", "minLength": 1, "maxLength": 40},
+          "url": {"type": "string", "minLength": 1, "maxLength": 2048, "description": "http, https, or mailto URL"}
+        }
+      },
+      "StatusPageConfig": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "layout", "theme", "logoLightImageId", "logoDarkImageId", "faviconImageId", "homepageUrl", "contactUrl", "navLinks", "googleTagId", "customCss", "customHead", "announcementEnabled", "announcementMarkdown", "historyDays", "uptimeDecimals", "unknownAsOperational", "minIncidentSeconds", "timezone"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1, "maxLength": 80},
+          "layout": {"enum": ["vertical", "horizontal"]},
+          "theme": {"enum": ["system", "light", "dark"]},
+          "logoLightImageId": {"type": ["string", "null"], "format": "uuid", "description": "Must reference an uploaded logo-light image"},
+          "logoDarkImageId": {"type": ["string", "null"], "format": "uuid", "description": "Must reference an uploaded logo-dark image"},
+          "faviconImageId": {"type": ["string", "null"], "format": "uuid", "description": "Must reference an uploaded favicon image (32 KB cap; inlined as a data: URI)"},
+          "homepageUrl": {"type": ["string", "null"], "maxLength": 2048, "description": "http or https URL"},
+          "contactUrl": {"type": ["string", "null"], "maxLength": 2048, "description": "http, https, or mailto URL"},
+          "navLinks": {"type": "array", "maxItems": 8, "items": {"$ref": "#/components/schemas/StatusPageNavLink"}},
+          "googleTagId": {"type": ["string", "null"], "pattern": "^G(T)?-[A-Z0-9]+$", "maxLength": 40},
+          "customCss": {"type": ["string", "null"], "description": "At most 10 KB"},
+          "customHead": {"type": ["string", "null"], "description": "At most 10 KB; raw head injection (accepted self-XSS, see SECURITY.md)"},
+          "announcementEnabled": {"type": "boolean"},
+          "announcementMarkdown": {"type": ["string", "null"], "description": "At most 2 KB; restricted markdown"},
+          "historyDays": {"enum": [30, 60, 90]},
+          "uptimeDecimals": {"type": "integer", "minimum": 0, "maximum": 3},
+          "unknownAsOperational": {"type": "boolean"},
+          "minIncidentSeconds": {"type": "integer", "minimum": 0, "maximum": 604800, "description": "Hides resolved blips shorter than this from incident history only"},
+          "timezone": {"type": ["string", "null"], "description": "IANA time zone; null renders UTC"},
+          "updatedAt": {"type": ["string", "null"], "format": "date-time", "readOnly": true, "description": "Drives the ETag; ignored when sent on PUT"}
+        }
+      },
+      "StatusPageConfigEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["apiVersion", "kind", "data", "meta"],
+        "properties": {
+          "apiVersion": {"$ref": "#/components/schemas/ApiVersion"},
+          "kind": {"const": "StatusPageConfig"},
+          "data": {"$ref": "#/components/schemas/StatusPageConfig"},
+          "meta": {"$ref": "#/components/schemas/Meta"}
+        }
+      },
+      "Image": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"}
+        }
+      },
+      "ImageEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["apiVersion", "kind", "data", "meta"],
+        "properties": {
+          "apiVersion": {"$ref": "#/components/schemas/ApiVersion"},
+          "kind": {"const": "Image"},
+          "data": {"$ref": "#/components/schemas/Image"},
+          "meta": {"$ref": "#/components/schemas/Meta"}
+        }
+      },
+      "StatusReportUpdateStatus": {
+        "type": "string",
+        "description": "Incident timelines use investigating|identified|monitoring|resolved; maintenance timelines use scheduled|in_progress|completed.",
+        "enum": [
+          "investigating",
+          "identified",
+          "monitoring",
+          "resolved",
+          "scheduled",
+          "in_progress",
+          "completed"
+        ]
+      },
+      "StatusReportUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status", "markdown", "publishedAt", "createdAt"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "status": {"$ref": "#/components/schemas/StatusReportUpdateStatus"},
+          "markdown": {"type": "string", "minLength": 1, "maxLength": 10240},
+          "publishedAt": {"type": "string", "format": "date-time"},
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true,
+            "description": "Insertion timestamp; with publishedAt and id it lets clients reproduce the server's (publishedAt, createdAt, id) total order exactly."
+          }
+        }
+      },
+      "AffectedService": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["monitorId", "monitorName", "groupName", "impact"],
+        "properties": {
+          "monitorId": {"type": "string"},
+          "monitorName": {
+            "type": "string",
+            "description": "Snapshotted from the monitor registry at authoring time; historical rendering never live-joins."
+          },
+          "groupName": {"type": ["string", "null"]},
+          "impact": {"type": "string", "enum": ["down", "degraded", "maintenance"]}
+        }
+      },
+      "AffectedServiceInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["monitorId", "impact"],
+        "properties": {
+          "monitorId": {"type": "string"},
+          "impact": {"type": "string", "enum": ["down", "degraded", "maintenance"]}
+        }
+      },
+      "StatusReport": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "type",
+          "title",
+          "startsAt",
+          "endsAt",
+          "publishedAt",
+          "resolvedAt",
+          "originIncidentId",
+          "currentStatus",
+          "updates",
+          "affected",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "type": {"type": "string", "enum": ["incident", "maintenance"]},
+          "title": {"type": "string", "minLength": 1, "maxLength": 160},
+          "startsAt": {"type": "string", "format": "date-time"},
+          "endsAt": {"type": ["string", "null"], "format": "date-time"},
+          "publishedAt": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "Null while the report is a draft; drafts never appear on the public status page."
+          },
+          "resolvedAt": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "Derived: recomputed from the full update set on every update mutation; null unless the latest update by (publishedAt, createdAt, id) is resolved or completed."
+          },
+          "originIncidentId": {"type": ["string", "null"], "format": "uuid"},
+          "currentStatus": {"$ref": "#/components/schemas/StatusReportUpdateStatus"},
+          "updates": {
+            "type": "array",
+            "description": "Newest first by the (publishedAt, createdAt, id) total order.",
+            "items": {"$ref": "#/components/schemas/StatusReportUpdate"}
+          },
+          "affected": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/AffectedService"}
+          },
+          "createdAt": {"type": "string", "format": "date-time"},
+          "updatedAt": {"type": "string", "format": "date-time"}
+        }
+      },
+      "StatusReportEnvelope": {
+        "type": "object",
+        "required": ["apiVersion", "kind", "data", "meta"],
+        "properties": {
+          "apiVersion": {"$ref": "#/components/schemas/ApiVersion"},
+          "kind": {"const": "StatusReport"},
+          "data": {"$ref": "#/components/schemas/StatusReport"},
+          "meta": {"$ref": "#/components/schemas/Meta"}
+        }
+      },
+      "StatusReportListItem": {
+        "type": "object",
+        "description": "List-shaped report row: update count and latest status/publishedAt instead of the full update timeline; markdown bodies are never included. Fetch the report by id for the detailed shape.",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "type",
+          "title",
+          "startsAt",
+          "endsAt",
+          "publishedAt",
+          "resolvedAt",
+          "originIncidentId",
+          "currentStatus",
+          "updatesCount",
+          "latestUpdate",
+          "affected",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "type": {"type": "string", "enum": ["incident", "maintenance"]},
+          "title": {"type": "string", "minLength": 1, "maxLength": 160},
+          "startsAt": {"type": "string", "format": "date-time"},
+          "endsAt": {"type": ["string", "null"], "format": "date-time"},
+          "publishedAt": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "Null while the report is a draft; drafts never appear on the public status page."
+          },
+          "resolvedAt": {"type": ["string", "null"], "format": "date-time"},
+          "originIncidentId": {"type": ["string", "null"], "format": "uuid"},
+          "currentStatus": {"$ref": "#/components/schemas/StatusReportUpdateStatus"},
+          "updatesCount": {"type": "integer", "minimum": 0, "description": "Total number of updates on the report."},
+          "latestUpdate": {
+            "description": "Latest update by the (publishedAt, createdAt, id) total order; status and timestamp only.",
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["status", "publishedAt"],
+                "properties": {
+                  "status": {"$ref": "#/components/schemas/StatusReportUpdateStatus"},
+                  "publishedAt": {"type": "string", "format": "date-time"}
+                }
+              },
+              {"type": "null"}
+            ]
+          },
+          "affected": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/AffectedService"}
+          },
+          "createdAt": {"type": "string", "format": "date-time"},
+          "updatedAt": {"type": "string", "format": "date-time"}
+        }
+      },
+      "StatusReportListEnvelope": {
+        "type": "object",
+        "required": ["apiVersion", "kind", "data", "meta"],
+        "properties": {
+          "apiVersion": {"$ref": "#/components/schemas/ApiVersion"},
+          "kind": {"const": "StatusReportList"},
+          "data": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/StatusReportListItem"}
+          },
+          "meta": {"$ref": "#/components/schemas/ListMeta"}
+        }
+      },
+      "StatusReportDeletedEnvelope": {
+        "type": "object",
+        "required": ["apiVersion", "kind", "data", "meta"],
+        "properties": {
+          "apiVersion": {"$ref": "#/components/schemas/ApiVersion"},
+          "kind": {"const": "StatusReportDeleted"},
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id"],
+            "properties": {
+              "id": {"type": "string", "format": "uuid"}
+            }
+          },
+          "meta": {"$ref": "#/components/schemas/Meta"}
+        }
+      },
+      "StatusReportCreateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "title", "update"],
+        "properties": {
+          "type": {"type": "string", "enum": ["incident", "maintenance"]},
+          "title": {"type": "string", "minLength": 1, "maxLength": 160},
+          "startsAt": {"type": "string", "format": "date-time"},
+          "endsAt": {"type": ["string", "null"], "format": "date-time"},
+          "affected": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {"$ref": "#/components/schemas/AffectedServiceInput"}
+          },
+          "update": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["status", "markdown"],
+            "properties": {
+              "status": {"$ref": "#/components/schemas/StatusReportUpdateStatus"},
+              "markdown": {"type": "string", "minLength": 1, "maxLength": 10240},
+              "publishedAt": {"type": "string", "format": "date-time"}
+            }
+          },
+          "draft": {
+            "type": "boolean",
+            "description": "True saves the report as a draft instead of publishing on create."
+          }
+        }
+      },
+      "StatusReportPatchRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "title": {"type": "string", "minLength": 1, "maxLength": 160},
+          "startsAt": {"type": "string", "format": "date-time"},
+          "endsAt": {"type": ["string", "null"], "format": "date-time"},
+          "affected": {
+            "type": "array",
+            "description": "Full replacement of the affected set.",
+            "maxItems": 100,
+            "items": {"$ref": "#/components/schemas/AffectedServiceInput"}
+          }
+        }
+      },
+      "StatusReportUpdateCreateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["status", "markdown"],
+        "properties": {
+          "status": {"$ref": "#/components/schemas/StatusReportUpdateStatus"},
+          "markdown": {"type": "string", "minLength": 1, "maxLength": 10240},
+          "publishedAt": {"type": "string", "format": "date-time"}
+        }
+      },
+      "StatusReportUpdateEditRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "status": {"$ref": "#/components/schemas/StatusReportUpdateStatus"},
+          "markdown": {"type": "string", "minLength": 1, "maxLength": 10240},
+          "publishedAt": {"type": "string", "format": "date-time"}
         }
       },
       "ActionEnvelope": {

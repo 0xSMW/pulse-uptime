@@ -12,6 +12,7 @@ import {
   numeric,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
@@ -422,10 +423,67 @@ export const databaseUsageSnapshots = pgTable("database_usage_snapshots", {
   check("database_usage_snapshots_coverage", sql`${table.schedulerCoverage} is null or ${table.schedulerCoverage} between 0 and 1`),
 ]);
 
+export const imageKinds = ["logo-light", "logo-dark", "favicon", "avatar"] as const;
+
+export const images = pgTable("images", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  kind: text("kind", { enum: imageKinds }).notNull(),
+  mimeType: text("mime_type").notNull(),
+  bytes: bytea("bytes").notNull(),
+  byteSize: integer("byte_size").notNull(),
+  createdAt: timestamptz("created_at").notNull(),
+}, (table) => [
+  check("images_kind", sql`${table.kind} in ('logo-light', 'logo-dark', 'favicon', 'avatar')`),
+  check("images_byte_size_positive", sql`${table.byteSize} > 0`),
+]);
+
+/**
+ * Single-row status page configuration. The migration seeds row 1 with name
+ * NULL and updatedAt NULL; the service coalesces NULL name to
+ * NEXT_PUBLIC_STATUS_PAGE_NAME and then "System Status" without persisting, so
+ * existing deployments keep their env-derived title until the first PUT.
+ */
+export const statusPageConfig = pgTable("status_page_config", {
+  id: smallint("id").primaryKey().default(1),
+  name: text("name"),
+  layout: text("layout", { enum: ["vertical", "horizontal"] }).notNull().default("vertical"),
+  theme: text("theme", { enum: ["system", "light", "dark"] }).notNull().default("system"),
+  logoLightImageId: uuid("logo_light_image_id"),
+  logoDarkImageId: uuid("logo_dark_image_id"),
+  faviconImageId: uuid("favicon_image_id"),
+  homepageUrl: text("homepage_url"),
+  contactUrl: text("contact_url"),
+  navLinks: jsonb("nav_links").notNull().default(sql`'[]'::jsonb`),
+  googleTagId: text("google_tag_id"),
+  customCss: text("custom_css"),
+  customHead: text("custom_head"),
+  announcementEnabled: boolean("announcement_enabled").notNull().default(false),
+  announcementMarkdown: text("announcement_markdown"),
+  historyDays: integer("history_days").notNull().default(90),
+  uptimeDecimals: integer("uptime_decimals").notNull().default(2),
+  unknownAsOperational: boolean("unknown_as_operational").notNull().default(false),
+  minIncidentSeconds: integer("min_incident_seconds").notNull().default(0),
+  timezone: text("timezone"),
+  updatedAt: timestamptz("updated_at"),
+}, (table) => [
+  check("status_page_config_single_row", sql`${table.id} = 1`),
+  check("status_page_config_layout", sql`${table.layout} in ('vertical', 'horizontal')`),
+  check("status_page_config_theme", sql`${table.theme} in ('system', 'light', 'dark')`),
+  check("status_page_config_history_days", sql`${table.historyDays} in (30, 60, 90)`),
+  check("status_page_config_uptime_decimals", sql`${table.uptimeDecimals} between 0 and 3`),
+  check(
+    "status_page_config_min_incident_seconds",
+    sql`${table.minIncidentSeconds} >= 0 and ${table.minIncidentSeconds} <= 604800`,
+  ),
+]);
+
 export const adminUsers = pgTable("admin_users", {
   id: uuid("id").primaryKey(),
   email: text("email").notNull().unique(),
   passwordDigest: text("password_digest").notNull(),
+  name: text("name"),
+  avatarImageId: uuid("avatar_image_id").references(() => images.id),
+  timezone: text("timezone"),
   createdAt: timestamptz("created_at").notNull(),
   updatedAt: timestamptz("updated_at").notNull(),
   passwordChangedAt: timestamptz("password_changed_at").notNull(),
@@ -442,6 +500,8 @@ export const humanSessions = pgTable("human_sessions", {
   expiresAt: timestamptz("expires_at").notNull(),
   lastSeenAt: timestamptz("last_seen_at"),
   revokedAt: timestamptz("revoked_at"),
+  userAgent: text("user_agent"),
+  ipAddress: text("ip_address"),
 }, (table) => [
   check("human_sessions_expiry_order", sql`${table.expiresAt} > ${table.createdAt}`),
 ]);
@@ -496,6 +556,10 @@ export const cliSessions = pgTable("cli_sessions", {
   tokenDigest: bytea("token_digest").notNull().unique(),
   userEmail: text("user_email").notNull(),
   scopes: text("scopes").array().notNull(),
+  // Named scope profile ("administrator"). When present, the profile resolves
+  // to its scope list at AUTH time, so sessions minted before a scope existed
+  // gain it automatically; the literal scopes column is the legacy fallback.
+  scopeProfile: text("scope_profile"),
   createdAt: timestamptz("created_at").notNull(),
   expiresAt: timestamptz("expires_at").notNull(),
   lastUsedAt: timestamptz("last_used_at"),
@@ -577,6 +641,94 @@ export const apiRateLimitBuckets = pgTable("api_rate_limit_buckets", {
   check("api_rate_limit_buckets_window", sql`${table.windowSeconds} > 0`),
   check("api_rate_limit_buckets_count", sql`${table.requestCount} >= 0`),
   check("api_rate_limit_buckets_expiry_order", sql`${table.expiresAt} > ${table.windowStartedAt}`),
+]);
+
+export const statusReportTypes = ["incident", "maintenance"] as const;
+
+export const statusReportUpdateStatuses = [
+  "investigating",
+  "identified",
+  "monitoring",
+  "resolved",
+  "scheduled",
+  "in_progress",
+  "completed",
+] as const;
+
+export const statusReportImpacts = ["down", "degraded", "maintenance"] as const;
+
+export const statusReports = pgTable("status_reports", {
+  id: uuid("id").primaryKey(),
+  type: text("type", { enum: statusReportTypes }).notNull(),
+  title: text("title").notNull(),
+  startsAt: timestamptz("starts_at").notNull(),
+  endsAt: timestamptz("ends_at"),
+  // NULL = draft: listed in the dashboard, invisible to the public page.
+  publishedAt: timestamptz("published_at"),
+  // Derived from the update set; recomputed on every update create/edit/delete.
+  resolvedAt: timestamptz("resolved_at"),
+  originIncidentId: uuid("origin_incident_id").references(() => incidents.id),
+  createdAt: timestamptz("created_at").notNull(),
+  updatedAt: timestamptz("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("status_reports_origin")
+    .on(table.originIncidentId)
+    .where(sql`${table.originIncidentId} is not null`),
+  index("status_reports_ongoing")
+    .on(table.startsAt.desc())
+    .where(sql`${table.resolvedAt} is null`),
+  // Serves the public "recent resolved" branch (ORDER BY resolved_at DESC).
+  index("status_reports_resolved")
+    .on(table.resolvedAt.desc())
+    .where(sql`${table.resolvedAt} is not null`),
+  index("status_reports_cursor").on(table.createdAt.desc(), table.id.desc()),
+  check("status_reports_type", sql`${table.type} in ('incident', 'maintenance')`),
+  check("status_reports_title_length", sql`char_length(${table.title}) between 1 and 160`),
+]);
+
+export const statusReportUpdates = pgTable("status_report_updates", {
+  id: uuid("id").primaryKey(),
+  reportId: uuid("report_id").notNull().references(() => statusReports.id, { onDelete: "cascade" }),
+  status: text("status", { enum: statusReportUpdateStatuses }).notNull(),
+  markdown: text("markdown").notNull(),
+  // Editable/backdatable; display and ordering input, not an audit timestamp.
+  publishedAt: timestamptz("published_at").notNull(),
+  createdAt: timestamptz("created_at").notNull(),
+  updatedAt: timestamptz("updated_at").notNull(),
+}, (table) => [
+  // Covers the contract total order (publishedAt, createdAt, id) so the
+  // DISTINCT ON latest-update queries resolve ties without a sort node.
+  index("status_report_updates_latest").on(
+    table.reportId,
+    table.publishedAt.desc(),
+    table.createdAt.desc(),
+    table.id.desc(),
+  ),
+  check(
+    "status_report_updates_status",
+    sql`${table.status} in ('investigating', 'identified', 'monitoring', 'resolved', 'scheduled', 'in_progress', 'completed')`,
+  ),
+  check(
+    "status_report_updates_markdown_length",
+    sql`char_length(${table.markdown}) between 1 and 10240`,
+  ),
+]);
+
+export const statusReportAffected = pgTable("status_report_affected", {
+  reportId: uuid("report_id").notNull().references(() => statusReports.id, { onDelete: "cascade" }),
+  // Registry ids are reusable slugs; the FK is a soft navigation link and the
+  // name/group snapshots below are what historical rendering uses.
+  monitorId: text("monitor_id").notNull().references(() => monitorRegistry.id),
+  monitorName: text("monitor_name").notNull(),
+  groupName: text("group_name"),
+  impact: text("impact", { enum: statusReportImpacts }).notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.reportId, table.monitorId] }),
+  index("status_report_affected_monitor").on(table.monitorId),
+  check(
+    "status_report_affected_impact",
+    sql`${table.impact} in ('down', 'degraded', 'maintenance')`,
+  ),
 ]);
 
 export const configOperations = pgTable("config_operations", {

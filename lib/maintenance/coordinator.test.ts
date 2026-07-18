@@ -30,10 +30,13 @@ describe("performMaintenance", () => {
       retainUsageSnapshots: record("usage-retention"),
       retainExceptions: record("exception-retention"),
       retainExceptionPayloads: record("payload-retention"),
+      deleteOrphanImages: record("orphan-images"),
     }, now);
     expect(calls.find(([name]) => name === "checks")?.[2]).toBe(10_000);
     expect(calls.find(([name]) => name === "snapshots")?.slice(2)).toEqual([50, 10_000]);
-    expect(summary).toEqual({ staleOutbox: 1, staleCronRuns: 1, rollups: 3, deleted: 9, expired: 5, governorMode: "full" });
+    expect(calls.find(([name]) => name === "orphan-images")?.slice(1))
+      .toEqual([new Date("2026-07-17T03:15:00Z"), 20, 10_000]);
+    expect(summary).toEqual({ staleOutbox: 1, staleCronRuns: 1, rollups: 3, deleted: 10, expired: 5, governorMode: "full" });
   });
 
   it("stops after the first failed task", async () => {
@@ -60,6 +63,7 @@ describe("performMaintenance", () => {
       retainUsageSnapshots: later,
       retainExceptions: later,
       retainExceptionPayloads: later,
+      deleteOrphanImages: later,
     }, new Date())).rejects.toThrow("database unavailable");
     expect(later).not.toHaveBeenCalled();
   });
@@ -92,6 +96,7 @@ describe("performMaintenance", () => {
       retainUsageSnapshots: zero,
       retainExceptions: zero,
       retainExceptionPayloads: zero,
+      deleteOrphanImages: zero,
     }, new Date(), { nowMs: () => 0, deadlineAtMs: 1 });
     expect(raw).toHaveBeenCalledTimes(3);
     expect(summary.deleted).toBe(20_012);
@@ -123,6 +128,7 @@ describe("performMaintenance", () => {
       retainUsageSnapshots: zero,
       retainExceptions: zero,
       retainExceptionPayloads: zero,
+      deleteOrphanImages: zero,
     }, new Date(), { nowMs: () => clock++, deadlineAtMs: 5 });
     expect(raw).toHaveBeenCalledTimes(1);
   });
@@ -140,7 +146,7 @@ describe("performMaintenance", () => {
       schedulerCoverageStart: async () => new Date(now.getTime() - 72 * 3_600_000),
       promoteRollups: zero, measureAndSnapshotUsage: async () => "full",
       enforceTelemetryRetention: zero, retainUsageSnapshots: zero, retainExceptions: zero,
-      retainExceptionPayloads: zero,
+      retainExceptionPayloads: zero, deleteOrphanImages: zero,
     }, now);
     expect(gaps).toHaveBeenCalledTimes(3);
     expect(gaps.mock.calls.every(([start, end]) => (end as Date).getTime() - (start as Date).getTime() <= 86_400_000)).toBe(true);

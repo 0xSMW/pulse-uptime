@@ -5,6 +5,7 @@ import { IncidentTime } from "@/components/incidents/incident-time";
 import { IncidentStatus } from "@/components/incidents/incident-status";
 import { NotificationSummary } from "@/components/incidents/notification-summary";
 import type { IncidentSummary } from "@/components/incidents/types";
+import { WriteReportButton } from "@/components/incidents/write-report-button";
 
 export function IncidentHistoryTable({ incidents }: { incidents: IncidentSummary[] }) {
   return (
@@ -23,7 +24,8 @@ export function IncidentHistoryTable({ incidents }: { incidents: IncidentSummary
               <th className="px-4 font-medium">Duration</th>
               <th className="incident-hide-failure px-4 font-medium">Opening Failure</th>
               <th className="incident-hide-status px-4 font-medium">Status</th>
-              <th className="incident-hide-notifications px-6 font-medium">Notifications</th>
+              <th className="incident-hide-notifications px-4 font-medium">Notifications</th>
+              <th className="px-6 font-medium"><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>
@@ -47,7 +49,8 @@ export function IncidentHistoryTable({ incidents }: { incidents: IncidentSummary
                   {incident.openingFailure}
                 </td>
                 <td className="incident-hide-status px-4 font-data text-[var(--fg-muted)]">{incident.status ?? "—"}</td>
-                <td className="incident-hide-notifications px-6"><NotificationSummary summary={incident.notificationSummary} /></td>
+                <td className="incident-hide-notifications px-4"><NotificationSummary summary={incident.notificationSummary} /></td>
+                <td className="px-6 text-right"><WriteReportButton incidentId={incident.id} /></td>
               </tr>
             ))}
           </tbody>

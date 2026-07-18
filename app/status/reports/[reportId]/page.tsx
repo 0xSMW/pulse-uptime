@@ -1,0 +1,155 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { notFound } from "next/navigation";
+
+import { RestrictedMarkdown } from "@/lib/markdown/restricted-markdown";
+import { formatDuration } from "@/lib/reporting/format";
+import {
+  getPublicReportDetail,
+  getStatusFaviconDataUri,
+  getStatusPageDisplayConfig,
+} from "@/lib/reporting/queries/status";
+import { formatStatusTimestamp, timezoneDisplay } from "@/lib/status-page/display";
+import {
+  publicReportPhase,
+  reportDurationSeconds,
+  reportImpactLabels,
+  reportStatusLabels,
+  type ReportPhase,
+} from "@/lib/status-page/reports-display";
+
+// The page people refresh compulsively mid-incident (§3.6): ISR at the same
+// cadence as /status, plus the revalidatePath calls on every report mutation.
+export const revalidate = 30;
+
+type ReportPageProps = {
+  params: Promise<{ reportId: string }>;
+};
+
+export async function generateMetadata({ params }: ReportPageProps): Promise<Metadata> {
+  const { reportId } = await params;
+  // Report lookup first: unknown ids and drafts 404 without paying for the
+  // config read or the favicon bytes.
+  const report = await getPublicReportDetail(reportId);
+  if (!report) notFound();
+  const [config, favicon] = await Promise.all([
+    getStatusPageDisplayConfig(),
+    getStatusFaviconDataUri(),
+  ]);
+  return {
+    title: { absolute: `${report.title} — ${config.name}` },
+    robots: { index: true, follow: true },
+    ...(favicon ? { icons: { icon: favicon } } : {}),
+  };
+}
+
+const phaseLabels: Record<ReportPhase, string> = {
+  ongoing: "Ongoing",
+  upcoming: "Scheduled",
+  window_ended: "Window ended",
+  resolved: "Resolved",
+};
+
+export default async function PublicReportPage({ params }: ReportPageProps) {
+  const { reportId } = await params;
+  const report = await getPublicReportDetail(reportId);
+  if (!report) notFound();
+  const config = await getStatusPageDisplayConfig();
+
+  const zone = timezoneDisplay(config.timezone);
+  const phase = publicReportPhase(report, new Date());
+  const typeLabel = report.type === "maintenance" ? "Maintenance" : "Incident";
+  const window = `${formatStatusTimestamp(report.startsAt, zone.timeZone)}${
+    report.endsAt ? ` – ${formatStatusTimestamp(report.endsAt, zone.timeZone)}` : ""
+  } ${zone.short}`;
+
+  return (
+    <main className="mx-auto w-full max-w-[720px] px-4 pb-16 pt-12 sm:px-6">
+      <Link
+        href="/status"
+        className="mb-5 inline-flex text-[13px] text-[var(--fg-muted)] hover:text-[var(--fg)] hover:underline"
+      >
+        ← All Systems
+      </Link>
+
+      <header className="space-y-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-[var(--fg-faint)]">
+          {typeLabel} · {phase === "ongoing" ? reportStatusLabels[report.currentStatus] : phaseLabels[phase]}
+        </p>
+        <h1 className="text-base font-semibold tracking-[-0.32px]">{report.title}</h1>
+        <p className="font-data text-[13px] text-[var(--fg-muted)]">
+          {window}
+          {phase === "resolved" ? ` · ${formatDuration(reportDurationSeconds(report))}` : ""}
+        </p>
+        {phase === "upcoming" ? (
+          <p className="text-[13px] text-[var(--fg-muted)]">
+            This maintenance window has not started yet.
+          </p>
+        ) : null}
+        {phase === "window_ended" ? (
+          <p className="text-[13px] text-[var(--fg-muted)]">
+            The scheduled window has ended; no completing update has been posted.
+          </p>
+        ) : null}
+      </header>
+
+      {report.affected.length > 0 ? (
+        <section
+          className="mt-6 overflow-hidden rounded-xl border border-[var(--border-strong)] shadow-[var(--card-shadow)]"
+          aria-labelledby="affected-heading"
+        >
+          <h2 id="affected-heading" className="px-6 py-4 text-sm font-semibold">
+            Affected Services
+          </h2>
+          <div className="hide-scrollbar overflow-x-auto border-t border-[var(--border)]">
+            <table className="w-full min-w-[360px] border-collapse text-left text-[13px]">
+              <thead className="text-xs text-[var(--fg-muted)]">
+                <tr className="h-10 border-b border-[var(--border)]">
+                  <th className="px-6 font-medium">Service</th>
+                  <th className="px-4 font-medium">Group</th>
+                  <th className="px-6 font-medium">Impact</th>
+                </tr>
+              </thead>
+              <tbody>
+                {/* Snapshotted names (§3.1): historical reports never re-join the live registry. */}
+                {report.affected.map((entry) => (
+                  <tr key={entry.monitorId} className="h-10 border-b border-[var(--border)] last:border-0">
+                    <td className="px-6 font-medium">{entry.monitorName}</td>
+                    <td className="px-4 text-[var(--fg-muted)]">{entry.groupName ?? "Other"}</td>
+                    <td className="px-6 text-[var(--fg-muted)]">{reportImpactLabels[entry.impact]}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      <section className="mt-6" aria-labelledby="updates-heading">
+        <h2 id="updates-heading" className="text-sm font-semibold">
+          Updates
+        </h2>
+        <ol className="mt-4 space-y-5 border-l border-[var(--border)] pl-5" role="list">
+          {report.updates.map((update) => (
+            <li key={update.id} className="relative">
+              <span
+                aria-hidden
+                className="absolute -left-[23px] top-1.5 size-1.5 rounded-full bg-[var(--border-strong)]"
+              />
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <h3 className="text-[13px] font-semibold">{reportStatusLabels[update.status]}</h3>
+                <time dateTime={update.publishedAt} className="font-data text-xs text-[var(--fg-faint)]">
+                  {formatStatusTimestamp(update.publishedAt, zone.timeZone)} {zone.short}
+                </time>
+              </div>
+              <RestrictedMarkdown
+                markdown={update.markdown}
+                className="mt-1.5 space-y-2 text-[13px] leading-[19px] text-[var(--fg-muted)] [&_a]:underline [&_a]:underline-offset-2 [&_code]:font-data [&_code]:text-xs"
+              />
+            </li>
+          ))}
+        </ol>
+      </section>
+    </main>
+  );
+}

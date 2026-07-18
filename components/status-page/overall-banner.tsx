@@ -1,7 +1,8 @@
 import { StatusDot, type MonitorState } from "@/components/monitors/status-dot";
+import type { PublicOverallState } from "@/lib/status-page/reports-display";
 import { cn } from "@/lib/utils";
 
-type OverallState = "operational" | "investigating" | "outage" | "empty";
+type OverallState = PublicOverallState;
 
 const presentation: Record<
   OverallState,
@@ -17,6 +18,20 @@ const presentation: Record<
     monitorState: "VERIFYING_DOWN",
     className:
       "border-[color-mix(in_srgb,var(--verifying)_40%,transparent)] bg-[var(--verifying-bg)]",
+  },
+  // Report-driven tier (§3.6): an ongoing degraded-impact report yields this
+  // even when every machine state is UP.
+  degraded: {
+    label: "Degraded Performance",
+    monitorState: "VERIFYING_DOWN",
+    className:
+      "border-[color-mix(in_srgb,var(--verifying)_40%,transparent)] bg-[var(--verifying-bg)]",
+  },
+  // Ongoing maintenance-type report, only when nothing redder is happening.
+  maintenance: {
+    label: "Maintenance in Progress",
+    monitorState: "PAUSED",
+    className: "border-[var(--border-strong)] bg-[var(--chip-bg)]",
   },
   outage: {
     label: "Major Outage",

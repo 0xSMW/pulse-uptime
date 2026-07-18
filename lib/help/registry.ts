@@ -98,7 +98,7 @@ const concepts: HelpEntry[] = [
       "Pulse sends an email when an outage is confirmed and again when recovery is confirmed. Each monitor can list its own recipients; monitors without any use the default recipients in Settings. Delivery state — sent, retrying, or dead — appears beside every incident.",
     demo: "alerts",
     relatedLinks: [
-      { label: "Notifications in Settings", href: "/settings/general" },
+      { label: "Notifications in Settings", href: "/settings/notifications" },
       { label: "Configure alert recipients", href: "#guide-configure-alerts" },
       { label: "Test email delivery", href: "#guide-test-email" },
     ],
@@ -108,11 +108,24 @@ const concepts: HelpEntry[] = [
     slug: "status-page",
     title: "Public status page",
     summary:
-      "The status page shares live availability without requiring sign-in. It shows an overall banner, each monitor's state, and recent timelines, and it follows each visitor's device theme rather than your dashboard appearance. Share its address with anyone who needs to know whether service is up.",
+      "The status page shares live availability without requiring sign-in. It shows an overall banner, each monitor's state, and recent timelines, and it follows each visitor's device theme — unless you force a theme in Settings → Status page — rather than your dashboard appearance. Share its address with anyone who needs to know whether service is up.",
     demo: "status-page",
     relatedLinks: [
       { label: "Status page", href: "/status" },
       { label: "Share the status page", href: "#guide-share-status-page" },
+    ],
+  },
+  {
+    kind: "concept",
+    slug: "report-drafts",
+    title: "Publish vs draft reports",
+    summary:
+      "A status report starts as a draft unless you publish it right away. Drafts are invisible on the public status page and its API, so you can shape the narrative before anyone sees it. Publishing is one-way: a live report gains updates rather than disappearing. Reports promoted from outages always begin as drafts.",
+    demo: "status-page",
+    relatedLinks: [
+      { label: "Status reports", href: "/incidents/reports" },
+      { label: "Publish a status report", href: "#guide-publish-status-report" },
+      { label: "Public status page", href: "#concept-status-page" },
     ],
   },
   {
@@ -243,14 +256,14 @@ const guides: HelpEntry[] = [
     summary:
       "Default recipients receive alerts for every monitor that has no list of its own. Give a monitor specific recipients when its outages concern a different team.",
     steps: [
-      "Open Settings → General.",
+      "Open Settings → Notifications.",
       "Enter one address per line, up to 20.",
       "Select Save Recipients.",
       "For monitor-specific routing, edit that monitor and set its recipients.",
     ],
     demo: "alerts",
     relatedLinks: [
-      { label: "Notifications in Settings", href: "/settings/general" },
+      { label: "Notifications in Settings", href: "/settings/notifications" },
       { label: "Alerts and recipients", href: "#concept-alerts" },
     ],
   },
@@ -261,14 +274,14 @@ const guides: HelpEntry[] = [
     summary:
       "Send a test email before you depend on alerts: it verifies the sender, the delivery provider, and the first recipient address in one step.",
     steps: [
-      "Open Settings → General.",
+      "Open Settings → Notifications.",
       "Confirm a sender appears beneath the recipients list.",
       "Select Send Test Email.",
       "Check the first recipient's inbox for the test message.",
     ],
     demo: "email-test",
     relatedLinks: [
-      { label: "Notifications in Settings", href: "/settings/general" },
+      { label: "Notifications in Settings", href: "/settings/notifications" },
       { label: "Alerts and recipients", href: "#concept-alerts" },
     ],
   },
@@ -285,6 +298,82 @@ const guides: HelpEntry[] = [
     ],
     demo: "status-page",
     relatedLinks: [
+      { label: "Status page", href: "/status" },
+      { label: "Public status page", href: "#concept-status-page" },
+    ],
+  },
+  {
+    kind: "guide",
+    slug: "publish-status-report",
+    title: "Publish a status report",
+    summary:
+      "Authored reports tell the story behind availability: what happened, what you are doing about it, and when it ended. Publish one whenever an outage or a maintenance window deserves narrative beyond the automatic incident row.",
+    steps: [
+      "Open Incidents and select the Reports tab.",
+      "Select Create status report.",
+      "Choose incident or maintenance and enter a title.",
+      "Pick the affected services and each one's impact.",
+      "Write the first update, then select Publish.",
+    ],
+    demo: "status-page",
+    relatedLinks: [
+      { label: "Status reports", href: "/incidents/reports" },
+      { label: "Publish vs draft reports", href: "#concept-report-drafts" },
+      { label: "Status page", href: "/status" },
+    ],
+  },
+  {
+    kind: "guide",
+    slug: "post-report-update",
+    title: "Post an update to an ongoing report",
+    summary:
+      "Each update adds a timestamped step to the public timeline, and the newest update's status becomes the report's current status. A Resolved or Completed update closes the report and moves it into history.",
+    steps: [
+      "Open Incidents and select the Reports tab.",
+      "Select the ongoing report.",
+      "Choose the update status — Investigating, Identified, Monitoring, or Resolved.",
+      "Write the update in Markdown.",
+      "Post the update; the status page reflects it immediately.",
+    ],
+    demo: "status-page",
+    relatedLinks: [
+      { label: "Status reports", href: "/incidents/reports" },
+      { label: "Publish a status report", href: "#guide-publish-status-report" },
+    ],
+  },
+  {
+    kind: "guide",
+    slug: "promote-incident-report",
+    title: "Promote an outage to a report",
+    summary:
+      "Promotion turns an automatic outage row into an editable draft report prefilled with the incident's title, start time, and affected monitor. The draft never publishes itself; once published, the report replaces the raw incident card on the status page.",
+    steps: [
+      "Open Incidents.",
+      "Select Write report on the outage's row.",
+      "Edit the prefilled draft — title, window, affected services, and the first update.",
+      "Select Publish when the narrative is ready.",
+    ],
+    demo: "incident",
+    relatedLinks: [
+      { label: "Incidents", href: "/incidents" },
+      { label: "Publish vs draft reports", href: "#concept-report-drafts" },
+    ],
+  },
+  {
+    kind: "guide",
+    slug: "customize-status-page",
+    title: "Customize your status page",
+    summary:
+      "The status page carries your identity: name, logo, links, announcement, and how much history it shows. Saved changes reach every visitor within about thirty seconds.",
+    steps: [
+      "Open Settings → Status page.",
+      "Adjust personalization, links, announcement, look and feel, or history.",
+      "Select Save in the unsaved-changes bar.",
+      "Select View status page to check the result.",
+    ],
+    demo: "status-page",
+    relatedLinks: [
+      { label: "Status page in Settings", href: "/settings/status-page" },
       { label: "Status page", href: "/status" },
       { label: "Public status page", href: "#concept-status-page" },
     ],
@@ -335,6 +424,59 @@ const guides: HelpEntry[] = [
     relatedLinks: [
       { label: "Database Health in Settings", href: "/settings/system" },
       { label: "Database Health", href: "#concept-database-health" },
+    ],
+  },
+  {
+    kind: "guide",
+    slug: "change-password",
+    title: "Change your password",
+    summary:
+      "Changing your password signs out every other session automatically, so an exposed credential stops working the moment the new one exists. Passwords must be 12 to 128 characters.",
+    steps: [
+      "Open Settings → Security.",
+      "Enter your current password.",
+      "Enter and confirm the new password.",
+      "Select Change Password.",
+    ],
+    demo: "tokens",
+    relatedLinks: [
+      { label: "Security in Settings", href: "/settings/security" },
+      { label: "Manage active sessions", href: "#guide-manage-sessions" },
+    ],
+  },
+  {
+    kind: "guide",
+    slug: "manage-sessions",
+    title: "Manage active sessions",
+    summary:
+      "The Active Sessions table lists every signed-in browser with its IP address and last activity, so you can spot a session you do not recognize and end it. Your current session is badged and cannot revoke itself.",
+    steps: [
+      "Open Settings → Security.",
+      "Review the Active Sessions table.",
+      "Select Revoke on a session, then Confirm.",
+      "Use Sign Out Other Sessions to end everything except this one.",
+    ],
+    demo: "tokens",
+    relatedLinks: [
+      { label: "Security in Settings", href: "/settings/security" },
+      { label: "Change your password", href: "#guide-change-password" },
+    ],
+  },
+  {
+    kind: "guide",
+    slug: "override-timezone",
+    title: "Override your time zone on one device",
+    summary:
+      "The account time zone applies everywhere you sign in. A device override changes only the device you set it on — useful while traveling — and the Account page shows provenance whenever one is active.",
+    steps: [
+      "Open Settings → Account.",
+      "Select Use a different time zone on this device.",
+      "Choose the zone for this device.",
+      "Select Reset later to return to the account time zone.",
+    ],
+    demo: "timeline",
+    relatedLinks: [
+      { label: "Account in Settings", href: "/settings/account" },
     ],
   },
 ];

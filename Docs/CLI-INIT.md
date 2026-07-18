@@ -219,6 +219,22 @@ pulsectl
 
   incident list
   incident get
+  incident promote
+
+  report list
+  report get
+  report create
+  report update
+  report post
+  report edit-update
+  report delete
+  report resolve
+  report publish
+
+  status-page get
+  status-page set
+  status-page export
+  status-page apply
 
   config export
   config validate
@@ -419,7 +435,7 @@ Machine output uses this versioned object:
     "email": "operator@example.com",
     "tokenName": null,
     "server": "https://pulse.example.com",
-    "scopes": ["monitors:read", "monitors:write", "incidents:read", "config:read", "config:write", "notifications:test", "tokens:manage", "status:read"],
+    "scopes": ["monitors:read", "monitors:write", "incidents:read", "config:read", "config:write", "notifications:test", "tokens:manage", "status:read", "reports:read", "reports:write"],
     "installation": {
       "id": "ins_01J...",
       "name": "Stephen’s Mac",
@@ -476,9 +492,11 @@ config:write
 notifications:test
 tokens:manage
 status:read
+reports:read
+reports:write
 ```
 
-The page groups these into plain-language permissions, displays the exact account and installation, and requires an explicit **Authorize** action. **Cancel** denies the request. Approval stores the exact granted-scope snapshot on the session; newly introduced scopes require reauthorization.
+The page groups these into plain-language permissions, displays the exact account and installation, and requires an explicit **Authorize** action. **Cancel** denies the request. Approval stores a named scope profile (`administrator`) on the session, not a scope snapshot. The profile resolves to the live scope list at auth time, so scopes introduced in later releases apply to existing sessions automatically without reauthorization. Manually minted API tokens are different: they keep the exact scope snapshot granted at mint time.
 
 Polling behavior follows these server errors:
 
@@ -521,6 +539,8 @@ config:write
 notifications:test
 tokens:manage
 status:read
+reports:read
+reports:write
 ```
 
 ## Service API

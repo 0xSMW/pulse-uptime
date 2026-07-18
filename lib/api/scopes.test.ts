@@ -5,6 +5,7 @@ import {
   canDelegateScopes,
   hasScope,
   normalizeScopes,
+  resolveScopeProfile,
 } from "./scopes";
 
 describe("API scopes", () => {
@@ -18,7 +19,17 @@ describe("API scopes", () => {
       "notifications:test",
       "tokens:manage",
       "status:read",
+      "reports:read",
+      "reports:write",
     ]);
+  });
+
+  it("resolves the administrator profile to the live scope list at auth time", () => {
+    expect(resolveScopeProfile("administrator")).toEqual([...ADMINISTRATOR_SCOPES]);
+    expect(resolveScopeProfile("administrator")).toContain("reports:write");
+    expect(resolveScopeProfile(null)).toBeNull();
+    expect(resolveScopeProfile(undefined)).toBeNull();
+    expect(resolveScopeProfile("intern")).toBeNull();
   });
 
   it("checks access and delegated subsets", () => {

@@ -19,7 +19,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var SupportedScopes = []string{"config:read", "config:write", "incidents:read", "monitors:read", "monitors:write", "notifications:test", "status:read", "tokens:manage"}
+var SupportedScopes = []string{"config:read", "config:write", "incidents:read", "monitors:read", "monitors:write", "notifications:test", "reports:read", "reports:write", "status:read", "tokens:manage"}
 
 type Transport interface {
 	Do(context.Context, string, string, any, http.Header, any) (http.Header, error)

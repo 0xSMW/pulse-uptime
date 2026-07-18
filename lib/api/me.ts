@@ -1,6 +1,12 @@
 import type { Principal } from "./principal";
 
-export function serializePrincipal(principal: Principal) {
+export type PrincipalProfile = {
+  name: string | null;
+  timezone: string | null;
+  avatarImageId: string | null;
+};
+
+export function serializePrincipal(principal: Principal, profile: PrincipalProfile | null = null) {
   switch (principal.type) {
     case "human":
       return {
@@ -10,6 +16,9 @@ export function serializePrincipal(principal: Principal) {
         tokenName: null,
         scopes: principal.scopes,
         installation: null,
+        name: profile?.name ?? null,
+        timezone: profile?.timezone ?? null,
+        avatarImageId: profile?.avatarImageId ?? null,
       };
     case "api_token":
       return {
@@ -19,6 +28,9 @@ export function serializePrincipal(principal: Principal) {
         tokenName: principal.name,
         scopes: principal.scopes,
         installation: null,
+        name: null,
+        timezone: null,
+        avatarImageId: null,
       };
     case "cli_session":
       return {
@@ -35,6 +47,9 @@ export function serializePrincipal(principal: Principal) {
           clientVersion: principal.installation.clientVersion,
           linkedAt: principal.installation.linkedAt.toISOString(),
         },
+        name: null,
+        timezone: null,
+        avatarImageId: null,
       };
   }
 }

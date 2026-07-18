@@ -75,12 +75,23 @@ function Account({ acknowledgeEmailWarning, onBack, onCreated }: { acknowledgeEm
 }
 
 function TimezoneField() {
-  const { timezone, resolvedTimeZone, setTimezone } = useTimezone();
-  const options = timezoneOptions.some((zone) => zone.value === timezone)
+  // Single-writer model: onboarding runs before any device-override affordance
+  // exists, so the picker writes the account (server) value, never a device key.
+  const { serverTimezone, resolvedTimeZone, setServerTimezone } = useTimezone();
+  const value = serverTimezone ?? "system";
+  const options = timezoneOptions.some((zone) => zone.value === value)
     ? timezoneOptions
-    : [...timezoneOptions, { label: timezone, value: timezone }];
-  return <Field label="Time Zone" htmlFor="timezone" description={timezone === "system" ? `Detected from this device · ${resolvedTimeZone}` : "Used for dashboard timestamps."}>
-    <Select value={timezone} onValueChange={setTimezone}>
+    : [...timezoneOptions, { label: value, value }];
+  function commit(next: string) {
+    setServerTimezone(next === "system" ? null : next);
+    void fetch("/api/v1/me", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ timezone: next === "system" ? null : next }),
+    }).catch(() => undefined);
+  }
+  return <Field label="Time Zone" htmlFor="timezone" description={value === "system" ? `Detected from this device · ${resolvedTimeZone}` : "Saved to your account for dashboard timestamps."}>
+    <Select value={value} onValueChange={commit}>
       <SelectTrigger id="timezone" aria-label="Time zone"><SelectValue /></SelectTrigger>
       <SelectContent>{options.map((zone) => <SelectItem key={zone.value} value={zone.value}>{zone.label}</SelectItem>)}</SelectContent>
     </Select>

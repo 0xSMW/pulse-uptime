@@ -17,6 +17,7 @@ const plannedConcepts = [
   "concept-incidents",
   "concept-alerts",
   "concept-status-page",
+  "concept-report-drafts",
   "concept-api-tokens-and-agents",
   "concept-database-health",
 ];
@@ -30,12 +31,19 @@ const plannedGuides = [
   "guide-configure-alerts",
   "guide-test-email",
   "guide-share-status-page",
+  "guide-publish-status-report",
+  "guide-post-report-update",
+  "guide-promote-incident-report",
+  "guide-customize-status-page",
   "guide-link-pulsectl",
   "guide-connect-agent",
   "guide-database-health",
+  "guide-change-password",
+  "guide-manage-sessions",
+  "guide-override-timezone",
 ];
 
-const productRoutes = ["/", "/settings/general", "/settings/monitors", "/settings/access", "/settings/system", "/incidents", "/status", "/docs/cli"];
+const productRoutes = ["/", "/settings/account", "/settings/security", "/settings/status-page", "/settings/notifications", "/settings/monitors", "/settings/access", "/settings/system", "/incidents", "/incidents/reports", "/status", "/docs/cli"];
 const genericCopy = ["learn more", "get started", "something went wrong", "click here"];
 
 describe("help registry", () => {

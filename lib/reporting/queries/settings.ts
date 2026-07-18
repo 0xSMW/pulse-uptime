@@ -1,13 +1,17 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, gt, isNull } from "drizzle-orm";
 
 import { validateMonitoringConfig, type MonitoringConfig } from "@/lib/config";
 import { DEFAULT_MONITOR_VALUES } from "@/lib/config/defaults";
+import { getStatusPageConfig } from "@/lib/api/status-page-config";
+import { parseUserAgent } from "@/lib/auth/user-agent";
 import { db } from "@/lib/db/client";
 import { getDatabaseHealth } from "@/lib/database-health";
 import {
+  adminUsers,
   apiTokens,
   cliInstallations,
   cliSessions,
+  humanSessions,
   monitorRegistry,
   monitoringConfigSnapshots,
   monitorState,
@@ -71,11 +75,66 @@ export async function getMonitorSettings() {
   };
 }
 
-export async function getGeneralSettings() {
+export async function getNotificationSettings() {
   const config = await getAcceptedConfig();
   return {
     defaultRecipients: config?.settings.defaultRecipients ?? [],
     sender: process.env.RESEND_FROM_EMAIL?.trim() || null,
+  };
+}
+
+export async function getAccountSettings(userId: string) {
+  const [row] = await db.select({
+    name: adminUsers.name,
+    email: adminUsers.email,
+    timezone: adminUsers.timezone,
+    avatarImageId: adminUsers.avatarImageId,
+  }).from(adminUsers).where(eq(adminUsers.id, userId)).limit(1);
+  return row ?? null;
+}
+
+export async function getSecuritySettings(userId: string, currentSessionId: string, now = new Date()) {
+  const rows = await db.select({
+    id: humanSessions.id,
+    userAgent: humanSessions.userAgent,
+    ipAddress: humanSessions.ipAddress,
+    createdAt: humanSessions.createdAt,
+    lastSeenAt: humanSessions.lastSeenAt,
+  }).from(humanSessions)
+    .where(and(
+      eq(humanSessions.userId, userId),
+      isNull(humanSessions.revokedAt),
+      gt(humanSessions.expiresAt, now),
+    ))
+    .orderBy(desc(humanSessions.createdAt))
+    .limit(100);
+
+  const sessions = rows.map((row) => {
+    const { browser, os } = parseUserAgent(row.userAgent);
+    return {
+      id: row.id,
+      browser,
+      os,
+      ipAddress: row.ipAddress,
+      createdAt: row.createdAt.toISOString(),
+      lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
+      current: row.id === currentSessionId,
+    };
+  });
+  // Current session first; the rest keep newest-signed-in order (stable sort).
+  sessions.sort((left, right) => Number(right.current) - Number(left.current));
+  return { sessions };
+}
+
+export async function getStatusPageSettings() {
+  const { data, etag } = await getStatusPageConfig();
+  const { updatedAt: _updatedAt, ...document } = data;
+  void _updatedAt;
+  return {
+    // The full document (including the current logo/favicon image ids) is the
+    // page's single draft; the ETag rides along for the If-Match PUT.
+    config: document,
+    etag,
   };
 }
 

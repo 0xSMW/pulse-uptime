@@ -1,7 +1,32 @@
+import { cache } from "react";
+
 import { and, desc, eq, gte, inArray, isNotNull, isNull, lt } from "drizzle-orm";
 
+import { getImage } from "@/lib/api/images";
+import { getStatusPageConfig } from "@/lib/api/status-page-config";
+import {
+  getPublicReports,
+  getStatusReport,
+  StatusReportError,
+  type PublicReports,
+  type StatusReportData,
+} from "@/lib/api/status-reports";
 import { db } from "@/lib/db/client";
 import { incidents, metricRollups, monitorRegistry, monitorState } from "@/lib/db/schema";
+import {
+  defaultStatusPageDocument,
+  displayTimelineBuckets,
+  filterShortResolvedIncidents,
+  historyWindowStart,
+  imageDataUri,
+} from "@/lib/status-page/display";
+import {
+  deriveOverallState,
+  excludePromotedIncidents,
+  filterReportsForGroup,
+  promotedIncidentIds,
+} from "@/lib/status-page/reports-display";
+import type { StatusPageConfigDocument } from "@/lib/status-page/schema";
 
 import { buildRollupTimeline, statusGroupSlug, summarizeRollupCoverage } from "./timeline";
 
@@ -12,11 +37,45 @@ function failureLabel(statusCode: number | null): string {
   return "Availability check failed";
 }
 
-export async function getPublicStatus(group?: string) {
+/**
+ * The status page configuration, request-deduped so the layout (theme,
+ * customCss/customHead, analytics), the pages, and generateMetadata share one
+ * single-row SELECT per revalidation. A missing row (migrations not run yet)
+ * degrades to the historical defaults instead of failing the public page.
+ */
+export const getStatusPageDisplayConfig = cache(
+  async (): Promise<StatusPageConfigDocument> => {
+    try {
+      const { data } = await getStatusPageConfig();
+      const { updatedAt: _updatedAt, ...document } = data;
+      void _updatedAt;
+      return document;
+    } catch {
+      return defaultStatusPageDocument();
+    }
+  },
+);
+
+/** Favicon inlined as a data: URI in the ISR'd head (§2.3); null when unset. */
+export const getStatusFaviconDataUri = cache(async (): Promise<string | null> => {
+  const config = await getStatusPageDisplayConfig();
+  if (!config.faviconImageId) return null;
+  try {
+    const image = await getImage(config.faviconImageId);
+    if (!image || image.kind !== "favicon") return null;
+    return imageDataUri(image.mimeType, image.bytes);
+  } catch {
+    return null;
+  }
+});
+
+export const getPublicStatus = cache(async (group?: string) => {
+  const config = await getStatusPageDisplayConfig();
   const now = new Date();
   const completedDay = new Date(now);
   completedDay.setUTCHours(0, 0, 0, 0);
-  const earliest = new Date(completedDay.getTime() - 90 * 86_400_000);
+  // historyDays drives the fetch window, not just the display (§2.3).
+  const earliest = historyWindowStart(config.historyDays, completedDay);
   const monitors = await db.select({
     id: monitorRegistry.id,
     name: monitorRegistry.name,
@@ -32,7 +91,11 @@ export async function getPublicStatus(group?: string) {
   if (group && visible.length === 0) return null;
 
   const ids = visible.map((monitor) => monitor.id);
-  const [rollups, current, recent] = ids.length === 0 ? [[], [], []] : await Promise.all([
+  // One parallel fan-out per revalidation: the three monitor-scoped queries
+  // plus the batched public-reports read (itself exactly 3 queries, §3.2).
+  const [publicReports, [rollups, current, recent]] = await Promise.all([
+    getPublicReports(),
+    ids.length === 0 ? Promise.resolve<[never[], never[], never[]]>([[], [], []]) : Promise.all([
     db.select({
       monitorId: metricRollups.monitorId,
       bucketStart: metricRollups.bucketStart,
@@ -71,6 +134,31 @@ export async function getPublicStatus(group?: string) {
       .where(and(inArray(incidents.monitorId, ids), isNotNull(incidents.resolvedAt)))
       .orderBy(desc(incidents.resolvedAt))
       .limit(10),
+    ]),
+  ]);
+
+  // Group filtering (§3.6): a report appears on /status/[group] iff it affects
+  // a monitor in that group, matched by monitor id or snapshotted group name.
+  const reports: PublicReports = group
+    ? {
+        ongoing: filterReportsForGroup(publicReports.ongoing, visible),
+        upcoming: filterReportsForGroup(publicReports.upcoming, visible),
+        windowEnded: filterReportsForGroup(publicReports.windowEnded, visible),
+        resolved: filterReportsForGroup(publicReports.resolved, visible),
+      }
+    : publicReports;
+  // Ongoing dedupe: an ongoing auto-incident card is suppressed when an
+  // ongoing published report was promoted from it. History folding drops
+  // machine incidents represented by ANY published report entry. Both sets use
+  // the GROUP-FILTERED report lists: on a group page an incident is only
+  // folded when its promoted report actually renders on that page — otherwise
+  // suppressing it would hide an active outage (or its history) entirely.
+  const ongoingPromoted = promotedIncidentIds(reports.ongoing);
+  const historyPromoted = promotedIncidentIds([
+    ...reports.ongoing,
+    ...reports.upcoming,
+    ...reports.windowEnded,
+    ...reports.resolved,
   ]);
 
   const grouped = new Map<string, typeof visible>();
@@ -90,25 +178,41 @@ export async function getPublicStatus(group?: string) {
           id: monitor.id,
           name: monitor.name,
           state: monitor.state === "ARCHIVED" || monitor.state === null ? "PENDING" as const : monitor.state,
-          uptime90d: summary.uptime,
-          coverage90d: summary.coverage,
-          timeline: buildRollupTimeline(rows, 90, 90 * 86_400_000, completedDay),
+          uptime: summary.uptime,
+          coverage: summary.coverage,
+          timeline: displayTimelineBuckets(
+            buildRollupTimeline(rows, config.historyDays, config.historyDays * 86_400_000, completedDay),
+            config.unknownAsOperational,
+          ),
         };
       }),
     }));
   const states = visible.map((monitor) => monitor.state ?? "PENDING");
-  const overallState = visible.length === 0
-    ? "empty" as const
-    : states.includes("DOWN")
-      ? "outage" as const
-      : states.some((state) => state === "VERIFYING_DOWN" || state === "VERIFYING_UP")
-        ? "investigating" as const
-        : "operational" as const;
+  // Machine states derive the classic tiers; published ongoing reports add the
+  // degraded/maintenance/outage tiers. The reddest wins (§3.6).
+  const overallState = deriveOverallState(states, reports.ongoing);
   return {
-    pageName: process.env.NEXT_PUBLIC_STATUS_PAGE_NAME?.trim() || "System Status",
+    pageName: config.name,
     lastUpdatedAt: now.toISOString(),
     overallState,
-    currentIncidents: current.map((incident) => ({
+    config: {
+      layout: config.layout,
+      theme: config.theme,
+      logoLightImageId: config.logoLightImageId,
+      logoDarkImageId: config.logoDarkImageId,
+      homepageUrl: config.homepageUrl,
+      contactUrl: config.contactUrl,
+      navLinks: config.navLinks,
+      historyDays: config.historyDays,
+      uptimeDecimals: config.uptimeDecimals,
+      timezone: config.timezone,
+      announcementMarkdown:
+        config.announcementEnabled && config.announcementMarkdown?.trim()
+          ? config.announcementMarkdown
+          : null,
+    },
+    reports,
+    currentIncidents: excludePromotedIncidents(current, ongoingPromoted).map((incident) => ({
       id: incident.id,
       monitorName: incident.monitorName,
       openedAt: incident.openedAt.toISOString(),
@@ -116,11 +220,34 @@ export async function getPublicStatus(group?: string) {
       cause: failureLabel(incident.openingStatusCode),
     })),
     groups,
-    recentIncidents: recent.map((incident) => ({
-      id: incident.id,
-      monitorName: incident.monitorName,
-      openedAt: incident.openedAt.toISOString(),
-      durationSeconds: Math.max(0, Math.floor(((incident.resolvedAt?.getTime() ?? now.getTime()) - incident.openedAt.getTime()) / 1_000)),
-    })),
+    // The floor only applies to this resolved-history list — never to ongoing
+    // incidents (the banner would contradict itself) and never to timelines.
+    recentIncidents: filterShortResolvedIncidents(
+      excludePromotedIncidents(recent, historyPromoted).map((incident) => ({
+        id: incident.id,
+        monitorName: incident.monitorName,
+        openedAt: incident.openedAt.toISOString(),
+        durationSeconds: Math.max(0, Math.floor(((incident.resolvedAt?.getTime() ?? now.getTime()) - incident.openedAt.getTime()) / 1_000)),
+      })),
+      config.minIncidentSeconds,
+    ),
   };
-}
+});
+
+/**
+ * Single published report for the permalink page (§3.6). Drafts and unknown
+ * ids resolve to null → notFound(). Request-deduped so page + generateMetadata
+ * share the read within one revalidation.
+ */
+export const getPublicReportDetail = cache(
+  async (reportId: string): Promise<StatusReportData | null> => {
+    try {
+      const report = await getStatusReport(reportId);
+      if (!report.publishedAt) return null;
+      return report;
+    } catch (error) {
+      if (error instanceof StatusReportError && error.code === "REPORT_NOT_FOUND") return null;
+      throw error;
+    }
+  },
+);

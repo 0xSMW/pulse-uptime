@@ -5,9 +5,12 @@ vi.mock("server-only", () => ({}));
 import type { ReadinessReport } from "@/lib/readiness/types";
 
 import {
+  clientIpFromHeaders,
   createOnlyAdmin,
+  firstForwardedIp,
   login,
   loginRateLimitKey,
+  shouldRefreshLastSeen,
   type AdminCreationStore,
   type LoginDependencies,
   type LoginStore,
@@ -148,5 +151,75 @@ describe("persistent login rate limiting", () => {
     expect(result.token).toBe("new-token");
     expect(fake.sessions).toHaveLength(1);
     expect(fake.sessions[0]).toMatchObject({ userId: "user-1", currentSessionId: "old-session" });
+  });
+
+  it("captures the user agent and first-hop IP on the inserted session", async () => {
+    const limiter = persistentLimiter();
+    const fake = loginStore({ id: "user-1", passwordDigest: "digest", onboardingCompletedAt: null });
+    await login(
+      {
+        email: "admin@example.com",
+        password: "correct",
+        ip: "203.0.113.7",
+        userAgent: "  Mozilla/5.0 Chrome/126.0.0.0  ",
+      },
+      { store: fake.store, enforceLimit: limiter.enforce, digestKey: deterministicDigest, verify: async () => true },
+    );
+    expect(fake.sessions[0]).toMatchObject({
+      userAgent: "Mozilla/5.0 Chrome/126.0.0.0",
+      ipAddress: "203.0.113.7",
+    });
+  });
+
+  it("stores nulls when the agent is missing and the IP is unresolvable", async () => {
+    const limiter = persistentLimiter();
+    const fake = loginStore({ id: "user-1", passwordDigest: "digest", onboardingCompletedAt: null });
+    await login(
+      { email: "admin@example.com", password: "correct", ip: "unknown" },
+      { store: fake.store, enforceLimit: limiter.enforce, digestKey: deterministicDigest, verify: async () => true },
+    );
+    expect(fake.sessions[0]).toMatchObject({ userAgent: null, ipAddress: null });
+  });
+});
+
+describe("forwarded IP extraction", () => {
+  it("takes only the first hop and trims it", () => {
+    expect(firstForwardedIp("203.0.113.7, 10.0.0.1, 172.16.0.1")).toBe("203.0.113.7");
+    expect(firstForwardedIp(" 203.0.113.7 ")).toBe("203.0.113.7");
+    expect(firstForwardedIp(null)).toBeNull();
+    expect(firstForwardedIp("")).toBeNull();
+  });
+
+  it("prefers the platform-set x-real-ip over the spoofable forwarded chain", () => {
+    const headers = new Headers({
+      "x-real-ip": "198.51.100.9",
+      "x-forwarded-for": "203.0.113.7, 10.0.0.1",
+    });
+    expect(clientIpFromHeaders(headers)).toBe("198.51.100.9");
+  });
+
+  it("falls back to the first forwarded hop when x-real-ip is absent or blank", () => {
+    expect(clientIpFromHeaders(new Headers({ "x-forwarded-for": "203.0.113.7, 10.0.0.1" })))
+      .toBe("203.0.113.7");
+    expect(clientIpFromHeaders(new Headers({ "x-real-ip": "  ", "x-forwarded-for": "203.0.113.7" })))
+      .toBe("203.0.113.7");
+    expect(clientIpFromHeaders(new Headers())).toBeNull();
+  });
+});
+
+describe("lastSeenAt refresh throttle", () => {
+  const now = new Date("2026-07-18T12:00:00Z");
+
+  it("refreshes when the session has never been seen", () => {
+    expect(shouldRefreshLastSeen(null, now)).toBe(true);
+  });
+
+  it("skips the write inside the 60-second window", () => {
+    expect(shouldRefreshLastSeen(new Date("2026-07-18T11:59:30Z"), now)).toBe(false);
+    expect(shouldRefreshLastSeen(new Date("2026-07-18T11:59:00Z"), now)).toBe(false);
+  });
+
+  it("refreshes once the last touch is older than 60 seconds", () => {
+    expect(shouldRefreshLastSeen(new Date("2026-07-18T11:58:59.999Z"), now)).toBe(true);
   });
 });

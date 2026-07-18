@@ -12,6 +12,8 @@ The first release focuses on dependable uptime monitoring for a single team, wit
 - Confirm outages and recoveries with configurable consecutive-result thresholds.
 - Send deduplicated outage and recovery notifications through Resend email.
 - Review monitor health, response latency, incident history, and a public status page.
+- Publish authored status reports with drafts, timeline updates, and affected services, or promote a detected incident into a report.
+- Customize the status page name, logos, links, announcement banner, history window, and time zone from Settings or the CLI.
 - Manage monitors through the dashboard, a Go CLI, scoped machine tokens, and the `/api/v1` control plane.
 - Run on Vercel with Edge Config for desired configuration and Neon Postgres for durable state and history.
 

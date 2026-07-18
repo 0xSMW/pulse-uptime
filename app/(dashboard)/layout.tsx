@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { CommandPaletteProvider } from "@/components/dashboard/command-palette";
 import { SettingsReturnTracker } from "@/components/dashboard/settings-return-tracker";
+import { TimezoneServerSync } from "@/components/dashboard/timezone-provider";
 import { TopNav } from "@/components/dashboard/top-nav";
 import { getCurrentSession } from "@/lib/auth/session";
 import { listCommandPaletteMonitors } from "@/lib/monitoring/queries";
@@ -31,6 +32,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     >
       <div className="min-h-screen">
         <SettingsReturnTracker />
+        <TimezoneServerSync timezone={session.timezone} />
         <TopNav email={session.email} />
         <main className="mx-auto max-w-[1200px] px-6 py-8 lg:px-8">{children}</main>
       </div>

@@ -16,6 +16,27 @@ describe("principal serialization", () => {
       tokenName: null,
       scopes: ["monitors:read"],
       installation: null,
+      name: null,
+      timezone: null,
+      avatarImageId: null,
+    });
+  });
+
+  it("merges the account profile into human principals", () => {
+    expect(serializePrincipal({
+      type: "human",
+      id: "usr_1",
+      email: "admin@example.com",
+      scopes: ["monitors:read"],
+    }, {
+      name: "Stephen",
+      timezone: "Asia/Bangkok",
+      avatarImageId: null,
+    })).toMatchObject({
+      principalType: "human",
+      name: "Stephen",
+      timezone: "Asia/Bangkok",
+      avatarImageId: null,
     });
   });
 
@@ -33,6 +54,9 @@ describe("principal serialization", () => {
       tokenName: "Deploy agent",
       scopes: ["config:read"],
       installation: null,
+      name: null,
+      timezone: null,
+      avatarImageId: null,
     });
   });
 
@@ -65,6 +89,9 @@ describe("principal serialization", () => {
         clientVersion: "1.0.0",
         linkedAt: "2026-07-18T00:00:00.000Z",
       },
+      name: null,
+      timezone: null,
+      avatarImageId: null,
     });
   });
 });
