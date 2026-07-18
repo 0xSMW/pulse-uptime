@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const MONITOR_INTERVALS = [1, 5, 10, 15] as const;
 export const MAX_ACTIVE_MONITORS = 100;
+export const MAX_MONITOR_GROUPS = 100;
 export const MAX_CONFIG_BYTES = 55 * 1024;
 
 const emailSchema = z.string().trim().email();
@@ -63,12 +64,16 @@ export const expectedStatusSchema = z.object({
   path: ["maximum"],
 });
 
-export const monitorConfigSchema = z.object({
+export const groupConfigSchema = z.object({
+  id: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Must be a lowercase slug").min(3).max(64),
+  name: z.string().trim().min(1).max(50),
+}).strict();
+
+const monitorFields = {
   id: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Must be a lowercase slug").min(3).max(64),
   name: z.string().trim().min(1).max(80),
   url: z.string().refine(isPublicHttpUrl, "Must be a public HTTP or HTTPS URL"),
   enabled: z.boolean(),
-  group: z.string().trim().min(1).max(50).nullable(),
   method: z.enum(["GET", "HEAD"]),
   intervalMinutes: z.union([z.literal(1), z.literal(5), z.literal(10), z.literal(15)]),
   timeoutMs: z.number().int().min(1_000).max(15_000),
@@ -76,6 +81,16 @@ export const monitorConfigSchema = z.object({
   failureThreshold: z.number().int().min(1).max(5),
   recoveryThreshold: z.number().int().min(1).max(5),
   recipients: recipientsSchema,
+} as const;
+
+export const monitorConfigSchema = z.object({
+  ...monitorFields,
+  groupId: groupConfigSchema.shape.id.nullable(),
+}).strict();
+
+export const legacyMonitorConfigSchema = z.object({
+  ...monitorFields,
+  group: z.string().trim().min(1).max(50).nullable(),
 }).strict();
 
 export const monitoringSettingsSchema = z.object({
@@ -88,7 +103,7 @@ export const monitoringSettingsSchema = z.object({
 }).strict();
 
 function validateMonitorCollection(
-  value: { monitors: Array<{ id: string; enabled: boolean }> },
+  value: { groups: Array<{ id: string; name: string }>; monitors: Array<{ id: string; enabled: boolean; groupId: string | null }> },
   context: z.RefinementCtx,
 ): void {
   const seen = new Set<string>();
@@ -102,22 +117,69 @@ function validateMonitorCollection(
   if (value.monitors.filter((monitor) => monitor.enabled).length > MAX_ACTIVE_MONITORS) {
     context.addIssue({ code: "custom", message: `At most ${MAX_ACTIVE_MONITORS} monitors may be active`, path: ["monitors"] });
   }
+
+  if (value.groups.length > MAX_MONITOR_GROUPS) {
+    context.addIssue({ code: "custom", message: `At most ${MAX_MONITOR_GROUPS} groups may be configured`, path: ["groups"] });
+  }
+  const groupIds = new Set<string>();
+  const groupNames = new Set<string>();
+  value.groups.forEach((group, index) => {
+    if (groupIds.has(group.id)) context.addIssue({ code: "custom", message: "Group IDs must be unique", path: ["groups", index, "id"] });
+    groupIds.add(group.id);
+    const foldedName = group.name.trim().toLocaleLowerCase("en-US");
+    if (groupNames.has(foldedName)) context.addIssue({ code: "custom", message: "Group names must be unique", path: ["groups", index, "name"] });
+    groupNames.add(foldedName);
+  });
+  value.monitors.forEach((monitor, index) => {
+    if (monitor.groupId !== null && !groupIds.has(monitor.groupId)) {
+      context.addIssue({ code: "custom", message: "Monitor group must exist", path: ["monitors", index, "groupId"] });
+    }
+  });
 }
 
 export const monitoringConfigSchema = z.object({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.literal(2),
   configVersion: z.number().int().nonnegative(),
   settings: monitoringSettingsSchema,
+  groups: z.array(groupConfigSchema),
   monitors: z.array(monitorConfigSchema),
 }).strict().superRefine(validateMonitorCollection);
 
 export const declarativeConfigSchema = z.object({
-  version: z.literal(1),
+  version: z.literal(2),
   settings: monitoringSettingsSchema,
+  groups: z.array(groupConfigSchema),
   monitors: z.array(monitorConfigSchema),
 }).strict().superRefine(validateMonitorCollection);
 
+function validateLegacyMonitorCollection(
+  value: { monitors: Array<{ id: string; enabled: boolean }> },
+  context: z.RefinementCtx,
+): void {
+  const seen = new Set<string>();
+  value.monitors.forEach((monitor, index) => {
+    if (seen.has(monitor.id)) context.addIssue({ code: "custom", message: "Monitor IDs must be unique", path: ["monitors", index, "id"] });
+    seen.add(monitor.id);
+  });
+  if (value.monitors.filter((monitor) => monitor.enabled).length > MAX_ACTIVE_MONITORS) {
+    context.addIssue({ code: "custom", message: `At most ${MAX_ACTIVE_MONITORS} monitors may be active`, path: ["monitors"] });
+  }
+}
+
+export const legacyMonitoringConfigSchema = z.object({
+  schemaVersion: z.literal(1), configVersion: z.number().int().nonnegative(),
+  settings: monitoringSettingsSchema, monitors: z.array(legacyMonitorConfigSchema),
+}).strict().superRefine(validateLegacyMonitorCollection);
+
+export const legacyDeclarativeConfigSchema = z.object({
+  version: z.literal(1), settings: monitoringSettingsSchema, monitors: z.array(legacyMonitorConfigSchema),
+}).strict().superRefine(validateLegacyMonitorCollection);
+
 export type MonitorConfig = z.infer<typeof monitorConfigSchema>;
+export type GroupConfig = z.infer<typeof groupConfigSchema>;
+export type LegacyMonitorConfig = z.infer<typeof legacyMonitorConfigSchema>;
 export type MonitoringSettings = z.infer<typeof monitoringSettingsSchema>;
 export type MonitoringConfig = z.infer<typeof monitoringConfigSchema>;
 export type DeclarativeConfig = z.infer<typeof declarativeConfigSchema>;
+export type LegacyMonitoringConfig = z.infer<typeof legacyMonitoringConfigSchema>;
+export type LegacyDeclarativeConfig = z.infer<typeof legacyDeclarativeConfigSchema>;
