@@ -15,6 +15,7 @@ export type AuthorizationRequestView = {
   clientVersion: string;
   platform: string;
   architecture: string;
+  requestIp: string | null;
   expiresAt: string;
 };
 
@@ -32,6 +33,7 @@ function presentRequest(request: Awaited<ReturnType<typeof getPendingDeviceAutho
     clientVersion: request.clientVersion,
     platform: request.platform,
     architecture: request.architecture,
+    requestIp: request.requestIp,
     expiresAt: request.expiresAt.toISOString(),
   };
 }
@@ -70,4 +72,3 @@ export async function denyAuthorization(userCode: string): Promise<Authorization
     return { ok: false, message: "This authorization request is no longer available" };
   }
 }
-
