@@ -9,9 +9,10 @@ import { evaluateConfigurationSource, requireApprovalConsumption } from "./confi
 
 describe("configuration source fallback", () => {
   const config: MonitoringConfig = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     configVersion: 1,
     settings: { ...DEFAULT_MONITOR_SETTINGS, defaultRecipients: [] },
+    groups: [],
     monitors: [createMonitorWithDefaults({ id: "site-one", name: "Site one", url: "https://example.com" })],
   };
   const previous = { config, hash: hashCanonical(config) };
