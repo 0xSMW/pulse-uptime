@@ -66,12 +66,12 @@ func TestMeCallsCanonicalEndpointWithHeaders(t *testing.T) {
 	}
 }
 
-func TestMeWithoutCredentialReturnsCanonicalExitThree(t *testing.T) {
+func TestMeWithoutCredentialRequiresInteractiveAuthorization(t *testing.T) {
 	t.Setenv("PULSECTL_URL", "https://pulse.example.com")
 	t.Setenv("PULSECTL_TOKEN", "")
 	t.Setenv("PULSECTL_OUTPUT", "json")
 	code, stdout, stderr := execute(t, "me")
-	if code != 3 || stdout != "" {
+	if code != ExitPermission || stdout != "" {
 		t.Fatalf("code=%d stdout=%q", code, stdout)
 	}
 	var doc struct {
@@ -82,7 +82,7 @@ func TestMeWithoutCredentialReturnsCanonicalExitThree(t *testing.T) {
 	if err := json.Unmarshal([]byte(stderr), &doc); err != nil {
 		t.Fatalf("invalid JSON error: %v\n%s", err, stderr)
 	}
-	if doc.Error.Code != "AUTHENTICATION_REQUIRED" {
+	if doc.Error.Code != "INTERACTIVE_AUTH_REQUIRED" {
 		t.Fatalf("error code = %q", doc.Error.Code)
 	}
 }
@@ -277,6 +277,34 @@ func TestInteractiveMeLinksInstallationAndStoresSession(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), `"principalType": "cli_session"`) || !strings.Contains(stderr.String(), "Enter code: ABCD-EFGH") {
 		t.Fatalf("stdout=%s stderr=%s", stdout.String(), stderr.String())
+	}
+}
+
+func TestNoninteractiveMeDoesNotStartDeviceAuthorization(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("noninteractive me made request %s %s", r.Method, r.URL.Path)
+	}))
+	defer server.Close()
+	t.Setenv("PULSECTL_TOKEN", "")
+	var stdout, stderr bytes.Buffer
+	app := New(Options{
+		In:          strings.NewReader(""),
+		Out:         &stdout,
+		Err:         &stderr,
+		StdinTTY:    false,
+		ConfigPath:  t.TempDir() + "/config.yaml",
+		Credentials: &testCredentialStore{},
+		OpenBrowser: func(context.Context, string) error {
+			t.Fatal("noninteractive me opened a browser")
+			return nil
+		},
+	})
+	code := app.Execute([]string{"me", "--server", server.URL})
+	if code != ExitPermission {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "INTERACTIVE_AUTH_REQUIRED") {
+		t.Fatalf("stderr=%s", stderr.String())
 	}
 }
 
