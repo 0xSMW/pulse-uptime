@@ -202,6 +202,11 @@ pulsectl
   token list
   token revoke
 
+  group list
+  group create
+  group rename
+  group delete
+
   monitor list
   monitor get
   monitor create
@@ -538,6 +543,11 @@ Required endpoints:
 GET    /api/v1/version
 GET    /api/v1/me
 
+GET    /api/v1/groups
+POST   /api/v1/groups
+PATCH  /api/v1/groups/{groupId}
+DELETE /api/v1/groups/{groupId}
+
 GET    /api/v1/monitors
 POST   /api/v1/monitors
 GET    /api/v1/monitors/{monitorId}
@@ -742,6 +752,24 @@ They do not define the complete duration of long-running commands.
 
 Default per-request timeout is 15 seconds.
 
+## Group commands
+
+Groups have stable lowercase-slug IDs and mutable display names. Monitor configuration refers to a group by ID, so renaming a group does not rewrite every monitor.
+
+```text
+pulsectl group list
+pulsectl group list --all
+pulsectl group create --id production --name "Production"
+pulsectl group rename production --name "Customer-facing"
+pulsectl group delete production --yes
+```
+
+`group list` supports `--limit`, `--cursor`, and `--all`. Create requires `--id` and `--name`. Rename requires the exact group ID and `--name`.
+
+Group deletion is allowed only when the group is empty. The service returns `GROUP_NOT_EMPTY` when monitors still reference it. Interactive deletion prompts for confirmation; non-TTY deletion requires `--yes`.
+
+Group reads require `monitors:read`. Group creation, rename, and deletion require `monitors:write`.
+
 ## Monitor commands
 
 ### List
@@ -754,7 +782,8 @@ Flags:
 
 ```text
 --state <state>
---group <group>
+--group-id <groupId>
+--group <legacy-group-name>
 --enabled
 --disabled
 --limit <number>
@@ -763,6 +792,8 @@ Flags:
 --all
 --output <format>
 ```
+
+`--group-id` is canonical. `--group` remains a legacy exact-name filter for version 1 scripts. They are mutually exclusive.
 
 Default ordering:
 
@@ -794,6 +825,7 @@ pulsectl monitor create \
   --id public-api \
   --name "Public API" \
   --url https://api.example.com \
+  --group-id production \
   --method GET \
   --interval 1m \
   --timeout 8s \
@@ -813,15 +845,20 @@ Required flags:
 
 Server defaults remain authoritative.
 
+`--group-id <groupId>` assigns a stable configured group. `--group <legacy-group-name>` remains available for version 1 scripts and asks the service to resolve one exact case-insensitive name. The two flags are mutually exclusive. Omit both to create an ungrouped monitor.
+
 ### Update
 
 ```text
 pulsectl monitor update public-api \
   --timeout 10s \
-  --failure-threshold 3
+  --failure-threshold 3 \
+  --group-id production
 ```
 
 Only explicitly supplied fields change. Use explicit clear flags for nullable or list fields.
+
+`--group-id` is canonical and `--group` is the retained legacy exact-name form. Use `--clear-group` to set `groupId` to null. `--group-id`, `--group`, and `--clear-group` are mutually exclusive.
 
 ### Pause and resume
 
@@ -869,10 +906,10 @@ Machine example:
 
 CRUD commands serve direct changes. Declarative configuration serves agents, repositories, and repeatable infrastructure workflows.
 
-The document contains complete settings and monitors:
+The current document version contains complete settings, groups, and monitors:
 
 ```yaml
-version: 1
+version: 2
 
 settings:
   concurrency: 25
@@ -883,12 +920,16 @@ settings:
     - ops@example.com
   userAgent: Pulse/1.0 (+https://pulse.example.com)
 
+groups:
+  - id: production
+    name: Production
+
 monitors:
   - id: website
     name: Website
     url: https://example.com
     enabled: true
-    group: Production
+    groupId: production
     method: GET
     intervalMinutes: 1
     timeoutMs: 8000
@@ -901,6 +942,10 @@ monitors:
 ```
 
 No silent settings merge is permitted.
+
+Group IDs use the same lowercase-slug rule as monitor IDs, contain 3–64 characters, and remain stable across renames. Group names are trimmed, contain 1–50 characters, and are unique ignoring case. A document contains at most 100 groups. Every non-null monitor `groupId` must reference an entry in `groups`; use `null` for an ungrouped monitor.
+
+The CLI continues to read version 1 documents. Before validation, plan, or apply, it upgrades each distinct trimmed legacy `monitor.group` name into a version 2 group with the deterministic ID `group-<first 12 hex characters of SHA-256(lowercased name)>`, replaces `group` with `groupId`, and sends version 2 to the service. Legacy names that differ only by case are ambiguous and rejected. Export always returns version 2. The first accepted mutation of a version 1 installation persists version 2.
 
 ### Export
 
@@ -936,6 +981,9 @@ baseConfigHash
 targetConfigHash
 planHash
 settingsChanged
+groupCreates
+groupUpdates
+groupDeletes
 creates
 updates
 pauses
@@ -947,7 +995,7 @@ destructiveApprovalRequired
 
 There is no plan `expiresAt`.
 
-The CLI submits the current accepted base hash and complete target config. The server computes the authoritative diff.
+The CLI submits the current accepted base hash and complete version 2 target config. The server computes the authoritative diff. Group rename is an update under the same stable ID; removing an empty group is a group delete.
 
 ### Apply
 
@@ -1283,8 +1331,11 @@ Generate Markdown references from Cobra. Every command requires a summary, usage
 
 ### Configuration
 
-- Export includes settings and monitors.
-- Export/apply round-trip.
+- Export includes settings, groups, and monitors in version 2.
+- Version 2 export/apply round-trip.
+- Version 1 input upgrades deterministically to version 2.
+- Group IDs and case-insensitive names are unique; monitor group references resolve.
+- Group creates, renames, and deletes have deterministic plan ordering.
 - YAML, JSON, and stdin input.
 - Deterministic plan ordering.
 - No `expiresAt` in plan.
@@ -1357,7 +1408,7 @@ Run CI on macOS, Linux, and Windows. Smoke-test every release archive, including
 | CLI-17 | Every mutation carries one idempotency key across retries |
 | CLI-18 | Monitor CRUD works through `/api/v1` |
 | CLI-19 | Manual target failure returns exit 4 |
-| CLI-20 | Export includes complete settings and monitors |
+| CLI-20 | Export includes complete version 2 settings, groups, and monitors; version 1 input upgrades deterministically |
 | CLI-21 | Export/apply round-trips without semantic change |
 | CLI-22 | Plans are stateless and contain no expiry |
 | CLI-23 | Apply sends matching body and `If-Match` base hashes |
