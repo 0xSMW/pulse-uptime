@@ -138,6 +138,13 @@
     text-rendering: optimizeLegibility;
   }
 
+  /* scrollbar-gutter above keeps the scrollbar's space reserved while
+     Radix menus lock scrolling, so the margin react-remove-scroll adds
+     would double-compensate and shift the whole layout. */
+  html body[data-scroll-locked] {
+    margin-right: 0 !important;
+  }
+
   button,
   input,
   textarea,
