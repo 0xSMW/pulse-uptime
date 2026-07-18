@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   description: "Install pulsectl and manage Pulse from a terminal or coding agent",
 };
 
-const quickStart = `brew install smw/tap/pulsectl
+const quickStart = `go install github.com/productos-ai/pulse-uptime/cli/cmd/pulsectl@latest
 pulsectl me --server https://pulse.example.com`;
 
 const everydayCommands = `pulsectl status
@@ -43,7 +43,7 @@ export default function CliDocsPage() {
           Pulse
         </Link>
         <Link
-          href="/settings"
+          href="/settings/access"
           className="rounded-[6px] px-1.5 py-1 text-sm font-medium text-[var(--fg-muted)] hover:bg-[var(--hover)] hover:text-[var(--fg)]"
         >
           API Tokens <span aria-hidden="true">→</span>
@@ -134,7 +134,7 @@ export default function CliDocsPage() {
       <footer className="flex flex-col gap-3 border-t border-[var(--border)] pt-6 text-[13px] text-[var(--fg-muted)] sm:flex-row sm:items-center sm:justify-between">
         <span>Data on stdout · diagnostics on stderr</span>
         <Link
-          href="/settings"
+          href="/settings/access"
           className="w-fit rounded-[6px] font-medium text-[var(--fg)] hover:underline"
         >
           Create an API token →

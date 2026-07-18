@@ -31,10 +31,10 @@ The dashboard opens with the first monitor active. Additional monitors, notifica
 
 ### Set up the CLI
 
-Install the CLI on macOS with Homebrew:
+Install the CLI from source with Go (until signed release artifacts are published):
 
 ```sh
-brew install smw/tap/pulsectl
+go install github.com/productos-ai/pulse-uptime/cli/cmd/pulsectl@latest
 ```
 
 Connect it to the deployed service and sign in:
