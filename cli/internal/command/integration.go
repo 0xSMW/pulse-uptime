@@ -150,6 +150,9 @@ func (a *App) linkInstallation(ctx context.Context, r config.Resolved, noBrowser
 	if err := started.Data.Validate(); err != nil {
 		return "", cliError(ExitUnexpected, "INVALID_RESPONSE", err.Error())
 	}
+	if err := started.Data.ValidateVerificationOrigin(r.Server); err != nil {
+		return "", cliError(ExitUnexpected, "INVALID_RESPONSE", err.Error())
+	}
 	fmt.Fprintf(a.opts.Err, "Open %s\n\nEnter code: %s\n\nWaiting for approval...\n", started.Data.VerificationURI, started.Data.UserCode)
 	if !noBrowser && a.opts.StdinTTY {
 		if err := a.openBrowser(ctx, started.Data.VerificationURIComplete); err != nil {

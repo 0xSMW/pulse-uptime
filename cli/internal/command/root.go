@@ -87,6 +87,11 @@ func New(opts Options) *App {
 	if opts.OpenBrowser == nil {
 		opts.OpenBrowser = auth.OpenBrowser
 	}
+	if opts.HTTPClient == nil {
+		// Share one transport across every request (including paginated list
+		// loops and device polling) instead of churning a new one per call.
+		opts.HTTPClient = api.NewHTTPClient()
+	}
 	a := &App{opts: opts, credentials: opts.Credentials, openBrowser: opts.OpenBrowser, pollWait: opts.PollWait}
 	a.root = a.newRoot()
 	return a
@@ -248,18 +253,18 @@ func (a *App) renderMe(format string, envelope meEnvelope) error {
 		} else if envelope.Data.TokenName != nil {
 			identity = *envelope.Data.TokenName
 		}
-		_, err := fmt.Fprintf(a.opts.Out, "%s\t%s\t%s\n", identity, envelope.Data.Server, strings.Join(envelope.Data.Scopes, ","))
+		_, err := fmt.Fprintf(a.opts.Out, "%s\t%s\t%s\n", output.EscapeTSVField(identity), output.EscapeTSVField(envelope.Data.Server), output.EscapeTSVField(strings.Join(envelope.Data.Scopes, ",")))
 		return err
 	default:
 		if envelope.Data.Email != nil {
-			fmt.Fprintln(a.opts.Out, *envelope.Data.Email)
+			fmt.Fprintln(a.opts.Out, output.SanitizeDisplay(*envelope.Data.Email))
 		} else if envelope.Data.TokenName != nil {
-			fmt.Fprintf(a.opts.Out, "Token         %s\n", *envelope.Data.TokenName)
+			fmt.Fprintf(a.opts.Out, "Token         %s\n", output.SanitizeDisplay(*envelope.Data.TokenName))
 		} else {
-			fmt.Fprintf(a.opts.Out, "Principal     %s\n", envelope.Data.PrincipalType)
+			fmt.Fprintf(a.opts.Out, "Principal     %s\n", output.SanitizeDisplay(envelope.Data.PrincipalType))
 		}
 		if envelope.Data.Installation != nil {
-			fmt.Fprintf(a.opts.Out, "Installation  %s\n", envelope.Data.Installation.Name)
+			fmt.Fprintf(a.opts.Out, "Installation  %s\n", output.SanitizeDisplay(envelope.Data.Installation.Name))
 		}
 		fmt.Fprintf(a.opts.Out, "Server        %s\n", envelope.Data.Server)
 		access := fmt.Sprintf("%d scopes", len(envelope.Data.Scopes))
