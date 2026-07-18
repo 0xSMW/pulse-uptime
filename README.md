@@ -17,9 +17,47 @@ The first release focuses on dependable uptime monitoring for a single team, wit
 
 ## Getting Started
 
-Pulse Uptime is currently in the architecture and planning stage. You can clone the repository and review the project specification before implementation begins.
+### Set up the web app
 
-1. Clone the repository: `git clone https://github.com/0xSMW/pulse-uptime.git`
-2. Enter the project directory: `cd pulse-uptime`
-3. Read [`Docs/INIT.md`](Docs/INIT.md) for the complete architecture, requirements, and implementation sequence.
-4. Review the supporting design documents and prototype in [`Docs/`](Docs/) for product and interface context.
+1. Deploy Pulse Uptime to a Vercel Pro project.
+2. Connect a Neon Postgres database and a Vercel Edge Config store to the project.
+3. Add a Resend API key and verified sender address for outage and recovery email.
+4. Configure the generated database and Edge Config values, the public application URL, and secure values for cron, API-token hashing, and CLI device authorization in Vercel.
+5. Deploy, then open the application URL. Pulse checks the deployment, database, Edge Config, and email configuration before continuing.
+6. Create the administrator account with an email address and password.
+7. Enter the URL and name of the first monitor, confirm the alert recipient, run the initial check, and select **Start Monitoring**.
+
+The dashboard opens with the first monitor active. Additional monitors, notification recipients, API tokens, and status-page settings are available under **Settings**.
+
+### Set up the CLI
+
+Install the CLI on macOS with Homebrew:
+
+```sh
+brew install smw/tap/monitorctl
+```
+
+Connect it to the deployed service and sign in:
+
+```sh
+monitorctl context add production --server https://pulse.example.com
+monitorctl context use production
+monitorctl auth login
+```
+
+The login command opens Pulse in a browser. Confirm the displayed code while signed in as the administrator, then return to the terminal. The CLI stores the resulting session in the operating-system keyring.
+
+Verify the connection and list the active monitors:
+
+```sh
+monitorctl auth status
+monitorctl monitor list
+```
+
+For agents, scripts, and CI, create a scoped token under **Settings → API Tokens** and provide it through the environment:
+
+```sh
+export MONITORCTL_URL=https://pulse.example.com
+export MONITORCTL_TOKEN=mon_live_...
+monitorctl monitor list --output json
+```
