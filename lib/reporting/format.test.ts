@@ -29,4 +29,12 @@ describe("report formatting", () => {
     expect(formatRelativeTime(new Date("2026-07-18T13:45:00.000Z"), now)).toBe("18m ago");
     expect(formatRelativeTime(new Date("2026-07-17T14:03:00.000Z"), now)).toBe("Jul 17, 14:03");
   });
+
+  it("formats absolute times in the requested time zone", () => {
+    const now = new Date("2026-07-18T14:03:30.000Z");
+    expect(formatRelativeTime(new Date("2026-07-18T05:00:00.000Z"), now, "Asia/Bangkok")).toBe("12:00");
+    // 18:30 UTC on Jul 17 is already Jul 18 in Bangkok, so it counts as today there.
+    expect(formatRelativeTime(new Date("2026-07-17T18:30:00.000Z"), now, "Asia/Bangkok")).toBe("01:30");
+    expect(formatRelativeTime(new Date("2026-07-16T18:30:00.000Z"), now, "Asia/Bangkok")).toBe("Jul 17, 01:30");
+  });
 });

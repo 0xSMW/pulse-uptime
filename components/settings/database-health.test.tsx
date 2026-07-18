@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import { TimezoneProvider } from "@/components/dashboard/timezone-provider";
 import type { DatabaseHealth } from "@/lib/database-health/types";
 import { DatabaseHealthCard, formatDatabaseBytes, formatRetention } from "./database-health";
 
@@ -26,7 +27,7 @@ const report: DatabaseHealth = {
 
 describe("DatabaseHealthCard", () => {
   it("renders budget, attribution, retention, management, transfer, and freshness", () => {
-    const html = renderToStaticMarkup(<DatabaseHealthCard initialData={report} />);
+    const html = renderToStaticMarkup(<TimezoneProvider><DatabaseHealthCard initialData={report} /></TimezoneProvider>);
     expect(html).toContain("Healthy");
     expect(html).toContain("118 MB of 500 MB");
     expect(html).toContain('role="progressbar"');
@@ -40,13 +41,13 @@ describe("DatabaseHealthCard", () => {
   });
 
   it("renders a contained empty state", () => {
-    const html = renderToStaticMarkup(<DatabaseHealthCard initialData={null} />);
+    const html = renderToStaticMarkup(<TimezoneProvider><DatabaseHealthCard initialData={null} /></TimezoneProvider>);
     expect(html).toContain("No usage snapshot yet");
     expect(html).toContain(">Refresh</button>");
   });
 
   it("distinguishes a failed read from an empty database", () => {
-    const html = renderToStaticMarkup(<DatabaseHealthCard initialData={null} initialError />);
+    const html = renderToStaticMarkup(<TimezoneProvider><DatabaseHealthCard initialData={null} initialError /></TimezoneProvider>);
     expect(html).toContain('role="alert"');
     expect(html).toContain("Database health unavailable");
     expect(html).not.toContain("No usage snapshot yet");
@@ -60,7 +61,7 @@ describe("DatabaseHealthCard", () => {
       availableBytes: null,
       freshness: { ...report.freshness, providerMetricsAvailable: false, providerCapturedAt: null, providerAgeSeconds: null },
     };
-    const html = renderToStaticMarkup(<DatabaseHealthCard initialData={partial} />);
+    const html = renderToStaticMarkup(<TimezoneProvider><DatabaseHealthCard initialData={partial} /></TimezoneProvider>);
     expect(html).toContain("Provider metrics unavailable, relation usage remains current");
     expect(html).toContain('aria-valuetext="Storage usage unavailable"');
     expect(html).not.toContain("aria-valuenow");

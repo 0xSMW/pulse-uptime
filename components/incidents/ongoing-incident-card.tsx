@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { formatIncidentDuration, formatIncidentTime } from "@/components/incidents/incident-format";
+import { formatIncidentDuration } from "@/components/incidents/incident-format";
+import { IncidentTime } from "@/components/incidents/incident-time";
 import { IncidentStatus } from "@/components/incidents/incident-status";
 import type { IncidentSummary } from "@/components/incidents/types";
 
@@ -34,7 +35,7 @@ export function OngoingIncidentCard({ incident }: { incident: IncidentSummary })
         <IncidentStatus ongoing />
       </div>
       <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 font-data text-xs text-[var(--fg-muted)]">
-        <span>Started {formatIncidentTime(incident.openedAt)}</span>
+        <span>Started <IncidentTime value={incident.openedAt} /></span>
         <span aria-label={`Ongoing for ${formatIncidentDuration(elapsed)}`}>
           {formatIncidentDuration(elapsed)} elapsed
         </span>

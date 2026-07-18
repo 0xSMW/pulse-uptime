@@ -3,7 +3,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { IncidentEventTrail } from "@/components/incidents/incident-event-trail";
-import { formatIncidentDuration, formatIncidentTime } from "@/components/incidents/incident-format";
+import { formatIncidentDuration } from "@/components/incidents/incident-format";
+import { IncidentTime } from "@/components/incidents/incident-time";
 import { IncidentStatus } from "@/components/incidents/incident-status";
 import { NotificationSummary } from "@/components/incidents/notification-summary";
 import type { IncidentDetail } from "@/components/incidents/types";
@@ -15,8 +16,8 @@ export default async function IncidentDetailPage({ params }: { params: Promise<{
   if (!incident) notFound();
 
   const stats = [
-    { label: "Started", value: formatIncidentTime(incident.openedAt) },
-    { label: "Resolved", value: incident.resolvedAt ? formatIncidentTime(incident.resolvedAt) : "Ongoing" },
+    { label: "Started", value: <IncidentTime value={incident.openedAt} /> },
+    { label: "Resolved", value: incident.resolvedAt ? <IncidentTime value={incident.resolvedAt} /> : "Ongoing" },
     { label: "Duration", value: formatIncidentDuration(incident.durationSeconds) },
   ];
 

@@ -10,6 +10,8 @@ import {
   YAxis,
 } from "recharts";
 
+import { useTimezone } from "@/components/dashboard/timezone-provider";
+
 export type LatencyPoint = {
   timestamp: string;
   latencyMs: number | null;
@@ -17,13 +19,14 @@ export type LatencyPoint = {
 };
 
 export function LatencyChart({ data }: { data: LatencyPoint[] }) {
+  const { resolvedTimeZone } = useTimezone();
   const points = data.slice(-240).map((point) => ({
     ...point,
     time: new Date(point.timestamp).toLocaleTimeString("en-US", {
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
-      timeZone: "UTC",
+      timeZone: resolvedTimeZone,
     }),
   }));
 

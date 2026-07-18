@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { useTimezone } from "@/components/dashboard/timezone-provider";
 import { apiRequest, messageForError, type ApiEnvelope } from "@/components/settings/settings-api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -42,13 +43,14 @@ export function formatRetention(seconds: number | null): string {
   return `${amount} ${label}${amount === 1 ? "" : "s"}`;
 }
 
-function formatDate(value: string | null): string {
+function formatDate(value: string | null, timeZone: string): string {
   if (!value) return "Never";
   const date = new Date(value);
   if (Number.isNaN(date.valueOf())) return "Unavailable";
   return new Intl.DateTimeFormat("en-US", {
-    day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "UTC", hour12: false,
-  }).format(date).replace(",", "") + " UTC";
+    day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone, hour12: false,
+    timeZoneName: "short",
+  }).format(date).replace(",", "");
 }
 
 function formatOldest(value: string | null): string {
@@ -88,6 +90,7 @@ function EmptyDatabaseHealth({ onRefresh, busy, status, loadFailed }: { onRefres
 }
 
 export function DatabaseHealthCard({ initialData, initialError = false }: { initialData: DatabaseHealth | null; initialError?: boolean }) {
+  const { resolvedTimeZone } = useTimezone();
   const [data, setData] = useState(initialData);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
@@ -109,7 +112,7 @@ export function DatabaseHealthCard({ initialData, initialError = false }: { init
 
   if (!data) return <EmptyDatabaseHealth onRefresh={refresh} busy={busy} status={status} loadFailed={initialError} />;
   const usedPercent = percentage(data.usedBytes, data.budgetBytes);
-  const freshness = data.freshness.capturedAt ? `Updated ${formatDate(data.freshness.capturedAt)}` : "Update time unavailable";
+  const freshness = data.freshness.capturedAt ? `Updated ${formatDate(data.freshness.capturedAt, resolvedTimeZone)}` : "Update time unavailable";
 
   return (
     <Card className="overflow-hidden" aria-busy={busy}>
@@ -143,13 +146,13 @@ export function DatabaseHealthCard({ initialData, initialError = false }: { init
 
         <section className="space-y-3" aria-labelledby="database-management-heading">
           <SectionTitle><span id="database-management-heading">Automatic Management</span></SectionTitle>
-          <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2"><Metric label="Mode" value={governorLabels[data.governor.mode]} /><Metric label="Last compacted" value={formatDate(data.governor.lastCompactionAt)} /><Metric label="Scheduler coverage" value={data.schedulerCoverage === null ? "Unavailable" : `${(data.schedulerCoverage * 100).toFixed(2)}%`} /><Metric label="Current behavior" value={data.governor.action} /></dl>
+          <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2"><Metric label="Mode" value={governorLabels[data.governor.mode]} /><Metric label="Last compacted" value={formatDate(data.governor.lastCompactionAt, resolvedTimeZone)} /><Metric label="Scheduler coverage" value={data.schedulerCoverage === null ? "Unavailable" : `${(data.schedulerCoverage * 100).toFixed(2)}%`} /><Metric label="Current behavior" value={data.governor.action} /></dl>
         </section>
 
         <section className="space-y-3" aria-labelledby="database-network-heading">
           <SectionTitle><span id="database-network-heading">Network</span></SectionTitle>
           <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2"><Metric label="This month" value={`${formatDatabaseBytes(data.transfer.usedBytes)} of ${formatDatabaseBytes(data.transfer.budgetBytes)}`} /><Metric label="Projected this month" value={formatDatabaseBytes(data.transfer.projectedBytes)} /></dl>
-          {!data.freshness.providerMetricsAvailable ? <p className="text-[13px] text-[var(--fg-muted)]">Provider metrics unavailable, relation usage remains current</p> : data.freshness.providerCapturedAt ? <p className="font-data text-xs text-[var(--fg-faint)]">Provider updated {formatDate(data.freshness.providerCapturedAt)}</p> : null}
+          {!data.freshness.providerMetricsAvailable ? <p className="text-[13px] text-[var(--fg-muted)]">Provider metrics unavailable, relation usage remains current</p> : data.freshness.providerCapturedAt ? <p className="font-data text-xs text-[var(--fg-faint)]">Provider updated {formatDate(data.freshness.providerCapturedAt, resolvedTimeZone)}</p> : null}
         </section>
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-4">

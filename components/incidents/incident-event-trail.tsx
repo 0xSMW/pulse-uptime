@@ -1,5 +1,5 @@
 import type { IncidentEvent, IncidentEventType } from "@/components/incidents/types";
-import { formatIncidentTime } from "@/components/incidents/incident-format";
+import { IncidentTime } from "@/components/incidents/incident-time";
 
 const eventLabels: Record<IncidentEventType, string> = {
   first_failure: "First failed check",
@@ -29,7 +29,7 @@ export function IncidentEventTrail({ events }: { events: IncidentEvent[] }) {
               <div className="flex min-w-0 flex-1 flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                 <span className="text-[13px] font-medium">{eventLabels[event.type]}</span>
                 <time dateTime={event.at} className="font-data text-[11px] text-[var(--fg-faint)]">
-                  {formatIncidentTime(event.at)}
+                  <IncidentTime value={event.at} />
                 </time>
               </div>
             </li>

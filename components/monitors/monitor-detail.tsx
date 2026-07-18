@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { LatencyChart, type LatencyPoint } from "@/components/charts/latency-chart";
+import { useTimezone } from "@/components/dashboard/timezone-provider";
 import { StatusBadge } from "@/components/monitors/status-badge";
 import { MonitorActions, MonitorEditButton } from "@/components/monitors/monitor-actions";
 import { StatusDot, type MonitorState } from "@/components/monitors/status-dot";
@@ -84,14 +85,14 @@ const responseRanges: Array<{ key: ResponseRange; label: string }> = [
   { key: "d30", label: "30d" },
 ];
 
-function formatTimestamp(value: string): string {
+function formatTimestamp(value: string, timeZone: string): string {
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-    timeZone: "UTC",
+    timeZone,
   }).format(new Date(value));
 }
 
@@ -164,6 +165,7 @@ function UptimeStat({ label, value }: { label: string; value: number | null }) {
 }
 
 export function MonitorDetail({ monitor }: { monitor: MonitorDetailData }) {
+  const { resolvedTimeZone } = useTimezone();
   const [availabilityRange, setAvailabilityRange] =
     useState<AvailabilityRange>("h24");
   const [responseRange, setResponseRange] = useState<ResponseRange>("h24");
@@ -249,7 +251,7 @@ export function MonitorDetail({ monitor }: { monitor: MonitorDetailData }) {
             </span>
           </span>
           <span className="shrink-0 font-data text-[var(--fg-muted)]">
-            {formatTimestamp(monitor.latestIncident.openedAt)} ·{" "}
+            {formatTimestamp(monitor.latestIncident.openedAt, resolvedTimeZone)} ·{" "}
             {formatDuration(monitor.latestIncident.durationSeconds)}
           </span>
         </Link>
@@ -279,7 +281,7 @@ export function MonitorDetail({ monitor }: { monitor: MonitorDetailData }) {
                 label={`${availabilityRanges.find((range) => range.key === availabilityRange)?.label} availability`}
               />
               <div className="mt-2 flex justify-between font-data text-[11px] text-[var(--fg-faint)]">
-                <span>{formatTimestamp(availability.start)}</span>
+                <span>{formatTimestamp(availability.start, resolvedTimeZone)}</span>
                 <span>Now</span>
               </div>
             </>
@@ -335,7 +337,7 @@ export function MonitorDetail({ monitor }: { monitor: MonitorDetailData }) {
                       <tr key={incident.id} className="h-12 border-b border-[var(--border)] last:border-0 hover:bg-[var(--hover)]">
                         <td className="px-6 font-data whitespace-nowrap">
                           <Link href={`/incidents/${encodeURIComponent(incident.id)}`} className="hover:underline">
-                            {formatTimestamp(incident.openedAt)}
+                            {formatTimestamp(incident.openedAt, resolvedTimeZone)}
                           </Link>
                         </td>
                         <td className="px-4 font-data whitespace-nowrap">
@@ -380,7 +382,7 @@ export function MonitorDetail({ monitor }: { monitor: MonitorDetailData }) {
                         )}
                       >
                         <td className="px-6 font-data whitespace-nowrap">
-                          {formatTimestamp(check.checkedAt)}
+                          {formatTimestamp(check.checkedAt, resolvedTimeZone)}
                         </td>
                         <td className={cn("px-4 font-data", !check.successful && "text-[var(--down-text)]")}>
                           <span className="inline-flex items-center gap-2 whitespace-nowrap">

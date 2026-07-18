@@ -21,21 +21,19 @@ export function formatDuration(totalSeconds: number): string {
   return `${Math.floor(hours / 24)}d ${hours % 24}h`;
 }
 
-export function formatRelativeTime(value: Date, now = new Date()): string {
+export function formatRelativeTime(value: Date, now = new Date(), timeZone = "UTC"): string {
   const seconds = Math.max(0, Math.floor((now.getTime() - value.getTime()) / 1000));
   if (seconds < 60) return `${seconds}s ago`;
   if (seconds < 3_600) return `${Math.floor(seconds / 60)}m ago`;
 
-  const sameUtcDay =
-    value.getUTCFullYear() === now.getUTCFullYear() &&
-    value.getUTCMonth() === now.getUTCMonth() &&
-    value.getUTCDate() === now.getUTCDate();
-  if (sameUtcDay) {
+  const dayOf = (date: Date) =>
+    date.toLocaleDateString("en-CA", { timeZone });
+  if (dayOf(value) === dayOf(now)) {
     return value.toLocaleTimeString("en-US", {
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
-      timeZone: "UTC",
+      timeZone,
     });
   }
   return value.toLocaleString("en-US", {
@@ -44,6 +42,6 @@ export function formatRelativeTime(value: Date, now = new Date()): string {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-    timeZone: "UTC",
+    timeZone,
   });
 }

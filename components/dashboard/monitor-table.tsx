@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { useTimezone } from "@/components/dashboard/timezone-provider";
 import { StatusDot, type MonitorState } from "@/components/monitors/status-dot";
 import { Input } from "@/components/ui/input";
 import { formatLatency, formatRelativeTime, formatUptimeTable } from "@/lib/reporting/format";
@@ -44,6 +45,7 @@ function stateLabel(state: MonitorState): string {
 
 export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
   const router = useRouter();
+  const { resolvedTimeZone } = useTimezone();
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const visible = useMemo(() => {
@@ -133,7 +135,7 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
                 <td className="px-4 text-right font-data">{formatUptimeTable(monitor.uptime24h)}</td>
                 <td className="px-4 text-right font-data">{formatLatency(monitor.lastLatencyMs)}</td>
                 <td className="px-6 text-right font-data text-[var(--fg-muted)]">
-                  {monitor.lastCheckedAt ? formatRelativeTime(new Date(monitor.lastCheckedAt)) : "Never"}
+                  {monitor.lastCheckedAt ? formatRelativeTime(new Date(monitor.lastCheckedAt), new Date(), resolvedTimeZone) : "Never"}
                 </td>
               </tr>
             ))}

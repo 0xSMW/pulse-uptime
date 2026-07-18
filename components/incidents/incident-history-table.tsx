@@ -1,6 +1,7 @@
 import Link from "next/link";
 
-import { formatIncidentDuration, formatIncidentTime } from "@/components/incidents/incident-format";
+import { formatIncidentDuration } from "@/components/incidents/incident-format";
+import { IncidentTime } from "@/components/incidents/incident-time";
 import { IncidentStatus } from "@/components/incidents/incident-status";
 import { NotificationSummary } from "@/components/incidents/notification-summary";
 import type { IncidentSummary } from "@/components/incidents/types";
@@ -37,9 +38,9 @@ export function IncidentHistoryTable({ incidents }: { incidents: IncidentSummary
                   </Link>
                 </td>
                 <td className="px-4"><IncidentStatus ongoing={!incident.resolvedAt} /></td>
-                <td className="px-4 font-data whitespace-nowrap">{formatIncidentTime(incident.openedAt)}</td>
+                <td className="px-4 font-data whitespace-nowrap"><IncidentTime value={incident.openedAt} /></td>
                 <td className="incident-hide-resolved px-4 font-data whitespace-nowrap text-[var(--fg-muted)]">
-                  {incident.resolvedAt ? formatIncidentTime(incident.resolvedAt) : "—"}
+                  {incident.resolvedAt ? <IncidentTime value={incident.resolvedAt} /> : "—"}
                 </td>
                 <td className="px-4 font-data whitespace-nowrap">{formatIncidentDuration(incident.durationSeconds)}</td>
                 <td className="incident-hide-failure max-w-52 truncate px-4 font-data" title={incident.openingFailure}>

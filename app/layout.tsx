@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
 import { ThemeProvider } from "@/components/dashboard/theme-provider";
+import { TimezoneProvider } from "@/components/dashboard/timezone-provider";
 
 import "./globals.css";
 
@@ -39,7 +40,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="en" data-theme="dark" suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
         <ThemeProvider defaultTheme="dark" enableSystem>
-          {children}
+          <TimezoneProvider>{children}</TimezoneProvider>
         </ThemeProvider>
       </body>
     </html>
