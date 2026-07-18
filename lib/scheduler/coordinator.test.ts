@@ -5,7 +5,7 @@ import type { MonitoringConfig } from "@/lib/config/schema";
 import { runMonitoringCoordinator } from "./coordinator";
 
 const config: MonitoringConfig = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   configVersion: 1,
   settings: {
     concurrency: 2,
@@ -15,6 +15,7 @@ const config: MonitoringConfig = {
     defaultRecipients: [],
     userAgent: "Pulse-Uptime/1.0",
   },
+  groups: [],
   monitors: [],
 };
 
