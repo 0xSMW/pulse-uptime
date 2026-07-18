@@ -4,6 +4,7 @@ import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { useCommandPalette } from "@/components/dashboard/command-palette";
 import { cn } from "@/lib/utils";
 
 const links = [
@@ -15,6 +16,7 @@ const links = [
 
 export function TopNav({ email }: { email: string }) {
   const pathname = usePathname();
+  const { openPalette } = useCommandPalette();
 
   return (
     <header className="sticky top-0 z-40 bg-[color:var(--bg)]/95 backdrop-blur">
@@ -50,9 +52,14 @@ export function TopNav({ email }: { email: string }) {
         <span className="ml-auto hidden truncate text-xs text-[var(--fg-muted)] md:block">
           {email}
         </span>
-        <kbd className="hidden rounded border border-[var(--border-strong)] px-1.5 py-0.5 font-data text-[10px] text-[var(--fg-muted)] lg:inline">
-          ⌘K
-        </kbd>
+        <button
+          type="button"
+          onClick={openPalette}
+          aria-label="Open command palette"
+          className="hidden rounded border border-[var(--border-strong)] px-1.5 py-0.5 font-data text-[10px] text-[var(--fg-muted)] hover:border-[var(--border-hover)] hover:text-[var(--fg)] lg:inline"
+        >
+          <kbd>⌘K</kbd>
+        </button>
       </nav>
     </header>
   );
