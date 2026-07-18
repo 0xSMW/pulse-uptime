@@ -15,6 +15,20 @@
       "when": 1784354544195,
       "tag": "0001_device_authorization_request_ip",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784355639324,
+      "tag": "0002_naive_captain_stacy",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784357082488,
+      "tag": "0003_fast_alice",
+      "breakpoints": true
     }
   ]
 }
