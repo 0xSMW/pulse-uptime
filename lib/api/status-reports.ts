@@ -302,14 +302,7 @@ const createSchema = z
       .strict(),
     draft: z.boolean().optional(),
   })
-  .strict()
-  // Only checked when both bounds are explicitly given; an omitted startsAt
-  // defaults to `now` in createStatusReport, which the "both present" clause
-  // deliberately doesn't second-guess here.
-  .refine(
-    (value) => value.startsAt === undefined || !value.endsAt || value.endsAt.getTime() > value.startsAt.getTime(),
-    { message: "endsAt must be after startsAt", path: ["endsAt"] },
-  );
+  .strict();
 
 const patchSchema = z
   .object({
@@ -577,6 +570,17 @@ export async function createStatusReport(
   const parsed = parseOrThrow(createSchema, input);
   assertStatusMatchesType(parsed.type, parsed.update.status);
 
+  // Validate against the EFFECTIVE startsAt (the explicit value, or the `now`
+  // default applied below) — an omitted startsAt must not let an endsAt in
+  // the past slip past validation and persist an inverted window.
+  const effectiveStartsAt = parsed.startsAt ?? now;
+  if (parsed.endsAt && parsed.endsAt.getTime() <= effectiveStartsAt.getTime()) {
+    throw new StatusReportError("VALIDATION_ERROR", "endsAt must be after startsAt", {
+      startsAt: effectiveStartsAt.toISOString(),
+      endsAt: parsed.endsAt.toISOString(),
+    });
+  }
+
   const reportId = dependencies.reportId ?? newId();
   const update: StatusReportUpdateRow = {
     id: newId(),
@@ -591,7 +595,7 @@ export async function createStatusReport(
     id: reportId,
     type: parsed.type,
     title: parsed.title,
-    startsAt: parsed.startsAt ?? now,
+    startsAt: effectiveStartsAt,
     endsAt: parsed.endsAt ?? null,
     publishedAt: parsed.draft === true ? null : now,
     resolvedAt: deriveResolvedAt([update]),
@@ -722,11 +726,17 @@ export async function recoverAddedReportUpdate(
   dependencies: StatusReportsDependencies = {},
 ): Promise<StatusReportData | null> {
   const store = dependencies.store ?? databaseStatusReportsStore;
+  const now = dependencies.now?.() ?? new Date();
   const report = await store.getReport(reportId);
   if (!report) return null;
-  const { updates, affected } = await store.getReportDetails([reportId]);
+  const { updates } = await store.getReportDetails([reportId]);
   if (!updates.some((update) => update.id === updateId)) return null;
-  return serializeReport(report, updates, affected);
+  // The crash this recovers from may have landed between the insert
+  // committing and setResolution running (finding: a resolving update that
+  // never resolved the report) — recompute and persist resolution here too,
+  // via the same idempotent recompute the success path uses, instead of
+  // trusting the possibly-stale resolvedAt already on the report row.
+  return persistResolutionAndSerialize(store, report, now);
 }
 
 export async function editReportUpdate(
@@ -876,10 +886,11 @@ export const PUBLIC_RESOLVED_LIMIT = 10;
 export type PublicReportsFilter = { monitorIds: readonly string[]; groupNames: readonly string[] };
 
 /**
- * §3.1 lifecycle rules: upcoming = published ∧ startsAt > now; ongoing =
- * published ∧ startsAt ≤ now ∧ not completed; a maintenance window past endsAt
- * with no completing update is demoted to "window_ended"; a `scheduled`
- * current status never places a report in the ongoing section.
+ * §3.1 lifecycle rules: upcoming = published ∧ startsAt > now — for EITHER
+ * report type, since a future-dated report of any kind hasn't started yet;
+ * ongoing = published ∧ startsAt ≤ now ∧ not completed; a maintenance window
+ * past endsAt with no completing update is demoted to "window_ended"; a
+ * `scheduled` current status never places a report in the ongoing section.
  */
 export function classifyPublicReport(
   report: Pick<StatusReportRow, "type" | "startsAt" | "endsAt" | "resolvedAt">,
@@ -887,9 +898,10 @@ export function classifyPublicReport(
   now: Date,
 ): PublicReportPhase {
   if (report.resolvedAt) return "resolved";
+  if (report.startsAt.getTime() > now.getTime()) return "upcoming";
   if (report.type === "maintenance") {
     if (report.endsAt && report.endsAt.getTime() <= now.getTime()) return "window_ended";
-    if (report.startsAt.getTime() > now.getTime() || currentStatus === "scheduled") return "upcoming";
+    if (currentStatus === "scheduled") return "upcoming";
     return "ongoing";
   }
   return "ongoing";
@@ -1279,10 +1291,12 @@ export const databaseStatusReportsStore: StatusReportsStore = {
       : undefined;
     // One round-trip: the unresolved branch rides status_reports_ongoing
     // (partial on resolvedAt IS NULL) and the resolved branch the recency
-    // sort. The unresolved branch orders active/past-starting rows (an
-    // ongoing incident) ahead of future-scheduled ones within the cap, so
-    // 100+ future maintenance windows can never crowd out an active report
-    // that would otherwise sort later by startsAt DESC alone.
+    // sort. The unresolved branch ranks truly ACTIVE rows (started, not yet
+    // ended) first, then future-scheduled rows, then ended-but-uncompleted
+    // windows (a maintenance row whose endsAt already passed with no
+    // completing update) last — so within the 100 cap neither 100+ future
+    // maintenance windows nor a stale ended window can crowd out an active
+    // report that would otherwise sort later by startsAt DESC alone.
     const unresolved = db
       .select(reportSelection)
       .from(statusReports)
@@ -1291,7 +1305,11 @@ export const databaseStatusReportsStore: StatusReportsStore = {
         isNull(statusReports.resolvedAt),
         ...(groupScope ? [groupScope] : []),
       ))
-      .orderBy(sql`(${statusReports.startsAt} > ${now})`, desc(statusReports.startsAt))
+      .orderBy(
+        sql`(${statusReports.endsAt} is not null and ${statusReports.endsAt} <= ${now})`,
+        sql`(${statusReports.startsAt} > ${now})`,
+        desc(statusReports.startsAt),
+      )
       .limit(100);
     const resolved = db
       .select(reportSelection)

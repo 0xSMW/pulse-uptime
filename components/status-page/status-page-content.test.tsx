@@ -87,4 +87,42 @@ describe("StatusPageContent", () => {
     expect(html).toContain("API");
     expect(html).not.toContain("Status information is temporarily unavailable");
   });
+
+  it("keeps the maintenance-specific heading when only maintenance windows are scheduled", () => {
+    const data: PublicStatusData = {
+      ...operationalData,
+      reports: {
+        ...operationalData.reports,
+        upcoming: [{
+          id: "rep-maint", type: "maintenance", title: "DB upgrade",
+          startsAt: "2026-07-19T00:00:00.000Z", endsAt: "2026-07-19T02:00:00.000Z",
+          publishedAt: "2026-07-18T09:00:00.000Z", resolvedAt: null, originIncidentId: null,
+          currentStatus: "scheduled", phase: "upcoming", latestUpdate: null, affected: [],
+        }],
+      },
+    };
+    const html = renderToStaticMarkup(<StatusPageContent data={data} />);
+    expect(html).toContain("Scheduled Maintenance");
+    expect(html).not.toContain("Scheduled Reports");
+  });
+
+  it("generalizes the heading and per-row label when a future-dated incident is scheduled (finding: future incidents rendered as maintenance)", () => {
+    const data: PublicStatusData = {
+      ...operationalData,
+      reports: {
+        ...operationalData.reports,
+        upcoming: [{
+          id: "rep-incident", type: "incident", title: "Planned failover drill",
+          startsAt: "2026-07-19T00:00:00.000Z", endsAt: null,
+          publishedAt: "2026-07-18T09:00:00.000Z", resolvedAt: null, originIncidentId: null,
+          currentStatus: "investigating", phase: "upcoming", latestUpdate: null, affected: [],
+        }],
+      },
+    };
+    const html = renderToStaticMarkup(<StatusPageContent data={data} />);
+    expect(html).toContain("Scheduled Reports");
+    expect(html).not.toContain("Scheduled Maintenance");
+    expect(html).toContain("Planned failover drill");
+    expect(html).toContain("Upcoming report");
+  });
 });

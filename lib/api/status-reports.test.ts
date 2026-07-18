@@ -177,12 +177,16 @@ function memoryStore(monitors: Array<{ id: string; name: string; groupName: stri
         );
         rows = rows.filter((row) => matching.has(row.id));
       }
-      // Mirrors ORDER BY (starts_at > now()), starts_at desc: active/past rows
-      // (startsAt <= now) sort ahead of future-scheduled ones so the 100 cap
-      // can never let future maintenance crowd out an active report.
+      // Mirrors ORDER BY (ended, future, starts_at desc): truly active rows
+      // (started, not ended) sort first, then future-scheduled rows, then
+      // ended-but-uncompleted windows last — so the 100 cap can never let
+      // future maintenance OR a stale ended window crowd out an active report.
       const unresolved = rows
         .filter((row) => row.resolvedAt === null)
         .sort((left, right) => {
+          const leftEnded = left.endsAt !== null && left.endsAt.getTime() <= now.getTime() ? 1 : 0;
+          const rightEnded = right.endsAt !== null && right.endsAt.getTime() <= now.getTime() ? 1 : 0;
+          if (leftEnded !== rightEnded) return leftEnded - rightEnded;
           const leftFuture = left.startsAt.getTime() > now.getTime() ? 1 : 0;
           const rightFuture = right.startsAt.getTime() > now.getTime() ? 1 : 0;
           return leftFuture - rightFuture || right.startsAt.getTime() - left.startsAt.getTime();
@@ -331,6 +335,25 @@ describe("createStatusReport", () => {
       startsAt: "2026-07-19T00:00:00.000Z", endsAt: "2026-07-19T02:00:00.000Z",
       update: { status: "scheduled", markdown: "Planned." },
     }, dependencies(store))).resolves.toMatchObject({ startsAt: "2026-07-19T00:00:00.000Z" });
+  });
+
+  it("validates endsAt against the EFFECTIVE (defaulted) startsAt when startsAt is omitted (finding: inverted window via default)", async () => {
+    const store = memoryStore();
+    // startsAt omitted defaults to NOW (2026-07-18T12:00:00.000Z); an endsAt
+    // before that must still be rejected, not silently accepted because the
+    // schema-level refine only fired when startsAt was explicitly given.
+    await expect(createStatusReport({
+      ...validCreate, type: "maintenance",
+      endsAt: "2026-07-18T10:00:00.000Z",
+      update: { status: "scheduled", markdown: "Planned." },
+    }, dependencies(store))).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    // An endsAt after the defaulted startsAt still succeeds.
+    await expect(createStatusReport({
+      ...validCreate, type: "maintenance",
+      endsAt: "2026-07-18T14:00:00.000Z",
+      update: { status: "scheduled", markdown: "Planned." },
+    }, dependencies(store))).resolves.toMatchObject({ startsAt: NOW.toISOString() });
   });
 });
 
@@ -726,6 +749,27 @@ describe("idempotent-create recovery (finding: duplicate report/update after a c
     await expect(recoverAddedReportUpdate(created.id, "never-added", deps)).resolves.toBeNull();
     await expect(recoverAddedReportUpdate("missing-report", "never-added", deps)).resolves.toBeNull();
   });
+
+  it("recomputes and persists resolution on recovery (finding: crash between insert and setResolution leaves a stale resolvedAt)", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const created = await createStatusReport(validCreate, deps);
+
+    // Simulate the insert having committed but the process dying before
+    // persistResolutionAndSerialize's setResolution ran: the update row
+    // exists, but the report's resolvedAt is still the stale pre-update null.
+    await store.insertUpdate({
+      id: "op-update-1", reportId: created.id, status: "resolved", markdown: "Fixed.",
+      publishedAt: NOW, createdAt: NOW, updatedAt: NOW,
+    });
+    expect(store.reports.get(created.id)!.resolvedAt).toBeNull();
+
+    const recovered = await recoverAddedReportUpdate(created.id, "op-update-1", deps);
+    expect(recovered?.resolvedAt).toBe(NOW.toISOString());
+    expect(recovered?.currentStatus).toBe("resolved");
+    // The recompute is persisted, not just reflected in the response.
+    expect(store.reports.get(created.id)!.resolvedAt).toEqual(NOW);
+  });
 });
 
 describe("affected-row read caps derive from the page, not a fixed constant (finding: 2,000-row truncation)", () => {
@@ -786,6 +830,19 @@ describe("getPublicReports", () => {
     expect(classifyPublicReport(report, "in_progress", NOW)).toBe("ongoing");
   });
 
+  it("classifies a future-dated incident report as upcoming, not ongoing (finding: future incidents leaked into the ongoing banner)", () => {
+    const futureIncident = {
+      type: "incident" as const,
+      startsAt: new Date("2026-07-19T00:00:00.000Z"),
+      endsAt: null,
+      resolvedAt: null,
+    };
+    expect(classifyPublicReport(futureIncident, "investigating", NOW)).toBe("upcoming");
+    // A past-starting incident is unaffected and still classifies as ongoing.
+    const pastIncident = { ...futureIncident, startsAt: new Date("2026-07-18T00:00:00.000Z") };
+    expect(classifyPublicReport(pastIncident, "investigating", NOW)).toBe("ongoing");
+  });
+
   it("returns resolved reports with resolution recency ordering", async () => {
     const store = memoryStore();
     const deps = dependencies(store);
@@ -817,6 +874,43 @@ describe("getPublicReports", () => {
     }
     const result = await getPublicReports(deps);
     expect(result.ongoing.map((row) => row.id)).toContain(active.id);
+  });
+
+  it("classifies a published future-dated incident as upcoming, not ongoing (finding: future incidents fed the ongoing banner)", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const futureIncident = await createStatusReport({
+      ...validCreate, title: "Planned failover drill",
+      startsAt: "2026-07-19T00:00:00.000Z",
+      update: { status: "investigating", markdown: "Scheduled." },
+    }, deps);
+    const result = await getPublicReports(deps);
+    expect(result.upcoming.map((row) => row.id)).toEqual([futureIncident.id]);
+    expect(result.ongoing).toEqual([]);
+  });
+
+  it("keeps an active report inside the unresolved cap even behind 100 ended-but-uncompleted maintenance windows (finding: stale ended windows crowding active reports)", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    // Started well before the 100 stale windows below, but genuinely still
+    // active (no endsAt) — must not be pushed off the 100-row cap by rows
+    // that merely started more recently.
+    const active = await createStatusReport({
+      ...validCreate, title: "Active incident",
+      startsAt: "2026-07-10T00:00:00.000Z",
+      update: { status: "investigating", markdown: "Ongoing." },
+    }, deps);
+    for (let index = 0; index < 100; index += 1) {
+      await createStatusReport({
+        type: "maintenance", title: `Overran window ${index}`,
+        startsAt: `2026-07-18T${String(index % 10).padStart(2, "0")}:00:00.000Z`,
+        endsAt: "2026-07-18T11:00:00.000Z",
+        update: { status: "in_progress", markdown: "Never closed." },
+      }, deps);
+    }
+    const result = await getPublicReports(deps);
+    expect(result.ongoing.map((row) => row.id)).toContain(active.id);
+    expect(result.windowEnded).toHaveLength(99);
   });
 
   it("scopes the resolved LIMIT to a group filter so an older group-relevant report isn't starved by unrelated global history", async () => {

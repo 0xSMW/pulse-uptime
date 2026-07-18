@@ -23,6 +23,8 @@ vi.mock("@/lib/api/status-reports", async (importOriginal) => ({
 
 import { revalidatePath } from "next/cache";
 
+import { objectEnvelope } from "@/lib/api/envelopes";
+import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, type ApiContext } from "@/lib/api/middleware";
 import {
   deleteStatusReport,
@@ -66,6 +68,7 @@ beforeEach(() => {
   vi.mocked(getStatusReport).mockReset().mockResolvedValue(report);
   vi.mocked(updateStatusReport).mockReset().mockResolvedValue(report);
   vi.mocked(deleteStatusReport).mockReset().mockResolvedValue({ id: "rep-1" });
+  vi.mocked(executeIdempotent).mockClear();
 });
 
 describe("GET /api/v1/status-reports/{reportId}", () => {
@@ -135,5 +138,26 @@ describe("DELETE /api/v1/status-reports/{reportId}", () => {
     expect(response.status).toBe(404);
     expect((await response.json()).error.code).toBe("REPORT_NOT_FOUND");
     expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("wires a recover callback that returns deleted-success instead of rerunning into a 404 (finding: delete retries 404 after a crash)", async () => {
+    await DELETE(request("DELETE"), params);
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
+    };
+
+    // Recovery hit: a prior attempt already committed the delete before
+    // crashing — the report is gone, so the retry must surface the deleted
+    // envelope instead of rerunning into getStatusReport's 404.
+    vi.mocked(getStatusReport).mockRejectedValue(new StatusReportError("REPORT_NOT_FOUND", "missing"));
+    await expect(options.recover({ operationId: "op-1" })).resolves.toEqual({
+      status: 200,
+      body: objectEnvelope("StatusReportDeleted", { id: "rep-1" }, context.requestId),
+    });
+
+    // Recovery miss: the report still exists (the crash hit before the
+    // delete committed) — fall through so work() actually deletes it.
+    vi.mocked(getStatusReport).mockResolvedValue(report);
+    await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
   });
 });

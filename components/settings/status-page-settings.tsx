@@ -441,7 +441,9 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
     try {
       const response = await fetch("/api/v1/status-page-config", {
         method: "PUT",
-        headers: { "Content-Type": "application/json", "If-Match": etag },
+        // The config PUT route requires a UUID Idempotency-Key (executeIdempotent);
+        // without it every save fails with IDEMPOTENCY_KEY_REQUIRED.
+        headers: { "Content-Type": "application/json", "If-Match": etag, "Idempotency-Key": crypto.randomUUID() },
         body: JSON.stringify(document),
       });
       if (response.status === 412) {

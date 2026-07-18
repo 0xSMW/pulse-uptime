@@ -55,6 +55,21 @@ export async function DELETE(request: Request, { params }: Params) {
       principalKey: context.principalKey,
       routeKey: `/api/v1/status-reports/${reportId}`,
       body: {},
+      // A retry after a stale-record reclaim means a prior attempt may have
+      // already committed the delete before crashing (finding: a committed
+      // delete makes the retry rerun getStatusReport against a gone row and
+      // 404 for a delete that actually succeeded). This only runs on a
+      // reclaimed replay of THIS operation's key — a first attempt against a
+      // genuinely-unknown id never reaches here and still 404s via work().
+      // If the report still exists, return null so work() reruns the actual
+      // delete; if it's gone, treat that as this operation's own recovered
+      // success.
+      recover: async () => {
+        const stillExists = await getStatusReport(reportId).catch(() => null);
+        return stillExists
+          ? null
+          : { status: 200, body: objectEnvelope("StatusReportDeleted", { id: reportId }, context.requestId) };
+      },
       work: async () => {
         const report = await getStatusReport(reportId);
         await deleteStatusReport(reportId);

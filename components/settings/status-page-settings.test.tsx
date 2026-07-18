@@ -131,6 +131,11 @@ describe("StatusPageSettings save model", () => {
     expect(url).toBe("/api/v1/status-page-config");
     expect(init.method).toBe("PUT");
     expect(init.headers["If-Match"]).toBe('"1"');
+    // The config PUT route requires a UUID Idempotency-Key (executeIdempotent);
+    // omitting it makes every Settings -> Status page save fail.
+    expect(init.headers["Idempotency-Key"]).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
     const payload = JSON.parse(init.body as string) as Record<string, unknown>;
     expect(Object.keys(payload).sort()).toEqual([...STATUS_PAGE_FIELDS].sort());
     expect(payload.name).toBe("Acme Status");

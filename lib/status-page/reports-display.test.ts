@@ -222,6 +222,15 @@ describe("publicReportPhase", () => {
       ),
     ).toBe("ongoing");
   });
+
+  it("classifies a future-dated incident report as upcoming, not ongoing (finding: future incidents leaked into the ongoing banner)", () => {
+    expect(
+      publicReportPhase(
+        { ...base, type: "incident", currentStatus: "investigating", startsAt: "2026-07-19T10:00:00.000Z" },
+        now,
+      ),
+    ).toBe("upcoming");
+  });
 });
 
 describe("permalink helpers", () => {

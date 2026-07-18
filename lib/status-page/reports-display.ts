@@ -204,9 +204,9 @@ export function monitorReportAnnotations(
 /**
  * Phase for the permalink page, mirroring classifyPublicReport in
  * lib/api/status-reports.ts on the serialized (string-timestamp) shape:
- * upcoming = startsAt > now (or a `scheduled` current status); a maintenance
- * window past endsAt with no completing update is "window_ended"; resolved
- * wins over everything.
+ * upcoming = startsAt > now for EITHER report type (or a `scheduled` current
+ * status); a maintenance window past endsAt with no completing update is
+ * "window_ended"; resolved wins over everything.
  */
 export function publicReportPhase(
   report: {
@@ -219,11 +219,10 @@ export function publicReportPhase(
   now: Date,
 ): ReportPhase {
   if (report.resolvedAt) return "resolved";
+  if (Date.parse(report.startsAt) > now.getTime()) return "upcoming";
   if (report.type === "maintenance") {
     if (report.endsAt && Date.parse(report.endsAt) <= now.getTime()) return "window_ended";
-    if (Date.parse(report.startsAt) > now.getTime() || report.currentStatus === "scheduled") {
-      return "upcoming";
-    }
+    if (report.currentStatus === "scheduled") return "upcoming";
     return "ongoing";
   }
   return "ongoing";

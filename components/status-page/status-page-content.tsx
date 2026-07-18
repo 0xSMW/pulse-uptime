@@ -222,10 +222,18 @@ function OngoingReports({ data, zone }: { data: PublicStatusData; zone: Timezone
   );
 }
 
-/** Published maintenance windows: upcoming first, then demoted ended windows (§3.6). */
+/**
+ * Published upcoming/ended-window reports: upcoming first, then demoted ended
+ * windows (§3.6). Almost always maintenance, but an incident-type report can
+ * also be published with a future startsAt (finding: future-dated incidents
+ * belong here, not in the ongoing section) — the heading and per-row label
+ * generalize when that happens instead of calling every row "maintenance".
+ */
 function MaintenanceSchedule({ data, zone }: { data: PublicStatusData; zone: TimezoneDisplay }) {
   const { upcoming, windowEnded } = data.reports;
   if (upcoming.length === 0 && windowEnded.length === 0) return null;
+  const allMaintenance = [...upcoming, ...windowEnded].every((report) => report.type === "maintenance");
+  const heading = allMaintenance ? "Scheduled Maintenance" : "Scheduled Reports";
   const window = (report: PublicReportEntry) => (
     <>
       {formatStatusTimestamp(report.startsAt, zone.timeZone)}
@@ -238,7 +246,7 @@ function MaintenanceSchedule({ data, zone }: { data: PublicStatusData; zone: Tim
       aria-labelledby="maintenance-heading"
     >
       <h2 id="maintenance-heading" className="px-6 py-4 text-sm font-semibold">
-        Scheduled Maintenance
+        {heading}
       </h2>
       <ul className="divide-y divide-[var(--border)]" role="list">
         {upcoming.map((report) => (
@@ -248,7 +256,7 @@ function MaintenanceSchedule({ data, zone }: { data: PublicStatusData; zone: Tim
               <Link href={statusReportUrl(report.id)} className="truncate hover:underline">
                 {report.title}
               </Link>
-              <span className="sr-only">Upcoming maintenance</span>
+              <span className="sr-only">{report.type === "maintenance" ? "Upcoming maintenance" : "Upcoming report"}</span>
             </span>
             <span className="font-data text-[var(--fg-muted)]">{window(report)}</span>
           </li>
