@@ -12,6 +12,7 @@ import {
   type MonitoringConfig,
 } from "@/lib/config";
 import { db, sql } from "@/lib/db/client";
+import { portableQueryValues } from "@/lib/db/query-values";
 import {
   configChangeApprovals,
   configOperations,
@@ -48,7 +49,7 @@ function deterministicUuid(value: string): string {
 
 export const queryExecutor: SqlExecutor = {
   async query<T>(text: string, values: readonly unknown[]): Promise<readonly T[]> {
-    return await sql.unsafe(text, values as never[]) as unknown as readonly T[];
+    return await sql.unsafe(text, portableQueryValues(values) as never[]) as unknown as readonly T[];
   },
 };
 
@@ -290,7 +291,12 @@ export async function runMonitoringCron() {
         ? monitor.recipients
         : activeConfig.settings.defaultRecipients;
       const checkedAt = new Date();
-      const result = await createHttpChecker({ userAgent: activeConfig.settings.userAgent })(monitor);
+      const result = await createHttpChecker({ userAgent: activeConfig.settings.userAgent })({
+        url: monitor.url,
+        method: monitor.method,
+        timeoutMs: monitor.timeoutMs,
+        expectedStatus: monitor.expectedStatus,
+      });
       minuteResults.set(monitor.id, {
         monitorId: monitor.id,
         monitorName: monitor.name,
