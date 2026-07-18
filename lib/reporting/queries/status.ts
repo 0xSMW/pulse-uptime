@@ -1,9 +1,9 @@
-import { and, desc, eq, gte, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, lt } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
-import { dailyRollups, incidents, monitorRegistry, monitorState } from "@/lib/db/schema";
+import { incidents, metricRollups, monitorRegistry, monitorState } from "@/lib/db/schema";
 
-import { buildDailyTimeline, statusGroupSlug } from "./timeline";
+import { buildRollupTimeline, statusGroupSlug, summarizeRollupCoverage } from "./timeline";
 
 function failureLabel(statusCode: number | null): string {
   if (statusCode !== null) return `HTTP ${statusCode}`;
@@ -14,7 +14,9 @@ function failureLabel(statusCode: number | null): string {
 
 export async function getPublicStatus(group?: string) {
   const now = new Date();
-  const earliestDay = new Date(now.getTime() - 90 * 86_400_000).toISOString().slice(0, 10);
+  const completedDay = new Date(now);
+  completedDay.setUTCHours(0, 0, 0, 0);
+  const earliest = new Date(completedDay.getTime() - 90 * 86_400_000);
   const monitors = await db.select({
     id: monitorRegistry.id,
     name: monitorRegistry.name,
@@ -32,15 +34,22 @@ export async function getPublicStatus(group?: string) {
   const ids = visible.map((monitor) => monitor.id);
   const [rollups, current, recent] = ids.length === 0 ? [[], [], []] : await Promise.all([
     db.select({
-      monitorId: dailyRollups.monitorId,
-      day: dailyRollups.day,
-      totalChecks: dailyRollups.totalChecks,
-      successfulChecks: dailyRollups.successfulChecks,
-      failedChecks: dailyRollups.failedChecks,
-      incidentSeconds: dailyRollups.incidentSeconds,
-    }).from(dailyRollups)
-      .where(and(inArray(dailyRollups.monitorId, ids), gte(dailyRollups.day, earliestDay)))
-      .orderBy(dailyRollups.day)
+      monitorId: metricRollups.monitorId,
+      bucketStart: metricRollups.bucketStart,
+      expectedChecks: metricRollups.expectedChecks,
+      completedChecks: metricRollups.completedChecks,
+      successfulChecks: metricRollups.successfulChecks,
+      failedChecks: metricRollups.failedChecks,
+      unknownChecks: metricRollups.unknownChecks,
+      downtimeSeconds: metricRollups.downtimeSeconds,
+    }).from(metricRollups)
+      .where(and(
+        inArray(metricRollups.monitorId, ids),
+        eq(metricRollups.resolution, "day"),
+        gte(metricRollups.bucketStart, earliest),
+        lt(metricRollups.bucketStart, completedDay),
+      ))
+      .orderBy(metricRollups.bucketStart)
       .limit(9_000),
     db.select({
       id: incidents.id,
@@ -76,14 +85,14 @@ export async function getPublicStatus(group?: string) {
       slug: statusGroupSlug(name),
       monitors: entries.sort((left, right) => left.name.localeCompare(right.name)).map((monitor) => {
         const rows = rollups.filter((rollup) => rollup.monitorId === monitor.id);
-        const total = rows.reduce((sum, row) => sum + row.totalChecks, 0);
-        const successful = rows.reduce((sum, row) => sum + row.successfulChecks, 0);
+        const summary = summarizeRollupCoverage(rows);
         return {
           id: monitor.id,
           name: monitor.name,
           state: monitor.state === "ARCHIVED" || monitor.state === null ? "PENDING" as const : monitor.state,
-          uptime90d: total === 0 ? null : 100 * successful / total,
-          timeline: buildDailyTimeline(rows, 90, now),
+          uptime90d: summary.uptime,
+          coverage90d: summary.coverage,
+          timeline: buildRollupTimeline(rows, 90, 90 * 86_400_000, completedDay),
         };
       }),
     }));
