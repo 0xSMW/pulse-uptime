@@ -37,6 +37,6 @@ Test web behavior only through the running application in the in-app browser.
 
 - Keep changes focused and explain the user-visible behavior.
 - Include regression tests for fixes and new domain behavior.
-- Preserve the reliability, SSRF, idempotency, and credential-storage invariants in `Docs/INIT.md`.
+- Preserve reliability guarantees, connection-time SSRF protection, persistent mutation idempotency, and secure credential storage.
 - Update OpenAPI whenever `/api/v1` behavior changes.
 - Never commit credentials, local environment files, database URLs, or generated CLI tokens.
