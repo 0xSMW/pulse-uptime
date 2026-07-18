@@ -39,6 +39,26 @@ func TestListMachinePaginationPreservesCursorAndOrder(t *testing.T) {
 	}
 }
 
+func TestListEmptyDataSerializesAsArray(t *testing.T) {
+	client := clientFunc(func(_ context.Context, r Request) error {
+		doc := r.Result.(*ListEnvelope)
+		doc.APIVersion = "v1"
+		doc.Kind = "IncidentList"
+		return nil
+	})
+	doc, err := List(context.Background(), client, 0, "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(encoded) != `{"apiVersion":"v1","kind":"IncidentList","data":[],"meta":{"nextCursor":null}}` {
+		t.Fatalf("output = %s", encoded)
+	}
+}
+
 func TestStatusUsesCanonicalEndpoint(t *testing.T) {
 	var path string
 	client := clientFunc(func(_ context.Context, r Request) error {
