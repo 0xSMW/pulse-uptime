@@ -9,7 +9,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-const commonZones: { label: string; value: string }[] = [
+export const timezoneOptions: { label: string; value: string }[] = [
   { label: "System", value: "system" },
   { label: "UTC", value: "UTC" },
   { label: "Bangkok (UTC+7)", value: "Asia/Bangkok" },
@@ -25,9 +25,9 @@ const commonZones: { label: string; value: string }[] = [
 
 export function TimezoneControl() {
   const { timezone, resolvedTimeZone, setTimezone } = useTimezone();
-  const options = commonZones.some((zone) => zone.value === timezone)
-    ? commonZones
-    : [...commonZones, { label: timezone, value: timezone }];
+  const options = timezoneOptions.some((zone) => zone.value === timezone)
+    ? timezoneOptions
+    : [...timezoneOptions, { label: timezone, value: timezone }];
 
   return (
     <div>

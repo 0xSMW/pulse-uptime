@@ -4,10 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Check, Copy } from "lucide-react";
 import useSWR from "swr";
 
+import { useTimezone } from "@/components/dashboard/timezone-provider";
+import { timezoneOptions } from "@/components/settings/timezone-control";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { ReadinessReport } from "@/lib/readiness/types";
 import type { CheckResult } from "@/lib/checker";
 import type { MonitorDraft, OnboardingStep } from "@/lib/onboarding/service";
@@ -71,9 +74,22 @@ function Account({ acknowledgeEmailWarning, onBack, onCreated }: { acknowledgeEm
   return <StepFrame number={1} eyebrow="Step 1 of 3" title="Create your admin account" lede="Set up secure dashboard access"><form onSubmit={submit}><div className={styles.fields}><Field label="Email" htmlFor="email"><Input ref={first} id="email" name="email" type="email" autoComplete="email" required/></Field><Field label="Password" htmlFor="password" description="Use at least 12 characters. Password managers work well."><Input id="password" name="password" type="password" autoComplete="new-password" minLength={12} maxLength={128} required/></Field><Field label="Confirm Password" htmlFor="confirmation"><Input id="confirmation" name="confirmation" type="password" autoComplete="new-password" required/></Field></div>{error?<p className={styles.error} role="alert">{error}</p>:null}<div className={styles.actions}><Button size="icon" variant="secondary" aria-label="Back" onClick={onBack}><ArrowLeft size={16}/></Button><Button type="submit" disabled={busy}>{busy?"Creating…":"Create Account"}</Button></div></form></StepFrame>;
 }
 
+function TimezoneField() {
+  const { timezone, resolvedTimeZone, setTimezone } = useTimezone();
+  const options = timezoneOptions.some((zone) => zone.value === timezone)
+    ? timezoneOptions
+    : [...timezoneOptions, { label: timezone, value: timezone }];
+  return <Field label="Time Zone" htmlFor="timezone" description={timezone === "system" ? `Detected from this device · ${resolvedTimeZone}` : "Used for dashboard timestamps."}>
+    <Select value={timezone} onValueChange={setTimezone}>
+      <SelectTrigger id="timezone" aria-label="Time zone"><SelectValue /></SelectTrigger>
+      <SelectContent>{options.map((zone) => <SelectItem key={zone.value} value={zone.value}>{zone.label}</SelectItem>)}</SelectContent>
+    </Select>
+  </Field>;
+}
+
 function MonitorStep({draft,error,busy,onBack,onSubmit}:{draft:MonitorDraft;error:string;busy:boolean;onBack?:()=>void;onSubmit:(draft:MonitorDraft)=>void}) {
   const [url,setUrl]=useState(draft.url); const [name,setName]=useState(draft.name); const [nameEdited,setNameEdited]=useState(Boolean(draft.name));
-  return <StepFrame number={2} eyebrow="Step 2 of 3" title="Monitor your first website" lede="Add the endpoint Pulse should watch"><form onSubmit={(e)=>{e.preventDefault();onSubmit({url,name,alertEmail:draft.alertEmail});}}><div className={styles.fields}><Field label="Website URL" htmlFor="url"><Input id="url" type="url" value={url} placeholder="https://example.com" onChange={(e)=>{setUrl(e.target.value);if(!nameEdited){try{setName(new URL(e.target.value).hostname.replace(/^www\./,""));}catch{setName("");}}}} required/></Field><Field label="Monitor Name" htmlFor="name"><Input id="name" value={name} onChange={(e)=>{setName(e.target.value);setNameEdited(true);}} maxLength={80} required/></Field></div>{error?<p className={styles.error} role="alert">{error}</p>:null}<div className={styles.actions}>{onBack?<Button size="icon" variant="secondary" aria-label="Back" onClick={onBack}><ArrowLeft size={16}/></Button>:null}<Button type="submit" disabled={busy}>{busy?"Testing…":"Test Website"}</Button></div></form></StepFrame>;
+  return <StepFrame number={2} eyebrow="Step 2 of 3" title="Monitor your first website" lede="Add the endpoint Pulse should watch"><form onSubmit={(e)=>{e.preventDefault();onSubmit({url,name,alertEmail:draft.alertEmail});}}><div className={styles.fields}><Field label="Website URL" htmlFor="url"><Input id="url" type="url" value={url} placeholder="https://example.com" onChange={(e)=>{setUrl(e.target.value);if(!nameEdited){try{setName(new URL(e.target.value).hostname.replace(/^www\./,""));}catch{setName("");}}}} required/></Field><Field label="Monitor Name" htmlFor="name"><Input id="name" value={name} onChange={(e)=>{setName(e.target.value);setNameEdited(true);}} maxLength={80} required/></Field><TimezoneField/></div>{error?<p className={styles.error} role="alert">{error}</p>:null}<div className={styles.actions}>{onBack?<Button size="icon" variant="secondary" aria-label="Back" onClick={onBack}><ArrowLeft size={16}/></Button>:null}<Button type="submit" disabled={busy}>{busy?"Testing…":"Test Website"}</Button></div></form></StepFrame>;
 }
 
 function VerifyStep({draft,result,alertsDisabled,error,busy,canStartAnyway,onBack,onStart}:{draft:MonitorDraft;result:CheckResult|null;alertsDisabled:boolean;error:string;busy:boolean;canStartAnyway:boolean;onBack:()=>void;onStart:(email:string)=>void}) { const [alertEmail,setAlertEmail]=useState(draft.alertEmail||""); return <StepFrame number={3} eyebrow="Step 3 of 3" title="Verify and start monitoring" lede="Review the check before monitoring begins">{result?<div className={`${styles.result} ${result.success?"":styles.failed}`}><div><div className={styles.resultTitle}>{result.success?"Website responded successfully":result.errorCode}</div><div className={styles.resultMeta}>{result.hostname} · {result.resolvedAddress||"No public address"}{result.statusCode?` · HTTP ${result.statusCode}`:""}</div></div><span className={styles.resultMeta}>{result.latencyMs} ms</span></div>:<div className={styles.result}><div className={styles.resultTitle}>Check will run before activation</div></div>}<Field label="Alert Email" htmlFor="alert-email" description={alertsDisabled?"Alerts are disabled until email is ready":undefined}><Input id="alert-email" type="email" value={alertsDisabled?"":alertEmail} onChange={(e)=>setAlertEmail(e.target.value)} disabled={alertsDisabled}/></Field><div className={styles.summary}><div className={styles.summaryRow}><span>Check interval</span><span>Every minute</span></div><div className={styles.summaryRow}><span>Expected response</span><span>HTTP 200–399</span></div><div className={styles.summaryRow}><span>Confirm outage</span><span>After 2 failures</span></div></div>{error?<p className={styles.error} role="alert">{error}</p>:null}<div className={styles.actions}><Button size="icon" variant="secondary" aria-label="Back" onClick={onBack}><ArrowLeft size={16}/></Button><Button disabled={busy||Boolean(result&&!result.success&&!canStartAnyway)} onClick={()=>onStart(alertEmail)}>{busy?"Starting…":canStartAnyway?"Start Monitoring Anyway":"Start Monitoring"}</Button></div></StepFrame>; }
