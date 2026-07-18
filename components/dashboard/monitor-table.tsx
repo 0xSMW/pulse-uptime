@@ -2,6 +2,7 @@
 
 import { Search } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { StatusDot, type MonitorState } from "@/components/monitors/status-dot";
@@ -20,6 +21,19 @@ export type DashboardMonitor = {
   activeIncidentOpenedAt: string | null;
 };
 
+const rowInteractiveSelector = "a, button, input, select, textarea, summary, [role='button'], [role='link'], [contenteditable='true']";
+
+export function navigateFromMonitorRow(
+  target: EventTarget | null,
+  monitorId: string,
+  navigate: (href: string) => void,
+): boolean {
+  const closest = (target as { closest?: (selector: string) => Element | null } | null)?.closest;
+  if (typeof closest === "function" && closest.call(target, rowInteractiveSelector)) return false;
+  navigate(`/monitors/${encodeURIComponent(monitorId)}`);
+  return true;
+}
+
 function stateLabel(state: MonitorState): string {
   return state
     .toLowerCase()
@@ -29,6 +43,7 @@ function stateLabel(state: MonitorState): string {
 }
 
 export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const visible = useMemo(() => {
@@ -93,8 +108,11 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
             {visible.map((monitor) => (
               <tr
                 key={monitor.id}
+                onClick={(event) => {
+                  navigateFromMonitorRow(event.target, monitor.id, router.push);
+                }}
                 className={cn(
-                  "h-[60px] border-b border-[var(--border)] last:border-0 hover:bg-[var(--hover)]",
+                  "h-[60px] cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--hover)]",
                   monitor.state === "DOWN" && "shadow-[inset_3px_0_var(--down)]",
                 )}
               >
