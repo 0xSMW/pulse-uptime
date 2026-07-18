@@ -160,6 +160,13 @@
             }
           },
           {
+            "name": "groupId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "enabled",
             "in": "query",
             "schema": {
@@ -426,6 +433,33 @@
     },
     "/api/v1/monitors/{monitorId}/test": {
       "$ref": "#/components/pathItems/MonitorTest"
+    },
+    "/api/v1/groups": {
+      "get": {
+        "operationId": "listGroups", "tags": ["Monitors"], "summary": "List monitor groups",
+        "x-required-scopes": ["monitors:read"], "security": [{"bearerAuth": []}, {"humanSession": []}],
+        "responses": {"200": {"description": "Group list", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GroupListEnvelope"}}}}, "401": {"$ref": "#/components/responses/AuthenticationRequired"}, "403": {"$ref": "#/components/responses/ScopeDenied"}, "429": {"$ref": "#/components/responses/RateLimited"}}
+      },
+      "post": {
+        "operationId": "createGroup", "tags": ["Monitors"], "summary": "Create monitor group",
+        "x-required-scopes": ["monitors:write"], "security": [{"bearerAuth": []}, {"humanSession": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GroupConfig"}}}},
+        "responses": {"201": {"description": "Created group", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GroupEnvelope"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/AuthenticationRequired"}, "403": {"$ref": "#/components/responses/ScopeDenied"}, "409": {"$ref": "#/components/responses/Conflict"}, "429": {"$ref": "#/components/responses/RateLimited"}}
+      }
+    },
+    "/api/v1/groups/{groupId}": {
+      "parameters": [{"name": "groupId", "in": "path", "required": true, "schema": {"type": "string"}}],
+      "patch": {
+        "operationId": "renameGroup", "tags": ["Monitors"], "summary": "Rename monitor group", "x-required-scopes": ["monitors:write"], "security": [{"bearerAuth": []}, {"humanSession": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1, "maxLength": 50}}}}}},
+        "responses": {"200": {"description": "Renamed group", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GroupEnvelope"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/AuthenticationRequired"}, "403": {"$ref": "#/components/responses/ScopeDenied"}, "404": {"$ref": "#/components/responses/NotFound"}, "409": {"$ref": "#/components/responses/Conflict"}, "429": {"$ref": "#/components/responses/RateLimited"}}
+      },
+      "delete": {
+        "operationId": "deleteGroup", "tags": ["Monitors"], "summary": "Delete empty monitor group", "x-required-scopes": ["monitors:write"], "security": [{"bearerAuth": []}, {"humanSession": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "responses": {"200": {"description": "Deleted group", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GroupDeletionEnvelope"}}}}, "401": {"$ref": "#/components/responses/AuthenticationRequired"}, "403": {"$ref": "#/components/responses/ScopeDenied"}, "404": {"$ref": "#/components/responses/NotFound"}, "409": {"$ref": "#/components/responses/Conflict"}, "429": {"$ref": "#/components/responses/RateLimited"}}
+      }
     },
     "/api/v1/incidents": {
       "get": {
@@ -2132,6 +2166,12 @@
             "minLength": 1,
             "maxLength": 50
           },
+          "groupId": {
+            "type": ["string", "null"],
+            "minLength": 3,
+            "maxLength": 64,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
           "method": {
             "type": "string",
             "enum": [
@@ -2184,6 +2224,7 @@
           },
           {
             "type": "object",
+            "not": {"required": ["group", "groupId"]},
             "required": [
               "id",
               "name",
@@ -2199,7 +2240,8 @@
           },
           {
             "type": "object",
-            "minProperties": 1
+            "minProperties": 1,
+            "not": {"required": ["group", "groupId"]}
           }
         ]
       },
@@ -2216,7 +2258,7 @@
               "name",
               "url",
               "enabled",
-              "group",
+              "groupId",
               "method",
               "intervalMinutes",
               "timeoutMs",
@@ -2224,7 +2266,10 @@
               "failureThreshold",
               "recoveryThreshold",
               "recipients"
-            ]
+            ],
+            "properties": {
+              "group": false
+            }
           }
         ]
       },
@@ -2243,6 +2288,7 @@
               "url",
               "enabled",
               "group",
+              "groupId",
               "method",
               "intervalMinutes",
               "timeoutMs",
@@ -2546,21 +2592,44 @@
           }
         }
       },
+      "GroupConfig": {
+        "type": "object", "unevaluatedProperties": false, "required": ["id", "name"],
+        "properties": {"id": {"type": "string", "minLength": 3, "maxLength": 64, "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"}, "name": {"type": "string", "minLength": 1, "maxLength": 50}}
+      },
+      "Group": {
+        "type": "object", "unevaluatedProperties": false, "required": ["id", "name", "monitorCount"],
+        "properties": {"id": {"type": "string", "minLength": 3, "maxLength": 64, "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"}, "name": {"type": "string", "minLength": 1, "maxLength": 50}, "monitorCount": {"type": "integer", "minimum": 0}}
+      },
+      "GroupEnvelope": {
+        "type": "object", "required": ["apiVersion", "kind", "data", "meta"], "properties": {"apiVersion": {"$ref": "#/components/schemas/ApiVersion"}, "kind": {"const": "Group"}, "data": {"$ref": "#/components/schemas/Group"}, "meta": {"$ref": "#/components/schemas/Meta"}}
+      },
+      "GroupListEnvelope": {
+        "type": "object", "required": ["apiVersion", "kind", "data", "meta"], "properties": {"apiVersion": {"$ref": "#/components/schemas/ApiVersion"}, "kind": {"const": "GroupList"}, "data": {"type": "array", "items": {"$ref": "#/components/schemas/Group"}}, "meta": {"$ref": "#/components/schemas/ListMeta"}}
+      },
+      "GroupDeletionEnvelope": {
+        "type": "object", "required": ["apiVersion", "kind", "data", "meta"], "properties": {"apiVersion": {"$ref": "#/components/schemas/ApiVersion"}, "kind": {"const": "GroupDeletion"}, "data": {"type": "object", "additionalProperties": false, "required": ["id", "deleted"], "properties": {"id": {"type": "string"}, "deleted": {"const": true}}}, "meta": {"$ref": "#/components/schemas/Meta"}}
+      },
       "Configuration": {
         "type": "object",
         "additionalProperties": false,
         "required": [
           "version",
           "settings",
+          "groups",
           "monitors"
         ],
         "properties": {
           "version": {
             "type": "integer",
-            "const": 1
+            "const": 2
           },
           "settings": {
             "$ref": "#/components/schemas/MonitoringSettings"
+          },
+          "groups": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {"$ref": "#/components/schemas/GroupConfig"}
           },
           "monitors": {
             "type": "array",
@@ -2697,6 +2766,9 @@
             "type": "object",
             "required": [
               "settingsChanged",
+              "groupCreates",
+              "groupUpdates",
+              "groupDeletes",
               "creates",
               "updates",
               "pauses",
@@ -2724,6 +2796,9 @@
                   }
                 }
               },
+              "groupCreates": {"type": "array", "items": {"$ref": "#/components/schemas/GroupConfig"}},
+              "groupUpdates": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+              "groupDeletes": {"type": "array", "items": {"$ref": "#/components/schemas/GroupConfig"}},
               "creates": {
                 "type": "array",
                 "items": {
