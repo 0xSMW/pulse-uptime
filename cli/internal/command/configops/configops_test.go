@@ -16,7 +16,10 @@ type call struct {
 	body         any
 	headers      http.Header
 }
-type fakeTransport struct{ calls []call }
+type fakeTransport struct {
+	calls []call
+	etag  string
+}
 
 func (f *fakeTransport) Do(_ context.Context, method, path string, body any, headers http.Header, out any) (http.Header, error) {
 	f.calls = append(f.calls, call{method, path, body, headers.Clone()})
@@ -26,7 +29,11 @@ func (f *fakeTransport) Do(_ context.Context, method, path string, body any, hea
 			target.APIVersion, target.Kind, target.Data = "v1", "Configuration", json.RawMessage(`{"version":2,"settings":{},"groups":[],"monitors":[]}`)
 		}
 		headers := make(http.Header)
-		headers.Set("ETag", `"sha256:base"`)
+		etag := f.etag
+		if etag == "" {
+			etag = `"sha256:base"`
+		}
+		headers.Set("ETag", etag)
 		return headers, nil
 	case "/api/v1/config/plan":
 		target := out.(*planEnvelope)
@@ -162,5 +169,18 @@ func TestPlanSendsUpgradedV2Target(t *testing.T) {
 	target := body["targetConfig"].(map[string]any)
 	if target["version"] != float64(2) || target["groups"] == nil {
 		t.Fatalf("targetConfig = %#v", target)
+	}
+}
+
+func TestPlanNormalizesWeakConfigurationETag(t *testing.T) {
+	client := &fakeTransport{etag: `W/"sha256:base"`}
+	cmd := NewCommand(Dependencies{Client: client, In: strings.NewReader(validConfig()), Out: io.Discard, Output: func(string) string { return "json" }})
+	cmd.SetArgs([]string{"plan", "--file", "-"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	body := client.calls[1].body.(map[string]any)
+	if body["baseConfigHash"] != "sha256:base" {
+		t.Fatalf("baseConfigHash = %q", body["baseConfigHash"])
 	}
 }
