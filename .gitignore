@@ -14,7 +14,7 @@ test-results/
 AGENTS.md
 
 # Internal product and deployment documentation
-/PERF.md
+/Docs/PERF.md
 /Docs/INIT.md
 /Docs/design.md
 /Docs/prototype.html
@@ -27,3 +27,4 @@ AGENTS.md
 /Docs/USER-MENU-HELP-PLAN.md
 /Docs/SECURITY-REMEDIATION-PLAN.md
 /Docs/SETTINGS-IA-REDESIGN.md
+/Docs/SETTINGS-AND-STATUS-REPORTS-PLAN.md
