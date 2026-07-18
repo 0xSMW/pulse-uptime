@@ -3,7 +3,7 @@ import { IncidentFilters } from "@/components/incidents/incident-filters";
 import { IncidentHistoryTable } from "@/components/incidents/incident-history-table";
 import { OngoingIncidentCard } from "@/components/incidents/ongoing-incident-card";
 import type { IncidentFilter, IncidentSummary } from "@/components/incidents/types";
-import { listIncidents } from "@/lib/reporting/queries/incidents";
+import { hasConfiguredMonitors, listIncidents } from "@/lib/reporting/queries/incidents";
 
 function parseFilter(value: string | string[] | undefined): IncidentFilter {
   const filter = Array.isArray(value) ? value[0] : value;
@@ -16,7 +16,10 @@ export default async function IncidentsPage({
   searchParams: Promise<{ filter?: string | string[] }>;
 }) {
   const filter = parseFilter((await searchParams).filter);
-  const incidents: IncidentSummary[] = await listIncidents(filter);
+  const [incidents, hasMonitors]: [IncidentSummary[], boolean] = await Promise.all([
+    listIncidents(filter),
+    hasConfiguredMonitors(),
+  ]);
   const ongoing = incidents.filter((incident) => !incident.resolvedAt);
   const history = incidents.filter((incident) => Boolean(incident.resolvedAt));
 
@@ -31,7 +34,7 @@ export default async function IncidentsPage({
       </header>
 
       {incidents.length === 0 ? (
-        <IncidentEmpty filtered={filter !== "all"} />
+        <IncidentEmpty filtered={filter !== "all"} hasMonitors={hasMonitors} />
       ) : (
         <div className="space-y-8">
           {ongoing.length > 0 ? (
