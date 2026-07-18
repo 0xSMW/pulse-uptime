@@ -7,9 +7,10 @@ import { DEFAULT_MONITOR_SETTINGS, hashMonitoringConfig, type ConfigurationApply
 import { createConfigurationService, type ConfigurationStore } from "./config-service";
 
 const current: MonitoringConfig = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   configVersion: 4,
   settings: { ...DEFAULT_MONITOR_SETTINGS },
+  groups: [],
   monitors: [],
 };
 const currentHash = hashMonitoringConfig(current);
@@ -38,7 +39,7 @@ describe("configuration service seams", () => {
     const store = makeStore();
     const writeEdgeConfig = vi.fn(async () => ({ version: 42 }));
     const service = createConfigurationService({ store, writeEdgeConfig });
-    const targetConfig = { version: 1 as const, settings: { ...DEFAULT_MONITOR_SETTINGS }, monitors: [] };
+    const targetConfig = { version: 2 as const, settings: { ...DEFAULT_MONITOR_SETTINGS }, groups: [], monitors: [] };
     const plan = await service.plan({ baseConfigHash: currentHash, targetConfig });
     const request: ConfigurationApplyRequest = { ...plan, targetConfig, allowDelete: false };
 
