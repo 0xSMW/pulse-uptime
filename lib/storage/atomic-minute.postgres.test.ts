@@ -7,28 +7,15 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { MonitorStateSnapshot } from "@/lib/monitoring/types";
 
 import { persistAtomicMinute } from "./atomic-minute";
-import { FILL_SCHEDULER_GAPS_SQL } from "./sql";
+import { COMPACT_15_MINUTE_SQL, FILL_SCHEDULER_GAPS_SQL, PROMOTE_ROLLUP_SQL } from "./sql";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const suite = databaseUrl ? describe : describe.skip;
 
 suite("atomic minute PostgreSQL transaction", () => {
   const client = postgres(databaseUrl!, { max: 1, prepare: false });
-  const executor = { query: async <T>(text: string, values: readonly unknown[]) => {
-    try {
-      return await client.unsafe(text, values as never[]) as unknown as readonly T[];
-    } catch (error) {
-      const position = Number((error as { position?: string }).position ?? 0);
-      const jsonKinds = values.slice(10).map((value) => {
-        try { return Array.isArray(JSON.parse(String(value))) ? "array" : "other"; } catch { return typeof value; }
-      });
-      const postgresKinds: unknown[] = [];
-      for (const value of values.slice(10)) {
-        postgresKinds.push(await client.unsafe("select jsonb_typeof($1::jsonb) kind", [value] as never[]));
-      }
-      throw new Error(`${(error as Error).message} json=${jsonKinds.join(",")} pg=${JSON.stringify(postgresKinds)} near ${text.slice(Math.max(0, position - 80), position + 80)}`);
-    }
-  } };
+  const executor = { query: async <T>(text: string, values: readonly unknown[]) =>
+    await client.unsafe(text, values as never[]) as unknown as readonly T[] };
   const baseState: MonitorStateSnapshot = {
     monitorId: "api", state: "UP", consecutiveFailures: 0, consecutiveSuccesses: 0,
     firstFailureAt: null, firstSuccessAt: null, lastCheckedAt: null, lastSuccessAt: null,
@@ -67,6 +54,11 @@ suite("atomic minute PostgreSQL transaction", () => {
     const [batches] = await client<{ count: number }[]>`select count(*)::integer count from check_batches`;
     expect(state?.version).toBe(1);
     expect(batches?.count).toBe(1);
+    await client.unsafe(COMPACT_15_MINUTE_SQL, [minute, new Date("2026-07-18T03:30:00Z"), new Date("2026-07-18T03:30:00Z")] as never[]);
+    const [rollup] = await client<{ expected_checks: number; completed_checks: number; latency_sum_ms: string; latency_histogram: number[] }[]>`
+      select expected_checks, completed_checks, latency_sum_ms, latency_histogram from metric_rollups
+      where monitor_id='api' and resolution='15m' and bucket_start=${minute}`;
+    expect(rollup).toMatchObject({ expected_checks: 1, completed_checks: 1, latency_sum_ms: "25", latency_histogram: [1, 0, 0, 0, 0, 0, 0, 0] });
   });
 
   it("rolls the batch back when the expected state version is stale", async () => {
@@ -75,6 +67,38 @@ suite("atomic minute PostgreSQL transaction", () => {
       .rejects.toThrow("Atomic minute state version mismatch");
     const [batch] = await client<{ count: number }[]>`select count(*)::integer count from check_batches where scheduled_minute = ${minute}`;
     expect(batch?.count).toBe(0);
+  });
+
+  it("aggregates identical failures per incident and retains expiring detail payloads", async () => {
+    const loadState = async () => (await client<MonitorStateSnapshot[]>`select
+      monitor_id "monitorId", state, consecutive_failures "consecutiveFailures",
+      consecutive_successes "consecutiveSuccesses", first_failure_at "firstFailureAt",
+      first_success_at "firstSuccessAt", last_checked_at "lastCheckedAt",
+      last_success_at "lastSuccessAt", last_failure_at "lastFailureAt",
+      last_status_code "lastStatusCode", last_latency_ms "lastLatencyMs",
+      last_error_code "lastErrorCode", active_incident_id "activeIncidentId",
+      version, updated_at "updatedAt" from monitor_state where monitor_id = 'api'`)[0]!;
+    const failureInput = (minute: Date, current: MonitorStateSnapshot) => ({
+      ...input(minute, new Map([["api", current]])),
+      results: [{ monitorId: "api", monitorName: "API", checkedAt: new Date(minute.getTime() + 500),
+        successful: false, statusCode: 503, latencyMs: 900, effectiveUrl: "https://api.example.com",
+        redirectCount: 0, resolvedAddress: "203.0.113.10", errorCode: "INVALID_STATUS" as const,
+        errorMessage: "HTTP 503", failureThreshold: 1, recoveryThreshold: 2, recipients: ["ops@example.com"] }],
+    });
+    const firstMinute = new Date("2026-07-18T03:17:00Z");
+    await persistAtomicMinute(executor, failureInput(firstMinute, await loadState()));
+    const secondMinute = new Date("2026-07-18T03:18:00Z");
+    const second = failureInput(secondMinute, await loadState());
+    await persistAtomicMinute(executor, second);
+    await persistAtomicMinute(executor, second);
+    const [history] = await client<{ occurrence_count: number; worst_latency_ms: number }[]>`
+      select occurrence_count, worst_latency_ms from monitor_exceptions
+      where monitor_id = 'api' and event_type = 'failure' and incident_id is not null`;
+    const [payloads] = await client<{ count: number; valid_expiry: boolean }[]>`
+      select count(*)::integer count, bool_and(expires_at = created_at + interval '30 days') valid_expiry
+      from exception_payloads`;
+    expect(history).toMatchObject({ occurrence_count: 2, worst_latency_ms: 900 });
+    expect(payloads).toEqual({ count: 2, valid_expiry: true });
   });
 
   it("recovers more than 48 hours of missing scheduler coverage as Unknown", async () => {
@@ -105,5 +129,16 @@ suite("atomic minute PostgreSQL transaction", () => {
       where monitor_id = 'gap-api' and event_type = 'scheduler_gap'`;
     expect(batches?.count).toBe(72 * 60);
     expect(exceptions?.count).toBe(72 * 60);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await client.unsafe(COMPACT_15_MINUTE_SQL, [scanStart, scanEnd, scanEnd] as never[]);
+      await client.unsafe(PROMOTE_ROLLUP_SQL, ["15m", "hour", scanStart, scanEnd] as never[]);
+      await client.unsafe(PROMOTE_ROLLUP_SQL, ["hour", "day", scanStart, scanEnd] as never[]);
+    }
+    const [daily] = await client<{ expected: number; completed: number; unknown: number; rows: number }[]>`
+      select sum(expected_checks)::integer expected, sum(completed_checks)::integer completed,
+        sum(unknown_checks)::integer unknown, count(*)::integer rows
+      from metric_rollups where monitor_id = 'gap-api' and resolution = 'day'`;
+    expect(daily).toMatchObject({ expected: 72 * 60, completed: 15, unknown: 72 * 60 - 15 });
+    expect(daily?.rows).toBe(3);
   });
 });
