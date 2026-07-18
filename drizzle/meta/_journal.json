@@ -8,6 +8,13 @@
       "when": 1784351142051,
       "tag": "0000_clumsy_lake",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1784354544195,
+      "tag": "0001_device_authorization_request_ip",
+      "breakpoints": true
     }
   ]
 }
