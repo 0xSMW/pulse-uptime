@@ -121,7 +121,7 @@ func TestRootHelpListsEveryLeafAndFitsBudget(t *testing.T) {
 	if code != 0 || stderr != "" {
 		t.Fatalf("code=%d stderr=%q", code, stderr)
 	}
-	for _, path := range []string{"auth login", "context remove", "token create", "monitor watch", "incident get", "config apply", "notification test", "status", "doctor", "completion", "version"} {
+	for _, path := range []string{"auth login", "context remove", "token create", "monitor watch", "group rename", "incident get", "config apply", "notification test", "status", "doctor", "completion", "version"} {
 		if !strings.Contains(stdout, path) {
 			t.Errorf("root help missing %q", path)
 		}
@@ -141,7 +141,7 @@ func TestJSONHelpIsGeneratedFromCommandTree(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.SchemaVersion != 1 || got.Binary != "pulsectl" || len(got.Commands) != 33 {
+	if got.SchemaVersion != 1 || got.Binary != "pulsectl" || len(got.Commands) != 37 {
 		t.Fatalf("incomplete manifest: %#v", got)
 	}
 	for _, item := range got.Commands {
@@ -179,6 +179,26 @@ func TestJSONHelpMarksRequiredFlagsAndMutationMetadata(t *testing.T) {
 		if !required[name] {
 			t.Errorf("%s not marked required", name)
 		}
+	}
+}
+
+func TestJSONHelpIncludesGroupContract(t *testing.T) {
+	t.Setenv("PULSECTL_OUTPUT", "json")
+	_, stdout, _ := execute(t, "help", "group", "create", "--output", "json")
+	var got manifest
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil || len(got.Commands) != 1 {
+		t.Fatalf("manifest: %v %s", err, stdout)
+	}
+	item := got.Commands[0]
+	if !item.Idempotent || item.RequiredScope != "monitors:write" {
+		t.Fatalf("group create metadata missing: %#v", item)
+	}
+	required := map[string]bool{}
+	for _, flag := range item.Flags {
+		required[flag.Name] = flag.Required
+	}
+	if !required["id"] || !required["name"] {
+		t.Fatalf("required flags = %#v", required)
 	}
 }
 
