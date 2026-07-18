@@ -8,7 +8,7 @@ test-results/
 .env.*.local
 .vercel/
 *.tsbuildinfo
-pulsectl
+/pulsectl
 
 # Local operator and deployment context
 AGENTS.md
