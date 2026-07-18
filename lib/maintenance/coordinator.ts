@@ -20,6 +20,7 @@ export interface MaintenanceStore {
   deleteOldRollups(dayCutoff: string, limit: number): Promise<number>;
   compact15Minute(start: Date, end: Date, now: Date): Promise<number>;
   fillSchedulerGaps(start: Date, end: Date, now: Date): Promise<number>;
+  schedulerCoverageStart(now: Date): Promise<Date>;
   promoteRollups(source: "15m" | "hour", target: "hour" | "day", start: Date, end: Date): Promise<number>;
   measureAndSnapshotUsage(now: Date): Promise<GovernorMode>;
   enforceTelemetryRetention(now: Date, mode: GovernorMode, limit: number): Promise<number>;
@@ -68,14 +69,23 @@ export async function performMaintenance(
   const cronCutoff = new Date(now.getTime() - 90 * 86_400_000);
   const rejectedCutoff = new Date(now.getTime() - 30 * 86_400_000);
   const rollupCutoff = utcDay(now, 365);
-  const compactStart = new Date(now.getTime() - 730 * 86_400_000);
+  const recentCompactStart = new Date(now.getTime() - 48 * 3_600_000);
 
   const staleOutbox = await store.reconcileStaleOutbox(now);
   const staleCronRuns = await store.reconcileStaleCronRuns(now);
-  await store.fillSchedulerGaps(compactStart, now, now);
-  const rollups = await store.compact15Minute(compactStart, now, now)
-    + await store.promoteRollups("15m", "hour", compactStart, now)
-    + await store.promoteRollups("hour", "day", compactStart, now);
+  let rollups = 0;
+  let coverageCursor = await store.schedulerCoverageStart(now);
+  while (coverageCursor < now && nowMs() < deadlineAtMs) {
+    const chunkEnd = new Date(Math.min(now.getTime(), coverageCursor.getTime() + 86_400_000));
+    await store.fillSchedulerGaps(coverageCursor, chunkEnd, now);
+    rollups += await store.compact15Minute(coverageCursor, chunkEnd, now)
+      + await store.promoteRollups("15m", "hour", coverageCursor, chunkEnd)
+      + await store.promoteRollups("hour", "day", coverageCursor, chunkEnd);
+    coverageCursor = chunkEnd;
+  }
+  rollups += await store.compact15Minute(recentCompactStart, now, now)
+    + await store.promoteRollups("15m", "hour", recentCompactStart, now)
+    + await store.promoteRollups("hour", "day", recentCompactStart, now);
   const governorMode = await store.measureAndSnapshotUsage(now);
   const deleted =
     await drainBatches((limit) => store.enforceTelemetryRetention(now, governorMode, limit), nowMs, deadlineAtMs) +
