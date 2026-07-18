@@ -13,7 +13,12 @@ import (
 	"time"
 
 	"github.com/productos-ai/pulse-uptime/cli/internal/api"
+	"github.com/productos-ai/pulse-uptime/cli/internal/auth"
 	"github.com/productos-ai/pulse-uptime/cli/internal/buildinfo"
+	"github.com/productos-ai/pulse-uptime/cli/internal/command/adminops"
+	"github.com/productos-ai/pulse-uptime/cli/internal/command/configops"
+	"github.com/productos-ai/pulse-uptime/cli/internal/command/monitorops"
+	"github.com/productos-ai/pulse-uptime/cli/internal/command/readops"
 	"github.com/productos-ai/pulse-uptime/cli/internal/config"
 	"github.com/productos-ai/pulse-uptime/cli/internal/output"
 	"github.com/spf13/cobra"
@@ -24,13 +29,16 @@ import (
 const authRequired = "authentication required. Set PULSECTL_TOKEN to a scoped token"
 
 type Options struct {
-	In         io.Reader
-	Out        io.Writer
-	Err        io.Writer
-	StdoutTTY  bool
-	StdinTTY   bool
-	ConfigPath string
-	HTTPClient *http.Client
+	In          io.Reader
+	Out         io.Writer
+	Err         io.Writer
+	StdoutTTY   bool
+	StdinTTY    bool
+	ConfigPath  string
+	HTTPClient  *http.Client
+	Credentials auth.CredentialStore
+	OpenBrowser func(context.Context, string) error
+	PollWait    func(context.Context, time.Duration) error
 }
 
 type App struct {
@@ -44,6 +52,12 @@ type App struct {
 	timeoutSet  bool
 	noColor     bool
 	debug       bool
+	tokenStdin  bool
+	stdinToken  string
+	stdinRead   bool
+	credentials auth.CredentialStore
+	openBrowser func(context.Context, string) error
+	pollWait    func(context.Context, time.Duration) error
 }
 
 type commandError struct {
@@ -66,7 +80,13 @@ func New(opts Options) *App {
 	if opts.Err == nil {
 		opts.Err = os.Stderr
 	}
-	a := &App{opts: opts}
+	if opts.Credentials == nil {
+		opts.Credentials = auth.KeyringStore{}
+	}
+	if opts.OpenBrowser == nil {
+		opts.OpenBrowser = auth.OpenBrowser
+	}
+	a := &App{opts: opts, credentials: opts.Credentials, openBrowser: opts.OpenBrowser, pollWait: opts.PollWait}
 	a.root = a.newRoot()
 	return a
 }
@@ -85,10 +105,19 @@ func (a *App) ExecuteContext(ctx context.Context, args []string) int {
 	}
 	var ce *commandError
 	if !errors.As(err, &ce) {
-		ce = &commandError{Exit: ExitInvalidInput, Code: "INVALID_ARGUMENT", Message: err.Error()}
+		var external interface {
+			ExitCode() int
+			ErrorCode() string
+			ErrorDetails() any
+		}
+		if errors.As(err, &external) {
+			ce = &commandError{Exit: external.ExitCode(), Code: external.ErrorCode(), Message: err.Error(), Details: external.ErrorDetails()}
+		} else {
+			ce = &commandError{Exit: ExitInvalidInput, Code: "INVALID_ARGUMENT", Message: err.Error()}
+		}
 	}
 	format := a.effectiveFormat()
-	if format == "json" || format == "jsonl" || format == "yaml" {
+	if format == "json" || format == "jsonl" || format == "yaml" || format == "tsv" {
 		doc := output.ErrorDocument{APIVersion: "v1", Kind: "Error", Error: output.ErrorObject{Code: ce.Code, Message: ce.Message, Details: ce.Details, RequestID: ce.RequestID}}
 		if format == "yaml" {
 			_ = yaml.NewEncoder(a.opts.Err).Encode(doc)
@@ -116,6 +145,14 @@ func (a *App) newRoot() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return a.rootHelp(cmd.OutOrStdout())
 		},
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			if a.tokenStdin && strings.HasPrefix(cmd.CommandPath(), "pulsectl config ") {
+				if flag := cmd.Flags().Lookup("file"); flag != nil && flag.Value.String() == "-" {
+					return cliError(ExitInvalidInput, "STDIN_CONFLICT", "--token-stdin cannot be combined with --file -")
+				}
+			}
+			return nil
+		},
 	}
 	root.SetIn(a.opts.In)
 	root.SetOut(a.opts.Out)
@@ -127,19 +164,20 @@ func (a *App) newRoot() *cobra.Command {
 	root.PersistentFlags().DurationVar(&a.timeout, "timeout", config.DefaultTimeout, "Per-request timeout")
 	root.PersistentFlags().BoolVar(&a.noColor, "no-color", false, "Disable color output")
 	root.PersistentFlags().BoolVar(&a.debug, "debug", false, "Print sanitized request diagnostics")
+	root.PersistentFlags().BoolVar(&a.tokenStdin, "token-stdin", false, "Read a bearer token from stdin")
 
 	root.AddCommand(a.meCommand())
-	root.AddCommand(a.group("auth", "Manage authentication", []leaf{{"login", "Link this installation", nil}, {"logout", "Remove a linked session", nil}, {"status", "Show authentication status", nil}}))
-	root.AddCommand(a.group("context", "Manage service contexts", []leaf{{"add", "Add a context", contextAddFlags}, {"list", "List contexts", nil}, {"show", "Show a context", idArg}, {"use", "Select the active context", idArg}, {"remove", "Remove a context", idArg}}))
-	root.AddCommand(a.group("token", "Manage scoped API tokens", []leaf{{"create", "Create a scoped token", tokenCreateFlags}, {"list", "List scoped tokens", nil}, {"revoke", "Revoke a scoped token", idArg}}))
-	root.AddCommand(a.group("monitor", "Manage endpoint monitors", []leaf{{"list", "List monitors", listFlags}, {"get", "Get a monitor", idArg}, {"create", "Create a monitor", monitorCreateFlags}, {"update", "Update a monitor", monitorUpdateFlags}, {"pause", "Pause a monitor", idArg}, {"resume", "Resume a monitor", idArg}, {"delete", "Delete a monitor", deleteFlags}, {"test", "Test a monitor target", idArg}, {"watch", "Watch monitor state", watchFlags}}))
-	root.AddCommand(a.group("incident", "Inspect incidents", []leaf{{"list", "List incidents", listFlags}, {"get", "Get an incident", idArg}}))
-	root.AddCommand(a.group("config", "Manage declarative configuration", []leaf{{"export", "Export accepted configuration", fileOutputFlags}, {"validate", "Validate configuration", fileInputFlags}, {"plan", "Plan configuration changes", fileInputFlags}, {"apply", "Apply a configuration plan", applyFlags}, {"schema", "Print the configuration schema", nil}}))
-	root.AddCommand(a.group("notification", "Manage notifications", []leaf{{"test", "Send a test notification", recipientFlags}}))
-	root.AddCommand(a.unavailableLeaf("status", "Show public service status", nil))
-	root.AddCommand(a.unavailableLeaf("doctor", "Diagnose local and service health", nil))
+	root.AddCommand(a.authGroup())
+	root.AddCommand(a.contextGroup())
+	root.AddCommand(adminops.NewTokenCommand(a.adminDependencies()))
+	root.AddCommand(monitorops.NewGroup(a.monitorDependencies()))
+	root.AddCommand(readops.NewIncidentGroup(a.readDependencies()))
+	root.AddCommand(configops.NewCommand(a.configDependencies()))
+	root.AddCommand(adminops.NewNotificationCommand(a.adminDependencies()))
+	root.AddCommand(readops.NewStatusCommand(a.readDependencies()))
+	root.AddCommand(a.doctorCommand())
 	root.AddCommand(a.completionCommand())
-	root.AddCommand(a.versionCommand())
+	root.AddCommand(adminops.NewVersionCommand(a.adminDependencies()))
 	root.SetHelpCommand(a.helpCommand())
 	root.SetHelpFunc(func(cmd *cobra.Command, _ []string) {
 		if cmd == root {
@@ -151,39 +189,6 @@ func (a *App) newRoot() *cobra.Command {
 	return root
 }
 
-type leaf struct {
-	name    string
-	summary string
-	flags   func(*cobra.Command)
-}
-
-func (a *App) group(name, summary string, leaves []leaf) *cobra.Command {
-	group := &cobra.Command{Use: name, Short: summary, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
-	for _, definition := range leaves {
-		cmd := a.unavailableLeaf(definition.name, definition.summary, definition.flags)
-		cmd.Example = "pulsectl " + name + " " + definition.name + " --help"
-		group.AddCommand(cmd)
-	}
-	return group
-}
-
-func (a *App) unavailableLeaf(name, summary string, flags func(*cobra.Command)) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:         name,
-		Short:       summary,
-		Args:        cobra.ArbitraryArgs,
-		Annotations: map[string]string{"supportsOutput": "table,json,jsonl,yaml,tsv"},
-		Example:     "pulsectl " + name + " --help",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return &commandError{Exit: ExitUnexpected, Code: "DEVELOPMENT_UNAVAILABLE", Message: fmt.Sprintf("%s is unavailable in this development build", cmd.CommandPath())}
-		},
-	}
-	if flags != nil {
-		flags(cmd)
-	}
-	return cmd
-}
-
 func (a *App) meCommand() *cobra.Command {
 	var noBrowser bool
 	cmd := &cobra.Command{
@@ -193,7 +198,7 @@ func (a *App) meCommand() *cobra.Command {
 		Annotations: map[string]string{"supportsOutput": "table,json,yaml,tsv", "requiredScope": "authenticated"},
 		Example:     "pulsectl me --server https://pulse.example.com",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return a.runMe(cmd.Context())
+			return a.runMe(cmd.Context(), noBrowser)
 		},
 	}
 	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "Print authorization instructions without opening a browser")
@@ -224,37 +229,6 @@ type installation struct {
 	Arch          string `json:"arch" yaml:"arch"`
 	ClientVersion string `json:"clientVersion,omitempty" yaml:"clientVersion,omitempty"`
 	LinkedAt      string `json:"linkedAt" yaml:"linkedAt"`
-}
-
-func (a *App) runMe(ctx context.Context) error {
-	r, err := a.resolve()
-	if err != nil {
-		return &commandError{Exit: ExitInvalidInput, Code: "INVALID_CONFIG", Message: err.Error()}
-	}
-	if r.Server == "" {
-		return &commandError{Exit: ExitInvalidInput, Code: "SERVER_REQUIRED", Message: "service URL required. Set PULSECTL_URL or --server"}
-	}
-	if r.Token == "" {
-		return &commandError{Exit: ExitAuthentication, Code: "AUTHENTICATION_REQUIRED", Message: authRequired}
-	}
-	c := api.NewClient(r.Server, r.Token, buildinfo.UserAgent(), r.Timeout, a.opts.HTTPClient)
-	var envelope meEnvelope
-	if err := c.Get(ctx, "/api/v1/me", &envelope); err != nil {
-		return mapAPIError(err)
-	}
-	if envelope.APIVersion == "" {
-		envelope.APIVersion = "v1"
-	}
-	if envelope.Kind == "" {
-		envelope.Kind = "Me"
-	}
-	if envelope.Data.PrincipalType == "" {
-		envelope.Data.PrincipalType = envelope.Data.Type
-	}
-	envelope.Data.Type = ""
-	envelope.Data.Server = r.Server
-	sort.Strings(envelope.Data.Scopes)
-	return a.renderMe(r.Output, envelope)
 }
 
 func (a *App) renderMe(format string, envelope meEnvelope) error {
@@ -329,7 +303,18 @@ func mapAPIError(err error) error {
 	if code == "" {
 		code = "HTTP_ERROR"
 	}
-	return &commandError{Exit: exit, Code: code, Message: ae.Message, Details: ae.Details, RequestID: ae.RequestID}
+	details := ae.Details
+	if ae.Status == http.StatusTooManyRequests && ae.RetryAfter > 0 {
+		values := map[string]any{}
+		if existing, ok := ae.Details.(map[string]any); ok {
+			for key, value := range existing {
+				values[key] = value
+			}
+		}
+		values["retryAfterSeconds"] = int64((ae.RetryAfter + time.Second - 1) / time.Second)
+		details = values
+	}
+	return &commandError{Exit: exit, Code: code, Message: ae.Message, Details: details, RequestID: ae.RequestID}
 }
 
 func (a *App) resolve() (config.Resolved, error) {
@@ -338,40 +323,7 @@ func (a *App) resolve() (config.Resolved, error) {
 }
 
 func (a *App) effectiveFormat() string {
-	if a.format != "" {
-		return a.format
-	}
-	if env := os.Getenv("PULSECTL_OUTPUT"); env != "" {
-		return env
-	}
-	if a.opts.StdoutTTY {
-		return "table"
-	}
-	return "json"
-}
-
-func (a *App) versionCommand() *cobra.Command {
-	return &cobra.Command{Use: "version", Short: "Show CLI version", Args: cobra.NoArgs, Annotations: map[string]string{"supportsOutput": "table,json,yaml"}, RunE: func(_ *cobra.Command, _ []string) error {
-		value := struct {
-			APIVersion string `json:"apiVersion" yaml:"apiVersion"`
-			Kind       string `json:"kind" yaml:"kind"`
-			Data       struct {
-				Version string `json:"version" yaml:"version"`
-				Commit  string `json:"commit" yaml:"commit"`
-				Date    string `json:"date" yaml:"date"`
-			} `json:"data" yaml:"data"`
-		}{APIVersion: "v1", Kind: "Version"}
-		value.Data.Version, value.Data.Commit, value.Data.Date = buildinfo.Version, buildinfo.Commit, buildinfo.Date
-		switch a.effectiveFormat() {
-		case "json", "jsonl":
-			return output.JSON(a.opts.Out, value)
-		case "yaml":
-			return yaml.NewEncoder(a.opts.Out).Encode(value)
-		default:
-			_, err := fmt.Fprintf(a.opts.Out, "pulsectl %s\n", buildinfo.Version)
-			return err
-		}
-	}}
+	return a.outputFor(defaultOutput(a.opts.StdoutTTY, "table", "json"))
 }
 
 func (a *App) completionCommand() *cobra.Command {
@@ -475,12 +427,17 @@ type manifestCommand struct {
 	SupportsStdin  bool           `json:"supportsStdin"`
 	SupportsOutput []string       `json:"supportsOutput"`
 	Examples       []string       `json:"examples"`
+	RequiredScope  string         `json:"requiredScope,omitempty"`
+	ExitCodes      []int          `json:"exitCodes"`
+	Idempotent     bool           `json:"idempotent"`
 }
 
 type manifestFlag struct {
-	Name     string `json:"name"`
-	Type     string `json:"type"`
-	Required bool   `json:"required"`
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	Required    bool   `json:"required"`
+	Description string `json:"description"`
+	Default     string `json:"default,omitempty"`
 }
 
 func buildManifest(root, target *cobra.Command) manifest {
@@ -491,21 +448,29 @@ func buildManifest(root, target *cobra.Command) manifest {
 	result := manifest{SchemaVersion: 1, Binary: "pulsectl", Version: buildinfo.Version, Commands: make([]manifestCommand, 0, len(commands))}
 	for _, cmd := range commands {
 		path := strings.Fields(strings.TrimPrefix(cmd.CommandPath(), "pulsectl "))
-		item := manifestCommand{Path: path, Summary: cmd.Short, Arguments: parseArguments(cmd.Use), SupportsOutput: strings.Split(cmd.Annotations["supportsOutput"], ",")}
+		item := manifestCommand{Path: path, Summary: cmd.Short, Arguments: parseArguments(cmd.Use), SupportsOutput: strings.Split(cmd.Annotations["supportsOutput"], ","), RequiredScope: cmd.Annotations["requiredScope"], ExitCodes: []int{0, 1, 2, 3, 5, 6, 7, 8, 9, 130}, Idempotent: commandIsMutation(path)}
+		if strings.Join(path, " ") == "monitor test" {
+			item.ExitCodes = append(item.ExitCodes, 4)
+			sort.Ints(item.ExitCodes)
+		}
 		if len(item.SupportsOutput) == 1 && item.SupportsOutput[0] == "" {
-			item.SupportsOutput = []string{}
+			if cmd.Name() == "completion" {
+				item.SupportsOutput = []string{}
+			} else {
+				item.SupportsOutput = []string{"table", "json", "yaml", "tsv"}
+			}
 		}
 		item.SupportsStdin = cmd.Annotations["supportsStdin"] == "true"
 		if cmd.Example != "" {
 			item.Examples = strings.Split(cmd.Example, "\n")
 		} else {
-			item.Examples = []string{}
+			item.Examples = []string{cmd.CommandPath() + " --help"}
 		}
 		seen := map[string]bool{}
 		addFlags := func(set *pflag.FlagSet) {
 			set.VisitAll(func(flag *pflag.Flag) {
 				if !seen[flag.Name] {
-					item.Flags = append(item.Flags, manifestFlag{Name: flag.Name, Type: flag.Value.Type(), Required: flag.Annotations[cobra.BashCompOneRequiredFlag] != nil})
+					item.Flags = append(item.Flags, manifestFlag{Name: flag.Name, Type: flag.Value.Type(), Required: flag.Annotations[cobra.BashCompOneRequiredFlag] != nil, Description: flag.Usage, Default: flag.DefValue})
 					seen[flag.Name] = true
 				}
 			})
@@ -516,6 +481,16 @@ func buildManifest(root, target *cobra.Command) manifest {
 		result.Commands = append(result.Commands, item)
 	}
 	return result
+}
+
+func commandIsMutation(path []string) bool {
+	joined := strings.Join(path, " ")
+	for _, prefix := range []string{"monitor create", "monitor update", "monitor pause", "monitor resume", "monitor delete", "monitor test", "config validate", "config plan", "config apply", "notification test", "token create", "token revoke", "auth logout", "auth login"} {
+		if joined == prefix {
+			return true
+		}
+	}
+	return false
 }
 
 func leafCommands(root *cobra.Command) []*cobra.Command {
@@ -544,53 +519,4 @@ func parseArguments(use string) []string {
 		return []string{}
 	}
 	return fields[1:]
-}
-
-func idArg(cmd *cobra.Command) { cmd.Use += " <id>" }
-func listFlags(cmd *cobra.Command) {
-	cmd.Flags().Int("limit", 0, "Maximum records")
-	cmd.Flags().String("cursor", "", "Start cursor")
-	cmd.Flags().Bool("all", false, "Retrieve all records")
-}
-func contextAddFlags(cmd *cobra.Command) {
-	cmd.Use += " <name>"
-	cmd.Flags().String("url", "", "Service URL")
-}
-func tokenCreateFlags(cmd *cobra.Command) {
-	cmd.Flags().String("name", "", "Token name")
-	cmd.Flags().StringSlice("scope", nil, "Granted scope (repeatable)")
-	cmd.Flags().Duration("expires-in", 90*24*time.Hour, "Token lifetime")
-}
-func monitorCreateFlags(cmd *cobra.Command) {
-	cmd.Flags().String("id", "", "Stable monitor ID")
-	cmd.Flags().String("name", "", "Display name")
-	cmd.Flags().String("url", "", "Target URL")
-	cmd.Flags().String("method", "GET", "HTTP method")
-	cmd.Flags().Duration("check-timeout", 8*time.Second, "Target request timeout")
-	cmd.Flags().StringSlice("recipient", nil, "Notification recipient")
-}
-func monitorUpdateFlags(cmd *cobra.Command) {
-	idArg(cmd)
-	cmd.Flags().String("name", "", "Display name")
-	cmd.Flags().String("url", "", "Target URL")
-	cmd.Flags().Duration("check-timeout", 0, "Target request timeout")
-}
-func deleteFlags(cmd *cobra.Command) { idArg(cmd); cmd.Flags().Bool("yes", false, "Confirm deletion") }
-func watchFlags(cmd *cobra.Command) {
-	cmd.Flags().Duration("interval", 5*time.Second, "Polling interval")
-}
-func fileInputFlags(cmd *cobra.Command) {
-	cmd.Flags().StringP("file", "f", "-", "Configuration file or - for stdin")
-	cmd.Annotations["supportsStdin"] = "true"
-}
-func fileOutputFlags(cmd *cobra.Command) { cmd.Flags().StringP("file", "f", "", "Write to a file") }
-func applyFlags(cmd *cobra.Command) {
-	fileInputFlags(cmd)
-	cmd.Flags().Bool("yes", false, "Confirm apply")
-	cmd.Flags().Bool("allow-destructive", false, "Allow destructive changes")
-	cmd.Flags().Bool("wait", false, "Wait for acceptance")
-	cmd.Flags().Duration("wait-timeout", 2*time.Minute, "Complete wait deadline")
-}
-func recipientFlags(cmd *cobra.Command) {
-	cmd.Flags().StringSlice("recipient", nil, "Recipient (repeatable)")
 }
