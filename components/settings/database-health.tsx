@@ -71,14 +71,14 @@ function Metric({ label, value }: { label: string; value: string }) {
   return <div><dt className="text-xs text-[var(--fg-muted)]">{label}</dt><dd className="mt-1 font-data text-[13px]">{value}</dd></div>;
 }
 
-function EmptyDatabaseHealth({ onRefresh, busy, status }: { onRefresh: () => void; busy: boolean; status: string }) {
+function EmptyDatabaseHealth({ onRefresh, busy, status, loadFailed }: { onRefresh: () => void; busy: boolean; status: string; loadFailed: boolean }) {
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between gap-4"><CardTitle>Database Health</CardTitle><span className={cn("rounded-full px-2 py-1 text-xs font-medium", stateStyles.UNKNOWN)}>Unknown</span></CardHeader>
       <CardContent>
-        <div className="rounded-[8px] border border-dashed border-[var(--border-strong)] px-4 py-8 text-center">
-          <p className="font-medium">No usage snapshot yet</p>
-          <p className="mt-1 text-[13px] text-[var(--fg-muted)]">Measure database usage to begin</p>
+        <div role={loadFailed ? "alert" : undefined} className="rounded-[8px] border border-dashed border-[var(--border-strong)] px-4 py-8 text-center">
+          <p className="font-medium">{loadFailed ? "Database health unavailable" : "No usage snapshot yet"}</p>
+          <p className="mt-1 text-[13px] text-[var(--fg-muted)]">{loadFailed ? "Refresh to retry the measurement" : "Measure database usage to begin"}</p>
           <Button className="mt-4" variant="secondary" onClick={onRefresh} disabled={busy}>{busy ? "Refreshing…" : "Refresh"}</Button>
           {status ? <p role="alert" className="mt-3 text-[13px] text-[var(--fg-muted)]">{status}</p> : null}
         </div>
@@ -87,7 +87,7 @@ function EmptyDatabaseHealth({ onRefresh, busy, status }: { onRefresh: () => voi
   );
 }
 
-export function DatabaseHealthCard({ initialData }: { initialData: DatabaseHealth | null }) {
+export function DatabaseHealthCard({ initialData, initialError = false }: { initialData: DatabaseHealth | null; initialError?: boolean }) {
   const [data, setData] = useState(initialData);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
@@ -97,7 +97,9 @@ export function DatabaseHealthCard({ initialData }: { initialData: DatabaseHealt
     try {
       const response = await apiRequest<ApiEnvelope<DatabaseHealth>>("/api/v1/database-health/refresh", { method: "POST" }, true);
       setData(response.data);
-      setStatus(response.data.refresh.cached ? "Showing a recent measurement" : "Database metrics refreshed");
+      setStatus(response.data.refresh.status === "STALE_FALLBACK"
+        ? "Refresh failed, showing the last measurement"
+        : response.data.refresh.cached ? "Showing a recent measurement" : "Database metrics refreshed");
     } catch (error) {
       setStatus(messageForError(error));
     } finally {
@@ -105,12 +107,12 @@ export function DatabaseHealthCard({ initialData }: { initialData: DatabaseHealt
     }
   }
 
-  if (!data) return <EmptyDatabaseHealth onRefresh={refresh} busy={busy} status={status} />;
+  if (!data) return <EmptyDatabaseHealth onRefresh={refresh} busy={busy} status={status} loadFailed={initialError} />;
   const usedPercent = percentage(data.usedBytes, data.budgetBytes);
   const freshness = data.freshness.capturedAt ? `Updated ${formatDate(data.freshness.capturedAt)}` : "Update time unavailable";
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden" aria-busy={busy}>
       <CardHeader className="flex-row items-start justify-between gap-4 p-6 pb-4">
         <div><CardTitle>Database Health</CardTitle><p className="mt-1 text-[13px] text-[var(--fg-muted)]">{data.summary}</p></div>
         <span className={cn("shrink-0 rounded-full px-2 py-1 text-xs font-medium", stateStyles[data.health])}>{data.health[0] + data.health.slice(1).toLowerCase()}</span>
@@ -119,7 +121,7 @@ export function DatabaseHealthCard({ initialData }: { initialData: DatabaseHealt
         <section className="space-y-3" aria-labelledby="database-storage-heading">
           <SectionTitle><span id="database-storage-heading">Storage</span></SectionTitle>
           <p className="font-data text-lg font-medium">{formatDatabaseBytes(data.usedBytes)} of {formatDatabaseBytes(data.budgetBytes)}</p>
-          <div role="progressbar" aria-label="Database storage used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={usedPercent} className="h-2 overflow-hidden rounded-full bg-[var(--chip-bg)]"><div className="h-full rounded-full bg-[var(--fg-muted)]" style={{ width: `${usedPercent}%` }} /></div>
+          <div role="progressbar" aria-label="Database storage used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={data.usedBytes === null ? undefined : usedPercent} aria-valuetext={data.usedBytes === null ? "Storage usage unavailable" : `${usedPercent}% used`} className="h-2 overflow-hidden rounded-full bg-[var(--chip-bg)]"><div className="h-full rounded-full bg-[var(--fg-muted)]" style={{ width: `${usedPercent}%` }} /></div>
           <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2"><Metric label="Projected in 30 days" value={formatDatabaseBytes(data.projected30DayBytes)} /><Metric label="Available" value={formatDatabaseBytes(data.availableBytes)} /></dl>
         </section>
 
@@ -147,14 +149,14 @@ export function DatabaseHealthCard({ initialData }: { initialData: DatabaseHealt
         <section className="space-y-3" aria-labelledby="database-network-heading">
           <SectionTitle><span id="database-network-heading">Network</span></SectionTitle>
           <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2"><Metric label="This month" value={`${formatDatabaseBytes(data.transfer.usedBytes)} of ${formatDatabaseBytes(data.transfer.budgetBytes)}`} /><Metric label="Projected this month" value={formatDatabaseBytes(data.transfer.projectedBytes)} /></dl>
-          {!data.freshness.providerMetricsAvailable ? <p className="text-[13px] text-[var(--fg-muted)]">Provider metrics unavailable</p> : null}
+          {!data.freshness.providerMetricsAvailable ? <p className="text-[13px] text-[var(--fg-muted)]">Provider metrics unavailable, relation usage remains current</p> : data.freshness.providerCapturedAt ? <p className="font-data text-xs text-[var(--fg-faint)]">Provider updated {formatDate(data.freshness.providerCapturedAt)}</p> : null}
         </section>
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
           <div><p className="font-data text-xs text-[var(--fg-muted)]">{freshness}</p>{data.freshness.stale ? <p className="mt-1 text-xs text-[var(--fg-muted)]">Metrics are stale</p> : null}</div>
           <Button variant="secondary" size="sm" onClick={refresh} disabled={busy}>{busy ? "Refreshing…" : "Refresh"}</Button>
         </div>
-        {status ? <p aria-live="polite" className="text-[13px] text-[var(--fg-muted)]">{status}</p> : null}
+        <p aria-live="polite" className="min-h-5 text-[13px] text-[var(--fg-muted)]">{status}</p>
       </CardContent>
     </Card>
   );
