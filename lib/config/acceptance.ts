@@ -1,4 +1,4 @@
-import { hashCanonical } from "./canonical";
+import { hashMonitoringConfig } from "./canonical";
 import { exportDeclarativeConfig } from "./export";
 import type { MonitoringConfig } from "./schema";
 import { evaluateDestructiveChange, isValidDestructiveApproval, type DestructiveApproval } from "./tripwire";
@@ -60,7 +60,7 @@ export function evaluateConfigurationAcceptance(
     };
   }
 
-  const candidateHash = hashCanonical(desired);
+  const candidateHash = hashMonitoringConfig(desired);
   if (!lastAccepted || candidateHash === lastAccepted.hash) {
     return { status: "accepted", config: desired, hash: candidateHash, fallbackUsed: false, approvalConsumed: false };
   }
@@ -81,4 +81,3 @@ export function evaluateConfigurationAcceptance(
     approvalConsumed: destructive.required,
   };
 }
-
