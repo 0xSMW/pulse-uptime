@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { apiRequest, expiryFromDays, generatedMonitorId, messageForError, SettingsApiError } from "./settings-api";
+import { apiRequest, expiryFromDays, generatedGroupId, generatedMonitorId, groupDeleteBlockedCount, messageForError, SettingsApiError, sortSettingsGroups } from "./settings-api";
 import { hasAdvancedMonitorFormErrors, isPublicMonitorUrl, monitorSheetActionLabels, parseRecipients, validateMonitorForm, type MonitorFormValues } from "./monitor-sheet";
 
 const valid: MonitorFormValues = {
-  name: "API", url: "https://example.com/health", enabled: true, group: null,
+  name: "API", url: "https://example.com/health", enabled: true, groupId: null,
   method: "GET", intervalMinutes: 1, timeoutMs: 8000, expectedStatusMin: 200,
   expectedStatusMax: 399, failureThreshold: 2, recoveryThreshold: 2,
   recipients: [], recipientsText: "ops@example.com",
@@ -17,6 +17,16 @@ describe("Settings form helpers", () => {
 
   it("generates a bounded lowercase slug", () => {
     expect(generatedMonitorId("  Main API / Health  ")).toBe("main-api-health-12345678");
+    expect(generatedGroupId(" Core Services ")).toBe("core-services-12345678");
+  });
+
+  it("sorts groups alphabetically without mutating input", () => {
+    const groups = [
+      { id: "zeta", name: "Zeta", monitorCount: 0 },
+      { id: "alpha", name: "alpha", monitorCount: 2 },
+    ];
+    expect(sortSettingsGroups(groups).map((group) => group.id)).toEqual(["alpha", "zeta"]);
+    expect(groups.map((group) => group.id)).toEqual(["zeta", "alpha"]);
   });
 
   it("creates explicit UTC expiries", () => {
@@ -54,10 +64,26 @@ describe("Settings form helpers", () => {
     expect(headers.get("Idempotency-Key")).toBe("12345678-1234-1234-1234-123456789abc");
   });
 
+  it("preserves structured API error details", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      error: { code: "GROUP_NOT_EMPTY", message: "Move monitors first", details: { monitorCount: 2 } },
+    }), { status: 409, headers: { "Content-Type": "application/json" } })));
+
+    await expect(apiRequest("/api/v1/groups/core", { method: "DELETE" }, true)).rejects.toMatchObject({
+      code: "GROUP_NOT_EMPTY",
+      details: { monitorCount: 2 },
+    });
+  });
+
   it("uses the exact configuration conflict copy", () => {
     expect(messageForError(new SettingsApiError("stale", 409, "CONFIG_VERSION_CONFLICT"))).toBe(
       "Configuration changed elsewhere. Reload before saving.",
     );
+  });
+
+  it("reads monitor counts from non-empty group errors", () => {
+    expect(groupDeleteBlockedCount(new SettingsApiError("blocked", 409, "GROUP_NOT_EMPTY", { monitorCount: 3 }))).toBe(3);
+    expect(groupDeleteBlockedCount(new SettingsApiError("missing", 404, "GROUP_NOT_FOUND"))).toBeNull();
   });
 
   it("keeps edit-sheet header actions in test, state, archive order", () => {
