@@ -34,30 +34,39 @@ The dashboard opens with the first monitor active. Additional monitors, notifica
 Install the CLI on macOS with Homebrew:
 
 ```sh
-brew install smw/tap/monitorctl
+brew install smw/tap/pulsectl
 ```
 
 Connect it to the deployed service and sign in:
 
 ```sh
-monitorctl context add production --server https://pulse.example.com
-monitorctl context use production
-monitorctl auth login
+pulsectl me --server https://pulse.example.com
 ```
 
-The login command opens Pulse in a browser. Confirm the displayed code while signed in as the administrator, then return to the terminal. The CLI stores the resulting session in the operating-system keyring.
+The command creates the local context, opens Pulse in a browser, and asks you to link this CLI installation with full administrator access. Confirm the displayed account, installation, permissions, and terminal code, then authorize. The CLI stores the resulting session in the operating-system keyring.
 
 Verify the connection and list the active monitors:
 
 ```sh
-monitorctl auth status
-monitorctl monitor list
+pulsectl me
+pulsectl monitor list
 ```
 
 For agents, scripts, and CI, create a scoped token under **Settings → API Tokens** and provide it through the environment:
 
 ```sh
-export MONITORCTL_URL=https://pulse.example.com
-export MONITORCTL_TOKEN=mon_live_...
-monitorctl monitor list --output json
+export PULSECTL_URL=https://pulse.example.com
+export PULSECTL_TOKEN=pulse_live_...
+pulsectl monitor list --output json
 ```
+
+## Roadmap
+
+Pulse Uptime will expand beyond its initial single-team HTTP monitoring workflow in these areas:
+
+| Area | Planned direction |
+|---|---|
+| Multiple users | Invite teammates, assign roles, and manage access without sharing the administrator account. |
+| Additional monitor types | Monitor more than HTTP availability, including domains, certificates, ports, and content checks. |
+| Service and project grouping | Organize related monitors into services and projects for clearer dashboards, incidents, and status pages. |
+| Authentication integrations | Sign in with Google and other identity providers, with room for additional SSO options as teams grow. |
