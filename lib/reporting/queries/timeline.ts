@@ -12,6 +12,30 @@ export type CheckAvailability = {
   successful: boolean;
 };
 
+export type RollupAvailability = {
+  bucketStart: Date;
+  expectedChecks: number;
+  completedChecks: number;
+  successfulChecks: number;
+  failedChecks: number;
+  unknownChecks: number;
+  downtimeSeconds: number;
+};
+
+export function summarizeRollupCoverage(rows: Array<Pick<RollupAvailability,
+  "expectedChecks" | "completedChecks" | "successfulChecks">>): {
+  uptime: number | null;
+  coverage: number | null;
+} {
+  const expected = rows.reduce((sum, row) => sum + row.expectedChecks, 0);
+  const completed = rows.reduce((sum, row) => sum + row.completedChecks, 0);
+  const successful = rows.reduce((sum, row) => sum + row.successfulChecks, 0);
+  return {
+    uptime: completed === 0 ? null : 100 * successful / completed,
+    coverage: expected === 0 ? null : completed / expected,
+  };
+}
+
 export function buildCheckTimeline(
   rows: CheckAvailability[],
   bucketCount: number,
@@ -73,6 +97,44 @@ export function buildDailyTimeline(
       checks,
       failures,
       downtimeSeconds: row?.incidentSeconds ?? 0,
+    };
+  });
+}
+
+export function buildRollupTimeline(
+  rows: RollupAvailability[],
+  bucketCount: number,
+  durationMs: number,
+  now = new Date(),
+): TimelineBucket[] {
+  const startMs = now.getTime() - durationMs;
+  const width = durationMs / bucketCount;
+
+  return Array.from({ length: bucketCount }, (_, index) => {
+    const bucketStart = startMs + index * width;
+    const bucketEnd = bucketStart + width;
+    const included = rows.filter((row) => {
+      const timestamp = row.bucketStart.getTime();
+      return timestamp >= bucketStart && timestamp < bucketEnd;
+    });
+    const checks = included.reduce((sum, row) => sum + row.expectedChecks, 0);
+    const completed = included.reduce((sum, row) => sum + row.completedChecks, 0);
+    const failures = included.reduce((sum, row) => sum + row.failedChecks, 0);
+    const downtimeSeconds = included.reduce((sum, row) => sum + row.downtimeSeconds, 0);
+    const state: TimelineBucket["state"] = checks === 0 || completed === 0
+      ? "no-data"
+      : failures === 0 && completed === checks
+        ? "up"
+        : failures === completed && completed === checks
+          ? "down"
+          : "verifying";
+
+    return {
+      state,
+      label: `${new Date(bucketStart).toISOString()}–${new Date(bucketEnd).toISOString()}`,
+      checks,
+      failures,
+      downtimeSeconds,
     };
   });
 }
