@@ -23,6 +23,7 @@ const expectedOperations = [
   "GET /api/v1/version", "GET /api/v1/me", "GET /api/v1/monitors", "POST /api/v1/monitors",
   "GET /api/v1/monitors/{monitorId}", "PATCH /api/v1/monitors/{monitorId}", "DELETE /api/v1/monitors/{monitorId}",
   "POST /api/v1/monitors/{monitorId}/pause", "POST /api/v1/monitors/{monitorId}/resume", "POST /api/v1/monitors/{monitorId}/test",
+  "GET /api/v1/groups", "POST /api/v1/groups", "PATCH /api/v1/groups/{groupId}", "DELETE /api/v1/groups/{groupId}",
   "GET /api/v1/incidents", "GET /api/v1/incidents/{incidentId}", "GET /api/v1/status", "GET /api/v1/config",
   "GET /api/v1/config/schema", "POST /api/v1/config/validate", "POST /api/v1/config/plan", "POST /api/v1/config/apply",
   "GET /api/v1/config/operations/{operationId}", "POST /api/v1/notifications/test", "POST /api/v1/tokens", "GET /api/v1/tokens",
@@ -96,7 +97,20 @@ describe("committed OpenAPI v1 source", () => {
     expect(monitorFields.timeoutMs).toMatchObject({ minimum: 1000, maximum: 15000 });
     expect(monitorFields.failureThreshold).toMatchObject({ minimum: 1, maximum: 5 });
     expect(monitorFields.recipients.maxItems).toBe(20);
+    expect(monitorFields.groupId).toMatchObject({ minLength: 3, maxLength: 64 });
     expect(diff.settingsChanged.type).toBe("array");
+    expect(diff.groupCreates.type).toBe("array");
+    expect(schemas.Configuration.properties).toMatchObject({ version: { const: 2 }, groups: { maxItems: 100 } });
+    expect(schemas.Group).toMatchObject({ unevaluatedProperties: false, required: ["id", "name", "monitorCount"] });
+    const monitorCreate = schemas.MonitorCreate as { allOf: Array<{ not?: { required: string[] } }> };
+    const monitorUpdate = schemas.MonitorUpdate as { allOf: Array<{ not?: { required: string[] } }> };
+    const groupDelete = document.paths["/api/v1/groups/{groupId}"].delete as Operation & {
+      responses: Record<string, { content: Record<string, { schema: { $ref: string } }> }>;
+    };
+    expect(monitorCreate.allOf[1].not?.required).toEqual(["group", "groupId"]);
+    expect(monitorUpdate.allOf[1].not?.required).toEqual(["group", "groupId"]);
+    expect(groupDelete.responses["200"].content["application/json"].schema.$ref)
+      .toBe("#/components/schemas/GroupDeletionEnvelope");
     expect(schemas.MonitorConfig.unevaluatedProperties).toBe(false);
     expect(schemas.MonitoringSettings.additionalProperties).toBe(false);
   });
