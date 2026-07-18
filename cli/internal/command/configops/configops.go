@@ -3,12 +3,15 @@ package configops
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -75,6 +78,9 @@ type Plan struct {
 
 type Diff struct {
 	SettingsChanged []map[string]any `json:"settingsChanged" yaml:"settingsChanged"`
+	GroupCreates    []map[string]any `json:"groupCreates" yaml:"groupCreates"`
+	GroupUpdates    []map[string]any `json:"groupUpdates" yaml:"groupUpdates"`
+	GroupDeletes    []map[string]any `json:"groupDeletes" yaml:"groupDeletes"`
 	Creates         []map[string]any `json:"creates" yaml:"creates"`
 	Updates         []map[string]any `json:"updates" yaml:"updates"`
 	Pauses          []map[string]any `json:"pauses" yaml:"pauses"`
@@ -374,7 +380,11 @@ func ReadDocument(d Dependencies, path string) (map[string]any, error) {
 	if err := json.Unmarshal(encoded, &doc); err != nil || doc == nil {
 		return nil, invalid("configuration must be an object", "")
 	}
-	return doc, nil
+	upgraded, err := UpgradeDocument(doc)
+	if err != nil {
+		return nil, invalid("configuration is invalid", err.Error())
+	}
+	return upgraded, nil
 }
 
 type ValidationIssue struct {
@@ -384,8 +394,9 @@ type ValidationIssue struct {
 
 func ValidateDocument(doc map[string]any) []ValidationIssue {
 	var out []ValidationIssue
-	if version, ok := number(doc["version"]); !ok || version != 1 {
-		out = append(out, ValidationIssue{"version", "must equal 1"})
+	version, versionOK := number(doc["version"])
+	if !versionOK || (version != 1 && version != 2) {
+		out = append(out, ValidationIssue{"version", "must equal 1 or 2"})
 	}
 	settings, ok := doc["settings"].(map[string]any)
 	if !ok {
@@ -410,6 +421,40 @@ func ValidateDocument(doc map[string]any) []ValidationIssue {
 		return out
 	}
 	seen := map[string]bool{}
+	groupIDs := map[string]bool{}
+	if version == 2 {
+		groups, groupsOK := doc["groups"].([]any)
+		if !groupsOK {
+			out = append(out, ValidationIssue{"groups", "must be an array"})
+		} else {
+			if len(groups) > 100 {
+				out = append(out, ValidationIssue{"groups", "must contain at most 100 groups"})
+			}
+			groupNames := map[string]bool{}
+			for i, raw := range groups {
+				group, groupOK := raw.(map[string]any)
+				if !groupOK {
+					out = append(out, ValidationIssue{fmt.Sprintf("groups[%d]", i), "must be an object"})
+					continue
+				}
+				id, _ := group["id"].(string)
+				if !validSlug(id) {
+					out = append(out, ValidationIssue{fmt.Sprintf("groups[%d].id", i), "must be a lowercase slug between 3 and 64 characters"})
+				} else if groupIDs[id] {
+					out = append(out, ValidationIssue{fmt.Sprintf("groups[%d].id", i), "must be unique"})
+				}
+				groupIDs[id] = true
+				name, _ := group["name"].(string)
+				trimmed := strings.TrimSpace(name)
+				if trimmed == "" || len([]rune(trimmed)) > 50 {
+					out = append(out, ValidationIssue{fmt.Sprintf("groups[%d].name", i), "must contain between 1 and 50 characters"})
+				} else if groupNames[strings.ToLower(trimmed)] {
+					out = append(out, ValidationIssue{fmt.Sprintf("groups[%d].name", i), "must be unique ignoring case"})
+				}
+				groupNames[strings.ToLower(trimmed)] = true
+			}
+		}
+	}
 	for i, raw := range monitors {
 		monitor, ok := raw.(map[string]any)
 		if !ok {
@@ -426,6 +471,24 @@ func ValidateDocument(doc map[string]any) []ValidationIssue {
 		for _, name := range []string{"name", "url"} {
 			if v, _ := monitor[name].(string); v == "" {
 				out = append(out, ValidationIssue{fmt.Sprintf("monitors[%d].%s", i, name), "is required"})
+			}
+		}
+		if version == 2 {
+			groupID, exists := monitor["groupId"]
+			if !exists {
+				out = append(out, ValidationIssue{fmt.Sprintf("monitors[%d].groupId", i), "is required and may be null"})
+			} else if groupID != nil {
+				value, valid := groupID.(string)
+				if !valid || !validSlug(value) {
+					out = append(out, ValidationIssue{fmt.Sprintf("monitors[%d].groupId", i), "must be a lowercase group slug or null"})
+				} else if !groupIDs[value] {
+					out = append(out, ValidationIssue{fmt.Sprintf("monitors[%d].groupId", i), "must reference a configured group"})
+				}
+			}
+		} else if value, exists := monitor["group"]; exists && value != nil {
+			name, valid := value.(string)
+			if !valid || strings.TrimSpace(name) == "" || len([]rune(strings.TrimSpace(name))) > 50 {
+				out = append(out, ValidationIssue{fmt.Sprintf("monitors[%d].group", i), "must contain between 1 and 50 characters or be null"})
 			}
 		}
 		for name, bounds := range map[string][2]float64{"timeoutMs": {1000, 15000}, "failureThreshold": {1, 5}, "recoveryThreshold": {1, 5}} {
@@ -447,6 +510,96 @@ func ValidateDocument(doc map[string]any) []ValidationIssue {
 }
 
 func number(v any) (float64, bool) { n, ok := v.(float64); return n, ok }
+
+var slugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+
+func validSlug(value string) bool {
+	length := len(value)
+	return length >= 3 && length <= 64 && slugPattern.MatchString(value)
+}
+
+// UpgradeDocument converts a valid-shape v1 document into the v2 group model.
+// IDs match the service adapter so plan/apply hashes remain stable regardless of
+// whether an older document is submitted by the user or read by the service.
+func UpgradeDocument(doc map[string]any) (map[string]any, error) {
+	version, ok := number(doc["version"])
+	if !ok || version != 1 {
+		return doc, nil
+	}
+	monitors, ok := doc["monitors"].([]any)
+	if !ok {
+		return doc, nil
+	}
+
+	names := map[string]string{}
+	for i, raw := range monitors {
+		monitor, ok := raw.(map[string]any)
+		if !ok {
+			return doc, nil
+		}
+		value, exists := monitor["group"]
+		if !exists || value == nil {
+			continue
+		}
+		name, ok := value.(string)
+		if !ok {
+			return doc, nil
+		}
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return nil, fmt.Errorf("monitors[%d].group must not be empty", i)
+		}
+		folded := strings.ToLower(name)
+		if prior, exists := names[folded]; exists && prior != name {
+			return nil, fmt.Errorf("legacy group names %q and %q are ambiguous ignoring case", prior, name)
+		}
+		names[folded] = name
+	}
+
+	ids := make(map[string]string, len(names))
+	groups := make([]any, 0, len(names))
+	for folded, name := range names {
+		digest := sha256.Sum256([]byte(folded))
+		id := fmt.Sprintf("group-%x", digest[:6])
+		ids[folded] = id
+		groups = append(groups, map[string]any{"id": id, "name": name})
+	}
+	sort.Slice(groups, func(i, j int) bool {
+		return groups[i].(map[string]any)["id"].(string) < groups[j].(map[string]any)["id"].(string)
+	})
+
+	upgradedMonitors := make([]any, 0, len(monitors))
+	for _, raw := range monitors {
+		monitor := raw.(map[string]any)
+		upgraded := make(map[string]any, len(monitor))
+		for key, value := range monitor {
+			if key != "group" {
+				upgraded[key] = value
+			}
+		}
+		upgraded["groupId"] = nil
+		if name, ok := monitor["group"].(string); ok && strings.TrimSpace(name) != "" {
+			upgraded["groupId"] = ids[strings.ToLower(strings.TrimSpace(name))]
+		}
+		upgradedMonitors = append(upgradedMonitors, upgraded)
+	}
+	sort.SliceStable(upgradedMonitors, func(i, j int) bool {
+		left, _ := upgradedMonitors[i].(map[string]any)["id"].(string)
+		right, _ := upgradedMonitors[j].(map[string]any)["id"].(string)
+		return left < right
+	})
+
+	upgraded := make(map[string]any, len(doc)+1)
+	for key, value := range doc {
+		if key != "monitors" {
+			upgraded[key] = value
+		}
+	}
+	upgraded["version"] = float64(2)
+	upgraded["groups"] = groups
+	upgraded["monitors"] = upgradedMonitors
+	return upgraded, nil
+}
 
 func render(w io.Writer, format string, envelope any, human any) error {
 	switch format {
