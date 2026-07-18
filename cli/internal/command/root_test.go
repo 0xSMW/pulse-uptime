@@ -2,16 +2,21 @@ package command
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/productos-ai/pulse-uptime/cli/internal/api"
+	"github.com/productos-ai/pulse-uptime/cli/internal/auth"
 	"github.com/productos-ai/pulse-uptime/cli/internal/buildinfo"
 )
 
@@ -149,6 +154,202 @@ func TestJSONHelpIsGeneratedFromCommandTree(t *testing.T) {
 	}
 	t.Fatal("config apply missing from manifest")
 }
+
+func TestJSONHelpMarksRequiredFlagsAndMutationMetadata(t *testing.T) {
+	t.Setenv("PULSECTL_OUTPUT", "json")
+	_, stdout, _ := execute(t, "help", "monitor", "create", "--output", "json")
+	var got manifest
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil || len(got.Commands) != 1 {
+		t.Fatalf("manifest: %v %s", err, stdout)
+	}
+	item := got.Commands[0]
+	if !item.Idempotent || item.RequiredScope != "monitors:write" || len(item.ExitCodes) == 0 {
+		t.Fatalf("metadata missing: %#v", item)
+	}
+	required := map[string]bool{}
+	for _, flag := range item.Flags {
+		if flag.Required {
+			required[flag.Name] = true
+		}
+		if flag.Description == "" {
+			t.Errorf("flag %s has no description", flag.Name)
+		}
+	}
+	for _, name := range []string{"id", "name", "url"} {
+		if !required[name] {
+			t.Errorf("%s not marked required", name)
+		}
+	}
+}
+
+type testCredentialStore struct {
+	mu    sync.Mutex
+	token string
+}
+
+func (s *testCredentialStore) Get(_, _ string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.token == "" {
+		return "", auth.ErrCredentialNotFound
+	}
+	return s.token, nil
+}
+func (s *testCredentialStore) Set(_, _, token string) error {
+	s.mu.Lock()
+	s.token = token
+	s.mu.Unlock()
+	return nil
+}
+func (s *testCredentialStore) Delete(_, _ string) error {
+	s.mu.Lock()
+	s.token = ""
+	s.mu.Unlock()
+	return nil
+}
+
+func TestInteractiveMeLinksInstallationAndStoresSession(t *testing.T) {
+	store := &testCredentialStore{}
+	var pollCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/cli-auth/device":
+			if r.Header.Get("Authorization") != "" {
+				t.Error("anonymous device request included Authorization")
+			}
+			body, _ := io.ReadAll(r.Body)
+			if !strings.Contains(string(body), `"clientName":"pulsectl"`) || !strings.Contains(string(body), `"scopeProfile":"administrator"`) {
+				t.Errorf("unexpected device body: %s", body)
+			}
+			fmt.Fprintf(w, `{"apiVersion":"v1","kind":"DeviceAuthorization","data":{"deviceCode":"device-secret","userCode":"ABCD-EFGH","verificationUri":%q,"verificationUriComplete":%q,"expiresIn":600,"interval":1},"meta":{"requestId":"req_device"}}`, serverURL(r), serverURL(r)+"?user_code=ABCD-EFGH")
+		case "/api/v1/cli-auth/token":
+			pollCount++
+			if pollCount == 1 {
+				w.WriteHeader(http.StatusBadRequest)
+				fmt.Fprint(w, `{"apiVersion":"v1","kind":"Error","error":{"code":"authorization_pending","message":"pending","details":{},"requestId":"req_pending"}}`)
+				return
+			}
+			fmt.Fprint(w, `{"apiVersion":"v1","kind":"CliSession","data":{"token":"session-secret","tokenType":"Bearer","expiresAt":"2026-08-01T00:00:00Z","scopes":["monitors:read"]},"meta":{"requestId":"req_token"}}`)
+		case "/api/v1/me":
+			if r.Header.Get("Authorization") != "Bearer session-secret" {
+				t.Error("me request did not use stored session")
+			}
+			fmt.Fprint(w, `{"apiVersion":"v1","kind":"Me","data":{"principalType":"cli_session","email":"operator@example.com","tokenId":null,"tokenName":null,"scopes":["monitors:read"],"installation":{"id":"ins_1","name":"Test Mac","platform":"darwin","arch":"arm64","clientVersion":"0.1.0-dev","linkedAt":"2026-07-18T00:00:00Z"}},"meta":{"requestId":"req_me"}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("PULSECTL_TOKEN", "")
+	t.Setenv("PULSECTL_OUTPUT", "json")
+	var stdout, stderr bytes.Buffer
+	app := New(Options{In: strings.NewReader(""), Out: &stdout, Err: &stderr, StdinTTY: true, ConfigPath: t.TempDir() + "/config.yaml", Credentials: store, OpenBrowser: func(context.Context, string) error { t.Fatal("browser should not open with --no-browser"); return nil }, PollWait: func(context.Context, time.Duration) error { return nil }})
+	code := app.Execute([]string{"me", "--server", server.URL, "--no-browser"})
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if store.token != "session-secret" || pollCount != 2 {
+		t.Fatalf("stored=%q polls=%d", store.token, pollCount)
+	}
+	if strings.Contains(stdout.String(), "session-secret") || strings.Contains(stderr.String(), "session-secret") || strings.Contains(stdout.String(), "device-secret") || strings.Contains(stderr.String(), "device-secret") {
+		t.Fatal("device or session secret leaked")
+	}
+	if !strings.Contains(stdout.String(), `"principalType": "cli_session"`) || !strings.Contains(stderr.String(), "Enter code: ABCD-EFGH") {
+		t.Fatalf("stdout=%s stderr=%s", stdout.String(), stderr.String())
+	}
+}
+
+func TestMonitorCreateSendsIdempotentMutation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/monitors" || r.Header.Get("Idempotency-Key") == "" {
+			t.Errorf("unexpected mutation %s %s key=%q", r.Method, r.URL.Path, r.Header.Get("Idempotency-Key"))
+		}
+		body, _ := io.ReadAll(r.Body)
+		if !strings.Contains(string(body), `"id":"api"`) || !strings.Contains(string(body), `"url":"https://example.com"`) {
+			t.Errorf("unexpected body: %s", body)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"apiVersion":"v1","kind":"Monitor","data":{"id":"api","name":"API","url":"https://example.com"},"meta":{"requestId":"req_create"}}`)
+	}))
+	defer server.Close()
+	t.Setenv("PULSECTL_URL", server.URL)
+	t.Setenv("PULSECTL_TOKEN", "pulse_live_test")
+	t.Setenv("PULSECTL_OUTPUT", "json")
+	code, stdout, stderr := execute(t, "monitor", "create", "--id", "api", "--name", "API", "--url", "https://example.com")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"kind": "Monitor"`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+}
+
+func TestMonitorTestFailureReturnsExitFour(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"apiVersion":"v1","kind":"MonitorTest","data":{"successful":false},"meta":{"requestId":"req_test"}}`)
+	}))
+	defer server.Close()
+	t.Setenv("PULSECTL_URL", server.URL)
+	t.Setenv("PULSECTL_TOKEN", "pulse_live_test")
+	t.Setenv("PULSECTL_OUTPUT", "json")
+	code, stdout, stderr := execute(t, "monitor", "test", "api")
+	if code != ExitConditionFailed || !strings.Contains(stdout, `"successful": false`) || !strings.Contains(stderr, `"code": "MONITOR_TEST_FAILED"`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+}
+
+func TestTokenStdinAuthenticatesWithoutKeyring(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer stdin-secret" {
+			t.Error("stdin token was not used")
+		}
+		fmt.Fprint(w, `{"apiVersion":"v1","kind":"Me","data":{"principalType":"api_token","email":null,"tokenId":"tok","tokenName":"stdin","scopes":[],"installation":null},"meta":{}}`)
+	}))
+	defer server.Close()
+	t.Setenv("PULSECTL_URL", server.URL)
+	t.Setenv("PULSECTL_TOKEN", "")
+	t.Setenv("PULSECTL_OUTPUT", "json")
+	var stdout, stderr bytes.Buffer
+	app := New(Options{In: strings.NewReader("stdin-secret\n"), Out: &stdout, Err: &stderr, ConfigPath: t.TempDir() + "/config.yaml", Credentials: &testCredentialStore{}})
+	if code := app.Execute([]string{"me", "--token-stdin"}); code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "stdin-secret") || strings.Contains(stderr.String(), "stdin-secret") {
+		t.Fatal("stdin token leaked")
+	}
+}
+
+func TestRedirectedDefaultsUseJSONAndJSONL(t *testing.T) {
+	app := New(Options{In: strings.NewReader(""), Out: io.Discard, Err: io.Discard, StdoutTTY: false, ConfigPath: t.TempDir() + "/config.yaml"})
+	if got := app.outputFor("table"); got != "json" {
+		t.Fatalf("ordinary output=%q", got)
+	}
+	if got := app.outputFor("yaml"); got != "yaml" {
+		t.Fatalf("export output=%q", got)
+	}
+	if got := app.monitorDependencies().WatchFormat(); got != "jsonl" {
+		t.Fatalf("watch output=%q", got)
+	}
+}
+
+func TestCanceledRequestReturnsInterruptedExit(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
+	defer server.Close()
+	t.Setenv("PULSECTL_URL", server.URL)
+	t.Setenv("PULSECTL_TOKEN", "pulse_live_test")
+	t.Setenv("PULSECTL_OUTPUT", "json")
+	var stdout, stderr bytes.Buffer
+	app := New(Options{In: strings.NewReader(""), Out: &stdout, Err: &stderr, ConfigPath: t.TempDir() + "/config.yaml"})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if code := app.ExecuteContext(ctx, []string{"me"}); code != ExitInterrupted {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), `"code": "INTERRUPTED"`) {
+		t.Fatalf("stderr=%s", stderr.String())
+	}
+}
+
+func serverURL(r *http.Request) string { return "http://" + r.Host + "/cli/authorize" }
 
 func execute(t *testing.T, args ...string) (int, string, string) {
 	t.Helper()
