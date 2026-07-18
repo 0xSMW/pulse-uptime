@@ -85,13 +85,13 @@ describe("transitionMonitor", () => {
 
   it("verifies recovery and resolves at the first successful check", () => {
     const incidentId = "8c751cd3-bcf0-4cab-8348-c9b5793339ed";
-    const down = state("DOWN", { activeIncidentId: incidentId });
+    const down = state("DOWN", { activeIncidentId: incidentId, firstFailureAt: minute(1) });
     const first = transitionMonitor(down, check(true, minute(3)));
     expect(first.state).toMatchObject({ state: "VERIFYING_UP", firstSuccessAt: minute(3) });
     const second = transitionMonitor(first.state, check(true, minute(4)));
     expect(second.state).toMatchObject({ state: "UP", activeIncidentId: null });
     expect(second.incident).toEqual({
-      type: "resolve", incidentId, firstSuccessAt: minute(3), resolvedAt: minute(3),
+      type: "resolve", incidentId, openedAt: minute(1), firstSuccessAt: minute(3), resolvedAt: minute(3),
     });
   });
 
@@ -99,6 +99,7 @@ describe("transitionMonitor", () => {
     const result = transitionMonitor(state("VERIFYING_UP", {
       activeIncidentId: "8c751cd3-bcf0-4cab-8348-c9b5793339ed",
       consecutiveSuccesses: 1,
+      firstFailureAt: minute(1),
       firstSuccessAt: minute(2),
     }), check(false, minute(3)));
     expect(result.state).toMatchObject({ state: "DOWN", consecutiveSuccesses: 0, firstSuccessAt: null });
@@ -108,6 +109,7 @@ describe("transitionMonitor", () => {
   it("supports one-check recovery", () => {
     const result = transitionMonitor(state("DOWN", {
       activeIncidentId: "8c751cd3-bcf0-4cab-8348-c9b5793339ed",
+      firstFailureAt: minute(1),
     }), check(true, minute(2), { recoveryThreshold: 1 }));
     expect(result.state.state).toBe("UP");
     expect(result.incident?.type).toBe("resolve");
