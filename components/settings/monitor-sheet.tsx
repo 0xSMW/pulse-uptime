@@ -1,10 +1,11 @@
 "use client";
 
+import { Activity, Archive, Pause, Play } from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiRequest, generatedMonitorId, messageForError } from "./settings-api";
-import { Sheet } from "./sheet";
+import { Sheet, SheetIconButton } from "./sheet";
 import { Button } from "@/components/ui/button";
 
 export type EditableMonitor = {
@@ -25,6 +26,10 @@ export type EditableMonitor = {
 
 export type MonitorFormValues = Omit<EditableMonitor, "id"> & { recipientsText: string };
 export type MonitorFormErrors = Partial<Record<keyof MonitorFormValues, string>>;
+
+export function monitorSheetActionLabels(enabled: boolean) {
+  return ["Run Test", enabled ? "Pause" : "Resume", "Archive"] as const;
+}
 
 const emptyValues: MonitorFormValues = {
   name: "",
@@ -99,7 +104,7 @@ function ArchiveDialog({ monitorName, value, busy, status, onValueChange, onCanc
   useEffect(() => {
     ref.current?.showModal();
   }, []);
-  return <dialog ref={ref} aria-labelledby="archive-title" onCancel={(event) => { event.preventDefault(); onCancel(); }} className="fixed inset-0 z-50 m-auto w-[min(400px,calc(100vw-32px))] rounded-[8px] border border-[var(--border-strong)] bg-[var(--bg)] p-5 text-[var(--fg)] shadow-2xl backdrop:bg-black/45"><h3 id="archive-title" className="text-base font-semibold">Archive Monitor</h3><p className="mt-2 text-[13px] text-[var(--fg-muted)]">Checks stop and history stays available</p><label className="mt-4 block text-[13px]"><span className="mb-2 block">Type <strong>{monitorName}</strong> to confirm</span><input autoFocus value={value} onChange={(e) => onValueChange(e.target.value)} className="h-10 w-full rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-3 text-[13px]" /></label>{status ? <p className={`mt-3 text-[13px] ${status === "Monitor archived" ? "text-[var(--fg-muted)]" : "text-[var(--down-text)]"}`} aria-live="polite">{status}</p> : null}<div className="mt-5 flex justify-end gap-2"><Button variant="secondary" onClick={onCancel} disabled={busy}>Cancel</Button><Button variant="secondary" onClick={onConfirm} disabled={value !== monitorName || busy}>{busy ? "Archiving…" : "Archive Monitor"}</Button></div></dialog>;
+  return <dialog ref={ref} aria-labelledby="archive-title" onCancel={(event) => { event.preventDefault(); onCancel(); }} className="fixed inset-0 z-50 m-auto w-[min(400px,calc(100vw-32px))] rounded-[8px] border border-[var(--border-strong)] bg-[var(--bg)] p-5 text-[var(--fg)] shadow-2xl backdrop:bg-black/45"><h3 id="archive-title" className="text-base font-semibold">Archive Monitor</h3><p className="mt-2 text-[13px] text-[var(--fg-muted)]">Checks stop and history stays available</p><label className="mt-4 block text-[13px]"><span className="mb-2 block">Type <strong>{monitorName}</strong> to confirm</span><input autoFocus value={value} onChange={(e) => onValueChange(e.target.value)} className="h-10 w-full rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-3 text-[13px]" /></label>{status ? <p className={`mt-3 text-[13px] ${status === "Monitor archived" ? "text-[var(--fg-muted)]" : "text-[var(--down-text)]"}`} aria-live="polite">{status}</p> : null}<div className="mt-5 flex justify-end gap-2"><Button variant="secondary" onClick={onCancel} disabled={busy}>Cancel</Button><Button variant="error" onClick={onConfirm} disabled={value !== monitorName || busy}>{busy ? "Archiving…" : "Archive Monitor"}</Button></div></dialog>;
 }
 
 export function MonitorSheet({ open, monitor, onClose }: { open: boolean; monitor: EditableMonitor | null; onClose: () => void }) {
@@ -156,7 +161,8 @@ export function MonitorSheet({ open, monitor, onClose }: { open: boolean; monito
 
   async function monitorAction(action: "pause" | "resume" | "test") {
     if (!monitor) return;
-    setBusy(action); setStatus("");
+    setBusy(action);
+    setStatus(action === "test" ? "Testing…" : action === "pause" ? "Pausing…" : "Resuming…");
     try {
       await apiRequest(`/api/v1/monitors/${encodeURIComponent(monitor.id)}/${action}`, { method: "POST" }, true);
       setStatus(action === "test" ? "Test completed" : action === "pause" ? "Monitor paused" : "Monitor resumed");
@@ -178,8 +184,27 @@ export function MonitorSheet({ open, monitor, onClose }: { open: boolean; monito
   }
 
   const inputClass = "h-10 w-full rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-3 text-[13px]";
+  const [testLabel, toggleLabel, archiveLabel] = monitorSheetActionLabels(monitor?.enabled ?? true);
+  const actionBusyDescription = "Another monitor action is in progress";
   return (
-    <Fragment><Sheet open={open} onClose={() => !busy && onClose()} title={monitor ? "Edit Monitor" : "New Monitor"} description={monitor ? monitor.id : "Add a public endpoint"}>
+    <Fragment><Sheet
+      open={open}
+      onClose={() => !busy && onClose()}
+      closeDisabled={Boolean(busy)}
+      title={monitor ? "Edit Monitor" : "New Monitor"}
+      description={monitor ? monitor.id : "Add a public endpoint"}
+      headerActions={monitor ? <>
+        <SheetIconButton label={testLabel} disabled={Boolean(busy)} disabledDescription={actionBusyDescription} onClick={() => void monitorAction("test")}>
+          <Activity className="size-4" aria-hidden />
+        </SheetIconButton>
+        <SheetIconButton label={toggleLabel} disabled={Boolean(busy)} disabledDescription={actionBusyDescription} onClick={() => void monitorAction(monitor.enabled ? "pause" : "resume")}>
+          {monitor.enabled ? <Pause className="size-4" aria-hidden /> : <Play className="size-4" aria-hidden />}
+        </SheetIconButton>
+        <SheetIconButton label={archiveLabel} destructive disabled={Boolean(busy)} disabledDescription={actionBusyDescription} onClick={() => setConfirmArchive(true)}>
+          <Archive className="size-4" aria-hidden />
+        </SheetIconButton>
+      </> : undefined}
+    >
       <form onSubmit={submit} className="space-y-4">
         <label className="block"><span className="mb-1.5 block text-[13px] font-medium">Name</span><input ref={firstField} value={values.name} onChange={(e) => set("name", e.target.value)} aria-invalid={Boolean(errors.name)} className={inputClass} />{errors.name ? <span className="mt-1 block text-xs text-[var(--down-text)]">{errors.name}</span> : null}</label>
         <label className="block"><span className="mb-1.5 block text-[13px] font-medium">URL</span><input value={values.url} onChange={(e) => set("url", e.target.value)} aria-invalid={Boolean(errors.url)} className={`${inputClass} font-data`} placeholder="https://example.com/health" />{errors.url ? <span className="mt-1 block text-xs text-[var(--down-text)]">{errors.url}</span> : null}</label>
@@ -191,10 +216,9 @@ export function MonitorSheet({ open, monitor, onClose }: { open: boolean; monito
         <div className="grid grid-cols-2 gap-3"><NumberField label="Failure Threshold" value={values.failureThreshold} onChange={(v) => set("failureThreshold", v)} min={1} max={5} error={errors.failureThreshold} /><NumberField label="Recovery Threshold" value={values.recoveryThreshold} onChange={(v) => set("recoveryThreshold", v)} min={1} max={5} error={errors.recoveryThreshold} /></div>
         <label className="block"><span className="mb-1.5 block text-[13px] font-medium">Recipients</span><textarea rows={4} value={values.recipientsText} onChange={(e) => set("recipientsText", e.target.value)} aria-invalid={Boolean(errors.recipientsText)} className="w-full resize-y rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-3 py-2 font-data text-[13px]" /><span className="mt-1 block text-xs text-[var(--fg-faint)]">Empty inherits default recipients</span>{errors.recipientsText ? <span className="mt-1 block text-xs text-[var(--down-text)]">{errors.recipientsText}</span> : null}</label>
         <label className="flex items-center justify-between gap-4 border-y border-[var(--border)] py-3 text-[13px] font-medium"><span>Enabled</span><input type="checkbox" checked={values.enabled} onChange={(e) => set("enabled", e.target.checked)} className="size-4 accent-[var(--fg)]" /></label>
-        {status ? <p aria-live="polite" className={`text-[13px] ${["Updating configuration…", "Test completed", "Monitor paused", "Monitor resumed"].includes(status) ? "text-[var(--fg-muted)]" : "text-[var(--down-text)]"}`}>{status}</p> : null}
+        {status ? <p aria-live="polite" className={`text-[13px] ${["Updating configuration…", "Testing…", "Pausing…", "Resuming…", "Test completed", "Monitor paused", "Monitor resumed"].includes(status) ? "text-[var(--fg-muted)]" : "text-[var(--down-text)]"}`}>{status}</p> : null}
         <div className="flex justify-end gap-2"><Button type="button" variant="secondary" onClick={onClose} disabled={Boolean(busy)}>Cancel</Button><Button type="submit" disabled={Boolean(busy)}>{busy === "save" ? "Saving…" : busy === "propagation" ? "Updating…" : monitor ? "Save Monitor" : "Create Monitor"}</Button></div>
       </form>
-      {monitor ? <div className="mt-8 border-t border-[var(--border)] pt-5"><h3 className="text-sm font-semibold">Monitor Actions</h3><div className="mt-3 flex flex-wrap gap-2"><Button variant="secondary" size="sm" onClick={() => monitorAction(monitor.enabled ? "pause" : "resume")} disabled={Boolean(busy)}>{busy === "pause" || busy === "resume" ? "Updating…" : monitor.enabled ? "Pause" : "Resume"}</Button><Button variant="secondary" size="sm" onClick={() => monitorAction("test")} disabled={Boolean(busy)}>{busy === "test" ? "Testing…" : "Run Test"}</Button><Button variant="secondary" size="sm" onClick={() => setConfirmArchive(true)} disabled={Boolean(busy)}>Archive</Button></div></div> : null}
     </Sheet>
     {monitor && confirmArchive ? <ArchiveDialog monitorName={monitor.name} value={archiveName} busy={Boolean(busy)} status={status} onValueChange={setArchiveName} onCancel={() => { setConfirmArchive(false); setArchiveName(""); }} onConfirm={archive} /> : null}</Fragment>
   );
