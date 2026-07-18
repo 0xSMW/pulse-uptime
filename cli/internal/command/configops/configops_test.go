@@ -116,24 +116,23 @@ monitors:
 	}
 }
 
-func TestReadDocumentRejectsAmbiguousV1GroupNames(t *testing.T) {
-	_, err := ReadDocument(defaults(Dependencies{In: strings.NewReader(`version: 1
+func TestReadDocumentFoldsV1GroupNameCaseVariants(t *testing.T) {
+	doc, err := ReadDocument(defaults(Dependencies{In: strings.NewReader(`version: 1
 settings: {}
 monitors:
   - {id: one, name: One, url: https://one.example, group: Production}
   - {id: two, name: Two, url: https://two.example, group: production}
 `)}), "-")
-	if err == nil {
-		t.Fatal("expected ambiguous group error")
+	if err != nil {
+		t.Fatal(err)
 	}
-	configErr, ok := err.(*Error)
-	if !ok {
-		t.Fatalf("error type = %T", err)
+	groups := doc["groups"].([]any)
+	monitors := doc["monitors"].([]any)
+	if len(groups) != 1 || groups[0].(map[string]any)["name"] != "Production" {
+		t.Fatalf("groups = %#v", groups)
 	}
-	details, _ := configErr.Details.(map[string]any)
-	cause, _ := details["cause"].(string)
-	if !strings.Contains(cause, "ambiguous") {
-		t.Fatalf("error = %v", err)
+	if monitors[0].(map[string]any)["groupId"] != monitors[1].(map[string]any)["groupId"] {
+		t.Fatalf("monitors = %#v", monitors)
 	}
 }
 
