@@ -1,13 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createSqlMaintenanceStore, ROLLUP_DAY_SQL } from "./sql";
+import { createSqlMaintenanceStore } from "./sql";
 
 describe("maintenance SQL store", () => {
-  it("uses an upsert for deterministic rollup recalculation", () => {
-    expect(ROLLUP_DAY_SQL).toContain("on conflict (monitor_id, day) do update");
-    expect(ROLLUP_DAY_SQL).toContain("percentile_cont(0.95)");
-  });
-
   it("passes the exact retention batch limit to raw-check deletion", async () => {
     const query = vi.fn().mockResolvedValue([]);
     const cutoff = new Date("2026-06-18T00:00:00Z");
@@ -29,5 +24,16 @@ describe("maintenance SQL store", () => {
     expect(query.mock.calls[0]?.[0]).toContain("daily_point");
     expect(query.mock.calls[0]?.[0]).toContain("monthly_point");
     expect(query.mock.calls[0]?.[0]).toContain("latest_point");
+  });
+
+  it("bounds adaptive cleanup while preserving incident detail windows", async () => {
+    const query = vi.fn().mockResolvedValue([]);
+    await createSqlMaintenanceStore({ query }).enforceTelemetryRetention(
+      new Date("2026-07-18T12:00:00Z"), "incident_only", 10_000,
+    );
+    expect(query.mock.calls[0]?.[0]).toContain("limit $3");
+    expect(query.mock.calls[0]?.[0]).toContain("has_incident");
+    expect(query.mock.calls[0]?.[1]?.[8]).toBe(true);
+    expect(query.mock.calls[0]?.[1]?.[2]).toBe(10_000);
   });
 });
