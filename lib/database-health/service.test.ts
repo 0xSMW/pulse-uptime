@@ -20,6 +20,7 @@ function measurement(overrides: Partial<DatabaseHealthMeasurement> = {}): Databa
   return {
     capturedAt: new Date("2026-07-18T11:55:00.000Z"),
     storageBytes: 118_000_000,
+    otherBytes: 4_000_000,
     projected30DayBytes: 146_000_000,
     categoryBytes: {
       recentCheckBatches: 3_000_000,
@@ -38,6 +39,7 @@ function measurement(overrides: Partial<DatabaseHealthMeasurement> = {}): Databa
     monthlyTransferBytes: 420_000_000,
     projectedMonthlyTransferBytes: 690_000_000,
     providerMetricsAvailable: true,
+    providerMetricsCapturedAt: new Date("2026-07-18T11:54:00.000Z"),
     maintenanceHealthy: true,
     ...overrides,
   };
@@ -64,6 +66,7 @@ describe("database health state", () => {
 
   it.each([
     { providerMetricsAvailable: false },
+    { providerMetricsCapturedAt: new Date("2026-07-16T00:00:00.000Z") },
     { maintenanceHealthy: null },
     { capturedAt: new Date("2026-07-16T00:00:00.000Z") },
     { projected30DayBytes: null },
@@ -85,7 +88,7 @@ describe("database health presentation", () => {
   });
 
   it("clamps Other when attributed relations exceed provider storage", () => {
-    const report = presentDatabaseHealth(measurement({ storageBytes: 1 }), { now });
+    const report = presentDatabaseHealth(measurement({ storageBytes: 1, otherBytes: null }), { now });
     expect(report.categories.at(-1)?.bytes).toBe(0);
   });
 });
@@ -100,12 +103,38 @@ describe("database health refresh", () => {
     clearDatabaseHealthCache(repository);
     const cached = await refreshDatabaseHealth(repository, now);
     expect(cached.refresh.cached).toBe(true);
+    expect(cached.refresh.status).toBe("CACHED");
     expect(repository.capture).not.toHaveBeenCalled();
 
     latest.capturedAt = new Date("2026-07-18T11:45:00.000Z");
     clearDatabaseHealthCache(repository);
     const refreshed = await refreshDatabaseHealth(repository, now);
     expect(refreshed.refresh.cached).toBe(false);
+    expect(repository.capture).toHaveBeenCalledOnce();
+  });
+
+  it("returns the prior snapshot when capture throws", async () => {
+    const latest = measurement({ capturedAt: new Date("2026-07-18T11:00:00.000Z") });
+    const repository: DatabaseHealthRepository = {
+      readLatest: vi.fn().mockResolvedValue(latest),
+      capture: vi.fn().mockRejectedValue(new Error("secret provider failure")),
+    };
+    const result = await refreshDatabaseHealth(repository, now);
+    expect(result.refresh).toMatchObject({ cached: false, status: "STALE_FALLBACK" });
+    expect(JSON.stringify(result)).not.toContain("secret provider failure");
+  });
+
+  it("coalesces concurrent capture work in one runtime", async () => {
+    let resolveCapture!: (value: DatabaseHealthMeasurement) => void;
+    const captureResult = new Promise<DatabaseHealthMeasurement>((resolve) => { resolveCapture = resolve; });
+    const repository: DatabaseHealthRepository = {
+      readLatest: vi.fn().mockResolvedValue(null),
+      capture: vi.fn().mockReturnValue(captureResult),
+    };
+    const first = refreshDatabaseHealth(repository, now);
+    const second = refreshDatabaseHealth(repository, now);
+    resolveCapture(measurement({ capturedAt: now }));
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
     expect(repository.capture).toHaveBeenCalledOnce();
   });
 });
