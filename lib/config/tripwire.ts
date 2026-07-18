@@ -44,14 +44,14 @@ export function evaluateDestructiveChange(
 
   const previousGroups = new Map<string, MonitorConfig[]>();
   for (const monitor of previousActive) {
-    if (monitor.group === null) continue;
-    const group = previousGroups.get(monitor.group) ?? [];
+    if (monitor.groupId === null) continue;
+    const group = previousGroups.get(monitor.groupId) ?? [];
     group.push(monitor);
-    previousGroups.set(monitor.group, group);
+    previousGroups.set(monitor.groupId, group);
   }
   const candidateById = new Map(candidateActive.map((monitor) => [monitor.id, monitor]));
   for (const [group, monitors] of [...previousGroups].sort(([left], [right]) => compareLexically(left, right))) {
-    if (monitors.length >= 2 && monitors.every((monitor) => candidateById.get(monitor.id)?.group !== group)) {
+    if (monitors.length >= 2 && monitors.every((monitor) => candidateById.get(monitor.id)?.groupId !== group)) {
       reasons.push({ type: "active-group-removed", group, previousActiveCount: monitors.length });
     }
   }
