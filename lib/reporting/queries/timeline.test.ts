@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildCheckTimeline, buildDailyTimeline, statusGroupSlug } from "./timeline";
+import { buildCheckTimeline, buildDailyTimeline, buildRollupTimeline, statusGroupSlug, summarizeRollupCoverage } from "./timeline";
 
 describe("buildCheckTimeline", () => {
   it("creates a fixed number of chronological buckets", () => {
@@ -24,6 +24,39 @@ describe("buildDailyTimeline", () => {
 
     expect(timeline.map(({ state }) => state)).toEqual(["up", "no-data", "verifying"]);
     expect(timeline[2]?.downtimeSeconds).toBe(80);
+  });
+});
+
+describe("buildRollupTimeline", () => {
+  it("keeps unknown coverage out of the healthy state", () => {
+    const timeline = buildRollupTimeline([
+      {
+        bucketStart: new Date("2026-07-18T11:00:00Z"),
+        expectedChecks: 4,
+        completedChecks: 3,
+        successfulChecks: 3,
+        failedChecks: 0,
+        unknownChecks: 1,
+        downtimeSeconds: 0,
+      },
+      {
+        bucketStart: new Date("2026-07-18T11:30:00Z"),
+        expectedChecks: 4,
+        completedChecks: 0,
+        successfulChecks: 0,
+        failedChecks: 0,
+        unknownChecks: 4,
+        downtimeSeconds: 0,
+      },
+    ], 2, 60 * 60 * 1_000, new Date("2026-07-18T12:00:00Z"));
+
+    expect(timeline.map(({ state }) => state)).toEqual(["verifying", "no-data"]);
+  });
+
+  it("keeps scheduler gaps out of uptime while exposing coverage", () => {
+    expect(summarizeRollupCoverage([
+      { expectedChecks: 10, completedChecks: 8, successfulChecks: 8 },
+    ])).toEqual({ uptime: 100, coverage: 0.8 });
   });
 });
 
