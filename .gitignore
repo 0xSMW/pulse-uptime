@@ -1,0 +1,15 @@
+/AGENTS.md
+.next/
+node_modules/
+coverage/
+playwright-report/
+test-results/
+.env
+.env.local
+.env.*.local
+.vercel/
+*.tsbuildinfo
+pulsectl
+
+# Local operator and deployment context
+AGENTS.md
