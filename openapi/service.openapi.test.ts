@@ -164,6 +164,18 @@ describe("committed OpenAPI v1 source", () => {
     expect(health.required).toContain("freshness");
     expect(health.required).toContain("refresh");
     expect(health.properties.health.enum).toContain("UNKNOWN");
+    expect(health.properties.freshness).toBeDefined();
+    expect(health.properties.refresh).toBeDefined();
+    const freshness = health.properties.freshness as unknown as {
+      required: string[];
+    };
+    const refreshSchema = health.properties.refresh as unknown as {
+      required: string[];
+      properties: { status: { enum: string[] } };
+    };
+    expect(freshness.required).toContain("providerCapturedAt");
+    expect(refreshSchema.required).toContain("status");
+    expect(refreshSchema.properties.status.enum).toContain("STALE_FALLBACK");
     const refresh = document.paths["/api/v1/database-health/refresh"].post as Operation & {
       parameters: Array<{ $ref?: string }>;
       responses: Record<string, unknown>;
