@@ -1,6 +1,6 @@
 import "server-only";
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { createClient } from "@vercel/edge-config";
 import { and, desc, eq, gt, isNull, notInArray, sql as drizzleSql } from "drizzle-orm";
@@ -17,23 +17,34 @@ import {
   configOperations,
   incidents,
   monitorRegistry,
+  monitorExceptions,
   monitoringConfigSnapshots,
   monitorState,
 } from "@/lib/db/schema";
-import { processCheck } from "@/lib/monitoring/process-check";
+import type { MonitorStateSnapshot } from "@/lib/monitoring/types";
 import { deliverPendingNotifications } from "@/lib/notifications/delivery";
 import { createResendSender } from "@/lib/notifications/provider";
 import { reconcileStaleClaims, type SqlExecutor } from "@/lib/notifications/sql";
+import { persistAtomicMinute, type CompletedMinuteCheck } from "@/lib/storage/atomic-minute";
 
 import { runMonitoringCoordinator } from "./coordinator";
 import { evaluateConfigurationSource, requireApprovalConsumption } from "./configuration";
 import { targetFor, transitionLifecycle } from "./lifecycle";
 import { createSqlCronRunStore, createSqlLeaseStore } from "./sql";
+import { isDueAt } from "./time";
 
 type AcceptedRow = {
   configJson: unknown;
   configHash: string;
 };
+
+function deterministicUuid(value: string): string {
+  const bytes = Buffer.from(createHash("sha256").update(value).digest().subarray(0, 16));
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 
 export const queryExecutor: SqlExecutor = {
   async query<T>(text: string, values: readonly unknown[]): Promise<readonly T[]> {
@@ -74,6 +85,8 @@ async function synchronizeRegistry(config: MonitoringConfig, hash: string, now: 
     };
 
     for (const monitor of config.monitors) {
+      const [previousRegistry] = await tx.select().from(monitorRegistry)
+        .where(eq(monitorRegistry.id, monitor.id));
       await tx.insert(monitorRegistry).values({
         id: monitor.id,
         name: monitor.name,
@@ -102,6 +115,25 @@ async function synchronizeRegistry(config: MonitoringConfig, hash: string, now: 
         updatedAt: now,
       }).onConflictDoNothing();
       await applyLifecycle(monitor.id, monitor.enabled, false);
+      const exceptionTypes = [
+        ...(previousRegistry && previousRegistry.configHash !== hash ? ["configuration" as const] : []),
+        ...(previousRegistry && previousRegistry.enabled !== monitor.enabled
+          ? [monitor.enabled ? "resume" as const : "pause" as const]
+          : []),
+      ];
+      for (const eventType of exceptionTypes) {
+        const identity = `${eventType}/${monitor.id}/${hash}`;
+        await tx.insert(monitorExceptions).values({
+          id: deterministicUuid(identity),
+          monitorId: monitor.id,
+          eventType,
+          errorCode: null,
+          identityHash: createHash("sha256").update(identity).digest(),
+          firstSeenAt: now,
+          lastSeenAt: now,
+          occurrenceCount: 1,
+        }).onConflictDoNothing();
+      }
     }
 
     const ids = config.monitors.map((monitor) => monitor.id);
@@ -111,7 +143,22 @@ async function synchronizeRegistry(config: MonitoringConfig, hash: string, now: 
       archivedAt: now,
       lastSeenAt: now,
     }).where(and(isNull(monitorRegistry.archivedAt), removal)).returning({ id: monitorRegistry.id });
-    for (const row of removed) await applyLifecycle(row.id, false, true);
+    for (const row of removed) {
+      await applyLifecycle(row.id, false, true);
+      for (const eventType of ["pause", "configuration"] as const) {
+        const identity = `${eventType}/${row.id}/${hash}`;
+        await tx.insert(monitorExceptions).values({
+          id: deterministicUuid(identity),
+          monitorId: row.id,
+          eventType,
+          errorCode: eventType === "pause" ? "MONITOR_ARCHIVED" : null,
+          identityHash: createHash("sha256").update(identity).digest(),
+          firstSeenAt: now,
+          lastSeenAt: now,
+          occurrenceCount: 1,
+        }).onConflictDoNothing();
+      }
+    }
   });
 }
 
@@ -215,6 +262,8 @@ async function loadAcceptedConfiguration(now: Date): Promise<MonitoringConfig> {
 
 export async function runMonitoringCron() {
   let activeConfig: MonitoringConfig | null = null;
+  let stateSnapshots = new Map<string, MonitorStateSnapshot>();
+  const minuteResults = new Map<string, CompletedMinuteCheck>();
   const sender = createResendSender({
     apiKey: process.env.RESEND_API_KEY ?? "",
     from: process.env.RESEND_FROM_EMAIL ?? "",
@@ -224,6 +273,8 @@ export async function runMonitoringCron() {
     runs: createSqlCronRunStore(queryExecutor),
     async loadConfig(now) {
       activeConfig = await loadAcceptedConfiguration(now);
+      const states = await db.select().from(monitorState);
+      stateSnapshots = new Map(states.map((state) => [state.monitorId, state]));
       return activeConfig;
     },
     reconcileOutbox: (now) => reconcileStaleClaims(queryExecutor, now),
@@ -233,18 +284,16 @@ export async function runMonitoringCron() {
       appUrl: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
       log: (event) => console.info(JSON.stringify(event)),
     }),
-    async runMonitor(monitor, scheduledAt, runId) {
+    async runMonitor(monitor, _scheduledAt, runId) {
       if (!activeConfig) throw new Error("Accepted configuration is unavailable");
       const recipients = monitor.recipients.length > 0
         ? monitor.recipients
         : activeConfig.settings.defaultRecipients;
       const checkedAt = new Date();
       const result = await createHttpChecker({ userAgent: activeConfig.settings.userAgent })(monitor);
-      const processed = await processCheck(db, {
+      minuteResults.set(monitor.id, {
         monitorId: monitor.id,
         monitorName: monitor.name,
-        runId,
-        scheduledAt,
         checkedAt,
         successful: result.success,
         statusCode: result.statusCode,
@@ -262,28 +311,26 @@ export async function runMonitoringCron() {
         event: "monitor.check.completed",
         runId,
         monitorId: monitor.id,
-        status: processed.status,
+        status: result.success ? "success" : "failure",
         durationMs: result.latencyMs,
         ...(result.errorCode ? { errorCode: result.errorCode } : {}),
       }));
-      if (processed.status === "duplicate") return "duplicate";
-      if (processed.previousState !== processed.state) {
-        console.info(JSON.stringify({
-          event: "monitor.state.changed",
-          runId,
-          monitorId: monitor.id,
-          status: processed.state,
-        }));
-      }
-      if (processed.event) {
-        console.info(JSON.stringify({
-          event: processed.event,
-          runId,
-          monitorId: monitor.id,
-          incidentId: processed.incidentId,
-        }));
-      }
       return result.success ? "success" : "failure";
+    },
+    async persistMinute(config, scheduledMinute, schedulerStartedAt, schedulerCompletedAt) {
+      const expectedMonitorIds = config.monitors
+        .filter((monitor) => monitor.enabled && isDueAt(monitor, scheduledMinute))
+        .map((monitor) => monitor.id);
+      await persistAtomicMinute(queryExecutor, {
+        scheduledMinute,
+        configVersion: config.configVersion,
+        monitorIds: config.monitors.filter((monitor) => monitor.enabled).map((monitor) => monitor.id),
+        expectedMonitorIds,
+        results: [...minuteResults.values()],
+        states: stateSnapshots,
+        schedulerStartedAt,
+        schedulerCompletedAt,
+      });
     },
   });
 }
