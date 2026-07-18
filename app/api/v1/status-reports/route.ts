@@ -7,6 +7,7 @@ import {
   createStatusReport,
   listStatusReportSummaries,
   parseStatusReportListQuery,
+  recoverCreatedStatusReport,
 } from "@/lib/api/status-reports";
 
 export async function GET(request: Request) {
@@ -39,8 +40,17 @@ export async function POST(request: Request) {
       principalKey: context.principalKey,
       routeKey: "/api/v1/status-reports",
       body,
-      work: async () => {
-        const report = await createStatusReport(body);
+      // A retry after a stale-record reclaim means a prior attempt may have
+      // already inserted the report before crashing; recover it by the id we
+      // pin to the operation instead of re-running the callback with a fresh
+      // random id (which would create a duplicate report).
+      recover: async ({ operationId }) => {
+        const report = await recoverCreatedStatusReport(operationId);
+        return report ? { status: 201, body: objectEnvelope("StatusReport", report, context.requestId) } : null;
+      },
+      rerunAfterRecoveryMiss: false,
+      work: async ({ operationId }) => {
+        const report = await createStatusReport(body, { reportId: operationId });
         await revalidateStatusReportPaths(report);
         return { status: 201, body: objectEnvelope("StatusReport", report, context.requestId) };
       },

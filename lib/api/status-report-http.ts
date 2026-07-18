@@ -27,24 +27,25 @@ export function statusReportRouteError(error: unknown, requestId: string): Respo
  * immediately instead of at the 30 s ISR boundary.
  *
  * Group pages match a report by monitor id OR live group name, so beyond the
- * snapshotted group names we also revalidate the affected monitors' CURRENT
- * registry groups (one findMonitors query, best-effort), and callers replacing
- * the affected set pass the pre-patch rows so the pages a report just left are
- * refreshed too.
+ * snapshotted group names we also revalidate the CURRENT registry groups of
+ * every monitor that is (or was) affected — the union of the post-patch
+ * affected set and the caller-supplied pre-patch rows (one findMonitors
+ * query, best-effort) — so a monitor that was REMOVED from the affected set
+ * but has since moved groups still gets its current group page refreshed,
+ * not just the page its stale snapshot pointed at.
  */
 export async function revalidateStatusReportPaths(
   report: {
     id: string;
     affected: ReadonlyArray<{ monitorId: string; groupName: string | null }>;
   },
-  previousAffected: ReadonlyArray<{ groupName: string | null }> = [],
+  previousAffected: ReadonlyArray<{ monitorId: string; groupName: string | null }> = [],
 ): Promise<void> {
   revalidatePath("/status");
   revalidatePath(`/status/reports/${report.id}`);
-  const slugs = new Set(
-    [...report.affected, ...previousAffected].map((entry) => statusGroupSlug(entry.groupName ?? "Other")),
-  );
-  const monitorIds = [...new Set(report.affected.map((entry) => entry.monitorId))];
+  const combined = [...report.affected, ...previousAffected];
+  const slugs = new Set(combined.map((entry) => statusGroupSlug(entry.groupName ?? "Other")));
+  const monitorIds = [...new Set(combined.map((entry) => entry.monitorId))];
   if (monitorIds.length > 0) {
     try {
       const live = await databaseStatusReportsStore.findMonitors(monitorIds);

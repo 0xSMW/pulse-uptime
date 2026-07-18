@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/db/client", () => ({ db: {} }));
 
+import { encodeCursor } from "./pagination";
 import {
   addReportUpdate,
   classifyPublicReport,
@@ -17,10 +18,13 @@ import {
   getStatusReport,
   listStatusReports,
   listStatusReportSummaries,
+  MAX_AFFECTED_PER_REPORT,
   parseStatusReportListQuery,
   promoteIncident,
   publicIncidentCause,
   publishStatusReport,
+  recoverAddedReportUpdate,
+  recoverCreatedStatusReport,
   StatusReportError,
   updateStatusReport,
   type StatusReportAffectedRow,
@@ -159,11 +163,31 @@ function memoryStore(monitors: Array<{ id: string; name: string; groupName: stri
     async findIncident(incidentId) {
       return incidents.get(incidentId) ?? null;
     },
-    async getPublicReportRows({ resolvedLimit }) {
+    async getPublicReportRows({ resolvedLimit, now, filter }) {
       // Deliberately sloppier than the SQL (includes drafts) so the service's
       // own draft filter is exercised.
-      const rows = [...reports.values()];
-      const unresolved = rows.filter((row) => row.resolvedAt === null);
+      let rows = [...reports.values()];
+      if (filter) {
+        const monitorIds = new Set(filter.monitorIds);
+        const groupNames = new Set(filter.groupNames);
+        const matching = new Set(
+          affected
+            .filter((row) => monitorIds.has(row.monitorId) || groupNames.has(row.groupName ?? "Other"))
+            .map((row) => row.reportId),
+        );
+        rows = rows.filter((row) => matching.has(row.id));
+      }
+      // Mirrors ORDER BY (starts_at > now()), starts_at desc: active/past rows
+      // (startsAt <= now) sort ahead of future-scheduled ones so the 100 cap
+      // can never let future maintenance crowd out an active report.
+      const unresolved = rows
+        .filter((row) => row.resolvedAt === null)
+        .sort((left, right) => {
+          const leftFuture = left.startsAt.getTime() > now.getTime() ? 1 : 0;
+          const rightFuture = right.startsAt.getTime() > now.getTime() ? 1 : 0;
+          return leftFuture - rightFuture || right.startsAt.getTime() - left.startsAt.getTime();
+        })
+        .slice(0, 100);
       const resolved = rows.filter((row) => row.resolvedAt !== null)
         .sort((left, right) => right.resolvedAt!.getTime() - left.resolvedAt!.getTime())
         .slice(0, resolvedLimit);
@@ -188,6 +212,21 @@ function memoryStore(monitors: Array<{ id: string; name: string; groupName: stri
 function sequentialIds(prefix: string) {
   let counter = 0;
   return () => `${prefix}-${String(++counter).padStart(4, "0")}`;
+}
+
+/**
+ * UUID-shaped sequential ids for tests that round-trip an id through a list
+ * cursor: parseStatusReportListQuery validates the decoded cursor id against
+ * the UUID pattern (finding: a non-UUID cursor id must 400 as INVALID_CURSOR
+ * rather than reach Postgres), so fixtures feeding a real cursor need
+ * genuinely UUID-shaped ids.
+ */
+function sequentialUuids() {
+  let counter = 0;
+  return () => {
+    counter += 1;
+    return `00000000-0000-4000-8000-${String(counter).padStart(12, "0")}`;
+  };
 }
 
 function dependencies(store: MemoryStore, now: Date = NOW) {
@@ -273,6 +312,26 @@ describe("createStatusReport", () => {
       dependencies(store),
     )).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
   });
+
+  it("rejects an inverted or zero-length maintenance window (finding: endsAt <= startsAt accepted)", async () => {
+    const store = memoryStore();
+    await expect(createStatusReport({
+      ...validCreate, type: "maintenance",
+      startsAt: "2026-07-19T02:00:00.000Z", endsAt: "2026-07-19T00:00:00.000Z",
+      update: { status: "scheduled", markdown: "Planned." },
+    }, dependencies(store))).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    await expect(createStatusReport({
+      ...validCreate, type: "maintenance",
+      startsAt: "2026-07-19T00:00:00.000Z", endsAt: "2026-07-19T00:00:00.000Z",
+      update: { status: "scheduled", markdown: "Planned." },
+    }, dependencies(store))).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    // A valid window still succeeds.
+    await expect(createStatusReport({
+      ...validCreate, type: "maintenance",
+      startsAt: "2026-07-19T00:00:00.000Z", endsAt: "2026-07-19T02:00:00.000Z",
+      update: { status: "scheduled", markdown: "Planned." },
+    }, dependencies(store))).resolves.toMatchObject({ startsAt: "2026-07-19T00:00:00.000Z" });
+  });
 });
 
 describe("report update lifecycle", () => {
@@ -336,6 +395,26 @@ describe("report update lifecycle", () => {
     await expect(deleteReportUpdate(created.id, second, deps)).rejects.toMatchObject({ code: "LAST_UPDATE" });
   });
 
+  it("store contract: truly concurrent deletes of DIFFERENT updates never both succeed (finding: LAST_UPDATE race)", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const created = await createStatusReport(validCreate, deps);
+    const report = await addReportUpdate(created.id, { status: "monitoring", markdown: "Watching." }, deps);
+    const [first, second] = report.updates.map((update) => update.id);
+
+    // Fired concurrently (not sequentially, unlike the test above) — the
+    // guarded contract must still hold: exactly one "deleted", exactly one
+    // "last_update", and the report never ends up with zero updates. A
+    // non-locking count-subquery implementation could let both observe
+    // count=2 under READ COMMITTED and both report "deleted".
+    const [firstOutcome, secondOutcome] = await Promise.all([
+      store.deleteUpdate({ reportId: created.id, updateId: first }),
+      store.deleteUpdate({ reportId: created.id, updateId: second }),
+    ]);
+    expect([firstOutcome, secondOutcome].sort()).toEqual(["deleted", "last_update"]);
+    expect([...store.updates.values()].filter((row) => row.reportId === created.id)).toHaveLength(1);
+  });
+
   it("serializes id, publishedAt, and createdAt on every update for the client-side tiebreak", async () => {
     const store = memoryStore();
     const deps = dependencies(store);
@@ -382,6 +461,31 @@ describe("updateStatusReport", () => {
     const deps = dependencies(store);
     await expect(updateStatusReport("missing", {}, deps)).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
     await expect(updateStatusReport("missing", { title: "X" }, deps)).rejects.toMatchObject({ code: "REPORT_NOT_FOUND" });
+  });
+
+  it("validates a partial bound patch against the effective OTHER bound (finding: inverted windows via PATCH)", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const created = await createStatusReport({
+      ...validCreate, type: "maintenance",
+      startsAt: "2026-07-19T00:00:00.000Z", endsAt: "2026-07-19T02:00:00.000Z",
+      update: { status: "scheduled", markdown: "Planned." },
+    }, deps);
+
+    // Moving startsAt PAST the existing (untouched) endsAt must be rejected.
+    await expect(updateStatusReport(created.id, {
+      startsAt: "2026-07-19T03:00:00.000Z",
+    }, deps)).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    // Moving endsAt BEFORE the existing (untouched) startsAt must be rejected.
+    await expect(updateStatusReport(created.id, {
+      endsAt: "2026-07-18T23:00:00.000Z",
+    }, deps)).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    // Either bound moving to a value that still keeps the window valid succeeds.
+    await expect(updateStatusReport(created.id, {
+      startsAt: "2026-07-19T01:00:00.000Z",
+    }, deps)).resolves.toMatchObject({ startsAt: "2026-07-19T01:00:00.000Z" });
   });
 });
 
@@ -465,7 +569,7 @@ describe("promoteIncident", () => {
 describe("listStatusReports", () => {
   it("filters state and type separately and paginates with a stable cursor", async () => {
     const store = memoryStore();
-    const newId = sequentialIds("rep");
+    const newId = sequentialUuids();
     let tick = 0;
     const deps = { store, newId, now: () => new Date(NOW.getTime() + (tick += 1_000)) };
     const draft = await createStatusReport({ ...validCreate, draft: true }, deps);
@@ -518,7 +622,7 @@ describe("listStatusReports", () => {
 
   it("paginates summaries with the same stable cursor as the detailed list", async () => {
     const store = memoryStore();
-    const newId = sequentialIds("rep");
+    const newId = sequentialUuids();
     let tick = 0;
     const deps = { store, newId, now: () => new Date(NOW.getTime() + (tick += 1_000)) };
     await createStatusReport(validCreate, deps);
@@ -541,6 +645,23 @@ describe("listStatusReports", () => {
       .toThrow(StatusReportError);
     expect(() => parseStatusReportListQuery({ state: null, type: null, cursor: "not-a-cursor" }))
       .toThrow(StatusReportError);
+  });
+
+  it("rejects a well-formed cursor carrying a non-UUID id as INVALID_CURSOR instead of reaching Postgres (finding: 22P02)", () => {
+    const crafted = encodeCursor({ sort: NOW.toISOString(), id: "'; drop table status_reports;--" });
+    expect(() => parseStatusReportListQuery({ state: null, type: null, cursor: crafted }))
+      .toThrow(StatusReportError);
+    try {
+      parseStatusReportListQuery({ state: null, type: null, cursor: crafted });
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toMatchObject({ code: "INVALID_CURSOR" });
+    }
+    // A well-formed cursor with a genuine UUID id still parses.
+    const valid = encodeCursor({ sort: NOW.toISOString(), id: "11111111-1111-4111-8111-111111111111" });
+    expect(parseStatusReportListQuery({ state: null, type: null, cursor: valid }).cursor).toEqual({
+      createdAt: NOW, id: "11111111-1111-4111-8111-111111111111",
+    });
   });
 });
 
@@ -565,6 +686,54 @@ describe("database store UUID guards", () => {
   it("maps guarded non-UUID lookups to the existing 404 error codes", async () => {
     await expect(getStatusReport("not-a-uuid")).rejects.toMatchObject({ code: "REPORT_NOT_FOUND" });
     await expect(promoteIncident("inc_9")).rejects.toMatchObject({ code: "INCIDENT_NOT_FOUND" });
+  });
+});
+
+describe("idempotent-create recovery (finding: duplicate report/update after a crash)", () => {
+  it("pins the report id to a caller-supplied reportId and recovers it by that id", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const created = await createStatusReport(validCreate, { ...deps, reportId: "op-report-1" });
+    expect(created.id).toBe("op-report-1");
+
+    const recovered = await recoverCreatedStatusReport("op-report-1", deps);
+    expect(recovered).toEqual(created);
+  });
+
+  it("returns null when recovering an id nothing ever created", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    await expect(recoverCreatedStatusReport("never-created", deps)).resolves.toBeNull();
+  });
+
+  it("pins the update id to a caller-supplied updateId and recovers the report by it", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const created = await createStatusReport(validCreate, deps);
+    const updated = await addReportUpdate(created.id, {
+      status: "monitoring", markdown: "Watching.",
+    }, { ...deps, updateId: "op-update-1" });
+    expect(updated.updates.some((update) => update.id === "op-update-1")).toBe(true);
+
+    const recovered = await recoverAddedReportUpdate(created.id, "op-update-1", deps);
+    expect(recovered).toEqual(updated);
+  });
+
+  it("returns null recovering an update id that was never added, or on an unknown report", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const created = await createStatusReport(validCreate, deps);
+    await expect(recoverAddedReportUpdate(created.id, "never-added", deps)).resolves.toBeNull();
+    await expect(recoverAddedReportUpdate("missing-report", "never-added", deps)).resolves.toBeNull();
+  });
+});
+
+describe("affected-row read caps derive from the page, not a fixed constant (finding: 2,000-row truncation)", () => {
+  it("MAX_AFFECTED_PER_REPORT matches the per-report write-time cap", () => {
+    // affectedListSchema.max(...) uses the same constant, so a page's affected
+    // read cap (reportIds.length * MAX_AFFECTED_PER_REPORT) can never truncate
+    // a set of reports that are each individually within the write-time bound.
+    expect(MAX_AFFECTED_PER_REPORT).toBe(100);
   });
 });
 
@@ -629,5 +798,54 @@ describe("getPublicReports", () => {
     expect(result.resolved.map((row) => row.id)).toEqual([created.id]);
     expect(result.resolved[0].phase).toBe("resolved");
     expect(result.resolved[0].resolvedAt).toBe("2026-07-18T13:00:00.000Z");
+  });
+
+  it("keeps an active report inside the unresolved cap even behind 100 future-scheduled windows (finding: active reports starved by future maintenance)", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const active = await createStatusReport({
+      type: "maintenance", title: "Active window",
+      startsAt: "2026-07-18T11:00:00.000Z", endsAt: "2026-07-18T15:00:00.000Z",
+      update: { status: "in_progress", markdown: "Underway." },
+    }, deps);
+    for (let index = 0; index < 100; index += 1) {
+      await createStatusReport({
+        type: "maintenance", title: `Future window ${index}`,
+        startsAt: `2027-01-${String((index % 28) + 1).padStart(2, "0")}T00:00:00.000Z`,
+        update: { status: "scheduled", markdown: "Planned." },
+      }, deps);
+    }
+    const result = await getPublicReports(deps);
+    expect(result.ongoing.map((row) => row.id)).toContain(active.id);
+  });
+
+  it("scopes the resolved LIMIT to a group filter so an older group-relevant report isn't starved by unrelated global history", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    // 10 unrelated (web / "Other" group) resolved reports fill the global top 10.
+    for (let index = 0; index < 10; index += 1) {
+      const report = await createStatusReport({
+        ...validCreate, title: `Other resolved ${index}`,
+        affected: [{ monitorId: "web", impact: "down" }],
+      }, deps);
+      await addReportUpdate(report.id, {
+        status: "resolved", markdown: "Done.", publishedAt: `2026-07-18T${13 + index}:00:00.000Z`,
+      }, deps);
+    }
+    // An older resolved report for "Core" (api-prod) would be pushed off the
+    // global top 10 by the fresher "Other" reports above. Resolved just after
+    // the report's own initial (NOW) update so it actually becomes the latest
+    // update by the total order, but still older than every "Other" report's
+    // resolution so it is the one the unfiltered top-10 would drop.
+    const coreReport = await createStatusReport(validCreate, deps);
+    await addReportUpdate(coreReport.id, {
+      status: "resolved", markdown: "Done.", publishedAt: "2026-07-18T12:30:00.000Z",
+    }, deps);
+
+    const unfiltered = await getPublicReports(deps);
+    expect(unfiltered.resolved.map((row) => row.id)).not.toContain(coreReport.id);
+
+    const filtered = await getPublicReports(deps, { monitorIds: ["api-prod"], groupNames: ["Core"] });
+    expect(filtered.resolved.map((row) => row.id)).toEqual([coreReport.id]);
   });
 });

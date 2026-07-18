@@ -163,6 +163,24 @@ describe("getPublicStatus", () => {
     const data = await getPublicStatus("unknown-group");
     expect(data).toBeNull();
   });
+
+  it("scopes getPublicReports to the group's monitors/group names on a group page, and leaves the root page unfiltered", async () => {
+    vi.mocked(getStatusPageConfig).mockResolvedValue(resolvedConfig());
+    const monitorRow = { id: "mon-1", name: "API", groupName: "Core", state: "UP" };
+    dbMock.select
+      .mockReturnValueOnce(selectChain([monitorRow])) // monitors
+      .mockReturnValueOnce(selectChain([])) // rollups
+      .mockReturnValueOnce(selectChain([])) // current incidents
+      .mockReturnValueOnce(selectChain([])); // recent incidents
+
+    await getPublicStatus("core");
+    expect(getPublicReports).toHaveBeenCalledWith(undefined, { monitorIds: ["mon-1"], groupNames: ["Core"] });
+
+    vi.mocked(getPublicReports).mockClear();
+    dbMock.select.mockReturnValue(selectChain([]));
+    await getPublicStatus();
+    expect(getPublicReports).toHaveBeenCalledWith(undefined, undefined);
+  });
 });
 
 describe("getPublicReportDetail", () => {

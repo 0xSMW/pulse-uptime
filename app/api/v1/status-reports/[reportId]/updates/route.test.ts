@@ -17,14 +17,17 @@ vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
 vi.mock("@/lib/api/status-reports", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/status-reports")>()),
   addReportUpdate: vi.fn(),
+  recoverAddedReportUpdate: vi.fn(),
 }));
 
 import { revalidatePath } from "next/cache";
 
-import { apiError } from "@/lib/api/envelopes";
+import { apiError, objectEnvelope } from "@/lib/api/envelopes";
+import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, type ApiContext } from "@/lib/api/middleware";
 import {
   addReportUpdate,
+  recoverAddedReportUpdate,
   StatusReportError,
   type StatusReportData,
 } from "@/lib/api/status-reports";
@@ -64,6 +67,8 @@ beforeEach(() => {
   vi.mocked(authorize).mockReset().mockResolvedValue(context);
   vi.mocked(revalidatePath).mockReset();
   vi.mocked(addReportUpdate).mockReset().mockResolvedValue(report);
+  vi.mocked(recoverAddedReportUpdate).mockReset();
+  vi.mocked(executeIdempotent).mockClear();
 });
 
 describe("POST /api/v1/status-reports/{reportId}/updates", () => {
@@ -74,7 +79,10 @@ describe("POST /api/v1/status-reports/{reportId}/updates", () => {
     const payload = await response.json();
     expect(payload.kind).toBe("StatusReport");
     expect(payload.data.currentStatus).toBe("resolved");
-    expect(addReportUpdate).toHaveBeenCalledWith("rep-1", { status: "resolved", markdown: "Fixed." });
+    // The update id is pinned to the idempotency operationId (finding: a retry
+    // after a stale-record reclaim must recover instead of inserting a
+    // second update with a fresh random id).
+    expect(addReportUpdate).toHaveBeenCalledWith("rep-1", { status: "resolved", markdown: "Fixed." }, { updateId: "op-1" });
     expect(revalidatePath).toHaveBeenCalledWith("/status");
     expect(revalidatePath).toHaveBeenCalledWith("/status/reports/rep-1");
     expect(revalidatePath).toHaveBeenCalledWith("/status/core");
@@ -92,5 +100,27 @@ describe("POST /api/v1/status-reports/{reportId}/updates", () => {
     const response = await POST(request({ status: "resolved", markdown: "Fixed." }), params);
     expect(response.status).toBe(404);
     expect((await response.json()).error.code).toBe("REPORT_NOT_FOUND");
+  });
+
+  it("wires recover + rerunAfterRecoveryMiss: false so a reclaimed retry recovers instead of duplicating", async () => {
+    await POST(request({ status: "resolved", markdown: "Fixed." }), params);
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      recover: (context: { operationId: string }) => Promise<unknown>;
+      rerunAfterRecoveryMiss: boolean;
+    };
+    expect(options.rerunAfterRecoveryMiss).toBe(false);
+
+    // Recovery hit: the prior attempt's update is found by the pinned id.
+    vi.mocked(recoverAddedReportUpdate).mockResolvedValue(report);
+    await expect(options.recover({ operationId: "op-99" })).resolves.toEqual({
+      status: 201,
+      body: objectEnvelope("StatusReport", report, context.requestId),
+    });
+    expect(recoverAddedReportUpdate).toHaveBeenCalledWith("rep-1", "op-99");
+
+    // Recovery miss: nothing to recover, so executeIdempotent will refuse the
+    // retry (rerunAfterRecoveryMiss: false) instead of re-running work().
+    vi.mocked(recoverAddedReportUpdate).mockResolvedValue(null);
+    await expect(options.recover({ operationId: "op-100" })).resolves.toBeNull();
   });
 });

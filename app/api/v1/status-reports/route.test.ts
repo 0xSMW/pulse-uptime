@@ -18,15 +18,18 @@ vi.mock("@/lib/api/status-reports", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/status-reports")>()),
   listStatusReportSummaries: vi.fn(),
   createStatusReport: vi.fn(),
+  recoverCreatedStatusReport: vi.fn(),
 }));
 
 import { revalidatePath } from "next/cache";
 
-import { apiError } from "@/lib/api/envelopes";
+import { apiError, objectEnvelope } from "@/lib/api/envelopes";
+import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, type ApiContext } from "@/lib/api/middleware";
 import {
   createStatusReport,
   listStatusReportSummaries,
+  recoverCreatedStatusReport,
   StatusReportError,
   type StatusReportData,
   type StatusReportListItemData,
@@ -67,6 +70,8 @@ beforeEach(() => {
   vi.mocked(revalidatePath).mockReset();
   vi.mocked(listStatusReportSummaries).mockReset().mockResolvedValue({ data: [listRow], nextCursor: "cursor-2" });
   vi.mocked(createStatusReport).mockReset().mockResolvedValue(report);
+  vi.mocked(recoverCreatedStatusReport).mockReset();
+  vi.mocked(executeIdempotent).mockClear();
 });
 
 describe("GET /api/v1/status-reports", () => {
@@ -127,6 +132,27 @@ describe("POST /api/v1/status-reports", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/status");
     expect(revalidatePath).toHaveBeenCalledWith("/status/reports/rep-1");
     expect(revalidatePath).toHaveBeenCalledWith("/status/core");
+  });
+
+  it("pins the report id to the idempotency operationId and wires recover + rerunAfterRecoveryMiss: false (finding: duplicate report after a crash)", async () => {
+    await POST(postRequest({ type: "incident" }));
+    expect(createStatusReport).toHaveBeenCalledWith({ type: "incident" }, { reportId: "op-1" });
+
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      recover: (context: { operationId: string }) => Promise<unknown>;
+      rerunAfterRecoveryMiss: boolean;
+    };
+    expect(options.rerunAfterRecoveryMiss).toBe(false);
+
+    vi.mocked(recoverCreatedStatusReport).mockResolvedValue(report);
+    await expect(options.recover({ operationId: "op-99" })).resolves.toEqual({
+      status: 201,
+      body: objectEnvelope("StatusReport", report, context.requestId),
+    });
+    expect(recoverCreatedStatusReport).toHaveBeenCalledWith("op-99");
+
+    vi.mocked(recoverCreatedStatusReport).mockResolvedValue(null);
+    await expect(options.recover({ operationId: "op-100" })).resolves.toBeNull();
   });
 
   it("maps validation failures to 400 VALIDATION_ERROR", async () => {

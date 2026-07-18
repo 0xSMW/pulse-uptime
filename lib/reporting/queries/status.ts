@@ -135,10 +135,19 @@ async function loadPublicStatus(group?: string) {
   if (group && visible.length === 0) return null;
 
   const ids = visible.map((monitor) => monitor.id);
+  // Group pages scope query 1 of getPublicReports to this group's monitors so
+  // the resolved-history LIMIT is applied AFTER group filtering — otherwise a
+  // global top-10 resolved list can starve a group's history even though
+  // older relevant resolved reports exist. The root page (no `group`) stays
+  // unfiltered. filterReportsForGroup below still runs as a defense-in-depth
+  // pass over whatever this returns.
+  const publicReportsFilter = group
+    ? { monitorIds: ids, groupNames: [...new Set(visible.map((monitor) => monitor.groupName ?? "Other"))] }
+    : undefined;
   // One parallel fan-out per revalidation: the three monitor-scoped queries
   // plus the batched public-reports read (itself exactly 3 queries, §3.2).
   const [publicReports, [rollups, current, recent]] = await Promise.all([
-    getPublicReports(),
+    getPublicReports(undefined, publicReportsFilter),
     ids.length === 0 ? Promise.resolve<[never[], never[], never[]]>([[], [], []]) : Promise.all([
     db.select({
       monitorId: metricRollups.monitorId,

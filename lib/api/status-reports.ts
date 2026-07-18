@@ -198,7 +198,9 @@ export interface StatusReportsStore {
     now: Date;
   }): Promise<StatusReportUpdateRow | null>;
   /**
-   * Atomic guarded delete: the row is removed only while at least one other
+   * Transactional guarded delete: the report row is locked (`FOR UPDATE`) so
+   * concurrent deletes on the same report serialize before the surviving
+   * count is read, then the row is removed only while at least one other
    * update for the report exists. "last_update" = the row exists but is the
    * report's final update; "missing" = no such row.
    */
@@ -216,7 +218,11 @@ export interface StatusReportsStore {
     openingStatusCode: number | null;
   } | null>;
   /** Query 1 of getPublicReports: published ongoing/upcoming + recent resolved. */
-  getPublicReportRows(input: { resolvedLimit: number }): Promise<StatusReportRow[]>;
+  getPublicReportRows(input: {
+    resolvedLimit: number;
+    now: Date;
+    filter?: PublicReportsFilter;
+  }): Promise<StatusReportRow[]>;
   /** Query 2: latest update per report via DISTINCT ON, total-order aligned. */
   getLatestUpdates(reportIds: readonly string[]): Promise<StatusReportUpdateRow[]>;
   /** Query 3: affected rows for the page of reports. */
@@ -227,6 +233,15 @@ export type StatusReportsDependencies = {
   store?: StatusReportsStore;
   now?: () => Date;
   newId?: () => string;
+  /**
+   * Pins createStatusReport's report id instead of drawing one from newId().
+   * The POST route sets this to the idempotency operationId so a retry after
+   * a crash mid-request can recover the row by id rather than re-running the
+   * callback with a fresh random id and creating a duplicate report.
+   */
+  reportId?: string;
+  /** Same idea as reportId, for addReportUpdate's new update row. */
+  updateId?: string;
 };
 
 const RFC3339_PATTERN = /^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})$/;
@@ -255,9 +270,17 @@ const affectedEntrySchema = z
   })
   .strict();
 
+/**
+ * Per-report cap on affected monitors, enforced both at the input schema and
+ * as the multiplier the affected-row read caps derive from (reportIds.length
+ * * MAX_AFFECTED_PER_REPORT) so a global cap can never truncate a page of
+ * reports that are each individually within bounds.
+ */
+export const MAX_AFFECTED_PER_REPORT = 100;
+
 const affectedListSchema = z
   .array(affectedEntrySchema)
-  .max(100)
+  .max(MAX_AFFECTED_PER_REPORT)
   .refine(
     (entries) => new Set(entries.map((entry) => entry.monitorId)).size === entries.length,
     { message: "Affected monitors must be unique" },
@@ -279,7 +302,14 @@ const createSchema = z
       .strict(),
     draft: z.boolean().optional(),
   })
-  .strict();
+  .strict()
+  // Only checked when both bounds are explicitly given; an omitted startsAt
+  // defaults to `now` in createStatusReport, which the "both present" clause
+  // deliberately doesn't second-guess here.
+  .refine(
+    (value) => value.startsAt === undefined || !value.endsAt || value.endsAt.getTime() > value.startsAt.getTime(),
+    { message: "endsAt must be after startsAt", path: ["endsAt"] },
+  );
 
 const patchSchema = z
   .object({
@@ -450,7 +480,7 @@ export function parseStatusReportListQuery(input: {
   if (input.cursor) {
     const decoded = decodeCursor(input.cursor);
     const createdAt = decoded ? new Date(decoded.sort) : null;
-    if (!decoded || !createdAt || Number.isNaN(createdAt.getTime())) {
+    if (!decoded || !createdAt || Number.isNaN(createdAt.getTime()) || !isUuid(decoded.id)) {
       throw new StatusReportError("INVALID_CURSOR", "Cursor is invalid");
     }
     cursor = { createdAt, id: decoded.id };
@@ -547,7 +577,7 @@ export async function createStatusReport(
   const parsed = parseOrThrow(createSchema, input);
   assertStatusMatchesType(parsed.type, parsed.update.status);
 
-  const reportId = newId();
+  const reportId = dependencies.reportId ?? newId();
   const update: StatusReportUpdateRow = {
     id: newId(),
     reportId,
@@ -574,6 +604,25 @@ export async function createStatusReport(
   return serializeReport(report, [update], affected);
 }
 
+/**
+ * Idempotency recovery for POST /status-reports: called only after a stale
+ * "running" record is reclaimed (i.e. a prior attempt crashed after
+ * inserting but before the idempotency record was marked complete). The
+ * route pins the report id to the idempotency operationId, so recovering is
+ * just "does a report with this id exist" — no need to recompute or compare a
+ * content hash the way monitor creation does, since the id itself is unique
+ * to this exact operation.
+ */
+export async function recoverCreatedStatusReport(
+  id: string,
+  dependencies: StatusReportsDependencies = {},
+): Promise<StatusReportData | null> {
+  const store = dependencies.store ?? databaseStatusReportsStore;
+  const report = await store.getReport(id);
+  if (!report) return null;
+  return loadReportData(store, report);
+}
+
 export async function updateStatusReport(
   id: string,
   input: unknown,
@@ -584,6 +633,18 @@ export async function updateStatusReport(
   const parsed = parseOrThrow(patchSchema, input);
   const existing = await store.getReport(id);
   if (!existing) throw new StatusReportError("REPORT_NOT_FOUND", "Status report was not found");
+
+  // A partial patch touching only one bound must still validate against the
+  // EFFECTIVE other bound (the existing report's, when the patch leaves it
+  // untouched) — not just the bound(s) the caller happened to send.
+  const effectiveStartsAt = parsed.startsAt ?? existing.startsAt;
+  const effectiveEndsAt = parsed.endsAt !== undefined ? parsed.endsAt : existing.endsAt;
+  if (effectiveEndsAt && effectiveEndsAt.getTime() <= effectiveStartsAt.getTime()) {
+    throw new StatusReportError("VALIDATION_ERROR", "endsAt must be after startsAt", {
+      startsAt: effectiveStartsAt.toISOString(),
+      endsAt: effectiveEndsAt.toISOString(),
+    });
+  }
 
   // Affected is a FULL REPLACEMENT with fresh registry snapshots.
   const affected = parsed.affected === undefined ? undefined : await snapshotAffected(store, id, parsed.affected);
@@ -637,7 +698,7 @@ export async function addReportUpdate(
   assertStatusMatchesType(report.type, parsed.status);
 
   await store.insertUpdate({
-    id: newId(),
+    id: dependencies.updateId ?? newId(),
     reportId,
     status: parsed.status,
     markdown: parsed.markdown,
@@ -646,6 +707,26 @@ export async function addReportUpdate(
     updatedAt: now,
   });
   return persistResolutionAndSerialize(store, report, now);
+}
+
+/**
+ * Idempotency recovery for POST /status-reports/{id}/updates, mirroring
+ * recoverCreatedStatusReport: the route pins the new update's id to the
+ * idempotency operationId, so recovering after a reclaimed stale record is
+ * "does the report still exist AND carry an update with this id" rather than
+ * re-running the callback and inserting a second update.
+ */
+export async function recoverAddedReportUpdate(
+  reportId: string,
+  updateId: string,
+  dependencies: StatusReportsDependencies = {},
+): Promise<StatusReportData | null> {
+  const store = dependencies.store ?? databaseStatusReportsStore;
+  const report = await store.getReport(reportId);
+  if (!report) return null;
+  const { updates, affected } = await store.getReportDetails([reportId]);
+  if (!updates.some((update) => update.id === updateId)) return null;
+  return serializeReport(report, updates, affected);
 }
 
 export async function editReportUpdate(
@@ -675,9 +756,10 @@ export async function deleteReportUpdate(
   const now = dependencies.now?.() ?? new Date();
   const report = await store.getReport(reportId);
   if (!report) throw new StatusReportError("REPORT_NOT_FOUND", "Status report was not found");
-  // The store enforces the LAST_UPDATE invariant atomically: the guarded
-  // delete removes nothing when the target is the report's only update, so
-  // two concurrent deletes cannot race a report down to zero updates.
+  // The store enforces the LAST_UPDATE invariant transactionally: the report
+  // row is locked before the surviving count is read, so two concurrent
+  // deletes cannot both observe "another update still exists" and race a
+  // report down to zero updates.
   const outcome = await store.deleteUpdate({ reportId, updateId });
   if (outcome === "missing") throw new StatusReportError("UPDATE_NOT_FOUND", "Report update was not found");
   if (outcome === "last_update") {
@@ -784,6 +866,16 @@ export type PublicReports = {
 export const PUBLIC_RESOLVED_LIMIT = 10;
 
 /**
+ * §3.6 group-page scoping: a report matches iff it affects a monitor in the
+ * group, by live monitor id or by the snapshotted group name (mirrors
+ * filterReportsForGroup in lib/status-page/reports-display.ts). Passed
+ * through to getPublicReportRows so the resolved-history LIMIT is applied
+ * AFTER group scoping, not before — otherwise a global top-10 can starve a
+ * group's history even though older relevant resolved reports exist.
+ */
+export type PublicReportsFilter = { monitorIds: readonly string[]; groupNames: readonly string[] };
+
+/**
  * §3.1 lifecycle rules: upcoming = published ∧ startsAt > now; ongoing =
  * published ∧ startsAt ≤ now ∧ not completed; a maintenance window past endsAt
  * with no completing update is demoted to "window_ended"; a `scheduled`
@@ -807,11 +899,19 @@ export function classifyPublicReport(
  * §3.2 batched public read — exactly 3 queries: (1) published reports through
  * the partial indexes, (2) latest update per report via DISTINCT ON with the
  * contract total order, (3) affected rows. Drafts never appear.
+ *
+ * `filter` scopes query 1 to a single group's reports (via EXISTS against
+ * status_report_affected) for /status/[group] pages — the root page passes no
+ * filter so its resolved LIMIT stays global. Queries 2 and 3 automatically
+ * inherit the scoping since they only fan out over the ids query 1 returned.
  */
-export async function getPublicReports(dependencies: StatusReportsDependencies = {}): Promise<PublicReports> {
+export async function getPublicReports(
+  dependencies: StatusReportsDependencies = {},
+  filter?: PublicReportsFilter,
+): Promise<PublicReports> {
   const store = dependencies.store ?? databaseStatusReportsStore;
   const now = dependencies.now?.() ?? new Date();
-  const rows = await store.getPublicReportRows({ resolvedLimit: PUBLIC_RESOLVED_LIMIT });
+  const rows = await store.getPublicReportRows({ resolvedLimit: PUBLIC_RESOLVED_LIMIT, now, filter });
   const published = rows.filter((row) => row.publishedAt !== null);
   const ids = published.map((row) => row.id);
   const [latestUpdates, affected] = ids.length === 0
@@ -1007,9 +1107,13 @@ export const databaseStatusReportsStore: StatusReportsStore = {
         })
         .from(ranked)
         .where(lte(ranked.updateRank, PER_REPORT_UPDATE_LIMIT)),
+      // Bound derived from the requested reports, not an arbitrary constant:
+      // each report can hold at most MAX_AFFECTED_PER_REPORT rows (enforced at
+      // write time), so this cap can never truncate a page of reports that
+      // are each individually within bounds.
       db.select(affectedSelection).from(statusReportAffected)
         .where(inArray(statusReportAffected.reportId, [...ids]))
-        .limit(2_000),
+        .limit(ids.length * MAX_AFFECTED_PER_REPORT),
     ]);
     return { updates, affected };
   },
@@ -1038,7 +1142,7 @@ export const databaseStatusReportsStore: StatusReportsStore = {
         ),
       db.select(affectedSelection).from(statusReportAffected)
         .where(inArray(statusReportAffected.reportId, [...ids]))
-        .limit(2_000),
+        .limit(ids.length * MAX_AFFECTED_PER_REPORT),
     ]);
     return { counts, latest, affected };
   },
@@ -1081,24 +1185,36 @@ export const databaseStatusReportsStore: StatusReportsStore = {
 
   async deleteUpdate({ reportId, updateId }) {
     if (!isUuid(reportId) || !isUuid(updateId)) return "missing";
-    // Guarded single statement: the delete only fires while the report still
-    // has another update, so the LAST_UPDATE invariant holds under races —
-    // zero rows deleted while the row exists maps to "last_update".
-    const rows = await db
-      .delete(statusReportUpdates)
-      .where(and(
-        eq(statusReportUpdates.id, updateId),
-        eq(statusReportUpdates.reportId, reportId),
-        sql`(select count(*) from ${statusReportUpdates} where ${statusReportUpdates.reportId} = ${reportId}) > 1`,
-      ))
-      .returning({ id: statusReportUpdates.id });
-    if (rows.length > 0) return "deleted";
-    const [existing] = await db
-      .select({ id: statusReportUpdates.id })
-      .from(statusReportUpdates)
-      .where(and(eq(statusReportUpdates.id, updateId), eq(statusReportUpdates.reportId, reportId)))
-      .limit(1);
-    return existing ? "last_update" : "missing";
+    // Row-locked transaction: `SELECT ... FOR UPDATE` on the report serializes
+    // concurrent deletes for the SAME report (Postgres row locks are per-row,
+    // so unrelated reports never contend). The unlocked count subquery this
+    // replaced let two concurrent deletes of DIFFERENT updates on a
+    // two-update report both observe count=2 under READ COMMITTED and both
+    // succeed, leaving zero updates — the lock forces the second transaction
+    // to wait and re-observe the post-delete count.
+    return db.transaction(async (tx) => {
+      const [locked] = await tx
+        .select({ id: statusReports.id })
+        .from(statusReports)
+        .where(eq(statusReports.id, reportId))
+        .for("update");
+      if (!locked) return "missing";
+      const [existing] = await tx
+        .select({ id: statusReportUpdates.id })
+        .from(statusReportUpdates)
+        .where(and(eq(statusReportUpdates.id, updateId), eq(statusReportUpdates.reportId, reportId)))
+        .limit(1);
+      if (!existing) return "missing";
+      const [{ total }] = await tx
+        .select({ total: count() })
+        .from(statusReportUpdates)
+        .where(eq(statusReportUpdates.reportId, reportId));
+      if (total <= 1) return "last_update";
+      await tx
+        .delete(statusReportUpdates)
+        .where(and(eq(statusReportUpdates.id, updateId), eq(statusReportUpdates.reportId, reportId)));
+      return "deleted";
+    });
   },
 
   async listUpdates(reportId) {
@@ -1146,19 +1262,45 @@ export const databaseStatusReportsStore: StatusReportsStore = {
     return row ?? null;
   },
 
-  async getPublicReportRows({ resolvedLimit }) {
+  async getPublicReportRows({ resolvedLimit, now, filter }) {
+    // group scoping (§3.6): EXISTS against status_report_affected, matching
+    // either a live monitor id or the row's (possibly snapshotted) group
+    // name — mirrors filterReportsForGroup. Rides the same 2 branches below,
+    // no extra query.
+    const groupScope = filter
+      ? sql`exists (
+          select 1 from ${statusReportAffected}
+          where ${statusReportAffected.reportId} = ${statusReports.id}
+            and (
+              ${filter.monitorIds.length > 0 ? inArray(statusReportAffected.monitorId, [...filter.monitorIds]) : sql`false`}
+              or ${filter.groupNames.length > 0 ? inArray(sql`coalesce(${statusReportAffected.groupName}, 'Other')`, [...filter.groupNames]) : sql`false`}
+            )
+        )`
+      : undefined;
     // One round-trip: the unresolved branch rides status_reports_ongoing
-    // (partial on resolvedAt IS NULL) and the resolved branch the recency sort.
+    // (partial on resolvedAt IS NULL) and the resolved branch the recency
+    // sort. The unresolved branch orders active/past-starting rows (an
+    // ongoing incident) ahead of future-scheduled ones within the cap, so
+    // 100+ future maintenance windows can never crowd out an active report
+    // that would otherwise sort later by startsAt DESC alone.
     const unresolved = db
       .select(reportSelection)
       .from(statusReports)
-      .where(and(isNotNull(statusReports.publishedAt), isNull(statusReports.resolvedAt)))
-      .orderBy(desc(statusReports.startsAt))
+      .where(and(
+        isNotNull(statusReports.publishedAt),
+        isNull(statusReports.resolvedAt),
+        ...(groupScope ? [groupScope] : []),
+      ))
+      .orderBy(sql`(${statusReports.startsAt} > ${now})`, desc(statusReports.startsAt))
       .limit(100);
     const resolved = db
       .select(reportSelection)
       .from(statusReports)
-      .where(and(isNotNull(statusReports.publishedAt), isNotNull(statusReports.resolvedAt)))
+      .where(and(
+        isNotNull(statusReports.publishedAt),
+        isNotNull(statusReports.resolvedAt),
+        ...(groupScope ? [groupScope] : []),
+      ))
       .orderBy(desc(statusReports.resolvedAt))
       .limit(resolvedLimit);
     return unionAll(unresolved, resolved);
@@ -1180,10 +1322,12 @@ export const databaseStatusReportsStore: StatusReportsStore = {
 
   async getAffected(reportIds) {
     if (reportIds.length === 0) return [];
+    // Bound derived from the requested reports (see getReportDetails): group
+    // filtering and chips must never lose rows to an arbitrary global cap.
     return db
       .select(affectedSelection)
       .from(statusReportAffected)
       .where(inArray(statusReportAffected.reportId, [...reportIds]))
-      .limit(2_000);
+      .limit(reportIds.length * MAX_AFFECTED_PER_REPORT);
   },
 };
