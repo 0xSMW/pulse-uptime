@@ -7,8 +7,9 @@ import { useEffect, useRef, useState } from "react";
 import { AppearanceControl } from "@/components/settings/appearance-control";
 import { CliCard } from "@/components/settings/cli-card";
 import { DatabaseHealthCard } from "@/components/settings/database-health";
+import { GroupDialog } from "@/components/settings/group-dialog";
 import { MonitorSheet, type EditableMonitor } from "@/components/settings/monitor-sheet";
-import { apiRequest, messageForError, type ApiEnvelope } from "@/components/settings/settings-api";
+import { apiRequest, groupDeleteBlockedCount, messageForError, sortSettingsGroups, type ApiEnvelope, type SettingsGroup } from "@/components/settings/settings-api";
 import { TokenSheet } from "@/components/settings/token-sheet";
 import { StatusDot, type MonitorState } from "@/components/monitors/status-dot";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ import { formatRelativeTime } from "@/lib/reporting/format";
 
 export type SettingsOverviewData = {
   monitors: Array<EditableMonitor & { state: MonitorState }>;
+  groups: SettingsGroup[];
   notifications: { defaultRecipients: string[]; userAgent: string; sender: string | null };
   tokens: Array<{ id: string; name: string; kind: "agent" | "cli"; detail: string | null; prefix: string; scopes: string[]; expiresAt: string; lastUsedAt: string | null }>;
   origin: string;
@@ -47,6 +49,12 @@ function CardHeading({ title, action }: { title: string; action?: React.ReactNod
 export function SettingsOverview({ data }: { data: SettingsOverviewData }) {
   const router = useRouter();
   const [monitorSheet, setMonitorSheet] = useState<EditableMonitor | "new" | null>(null);
+  const [groups, setGroups] = useState(() => sortSettingsGroups(data.groups));
+  const [groupDialog, setGroupDialog] = useState<SettingsGroup | "new" | null>(null);
+  const [deleteGroupId, setDeleteGroupId] = useState<string | null>(null);
+  const [groupBusy, setGroupBusy] = useState(false);
+  const [groupStatus, setGroupStatus] = useState("");
+  const [groupStatusError, setGroupStatusError] = useState(false);
   const [tokenSheet, setTokenSheet] = useState(false);
   const [recipientsText, setRecipientsText] = useState(data.notifications.defaultRecipients.join("\n"));
   const [notificationBusy, setNotificationBusy] = useState<"save" | "test" | null>(null);
@@ -116,6 +124,50 @@ export function SettingsOverview({ data }: { data: SettingsOverviewData }) {
     finally { setTokenBusy(false); }
   }
 
+  function saveGroup(group: SettingsGroup) {
+    setGroups((current) => sortSettingsGroups([
+      ...current.filter((item) => item.id !== group.id),
+      group,
+    ]));
+    setGroupDialog(null);
+    setGroupStatus("");
+    setGroupStatusError(false);
+    router.refresh();
+  }
+
+  function updateGroupCounts(previousGroupId: string | null, nextGroupId: string | null) {
+    if (previousGroupId === nextGroupId) return;
+    setGroups((current) => current.map((group) => ({
+      ...group,
+      monitorCount: Math.max(0, group.monitorCount + (group.id === nextGroupId ? 1 : 0) - (group.id === previousGroupId ? 1 : 0)),
+    })));
+  }
+
+  async function deleteGroup(group: SettingsGroup) {
+    setGroupBusy(true);
+    setGroupStatus("");
+    setGroupStatusError(false);
+    try {
+      await apiRequest(`/api/v1/groups/${encodeURIComponent(group.id)}`, { method: "DELETE" }, true);
+      setGroups((current) => current.filter((item) => item.id !== group.id));
+      setDeleteGroupId(null);
+      setGroupStatus(`${group.name} deleted`);
+      router.refresh();
+    } catch (error) {
+      const monitorCount = groupDeleteBlockedCount(error);
+      if (monitorCount !== null) {
+        setGroups((current) => current.map((item) => item.id === group.id ? { ...item, monitorCount } : item));
+        setDeleteGroupId(null);
+        setGroupStatus(`Move ${monitorCount} ${monitorCount === 1 ? "monitor" : "monitors"} before deleting ${group.name}`);
+      } else {
+        setGroupStatus(messageForError(error));
+      }
+      setGroupStatusError(true);
+    } finally {
+      setGroupBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <Card className="overflow-hidden">
@@ -128,6 +180,35 @@ export function SettingsOverview({ data }: { data: SettingsOverviewData }) {
         {rowStatus ? <p className="border-t border-[var(--border)] px-6 py-3 text-[13px] text-[var(--fg-muted)]" aria-live="polite">{rowStatus}</p> : null}
       </Card>
 
+      <Card className="overflow-hidden">
+        <CardHeading title="Groups" action={<Button variant="primary" size="sm" onClick={() => setGroupDialog("new")}>Create Group</Button>} />
+        <div className="border-t border-[var(--border)]">
+          {groups.map((group) => {
+            const hasMonitors = group.monitorCount > 0;
+            const confirmingDelete = deleteGroupId === group.id;
+            return (
+              <div key={group.id} className="flex min-h-[60px] flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-6 py-3 last:border-0">
+                <div>
+                  <p className="text-[13px] font-medium">{group.name}</p>
+                  <p className="text-xs text-[var(--fg-muted)]">{group.monitorCount} {group.monitorCount === 1 ? "monitor" : "monitors"}</p>
+                  {hasMonitors ? <p className="mt-1 text-xs text-[var(--fg-faint)]">Move monitors before deleting</p> : null}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="tertiary" size="sm" onClick={() => setGroupDialog(group)} disabled={groupBusy}>Rename</Button>
+                  {confirmingDelete ? <>
+                    <span className="text-xs text-[var(--down-text)]">Delete?</span>
+                    <Button variant="secondary" size="sm" onClick={() => setDeleteGroupId(null)} disabled={groupBusy}>Cancel</Button>
+                    <Button variant="error-outline" size="sm" onClick={() => void deleteGroup(group)} disabled={groupBusy}>{groupBusy ? "Deleting…" : "Confirm"}</Button>
+                  </> : <Button variant="error-outline" size="sm" onClick={() => setDeleteGroupId(group.id)} disabled={hasMonitors || groupBusy} title={hasMonitors ? "Move monitors before deleting this group" : undefined}>Delete</Button>}
+                </div>
+              </div>
+            );
+          })}
+          {groups.length === 0 ? <div className="px-6 py-10 text-center"><p className="font-medium">No groups configured</p><p className="mt-1 text-[13px] text-[var(--fg-muted)]">Organize related endpoint monitors</p></div> : null}
+        </div>
+        {groupStatus ? <p aria-live="polite" className={`border-t border-[var(--border)] px-6 py-3 text-[13px] ${groupStatusError ? "text-[var(--down-text)]" : "text-[var(--fg-muted)]"}`}>{groupStatus}</p> : null}
+      </Card>
+
       <Card><CardHeading title="Notifications" /><CardContent className="pt-0"><p className="mb-4 max-w-[640px] text-[13px] leading-[18px] text-[var(--fg-muted)]">Defaults apply when a monitor has no recipients. Use one address per line, up to 20.</p><div className="max-w-[640px] space-y-4"><label className="block"><span className="mb-2 block text-[13px] font-medium">Default Recipients</span><textarea value={recipientsText} onChange={(e) => setRecipientsText(e.target.value)} rows={Math.max(3, Math.min(recipients.length || 3, 6))} aria-invalid={Boolean(recipientError)} placeholder="ops@example.com" className="w-full resize-y rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-3 py-2 font-data text-[13px] leading-5" />{recipientError ? <span className="mt-1 block text-xs text-[var(--down-text)]">{recipientError}</span> : null}</label><label className="block"><span className="mb-2 block text-[13px] font-medium">User Agent</span><input value={data.notifications.userAgent} readOnly className="h-10 w-full rounded-[6px] border border-[var(--border-strong)] bg-[var(--chip-bg)] px-3 font-data text-[13px] text-[var(--fg-muted)]" /></label><div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-4"><span className="font-data text-[13px] text-[var(--fg-muted)]">{data.notifications.sender ? `${data.notifications.sender} via Resend` : "Email sender is not configured"}</span><div className="flex gap-2"><Button variant="secondary" onClick={sendTestNotification} disabled={Boolean(notificationBusy)}>{notificationBusy === "test" ? "Sending…" : "Send Test Email"}</Button><Button onClick={saveRecipients} disabled={Boolean(notificationBusy) || Boolean(recipientError)}>{notificationBusy === "save" ? "Saving…" : "Save Recipients"}</Button></div></div>{notificationStatus ? <p aria-live="polite" className={`text-[13px] ${notificationStatus.includes("changed elsewhere") || notificationStatus.includes("unavailable") ? "text-[var(--down-text)]" : "text-[var(--fg-muted)]"}`}>{notificationStatus}</p> : null}</div></CardContent></Card>
 
       <Card className="overflow-hidden"><CardHeading title="API Tokens" action={<Button variant="primary" size="sm" onClick={() => setTokenSheet(true)}>Create Token</Button>} /><div className="hide-scrollbar overflow-x-auto border-t border-[var(--border)]"><table className="w-full min-w-[500px] border-collapse text-left text-[13px] md:min-w-[760px]"><thead className="text-xs text-[var(--fg-muted)]"><tr className="h-10 border-b border-[var(--border)]"><th className="px-6 font-medium">Name</th><th className="px-4 font-medium max-lg:hidden">Token</th><th className="px-4 font-medium max-md:hidden">Scopes</th><th className="px-4 font-medium">Expires</th><th className="px-4 font-medium max-xl:hidden">Last Used</th><th className="px-6 text-right font-medium"><span className="sr-only">Actions</span></th></tr></thead><tbody>{data.tokens.map((token) => <tr key={`${token.kind}-${token.id}`} className="h-[60px] border-b border-[var(--border)] last:border-0 hover:bg-[var(--hover)]"><td className="px-6"><div className="font-medium">{token.name}</div><div className="text-xs text-[var(--fg-faint)]">{token.kind === "agent" ? "Agent token" : `CLI session${token.detail ? ` · ${token.detail}` : ""}`}</div></td><td className="px-4 font-data text-xs text-[var(--fg-muted)] max-lg:hidden">{token.prefix}····</td><td className="px-4 max-md:hidden"><div className="flex max-w-[360px] flex-wrap gap-1">{token.scopes.map((scope) => <span key={scope} className="rounded-full bg-[var(--chip-bg)] px-2 py-0.5 font-data text-[11px]">{scope}</span>)}</div></td><td className="px-4 whitespace-nowrap font-data text-xs text-[var(--fg-muted)]">{formatExpiry(token.expiresAt)}</td><td className="px-4 whitespace-nowrap font-data text-xs text-[var(--fg-muted)] max-xl:hidden">{token.lastUsedAt ? formatRelativeTime(new Date(token.lastUsedAt)) : "Never"}</td><td className="px-6 text-right">{token.kind === "agent" ? <>{revokeId === token.id ? <span className="inline-flex items-center gap-2"><span className="text-xs text-[var(--down-text)]">Revoke?</span><Button variant="secondary" size="sm" onClick={() => setRevokeId(null)} disabled={tokenBusy}>Cancel</Button><Button variant="secondary" size="sm" onClick={() => revokeToken(token.id)} disabled={tokenBusy}>{tokenBusy ? "Revoking…" : "Confirm"}</Button></span> : <Button variant="secondary" size="sm" onClick={() => setRevokeId(token.id)}>Revoke</Button>}</> : <span className="text-xs text-[var(--fg-faint)]">Linked session</span>}</td></tr>)}</tbody></table>{data.tokens.length === 0 ? <div className="px-6 py-12 text-center"><p className="font-medium">No API tokens</p><p className="mt-1 text-[13px] text-[var(--fg-muted)]">Create a token for agents and CI</p></div> : null}</div>{tokenStatus ? <p className="border-t border-[var(--border)] px-6 py-3 text-[13px] text-[var(--fg-muted)]" aria-live="polite">{tokenStatus}</p> : null}</Card>
@@ -136,7 +217,8 @@ export function SettingsOverview({ data }: { data: SettingsOverviewData }) {
       <Card><CardHeading title="CLI" /><CardContent className="pt-0"><CliCard origin={data.origin} /></CardContent></Card>
       <Card><CardHeading title="Appearance" /><CardContent className="pt-0"><p className="mb-4 text-[13px] leading-[18px] text-[var(--fg-muted)]">Choose how the dashboard looks on this device.</p><AppearanceControl /></CardContent></Card>
 
-      {monitorSheet !== null ? <MonitorSheet key={monitorSheet === "new" ? "new" : monitorSheet.id} open monitor={monitorSheet === "new" ? null : monitorSheet} onClose={() => setMonitorSheet(null)} /> : null}
+      {monitorSheet !== null ? <MonitorSheet key={monitorSheet === "new" ? "new" : monitorSheet.id} open monitor={monitorSheet === "new" ? null : monitorSheet} groups={groups} onGroupCreated={saveGroup} onMonitorGroupChanged={updateGroupCounts} onClose={() => setMonitorSheet(null)} /> : null}
+      {groupDialog !== null ? <GroupDialog open group={groupDialog === "new" ? null : groupDialog} onClose={() => setGroupDialog(null)} onSaved={saveGroup} /> : null}
       {tokenSheet ? <TokenSheet open onClose={() => setTokenSheet(false)} /> : null}
     </div>
   );
