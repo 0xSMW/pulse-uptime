@@ -11,6 +11,8 @@ import {
   evaluateDestructiveChange,
   exportDeclarativeConfig,
   hashCanonical,
+  hashDeclarativeConfig,
+  hashMonitoringConfig,
   isValidDestructiveApproval,
   resolveMonitorRecipients,
   toMonitoringConfig,
@@ -159,6 +161,8 @@ describe("planning and export", () => {
     });
     expect(plan.diff.unchanged.map(({ id }) => id)).toEqual(["api", "web"]);
     expect(toMonitoringConfig(exported, 9)).toMatchObject({ schemaVersion: 1, configVersion: 9 });
+    expect(hashMonitoringConfig(accepted)).toBe(hashDeclarativeConfig(exported));
+    expect(hashMonitoringConfig({ ...accepted, configVersion: 99 })).toBe(hashMonitoringConfig(accepted));
   });
 
   it("produces stable diffs and plan hashes regardless of source monitor order", () => {
@@ -203,7 +207,7 @@ describe("acceptance, approvals, and fallback", () => {
 
   it("accepts valid candidates and falls back to the last snapshot for invalid candidates", () => {
     const acceptedConfig = validateMonitoringConfig(runtime([monitor("api")]));
-    const snapshot = { config: acceptedConfig, hash: hashCanonical(acceptedConfig) };
+    const snapshot = { config: acceptedConfig, hash: hashMonitoringConfig(acceptedConfig) };
     expect(evaluateConfigurationAcceptance(runtime([monitor("api"), monitor("web")], 2), snapshot).status).toBe("accepted");
     const rejected = evaluateConfigurationAcceptance({ nope: true }, snapshot);
     expect(rejected).toMatchObject({ status: "rejected", reason: "INVALID_CONFIGURATION", fallbackUsed: true, hash: snapshot.hash });
@@ -213,8 +217,8 @@ describe("acceptance, approvals, and fallback", () => {
   it("requires an exact, live, unconsumed approval for destructive acceptance", () => {
     const current = validateMonitoringConfig(runtime([monitor("api")], 1));
     const desired = validateMonitoringConfig(runtime([], 2));
-    const snapshot = { config: current, hash: hashCanonical(current) };
-    const targetConfigHash = hashCanonical(desired);
+    const snapshot = { config: current, hash: hashMonitoringConfig(current) };
+    const targetConfigHash = hashMonitoringConfig(desired);
     const approval: DestructiveApproval = {
       action: "bulk_archive", targetConfigHash,
       expiresAt: new Date(now.getTime() + 60_000), consumedAt: null,
@@ -232,7 +236,7 @@ describe("acceptance, approvals, and fallback", () => {
 describe("pure apply preconditions", () => {
   const current = validateDeclarativeConfig(document([monitor("api"), monitor("web")]));
   const target = validateDeclarativeConfig(document([monitor("api", { timeoutMs: 9_000 })]));
-  const baseConfigHash = hashCanonical(current);
+  const baseConfigHash = hashDeclarativeConfig(current);
   const plan = createConfigurationPlan(current, target, { baseConfigHash });
 
   const request = {
