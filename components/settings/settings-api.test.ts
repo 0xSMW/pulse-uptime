@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { apiRequest, expiryFromDays, generatedMonitorId, messageForError, SettingsApiError } from "./settings-api";
-import { isPublicMonitorUrl, parseRecipients, validateMonitorForm, type MonitorFormValues } from "./monitor-sheet";
+import { isPublicMonitorUrl, monitorSheetActionLabels, parseRecipients, validateMonitorForm, type MonitorFormValues } from "./monitor-sheet";
 
 const valid: MonitorFormValues = {
   name: "API", url: "https://example.com/health", enabled: true, group: null,
@@ -53,5 +53,10 @@ describe("Settings form helpers", () => {
     expect(messageForError(new SettingsApiError("stale", 409, "CONFIG_VERSION_CONFLICT"))).toBe(
       "Configuration changed elsewhere. Reload before saving.",
     );
+  });
+
+  it("keeps edit-sheet header actions in test, state, archive order", () => {
+    expect(monitorSheetActionLabels(true)).toEqual(["Run Test", "Pause", "Archive"]);
+    expect(monitorSheetActionLabels(false)).toEqual(["Run Test", "Resume", "Archive"]);
   });
 });
