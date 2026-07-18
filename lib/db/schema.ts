@@ -310,6 +310,118 @@ export const dailyRollups = pgTable("daily_rollups", {
   check("daily_rollups_incident_nonnegative", sql`${table.incidentSeconds} >= 0`),
 ]);
 
+export const checkBatches = pgTable("check_batches", {
+  scheduledMinute: timestamptz("scheduled_minute").primaryKey(),
+  encodingVersion: integer("encoding_version").notNull(),
+  configVersion: integer("config_version").notNull(),
+  monitorIds: text("monitor_ids").array().notNull(),
+  expectedBitmap: bytea("expected_bitmap").notNull(),
+  completedBitmap: bytea("completed_bitmap").notNull(),
+  failureBitmap: bytea("failure_bitmap").notNull(),
+  latencyValues: bytea("latency_values").notNull(),
+  schedulerStartedAt: timestamptz("scheduler_started_at").notNull(),
+  schedulerCompletedAt: timestamptz("scheduler_completed_at"),
+  createdAt: timestamptz("created_at").notNull(),
+}, (table) => [
+  check("check_batches_encoding_version", sql`${table.encodingVersion} > 0`),
+  check("check_batches_config_version", sql`${table.configVersion} >= 0`),
+  check(
+    "check_batches_completion_order",
+    sql`${table.schedulerCompletedAt} is null or ${table.schedulerCompletedAt} >= ${table.schedulerStartedAt}`,
+  ),
+]);
+
+export const atomicMinuteCommits = pgTable("atomic_minute_commits", {
+  scheduledMinute: timestamptz("scheduled_minute").primaryKey()
+    .references(() => checkBatches.scheduledMinute, { onDelete: "cascade" }),
+  stateMutationCount: integer("state_mutation_count").notNull(),
+  committedAt: timestamptz("committed_at").notNull(),
+}, (table) => [
+  check("atomic_minute_commits_state_count", sql`${table.stateMutationCount} >= 0`),
+]);
+
+export const exceptionPayloads = pgTable("exception_payloads", {
+  id: uuid("id").primaryKey(),
+  payload: jsonb("payload").notNull(),
+  createdAt: timestamptz("created_at").notNull(),
+  expiresAt: timestamptz("expires_at").notNull(),
+}, (table) => [
+  index("exception_payloads_retention").on(table.expiresAt, table.id),
+  check("exception_payloads_expiry_order", sql`${table.expiresAt} > ${table.createdAt}`),
+]);
+
+export const monitorExceptions = pgTable("monitor_exceptions", {
+  id: uuid("id").primaryKey(),
+  monitorId: text("monitor_id").references(() => monitorRegistry.id),
+  eventType: text("event_type", {
+    enum: ["failure", "recovery", "pause", "resume", "scheduler_gap", "configuration"],
+  }).notNull(),
+  errorCode: text("error_code"),
+  identityHash: bytea("identity_hash").notNull(),
+  firstSeenAt: timestamptz("first_seen_at").notNull(),
+  lastSeenAt: timestamptz("last_seen_at").notNull(),
+  occurrenceCount: integer("occurrence_count").notNull(),
+  worstLatencyMs: integer("worst_latency_ms"),
+  incidentId: uuid("incident_id").references(() => incidents.id),
+  payloadId: uuid("payload_id").references(() => exceptionPayloads.id, { onDelete: "set null" }),
+}, (table) => [
+  uniqueIndex("monitor_exceptions_identity")
+    .on(table.monitorId, table.eventType, table.identityHash, sql`coalesce(${table.incidentId}, '00000000-0000-0000-0000-000000000000'::uuid)`),
+  index("monitor_exceptions_retention").on(table.lastSeenAt, table.id),
+  index("monitor_exceptions_incident").on(table.incidentId),
+  check("monitor_exceptions_event_type", sql`${table.eventType} in ('failure', 'recovery', 'pause', 'resume', 'scheduler_gap', 'configuration')`),
+  check("monitor_exceptions_occurrences", sql`${table.occurrenceCount} > 0`),
+  check("monitor_exceptions_seen_order", sql`${table.lastSeenAt} >= ${table.firstSeenAt}`),
+  check("monitor_exceptions_latency", sql`${table.worstLatencyMs} is null or ${table.worstLatencyMs} >= 0`),
+]);
+
+export const metricRollups = pgTable("metric_rollups", {
+  monitorId: text("monitor_id").notNull().references(() => monitorRegistry.id),
+  resolution: text("resolution", { enum: ["15m", "hour", "day"] }).notNull(),
+  bucketStart: timestamptz("bucket_start").notNull(),
+  expectedChecks: integer("expected_checks").notNull(),
+  completedChecks: integer("completed_checks").notNull(),
+  successfulChecks: integer("successful_checks").notNull(),
+  failedChecks: integer("failed_checks").notNull(),
+  unknownChecks: integer("unknown_checks").notNull(),
+  downtimeSeconds: integer("downtime_seconds").notNull(),
+  unknownSeconds: integer("unknown_seconds").notNull(),
+  latencyCount: integer("latency_count").notNull(),
+  latencySumMs: bigint("latency_sum_ms", { mode: "bigint" }).notNull(),
+  latencyMinMs: integer("latency_min_ms"),
+  latencyMaxMs: integer("latency_max_ms"),
+  latencyHistogram: integer("latency_histogram").array().notNull(),
+  histogramVersion: integer("histogram_version").notNull(),
+  hasIncident: boolean("has_incident").notNull(),
+  compactedAt: timestamptz("compacted_at").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.monitorId, table.resolution, table.bucketStart] }),
+  index("metric_rollups_retention").on(table.resolution, table.bucketStart, table.monitorId),
+  check("metric_rollups_resolution", sql`${table.resolution} in ('15m', 'hour', 'day')`),
+  check("metric_rollups_counts", sql`${table.expectedChecks} >= 0 and ${table.completedChecks} >= 0 and ${table.successfulChecks} >= 0 and ${table.failedChecks} >= 0 and ${table.unknownChecks} >= 0 and ${table.completedChecks} <= ${table.expectedChecks} and ${table.successfulChecks} + ${table.failedChecks} = ${table.completedChecks} and ${table.unknownChecks} = ${table.expectedChecks} - ${table.completedChecks}`),
+  check("metric_rollups_seconds", sql`${table.downtimeSeconds} >= 0 and ${table.unknownSeconds} >= 0`),
+  check("metric_rollups_latency", sql`${table.latencyCount} >= 0 and ${table.latencySumMs} >= 0 and (${table.latencyMinMs} is null or ${table.latencyMinMs} >= 0) and (${table.latencyMaxMs} is null or ${table.latencyMaxMs} >= 0) and (${table.latencyMinMs} is null or ${table.latencyMaxMs} is null or ${table.latencyMinMs} <= ${table.latencyMaxMs})`),
+  check("metric_rollups_histogram", sql`${table.histogramVersion} > 0 and cardinality(${table.latencyHistogram}) = 8`),
+]);
+
+export const databaseUsageSnapshots = pgTable("database_usage_snapshots", {
+  capturedAt: timestamptz("captured_at").primaryKey(),
+  storageBytes: bigint("storage_bytes", { mode: "bigint" }).notNull(),
+  indexBytes: bigint("index_bytes", { mode: "bigint" }).notNull(),
+  categoryBytes: jsonb("category_bytes").notNull(),
+  historyBytes: bigint("history_bytes", { mode: "bigint" }),
+  monthlyTransferBytes: bigint("monthly_transfer_bytes", { mode: "bigint" }),
+  projected30DayBytes: bigint("projected_30_day_bytes", { mode: "bigint" }).notNull(),
+  governorMode: text("governor_mode", { enum: ["full", "compact_early", "shortened", "incident_only", "essential"] }).notNull(),
+  lastCompactionAt: timestamptz("last_compaction_at"),
+  schedulerCoverage: numeric("scheduler_coverage", { precision: 7, scale: 4 }),
+  providerMetricsCapturedAt: timestamptz("provider_metrics_captured_at"),
+}, (table) => [
+  check("database_usage_snapshots_bytes", sql`${table.storageBytes} >= 0 and ${table.indexBytes} >= 0 and ${table.projected30DayBytes} >= 0 and (${table.historyBytes} is null or ${table.historyBytes} >= 0) and (${table.monthlyTransferBytes} is null or ${table.monthlyTransferBytes} >= 0)`),
+  check("database_usage_snapshots_governor", sql`${table.governorMode} in ('full', 'compact_early', 'shortened', 'incident_only', 'essential')`),
+  check("database_usage_snapshots_coverage", sql`${table.schedulerCoverage} is null or ${table.schedulerCoverage} between 0 and 1`),
+]);
+
 export const adminUsers = pgTable("admin_users", {
   id: uuid("id").primaryKey(),
   email: text("email").notNull().unique(),
