@@ -25,6 +25,7 @@ import {
   publishStatusReport,
   recoverAddedReportUpdate,
   recoverCreatedStatusReport,
+  recoverDeletedReportUpdate,
   StatusReportError,
   updateStatusReport,
   type StatusReportAffectedRow,
@@ -50,6 +51,19 @@ function memoryStore(monitors: Array<{ id: string; name: string; groupName: stri
   const updates = new Map<string, StatusReportUpdateRow>();
   let affected: StatusReportAffectedRow[] = [];
   const incidents = new Map<string, { id: string; monitorId: string; monitorName: string; groupName: string | null; openedAt: Date; openingStatusCode: number | null }>();
+
+  // Per-report async lock mirroring the DB's `SELECT ... FOR UPDATE`
+  // transaction in recomputeResolution: calls for the SAME reportId are
+  // chained so the next one's read only starts after the prior one's write
+  // has settled (finding: a lagging recompute must never clobber a newer,
+  // correct write with a stale value).
+  const reportLocks = new Map<string, Promise<unknown>>();
+  function withReportLock<T>(reportId: string, fn: () => Promise<T>): Promise<T> {
+    const prior = reportLocks.get(reportId) ?? Promise.resolve();
+    const run = prior.then(fn, fn);
+    reportLocks.set(reportId, run.then(() => undefined, () => undefined));
+    return run;
+  }
 
   const store: MemoryStore = {
     reports,
@@ -145,12 +159,25 @@ function memoryStore(monitors: Array<{ id: string; name: string; groupName: stri
       updates.delete(updateId);
       return "deleted";
     },
-    async listUpdates(reportId) {
-      return [...updates.values()].filter((row) => row.reportId === reportId).map((row) => ({ ...row }));
+    async getUpdate(reportId, updateId) {
+      const row = updates.get(updateId);
+      return row && row.reportId === reportId ? { ...row } : null;
     },
-    async setResolution({ reportId, resolvedAt, now }) {
-      const row = reports.get(reportId);
-      if (row) Object.assign(row, { resolvedAt, updatedAt: now });
+    async recomputeResolution({ reportId, now }) {
+      // Mirrors the FOR-UPDATE-locked transaction contract: recomputes for
+      // the SAME reportId are chained through a per-report lock so a call
+      // queued behind another always reads the state left by the one before
+      // it, rather than a snapshot that call's write could later invalidate.
+      return withReportLock(reportId, async () => {
+        const row = reports.get(reportId);
+        if (!row) return null;
+        const currentUpdates = [...updates.values()]
+          .filter((entry) => entry.reportId === reportId)
+          .map((entry) => ({ ...entry }));
+        const resolvedAt = deriveResolvedAt(currentUpdates);
+        Object.assign(row, { resolvedAt, updatedAt: now });
+        return { updates: currentUpdates, resolvedAt };
+      });
     },
     async publishReport({ id, now }) {
       const row = reports.get(id);
@@ -177,10 +204,15 @@ function memoryStore(monitors: Array<{ id: string; name: string; groupName: stri
         );
         rows = rows.filter((row) => matching.has(row.id));
       }
-      // Mirrors ORDER BY (ended, future, starts_at desc): truly active rows
-      // (started, not ended) sort first, then future-scheduled rows, then
-      // ended-but-uncompleted windows last — so the 100 cap can never let
-      // future maintenance OR a stale ended window crowd out an active report.
+      // Mirrors ORDER BY (ended, future, CASE WHEN future THEN starts_at END
+      // ASC NULLS LAST, starts_at desc): truly active rows (started, not
+      // ended) sort first — most-recently-started first — then
+      // future-scheduled rows sorted NEAREST-first, then ended-but-uncompleted
+      // windows last — so the 100 cap can never let future maintenance OR a
+      // stale ended window crowd out an active report, and among future rows
+      // never drops the SOONEST upcoming ones in favor of the farthest
+      // (finding: a shared DESC tiebreak kept the farthest-future rows and
+      // dropped the nearest upcoming ones).
       const unresolved = rows
         .filter((row) => row.resolvedAt === null)
         .sort((left, right) => {
@@ -189,7 +221,9 @@ function memoryStore(monitors: Array<{ id: string; name: string; groupName: stri
           if (leftEnded !== rightEnded) return leftEnded - rightEnded;
           const leftFuture = left.startsAt.getTime() > now.getTime() ? 1 : 0;
           const rightFuture = right.startsAt.getTime() > now.getTime() ? 1 : 0;
-          return leftFuture - rightFuture || right.startsAt.getTime() - left.startsAt.getTime();
+          if (leftFuture !== rightFuture) return leftFuture - rightFuture;
+          if (leftFuture === 1) return left.startsAt.getTime() - right.startsAt.getTime();
+          return right.startsAt.getTime() - left.startsAt.getTime();
         })
         .slice(0, 100);
       const resolved = rows.filter((row) => row.resolvedAt !== null)
@@ -462,6 +496,53 @@ describe("report update lifecycle", () => {
     await expect(addReportUpdate("missing", { status: "monitoring", markdown: "x" }, deps))
       .rejects.toMatchObject({ code: "REPORT_NOT_FOUND" });
   });
+
+  it("keeps resolvedAt consistent when two updates land concurrently on the same report (finding: an unlocked list-then-write recompute can race and persist a stale value)", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const created = await createStatusReport(validCreate, deps); // investigating
+
+    const [reportFromA, reportFromB] = await Promise.all([
+      addReportUpdate(created.id, { status: "monitoring", markdown: "Watching." }, deps),
+      addReportUpdate(created.id, {
+        status: "resolved", markdown: "Fixed.", publishedAt: "2026-07-18T13:00:00.000Z",
+      }, deps),
+    ]);
+
+    // Both responses — and the persisted row — must agree on the FINAL
+    // state: three updates total, resolvedAt reflecting the resolved one.
+    expect(reportFromA.updates).toHaveLength(3);
+    expect(reportFromB.updates).toHaveLength(3);
+    expect(store.reports.get(created.id)!.resolvedAt).toEqual(new Date("2026-07-18T13:00:00.000Z"));
+  });
+
+  it("store contract: recomputeResolution serializes concurrent calls on the same report to one consistent final snapshot (finding: resolvedAt lost-update race)", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const created = await createStatusReport(validCreate, deps);
+    await store.insertUpdate({
+      id: "upd-monitoring", reportId: created.id, status: "monitoring", markdown: "Watching.",
+      publishedAt: new Date("2026-07-18T13:00:00.000Z"), createdAt: NOW, updatedAt: NOW,
+    });
+    await store.insertUpdate({
+      id: "upd-resolved", reportId: created.id, status: "resolved", markdown: "Fixed.",
+      publishedAt: new Date("2026-07-18T14:00:00.000Z"), createdAt: NOW, updatedAt: NOW,
+    });
+
+    // Two recomputes fired concurrently (as two racing mutations' tails
+    // would) must both agree on the full, current update set rather than one
+    // of them clobbering the other's write with a value derived from a
+    // partial snapshot.
+    const [first, second] = await Promise.all([
+      store.recomputeResolution({ reportId: created.id, now: NOW }),
+      store.recomputeResolution({ reportId: created.id, now: NOW }),
+    ]);
+    expect(first?.resolvedAt).toEqual(new Date("2026-07-18T14:00:00.000Z"));
+    expect(second?.resolvedAt).toEqual(new Date("2026-07-18T14:00:00.000Z"));
+    expect(first?.updates).toHaveLength(3);
+    expect(second?.updates).toHaveLength(3);
+    expect(store.reports.get(created.id)!.resolvedAt).toEqual(new Date("2026-07-18T14:00:00.000Z"));
+  });
 });
 
 describe("updateStatusReport", () => {
@@ -704,6 +785,9 @@ describe("database store UUID guards", () => {
     await expect(databaseStatusReportsStore.deleteUpdate({
       reportId: "rep_1", updateId: "11111111-1111-4111-8111-111111111111",
     })).resolves.toBe("missing");
+    await expect(databaseStatusReportsStore.getUpdate("rep_1", "11111111-1111-4111-8111-111111111111"))
+      .resolves.toBeNull();
+    await expect(databaseStatusReportsStore.recomputeResolution({ reportId: "rep_1", now: NOW })).resolves.toBeNull();
   });
 
   it("maps guarded non-UUID lookups to the existing 404 error codes", async () => {
@@ -750,14 +834,14 @@ describe("idempotent-create recovery (finding: duplicate report/update after a c
     await expect(recoverAddedReportUpdate("missing-report", "never-added", deps)).resolves.toBeNull();
   });
 
-  it("recomputes and persists resolution on recovery (finding: crash between insert and setResolution leaves a stale resolvedAt)", async () => {
+  it("recomputes and persists resolution on recovery (finding: crash between insert and the resolution recompute leaves a stale resolvedAt)", async () => {
     const store = memoryStore();
     const deps = dependencies(store);
     const created = await createStatusReport(validCreate, deps);
 
     // Simulate the insert having committed but the process dying before
-    // persistResolutionAndSerialize's setResolution ran: the update row
-    // exists, but the report's resolvedAt is still the stale pre-update null.
+    // persistResolutionAndSerialize's recompute ran: the update row exists,
+    // but the report's resolvedAt is still the stale pre-update null.
     await store.insertUpdate({
       id: "op-update-1", reportId: created.id, status: "resolved", markdown: "Fixed.",
       publishedAt: NOW, createdAt: NOW, updatedAt: NOW,
@@ -769,6 +853,52 @@ describe("idempotent-create recovery (finding: duplicate report/update after a c
     expect(recovered?.currentStatus).toBe("resolved");
     // The recompute is persisted, not just reflected in the response.
     expect(store.reports.get(created.id)!.resolvedAt).toEqual(NOW);
+  });
+
+  it("recovers by a direct point lookup (getUpdate) rather than scanning capped detail rows (finding: a backdated update beyond the 500-row detail cap would never surface in a getReportDetails scan)", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const created = await createStatusReport(validCreate, deps);
+    const getReportDetailsSpy = vi.spyOn(store, "getReportDetails");
+
+    const updated = await addReportUpdate(created.id, {
+      status: "monitoring", markdown: "Watching.",
+    }, { ...deps, updateId: "op-update-1" });
+    getReportDetailsSpy.mockClear();
+
+    const recovered = await recoverAddedReportUpdate(created.id, "op-update-1", deps);
+    expect(recovered).toEqual(updated);
+    expect(getReportDetailsSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("idempotent-delete recovery (finding: update-delete retries 404 after a crash)", () => {
+  it("recovers by recomputing/serializing when the update is gone but the report exists", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const created = await createStatusReport(validCreate, deps);
+    const withSecond = await addReportUpdate(created.id, {
+      status: "resolved", markdown: "Fixed.", publishedAt: "2026-07-18T13:00:00.000Z",
+    }, deps);
+    const resolvedUpdateId = withSecond.updates.find((update) => update.status === "resolved")!.id;
+
+    // Simulate the delete having committed (and resolution recomputed to
+    // reflect only the surviving update) but the process dying before the
+    // idempotency record completed.
+    await store.deleteUpdate({ reportId: created.id, updateId: resolvedUpdateId });
+
+    const recovered = await recoverDeletedReportUpdate(created.id, resolvedUpdateId, deps);
+    expect(recovered?.updates).toHaveLength(1);
+    expect(recovered?.resolvedAt).toBeNull();
+    expect(recovered?.updates.some((update) => update.id === resolvedUpdateId)).toBe(false);
+  });
+
+  it("returns null when the update still exists (crash before the delete committed) or the report is unknown", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const created = await createStatusReport(validCreate, deps);
+    await expect(recoverDeletedReportUpdate(created.id, created.updates[0].id, deps)).resolves.toBeNull();
+    await expect(recoverDeletedReportUpdate("missing-report", "missing-update", deps)).resolves.toBeNull();
   });
 });
 
@@ -874,6 +1004,35 @@ describe("getPublicReports", () => {
     }
     const result = await getPublicReports(deps);
     expect(result.ongoing.map((row) => row.id)).toContain(active.id);
+  });
+
+  it("keeps the NEAREST future rows inside the unresolved cap, not the farthest (finding: future rows sorted farthest-first, starving the soonest upcoming report)", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const active = await createStatusReport({
+      type: "maintenance", title: "Active window",
+      startsAt: "2026-07-18T11:00:00.000Z", endsAt: "2026-07-18T15:00:00.000Z",
+      update: { status: "in_progress", markdown: "Underway." },
+    }, deps);
+    // 150 future rows, one minute apart, in ascending startsAt order — only
+    // 99 of them fit in the unresolved cap alongside the 1 active row.
+    const base = new Date("2027-01-01T00:00:00.000Z").getTime();
+    const future: Awaited<ReturnType<typeof createStatusReport>>[] = [];
+    for (let index = 0; index < 150; index += 1) {
+      future.push(await createStatusReport({
+        type: "maintenance", title: `Future window ${index}`,
+        startsAt: new Date(base + index * 60_000).toISOString(),
+        update: { status: "scheduled", markdown: "Planned." },
+      }, deps));
+    }
+    const result = await getPublicReports(deps);
+    expect(result.ongoing.map((row) => row.id)).toContain(active.id);
+    expect(result.upcoming).toHaveLength(99);
+    // The NEAREST future rows (smallest startsAt) must survive the cap...
+    expect(result.upcoming.map((row) => row.id)).toContain(future[0].id);
+    expect(result.upcoming.map((row) => row.id)).toContain(future[98].id);
+    // ...while the FARTHEST rows are the ones dropped.
+    expect(result.upcoming.map((row) => row.id)).not.toContain(future[149].id);
   });
 
   it("classifies a published future-dated incident as upcoming, not ongoing (finding: future incidents fed the ongoing banner)", async () => {

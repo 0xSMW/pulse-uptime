@@ -186,13 +186,19 @@ describe("committed OpenAPI v1 source", () => {
       responses: Record<string, { headers?: Record<string, unknown> }>;
     };
     const put = document.paths["/api/v1/status-page-config"].put as Operation & {
-      parameters: Array<{ name?: string; required?: boolean }>;
+      parameters: Array<{ name?: string; required?: boolean; $ref?: string }>;
       responses: Record<string, unknown>;
     };
     expect(get["x-required-scopes"]).toEqual(["config:read"]);
     expect(get.responses["200"].headers?.ETag).toBeDefined();
     expect(put["x-required-scopes"]).toEqual(["config:write"]);
     expect(put.parameters.some((parameter) => parameter.name === "If-Match" && parameter.required)).toBe(true);
+    // The route requires Idempotency-Key just like every other mutation
+    // (finding: the spec omitted it for this PUT even though the handler
+    // 400s IDEMPOTENCY_KEY_REQUIRED without it) — same shared parameter ref
+    // asserted for every status-reports mutation and the database-health
+    // refresh below.
+    expect(put.parameters.some((parameter) => parameter.$ref?.endsWith("/IdempotencyKey"))).toBe(true);
     expect(put.responses["412"]).toBeDefined();
     expect(put.responses["428"]).toBeDefined();
     const config = document.components.schemas.StatusPageConfig as {

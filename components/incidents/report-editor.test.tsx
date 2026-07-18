@@ -285,6 +285,43 @@ describe("ReportEditor edit mode", () => {
     expect("affected" in body).toBe(false);
   });
 
+  it("omits startsAt/endsAt from the PATCH when only the title changed (finding: an untouched datetime-local value silently truncates seconds)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(okEnvelope(report));
+    vi.stubGlobal("fetch", fetchMock);
+    renderEditor({ ...report, type: "maintenance", endsAt: "2026-07-18T15:00:00.000Z" });
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Retitled report" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/status-reports/rep-1",
+        expect.objectContaining({ method: "PATCH" }),
+      );
+    });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(body.title).toBe("Retitled report");
+    expect("startsAt" in body).toBe(false);
+    expect("endsAt" in body).toBe(false);
+  });
+
+  it("sends startsAt when the start time actually changed", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(okEnvelope(report));
+    vi.stubGlobal("fetch", fetchMock);
+    renderEditor(report);
+    fireEvent.change(screen.getByLabelText("Starts at"), { target: { value: "2026-07-10T08:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/status-reports/rep-1",
+        expect.objectContaining({ method: "PATCH" }),
+      );
+    });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect("startsAt" in body).toBe(true);
+    expect(typeof body.startsAt).toBe("string");
+  });
+
   it("still sends the full affected replacement when the impact picker changed", async () => {
     const fetchMock = vi.fn().mockResolvedValue(okEnvelope(report));
     vi.stubGlobal("fetch", fetchMock);

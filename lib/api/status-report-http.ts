@@ -22,6 +22,50 @@ export function statusReportRouteError(error: unknown, requestId: string): Respo
 }
 
 /**
+ * Idempotency recovery check for PATCH /status-reports/{id} (finding: a
+ * committed patch + crash makes the retry rerun updateStatusReport and
+ * re-snapshot renamed/moved monitors a second time). True when the CURRENT
+ * report already reflects everything the caller asked to change:
+ * title/startsAt/endsAt equal wherever the caller sent them (compared as
+ * instants, tolerant of formatting), and affected — if sent — equal as a set
+ * of monitorId:impact pairs (order-independent, full-replacement semantics).
+ * Fields the caller didn't send are never compared, since the patch never
+ * touched them.
+ */
+export function statusReportPatchAlreadyApplied(
+  current: {
+    title: string;
+    startsAt: string;
+    endsAt: string | null;
+    affected: ReadonlyArray<{ monitorId: string; impact: string }>;
+  },
+  body: unknown,
+): boolean {
+  if (body === null || typeof body !== "object") return false;
+  const patch = body as Record<string, unknown>;
+  if ("title" in patch && patch.title !== current.title) return false;
+  if ("startsAt" in patch && !sameInstant(patch.startsAt, current.startsAt)) return false;
+  if ("endsAt" in patch && !sameInstant(patch.endsAt, current.endsAt)) return false;
+  if ("affected" in patch) {
+    if (!Array.isArray(patch.affected)) return false;
+    const requested = new Set(
+      patch.affected.map((entry) => `${(entry as { monitorId: string }).monitorId}:${(entry as { impact: string }).impact}`),
+    );
+    const actual = new Set(current.affected.map((entry) => `${entry.monitorId}:${entry.impact}`));
+    if (requested.size !== actual.size) return false;
+    for (const key of requested) if (!actual.has(key)) return false;
+  }
+  return true;
+}
+
+function sameInstant(value: unknown, current: string | null): boolean {
+  if (value === null) return current === null;
+  if (typeof value !== "string" || current === null) return false;
+  const parsed = Date.parse(value);
+  return !Number.isNaN(parsed) && parsed === Date.parse(current);
+}
+
+/**
  * §3.2: report mutations invalidate the public status page, the report's
  * permalink, and the group pages of the affected monitors so updates appear
  * immediately instead of at the 30 s ISR boundary.

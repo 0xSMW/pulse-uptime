@@ -1,7 +1,11 @@
 import { apiJson, objectEnvelope } from "@/lib/api/envelopes";
 import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, isApiResponse } from "@/lib/api/middleware";
-import { revalidateStatusReportPaths, statusReportRouteError } from "@/lib/api/status-report-http";
+import {
+  revalidateStatusReportPaths,
+  statusReportPatchAlreadyApplied,
+  statusReportRouteError,
+} from "@/lib/api/status-report-http";
 import { deleteStatusReport, getStatusReport, updateStatusReport } from "@/lib/api/status-reports";
 
 type Params = { params: Promise<{ reportId: string }> };
@@ -28,6 +32,19 @@ export async function PATCH(request: Request, { params }: Params) {
       principalKey: context.principalKey,
       routeKey: `/api/v1/status-reports/${reportId}`,
       body,
+      // A retry after a stale-record reclaim may be replaying a patch that
+      // already committed before a crash (finding: rerunning would re-snapshot
+      // affected monitors from the live registry a second time, clobbering a
+      // rename/move that happened since). If the CURRENT state already
+      // reflects everything this patch asked for, treat that as this
+      // operation's own recovered success instead of rerunning work(); a
+      // genuinely different current state (or an unknown report) returns
+      // null so work() reruns normally.
+      recover: async () => {
+        const current = await getStatusReport(reportId).catch(() => null);
+        if (!current || !statusReportPatchAlreadyApplied(current, body)) return null;
+        return { status: 200, body: objectEnvelope("StatusReport", current, context.requestId) };
+      },
       work: async () => {
         // Replacing the affected set can move the report between group pages;
         // capture the pre-patch snapshot so the pages it leaves refresh too.

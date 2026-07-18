@@ -181,6 +181,76 @@ describe("getPublicStatus", () => {
     await getPublicStatus();
     expect(getPublicReports).toHaveBeenCalledWith(undefined, undefined);
   });
+
+  it("overfetches recent resolved incidents so minIncidentSeconds and promoted-fold filtering can't empty otherwise-visible history (finding: LIMIT 10 applied before either filter)", async () => {
+    vi.mocked(getStatusPageConfig).mockResolvedValue({
+      ...resolvedConfig(),
+      data: { ...resolvedConfig().data, minIncidentSeconds: 600 },
+    });
+    const monitorRow = { id: "mon-1", name: "API", groupName: "Core", state: "UP" };
+
+    // 15 resolved incidents, newest first (as the query's ORDER BY returns
+    // them): the first 6 are short-duration (filtered by minIncidentSeconds),
+    // one further down (index 7) is promoted (folded into its status report
+    // and excluded), the rest are long-duration and unpromoted. Under the old
+    // "LIMIT 10 before filtering" bug, only indices 0-9 would ever be fetched
+    // — filtering those down to just 4 survivors — instead of the 8 that
+    // should be visible once the full overfetch is filtered correctly.
+    const base = new Date("2026-07-18T12:00:00.000Z").getTime();
+    const recentRows = Array.from({ length: 15 }, (_, index) => {
+      const resolvedAt = new Date(base - index * 3_600_000);
+      const shortDuration = index < 6;
+      const openedAt = new Date(resolvedAt.getTime() - (shortDuration ? 60_000 : 3_600_000));
+      return { id: `inc-${index}`, monitorName: "API", openedAt, resolvedAt };
+    });
+    const promotedIncidentId = "inc-7";
+
+    const recentLimitSpy = vi.fn(() => Promise.resolve(recentRows));
+    const recentChain = {
+      from: () => recentChain,
+      innerJoin: () => recentChain,
+      where: () => recentChain,
+      orderBy: () => recentChain,
+      limit: recentLimitSpy,
+    };
+    dbMock.select
+      .mockReturnValueOnce(selectChain([monitorRow])) // monitors
+      .mockReturnValueOnce(selectChain([])) // rollups
+      .mockReturnValueOnce(selectChain([])) // current (unresolved) incidents
+      .mockReturnValueOnce(recentChain); // recent (resolved) incidents
+
+    vi.mocked(getPublicReports).mockResolvedValue({
+      ongoing: [],
+      upcoming: [],
+      windowEnded: [],
+      resolved: [{
+        id: "report-1",
+        type: "incident",
+        title: "API outage",
+        startsAt: new Date(base).toISOString(),
+        endsAt: null,
+        publishedAt: new Date(base).toISOString(),
+        resolvedAt: new Date(base).toISOString(),
+        originIncidentId: promotedIncidentId,
+        currentStatus: "resolved",
+        phase: "resolved",
+        latestUpdate: null,
+        affected: [],
+      }],
+    });
+
+    const data = await getPublicStatus();
+
+    // The overfetch (60) is what makes the correct behavior possible.
+    expect(recentLimitSpy).toHaveBeenCalledWith(60);
+    // Surviving ids: the 6 short ones (0-5) are filtered by duration, inc-7
+    // is filtered as promoted, leaving 6, 8, 9, 10, 11, 12, 13, 14 (8 rows) —
+    // well within the eventual 10-row display cap, but MORE than the old
+    // buggy LIMIT-10-first code path could ever have surfaced.
+    expect(data!.recentIncidents.map((incident) => incident.id)).toEqual([
+      "inc-6", "inc-8", "inc-9", "inc-10", "inc-11", "inc-12", "inc-13", "inc-14",
+    ]);
+  });
 });
 
 describe("getPublicReportDetail", () => {

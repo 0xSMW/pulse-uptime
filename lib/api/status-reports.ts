@@ -205,9 +205,28 @@ export interface StatusReportsStore {
    * report's final update; "missing" = no such row.
    */
   deleteUpdate(input: { reportId: string; updateId: string }): Promise<"deleted" | "last_update" | "missing">;
-  listUpdates(reportId: string): Promise<StatusReportUpdateRow[]>;
-  /** Persists the recomputed resolution and bumps the report's updatedAt. */
-  setResolution(input: { reportId: string; resolvedAt: Date | null; now: Date }): Promise<void>;
+  /**
+   * Direct point lookup by (reportId, updateId) — unlike getReportDetails,
+   * never capped, so recovery can find a backdated update whose publishedAt
+   * sorts behind PER_REPORT_UPDATE_LIMIT newer rows (finding: a scan capped
+   * at 500 detail rows could miss it and spuriously rerun/duplicate).
+   */
+  getUpdate(reportId: string, updateId: string): Promise<StatusReportUpdateRow | null>;
+  /**
+   * Recomputes and persists the report's resolvedAt from the FULL current
+   * update set, inside a `SELECT ... FOR UPDATE`-locked transaction on the
+   * report row (mirrors deleteUpdate's guard) — so concurrent mutations
+   * against the SAME report serialize their recompute+write instead of a
+   * lagging recompute clobbering a newer, correct write with a stale value
+   * (finding: a list-then-derive-then-write outside any lock can race).
+   * Returns the updates read inside the lock (so the caller serializes the
+   * response from the same consistent snapshot) and the resolvedAt
+   * persisted; null if the report no longer exists.
+   */
+  recomputeResolution(input: {
+    reportId: string;
+    now: Date;
+  }): Promise<{ updates: StatusReportUpdateRow[]; resolvedAt: Date | null } | null>;
   publishReport(input: { id: string; now: Date }): Promise<"published" | "already_published" | "missing">;
   findIncident(incidentId: string): Promise<{
     id: string;
@@ -669,9 +688,9 @@ export async function deleteStatusReport(id: string, dependencies: StatusReports
 }
 
 /**
- * Shared tail of the update mutations: re-read the surviving updates (with the
- * affected rows in parallel), persist the recomputed resolution, and build the
- * response from the rows already in hand — no trailing getStatusReport
+ * Shared tail of the update mutations: recompute+persist the resolution
+ * under the report-row lock (with the affected rows in parallel), and build
+ * the response from the rows already in hand — no trailing getStatusReport
  * re-fetch (finding: ≤4 sequential round-trips per mutation).
  */
 async function persistResolutionAndSerialize(
@@ -679,13 +698,16 @@ async function persistResolutionAndSerialize(
   report: StatusReportRow,
   now: Date,
 ): Promise<StatusReportData> {
-  const [updates, affected] = await Promise.all([
-    store.listUpdates(report.id),
+  const [recomputed, affected] = await Promise.all([
+    store.recomputeResolution({ reportId: report.id, now }),
     store.getAffected([report.id]),
   ]);
-  const resolvedAt = deriveResolvedAt(updates);
-  await store.setResolution({ reportId: report.id, resolvedAt, now });
-  return serializeReport({ ...report, resolvedAt, updatedAt: now }, updates, affected);
+  if (!recomputed) throw new StatusReportError("REPORT_NOT_FOUND", "Status report was not found");
+  return serializeReport(
+    { ...report, resolvedAt: recomputed.resolvedAt, updatedAt: now },
+    recomputed.updates,
+    affected,
+  );
 }
 
 export async function addReportUpdate(
@@ -729,13 +751,42 @@ export async function recoverAddedReportUpdate(
   const now = dependencies.now?.() ?? new Date();
   const report = await store.getReport(reportId);
   if (!report) return null;
-  const { updates } = await store.getReportDetails([reportId]);
-  if (!updates.some((update) => update.id === updateId)) return null;
+  // Point lookup by the pinned update id rather than scanning the detail
+  // rows (finding: getReportDetails caps at PER_REPORT_UPDATE_LIMIT newest
+  // rows, so a backdated update whose publishedAt sorts behind 500+ newer
+  // ones would never surface there, causing a spurious rerun that inserts a
+  // duplicate).
+  const inserted = await store.getUpdate(reportId, updateId);
+  if (!inserted) return null;
   // The crash this recovers from may have landed between the insert
-  // committing and setResolution running (finding: a resolving update that
-  // never resolved the report) — recompute and persist resolution here too,
-  // via the same idempotent recompute the success path uses, instead of
-  // trusting the possibly-stale resolvedAt already on the report row.
+  // committing and the resolution recompute running (finding: a resolving
+  // update that never resolved the report) — recompute and persist
+  // resolution here too, via the same idempotent recompute the success path
+  // uses, instead of trusting the possibly-stale resolvedAt already on the
+  // report row.
+  return persistResolutionAndSerialize(store, report, now);
+}
+
+/**
+ * Idempotency recovery for DELETE /status-reports/{id}/updates/{updateId}
+ * (finding: a committed delete + crash makes the retry rerun into
+ * UPDATE_NOT_FOUND -> 404 for a delete that already succeeded). Recovery is
+ * "the report still exists AND the update is gone" — a still-present update
+ * (the crash landed before the delete committed) returns null so work()
+ * reruns normally, including the LAST_UPDATE guard on what would be the
+ * report's final update.
+ */
+export async function recoverDeletedReportUpdate(
+  reportId: string,
+  updateId: string,
+  dependencies: StatusReportsDependencies = {},
+): Promise<StatusReportData | null> {
+  const store = dependencies.store ?? databaseStatusReportsStore;
+  const now = dependencies.now?.() ?? new Date();
+  const report = await store.getReport(reportId);
+  if (!report) return null;
+  const stillExists = await store.getUpdate(reportId, updateId);
+  if (stillExists) return null;
   return persistResolutionAndSerialize(store, report, now);
 }
 
@@ -1229,19 +1280,43 @@ export const databaseStatusReportsStore: StatusReportsStore = {
     });
   },
 
-  async listUpdates(reportId) {
-    // Ordered by the contract total order with the cap taking the NEWEST rows,
-    // so a capped read can never drop the update that decides resolvedAt.
-    return db.select(updateSelection).from(statusReportUpdates)
-      .where(eq(statusReportUpdates.reportId, reportId))
-      .orderBy(desc(statusReportUpdates.publishedAt), desc(statusReportUpdates.createdAt), desc(statusReportUpdates.id))
-      .limit(1_000);
+  async getUpdate(reportId, updateId) {
+    if (!isUuid(reportId) || !isUuid(updateId)) return null;
+    const [row] = await db.select(updateSelection).from(statusReportUpdates)
+      .where(and(eq(statusReportUpdates.id, updateId), eq(statusReportUpdates.reportId, reportId)))
+      .limit(1);
+    return row ?? null;
   },
 
-  async setResolution({ reportId, resolvedAt, now }) {
-    await db.update(statusReports)
-      .set({ resolvedAt, updatedAt: now })
-      .where(eq(statusReports.id, reportId));
+  async recomputeResolution({ reportId, now }) {
+    if (!isUuid(reportId)) return null;
+    // Row-locked transaction: `SELECT ... FOR UPDATE` on the report serializes
+    // concurrent recomputes for the SAME report, mirroring deleteUpdate's
+    // guard. Without the lock, two mutations racing on the same report could
+    // each list-then-derive from a snapshot taken before the OTHER's write
+    // committed, and whichever's UPDATE lands last would persist a stale
+    // resolvedAt over the correct one (finding: lost-update race). The lock
+    // forces the second transaction to wait and re-read the post-write state.
+    return db.transaction(async (tx) => {
+      const [locked] = await tx
+        .select({ id: statusReports.id })
+        .from(statusReports)
+        .where(eq(statusReports.id, reportId))
+        .for("update");
+      if (!locked) return null;
+      // Ordered by the contract total order with the cap taking the NEWEST
+      // rows, so a capped read can never drop the update that decides
+      // resolvedAt.
+      const updates = await tx.select(updateSelection).from(statusReportUpdates)
+        .where(eq(statusReportUpdates.reportId, reportId))
+        .orderBy(desc(statusReportUpdates.publishedAt), desc(statusReportUpdates.createdAt), desc(statusReportUpdates.id))
+        .limit(1_000);
+      const resolvedAt = deriveResolvedAt(updates);
+      await tx.update(statusReports)
+        .set({ resolvedAt, updatedAt: now })
+        .where(eq(statusReports.id, reportId));
+      return { updates, resolvedAt };
+    });
   },
 
   async publishReport({ id, now }) {
@@ -1297,6 +1372,14 @@ export const databaseStatusReportsStore: StatusReportsStore = {
     // completing update) last — so within the 100 cap neither 100+ future
     // maintenance windows nor a stale ended window can crowd out an active
     // report that would otherwise sort later by startsAt DESC alone.
+    //
+    // Within the future bucket the tiebreak is ASCENDING startsAt (nearest
+    // upcoming first) rather than the DESC used elsewhere: a shared DESC
+    // tiebreak would keep the FARTHEST-future rows inside the 100 cap and
+    // drop the nearest ones (finding: 100+ future rows starving the soonest
+    // upcoming report). The CASE expression only produces a value for future
+    // rows, so it's a no-op tiebreak for the active bucket, which still falls
+    // through to the final `startsAt DESC` column.
     const unresolved = db
       .select(reportSelection)
       .from(statusReports)
@@ -1308,6 +1391,7 @@ export const databaseStatusReportsStore: StatusReportsStore = {
       .orderBy(
         sql`(${statusReports.endsAt} is not null and ${statusReports.endsAt} <= ${now})`,
         sql`(${statusReports.startsAt} > ${now})`,
+        sql`(case when ${statusReports.startsAt} > ${now} then ${statusReports.startsAt} end) asc nulls last`,
         desc(statusReports.startsAt),
       )
       .limit(100);

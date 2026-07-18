@@ -621,6 +621,7 @@
         "security": [{"bearerAuth": []}, {"humanSession": []}],
         "parameters": [
           {"$ref": "#/components/parameters/RequestId"},
+          {"$ref": "#/components/parameters/IdempotencyKey"},
           {"name": "If-Match", "in": "header", "required": true, "schema": {"type": "string"}, "description": "Quoted updatedAt-derived ETag captured on the last read"}
         ],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StatusPageConfig"}}}},

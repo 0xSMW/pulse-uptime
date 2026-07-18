@@ -31,6 +31,23 @@ import type { StatusPageConfigDocument } from "@/lib/status-page/schema";
 
 import { buildRollupTimeline, statusGroupSlug, summarizeRollupCoverage } from "./timeline";
 
+/**
+ * Recent resolved-incidents history is overfetched by this bounded multiple
+ * rather than the eventual display count (10, RECENT_INCIDENTS_DISPLAY_LIMIT
+ * below): both the minIncidentSeconds duration filter and the promoted-origin
+ * exclusion run AFTER this query returns (finding: applying a LIMIT 10 before
+ * either filter could empty an otherwise-populated history down to a
+ * handful of short/promoted rows). The promoted-origin id set can't be
+ * folded into this query's SQL because it's only known once getPublicReports
+ * resolves — which this query runs IN PARALLEL WITH via the outer
+ * Promise.all, not before — so SQL-side exclusion would require serializing
+ * the two fan-outs. 60 is generous headroom for any realistic mix of
+ * short-duration/promoted incidents while staying far short of an unbounded
+ * scan.
+ */
+const RECENT_INCIDENTS_FETCH_LIMIT = 60;
+const RECENT_INCIDENTS_DISPLAY_LIMIT = 10;
+
 function failureLabel(statusCode: number | null): string {
   if (statusCode !== null) return `HTTP ${statusCode}`;
   // Checker codes can include infrastructure detail. Public pages use a stable,
@@ -186,7 +203,7 @@ async function loadPublicStatus(group?: string) {
       .innerJoin(monitorRegistry, eq(monitorRegistry.id, incidents.monitorId))
       .where(and(inArray(incidents.monitorId, ids), isNotNull(incidents.resolvedAt)))
       .orderBy(desc(incidents.resolvedAt))
-      .limit(10),
+      .limit(RECENT_INCIDENTS_FETCH_LIMIT),
     ]),
   ]);
 
@@ -276,6 +293,10 @@ async function loadPublicStatus(group?: string) {
     groups,
     // The floor only applies to this resolved-history list — never to ongoing
     // incidents (the banner would contradict itself) and never to timelines.
+    // Both filters run over the RECENT_INCIDENTS_FETCH_LIMIT-row overfetch
+    // (see the query above) before the final slice down to the display
+    // count, so a short-duration or promoted row near the top of the fetch
+    // can never empty out otherwise-visible older history.
     recentIncidents: filterShortResolvedIncidents(
       excludePromotedIncidents(recent, historyPromoted).map((incident) => ({
         id: incident.id,
@@ -284,7 +305,7 @@ async function loadPublicStatus(group?: string) {
         durationSeconds: Math.max(0, Math.floor(((incident.resolvedAt?.getTime() ?? now.getTime()) - incident.openedAt.getTime()) / 1_000)),
       })),
       config.minIncidentSeconds,
-    ),
+    ).slice(0, RECENT_INCIDENTS_DISPLAY_LIMIT),
   };
 }
 

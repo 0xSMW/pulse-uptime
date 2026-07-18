@@ -11,6 +11,8 @@ import {
   StatusPageConfigError,
   type StatusPageConfigData,
 } from "@/lib/api/status-page-config";
+import { canonicalSerialize } from "@/lib/config/canonical";
+import { parseStatusPageConfigDocument } from "@/lib/status-page/schema";
 
 function configResponse(data: StatusPageConfigData, etag: string, requestId: string) {
   const response = apiJson(objectEnvelope("StatusPageConfig", data, requestId));
@@ -61,6 +63,25 @@ export async function PUT(request: Request) {
       principalKey: context.principalKey,
       routeKey: "/api/v1/status-page-config",
       body,
+      // A retry after a stale-record reclaim may be replaying a save that
+      // already committed before a crash (finding: rerunning would re-check
+      // If-Match against the NEW updatedAt the prior attempt already wrote,
+      // 412ing against its own successful write). If the CURRENT document
+      // already deep-equals what the caller submitted (ignoring the
+      // read-only updatedAt), treat that as this operation's own recovered
+      // success; a genuinely different current document — or a body that no
+      // longer parses — returns null so work() reruns (and a real conflict
+      // still 412s there).
+      recover: async () => {
+        const parsed = parseStatusPageConfigDocument(body);
+        if (!parsed.success) return null;
+        const current = await getStatusPageConfig().catch(() => null);
+        if (!current) return null;
+        const { updatedAt: _currentUpdatedAt, ...currentDocument } = current.data;
+        void _currentUpdatedAt;
+        if (canonicalSerialize(currentDocument) !== canonicalSerialize(parsed.data)) return null;
+        return { status: 200, body: current.data };
+      },
       work: async () => {
         const { data } = await putStatusPageConfig(body, ifMatch);
         // Branding (logo, favicon, custom CSS, announcement banner, nav

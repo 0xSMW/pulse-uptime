@@ -224,10 +224,16 @@ export function ReportEditor({ report, monitors }: { report: ReportData | null; 
     setBusy("save");
     setMessage(null);
     try {
+      // datetime-local drops seconds, so round-tripping an untouched value
+      // would silently truncate startsAt/endsAt to minute precision on every
+      // basics save (same class as the publishedAt fix in saveEditedUpdate)
+      // — only send them when the input actually differs from the baseline.
+      const startsAtChanged = startsAt !== baseline.startsAt;
+      const endsAtChanged = type === "maintenance" && endsAt !== baseline.endsAt;
       const body = {
         title: title.trim(),
-        startsAt: fromDatetimeLocal(startsAt)!,
-        ...(type === "maintenance" ? { endsAt: endsAt.trim() ? fromDatetimeLocal(endsAt)! : null } : {}),
+        ...(startsAtChanged ? { startsAt: fromDatetimeLocal(startsAt)! } : {}),
+        ...(endsAtChanged ? { endsAt: endsAt.trim() ? fromDatetimeLocal(endsAt)! : null } : {}),
         // Only send affected when it actually changed: the service treats
         // this key as a full replacement that re-snapshots monitor
         // names/groups from the live registry, so sending it unconditionally

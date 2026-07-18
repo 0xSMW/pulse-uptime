@@ -2,7 +2,7 @@ import { apiJson, objectEnvelope } from "@/lib/api/envelopes";
 import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, isApiResponse } from "@/lib/api/middleware";
 import { revalidateStatusReportPaths, statusReportRouteError } from "@/lib/api/status-report-http";
-import { deleteReportUpdate, editReportUpdate } from "@/lib/api/status-reports";
+import { deleteReportUpdate, editReportUpdate, recoverDeletedReportUpdate } from "@/lib/api/status-reports";
 
 type Params = { params: Promise<{ reportId: string; updateId: string }> };
 
@@ -39,6 +39,18 @@ export async function DELETE(request: Request, { params }: Params) {
       principalKey: context.principalKey,
       routeKey: `/api/v1/status-reports/${reportId}/updates/${updateId}`,
       body: {},
+      // A retry after a stale-record reclaim means a prior attempt may have
+      // already committed the delete before crashing (finding: the retry
+      // would rerun into UPDATE_NOT_FOUND -> 404 for a delete that actually
+      // succeeded). If the update is gone but the report still exists,
+      // recover by recomputing/serializing the current state as this
+      // operation's own success; otherwise return null so work() reruns
+      // (a still-present update, or a genuinely-unknown one on a first
+      // attempt, still hits the normal error mapping).
+      recover: async () => {
+        const recovered = await recoverDeletedReportUpdate(reportId, updateId);
+        return recovered ? { status: 200, body: objectEnvelope("StatusReport", recovered, context.requestId) } : null;
+      },
       work: async () => {
         const report = await deleteReportUpdate(reportId, updateId);
         await revalidateStatusReportPaths(report);

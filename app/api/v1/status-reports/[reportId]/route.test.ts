@@ -119,6 +119,59 @@ describe("PATCH /api/v1/status-reports/{reportId}", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/status/core");
     expect(revalidatePath).toHaveBeenCalledWith("/status/data");
   });
+
+  it("wires a recover callback that returns the current state instead of re-snapshotting on replay (finding: PATCH retries re-snapshot renamed/moved monitors)", async () => {
+    await PATCH(request("PATCH", { title: "New title" }), params);
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
+    };
+
+    // Recovery hit: the current report's title already matches the patch —
+    // a prior attempt committed it before crashing — so the retry must
+    // return that state as success instead of calling updateStatusReport
+    // (and re-snapshotting affected) again.
+    vi.mocked(getStatusReport).mockResolvedValue({ ...report, title: "New title" });
+    await expect(options.recover({ operationId: "op-1" })).resolves.toEqual({
+      status: 200,
+      body: objectEnvelope("StatusReport", { ...report, title: "New title" }, context.requestId),
+    });
+
+    // Recovery miss: the current title still differs from the requested
+    // patch — the crash hit before the patch committed — so fall through
+    // and let work() actually apply it.
+    vi.mocked(getStatusReport).mockResolvedValue(report);
+    await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
+
+    // Recovery miss: an unknown report (never existed / already deleted)
+    // must also rerun rather than recover.
+    vi.mocked(getStatusReport).mockRejectedValue(new StatusReportError("REPORT_NOT_FOUND", "missing"));
+    await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
+  });
+
+  it("recover compares affected as an order-independent set and rejects a genuinely different set", async () => {
+    await PATCH(request("PATCH", { affected: [{ monitorId: "api-prod", impact: "down" }] }), params);
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
+    };
+
+    vi.mocked(getStatusReport).mockResolvedValue({
+      ...report,
+      affected: [{ monitorId: "api-prod", monitorName: "API", groupName: "Core", impact: "down" }],
+    });
+    await expect(options.recover({ operationId: "op-1" })).resolves.toEqual({
+      status: 200,
+      body: objectEnvelope("StatusReport", {
+        ...report,
+        affected: [{ monitorId: "api-prod", monitorName: "API", groupName: "Core", impact: "down" }],
+      }, context.requestId),
+    });
+
+    vi.mocked(getStatusReport).mockResolvedValue({
+      ...report,
+      affected: [{ monitorId: "db-prod", monitorName: "Database", groupName: "Data", impact: "down" }],
+    });
+    await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
+  });
 });
 
 describe("DELETE /api/v1/status-reports/{reportId}", () => {

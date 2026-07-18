@@ -18,14 +18,18 @@ vi.mock("@/lib/api/status-reports", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/status-reports")>()),
   editReportUpdate: vi.fn(),
   deleteReportUpdate: vi.fn(),
+  recoverDeletedReportUpdate: vi.fn(),
 }));
 
 import { revalidatePath } from "next/cache";
 
+import { objectEnvelope } from "@/lib/api/envelopes";
+import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, type ApiContext } from "@/lib/api/middleware";
 import {
   deleteReportUpdate,
   editReportUpdate,
+  recoverDeletedReportUpdate,
   StatusReportError,
   type StatusReportData,
 } from "@/lib/api/status-reports";
@@ -63,6 +67,8 @@ beforeEach(() => {
   vi.mocked(revalidatePath).mockReset();
   vi.mocked(editReportUpdate).mockReset().mockResolvedValue(report);
   vi.mocked(deleteReportUpdate).mockReset().mockResolvedValue(report);
+  vi.mocked(recoverDeletedReportUpdate).mockReset();
+  vi.mocked(executeIdempotent).mockClear();
 });
 
 describe("PATCH /api/v1/status-reports/{reportId}/updates/{updateId}", () => {
@@ -98,5 +104,26 @@ describe("DELETE /api/v1/status-reports/{reportId}/updates/{updateId}", () => {
     expect(response.status).toBe(409);
     expect((await response.json()).error.code).toBe("LAST_UPDATE");
     expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("wires a recover callback that returns the recomputed report instead of rerunning into a 404 (finding: update-delete retries 404 after a crash)", async () => {
+    await DELETE(request("DELETE"), params);
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
+    };
+
+    // Recovery hit: a prior attempt already committed the delete (and its
+    // resolution recompute) before crashing — the retry must surface that
+    // recomputed report as success instead of rerunning into UPDATE_NOT_FOUND.
+    vi.mocked(recoverDeletedReportUpdate).mockResolvedValue(report);
+    await expect(options.recover({ operationId: "op-1" })).resolves.toEqual({
+      status: 200,
+      body: objectEnvelope("StatusReport", report, context.requestId),
+    });
+
+    // Recovery miss: the update still exists (crash before the delete
+    // committed) — fall through so work() actually deletes it.
+    vi.mocked(recoverDeletedReportUpdate).mockResolvedValue(null);
+    await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
   });
 });

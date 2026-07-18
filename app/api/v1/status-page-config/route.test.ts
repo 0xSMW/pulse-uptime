@@ -48,6 +48,32 @@ function getRequest() {
   return new Request("https://pulse.test/api/v1/status-page-config");
 }
 
+/** A full document satisfying the strict schema, for tests that exercise the real parseStatusPageConfigDocument. */
+function fullDocument(overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
+  return {
+    name: "Acme Status",
+    layout: "vertical",
+    theme: "system",
+    logoLightImageId: null,
+    logoDarkImageId: null,
+    faviconImageId: null,
+    homepageUrl: null,
+    contactUrl: null,
+    navLinks: [],
+    googleTagId: null,
+    customCss: null,
+    customHead: null,
+    announcementEnabled: false,
+    announcementMarkdown: null,
+    historyDays: 90,
+    uptimeDecimals: 1,
+    unknownAsOperational: false,
+    minIncidentSeconds: 0,
+    timezone: null,
+    ...overrides,
+  };
+}
+
 function putRequest(body: unknown, headers: Record<string, string> = {}) {
   return new Request("https://pulse.test/api/v1/status-page-config", {
     method: "PUT",
@@ -178,5 +204,60 @@ describe("PUT /api/v1/status-page-config", () => {
     expect(response.status).toBe(400);
     const payload = await response.json();
     expect(payload.error.code).toBe("INVALID_JSON");
+  });
+
+  it("wires a recover callback that returns the current document as success when it already matches the submitted one (finding: a committed save + crash makes the retry 412 against its own write)", async () => {
+    const submitted = fullDocument({ name: "Acme Status" });
+    await PUT(putRequest(submitted, { "If-Match": '"1784332800000"' }));
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
+    };
+
+    // Recovery hit: the current document (whatever its updatedAt) already
+    // deep-equals what was submitted — a prior attempt committed the write
+    // before crashing — so the retry must recover with the CURRENT ETag
+    // rather than rerunning putStatusPageConfig against a stale If-Match.
+    vi.mocked(getStatusPageConfig).mockResolvedValue({
+      data: { ...submitted, updatedAt: "2026-07-18T00:18:20.000Z" } as never,
+      etag: '"1784333900000"',
+    });
+    await expect(options.recover({ operationId: "op-1" })).resolves.toEqual({
+      status: 200,
+      body: { ...submitted, updatedAt: "2026-07-18T00:18:20.000Z" },
+    });
+
+    // Recovery miss: the current document genuinely differs (the crash hit
+    // before the write committed, or something else changed it since) — fall
+    // through so work() reruns the real If-Match-guarded write.
+    vi.mocked(getStatusPageConfig).mockResolvedValue({
+      data: { ...submitted, name: "Something Else", updatedAt: "2026-07-18T00:18:20.000Z" } as never,
+      etag: '"1784333900000"',
+    });
+    await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
+  });
+
+  it("recover ignores field order and the read-only updatedAt when comparing documents", async () => {
+    const submitted = fullDocument({ name: "Acme Status" });
+    await PUT(putRequest(submitted, { "If-Match": '"1784332800000"' }));
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
+    };
+
+    // Reordered keys and a different updatedAt must still compare equal.
+    const reordered = Object.fromEntries(Object.entries(submitted).reverse());
+    vi.mocked(getStatusPageConfig).mockResolvedValue({
+      data: { ...reordered, updatedAt: "2099-01-01T00:00:00.000Z" } as never,
+      etag: '"whatever"',
+    });
+    await expect(options.recover({ operationId: "op-1" })).resolves.not.toBeNull();
+  });
+
+  it("recover returns null (rerun) when the submitted body no longer parses", async () => {
+    const response = await PUT(putRequest({ name: "Acme Status" }, { "If-Match": '"1784332800000"' }));
+    expect(response.status).toBe(200);
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
+    };
+    await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
   });
 });
