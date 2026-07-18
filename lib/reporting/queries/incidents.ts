@@ -5,6 +5,14 @@ import { incidents, monitorRegistry, notificationOutbox } from "@/lib/db/schema"
 
 export type IncidentFilter = "all" | "ongoing" | "resolved";
 
+export async function hasConfiguredMonitors(): Promise<boolean> {
+  const [monitor] = await db.select({ id: monitorRegistry.id })
+    .from(monitorRegistry)
+    .where(isNull(monitorRegistry.archivedAt))
+    .limit(1);
+  return Boolean(monitor);
+}
+
 type NotificationRow = {
   incidentId: string | null;
   status: "pending" | "sending" | "sent" | "failed" | "dead";
