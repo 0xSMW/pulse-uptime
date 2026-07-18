@@ -1,6 +1,6 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
 
-import { validateMonitoringConfig } from "@/lib/config";
+import { validateMonitoringConfig, type MonitoringConfig } from "@/lib/config";
 import { DEFAULT_MONITOR_VALUES } from "@/lib/config/defaults";
 import { db } from "@/lib/db/client";
 import { getDatabaseHealth } from "@/lib/database-health";
@@ -13,8 +13,21 @@ import {
   monitorState,
 } from "@/lib/db/schema";
 
-export async function getSettingsOverview() {
-  const [registrations, accepted, agentTokens, sessions, databaseHealthResult] = await Promise.all([
+async function getAcceptedConfig(): Promise<MonitoringConfig | null> {
+  const accepted = await db.select({ configJson: monitoringConfigSnapshots.configJson })
+    .from(monitoringConfigSnapshots)
+    .where(eq(monitoringConfigSnapshots.status, "accepted"))
+    .orderBy(desc(monitoringConfigSnapshots.acceptedAt))
+    .limit(1);
+  try {
+    return accepted[0] ? validateMonitoringConfig(accepted[0].configJson) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getMonitorSettings() {
+  const [registrations, config] = await Promise.all([
     db.select({
       id: monitorRegistry.id,
       name: monitorRegistry.name,
@@ -27,42 +40,8 @@ export async function getSettingsOverview() {
       .where(isNull(monitorRegistry.archivedAt))
       .orderBy(monitorRegistry.name)
       .limit(100),
-    db.select({ configJson: monitoringConfigSnapshots.configJson })
-      .from(monitoringConfigSnapshots)
-      .where(eq(monitoringConfigSnapshots.status, "accepted"))
-      .orderBy(desc(monitoringConfigSnapshots.acceptedAt))
-      .limit(1),
-    db.select({
-      id: apiTokens.id,
-      name: apiTokens.name,
-      prefix: apiTokens.tokenPrefix,
-      scopes: apiTokens.scopes,
-      expiresAt: apiTokens.expiresAt,
-      lastUsedAt: apiTokens.lastUsedAt,
-    }).from(apiTokens)
-      .where(isNull(apiTokens.revokedAt))
-      .orderBy(desc(apiTokens.createdAt))
-      .limit(100),
-    db.select({
-      id: cliSessions.id,
-      prefix: cliSessions.tokenPrefix,
-      scopes: cliSessions.scopes,
-      expiresAt: cliSessions.expiresAt,
-      lastUsedAt: cliSessions.lastUsedAt,
-      displayName: cliInstallations.displayName,
-      platform: cliInstallations.platform,
-      architecture: cliInstallations.architecture,
-    }).from(cliSessions)
-      .innerJoin(cliInstallations, eq(cliInstallations.id, cliSessions.installationId))
-      .where(and(isNull(cliSessions.revokedAt), isNull(cliInstallations.revokedAt)))
-      .orderBy(desc(cliSessions.createdAt))
-      .limit(100),
-    getDatabaseHealth()
-      .then((data) => ({ data, error: false }))
-      .catch(() => ({ data: null, error: true })),
+    getAcceptedConfig(),
   ]);
-  let config = null;
-  try { config = accepted[0] ? validateMonitoringConfig(accepted[0].configJson) : null; } catch { config = null; }
   const configById = new Map(config?.monitors.map((monitor) => [monitor.id, monitor]) ?? []);
   const groupNames = new Map(config?.groups.map((group) => [group.id, group.name]) ?? []);
 
@@ -88,11 +67,58 @@ export async function getSettingsOverview() {
       ...group,
       monitorCount: config?.monitors.filter((monitor) => monitor.groupId === group.id).length ?? 0,
     })),
-    notifications: {
-      defaultRecipients: config?.settings.defaultRecipients ?? [],
-      userAgent: config?.settings.userAgent ?? "Not configured",
-      sender: process.env.RESEND_FROM_EMAIL?.trim() || null,
-    },
+    userAgent: config?.settings.userAgent ?? "Not configured",
+  };
+}
+
+export async function getGeneralSettings() {
+  const config = await getAcceptedConfig();
+  return {
+    defaultRecipients: config?.settings.defaultRecipients ?? [],
+    sender: process.env.RESEND_FROM_EMAIL?.trim() || null,
+  };
+}
+
+export async function getSystemSettings() {
+  const databaseHealthResult = await getDatabaseHealth()
+    .then((data) => ({ data, error: false }))
+    .catch(() => ({ data: null, error: true }));
+  return {
+    databaseHealth: databaseHealthResult.data,
+    databaseHealthError: databaseHealthResult.error,
+  };
+}
+
+export async function getAccessSettings() {
+  const [agentTokens, sessions] = await Promise.all([
+    db.select({
+      id: apiTokens.id,
+      name: apiTokens.name,
+      prefix: apiTokens.tokenPrefix,
+      scopes: apiTokens.scopes,
+      expiresAt: apiTokens.expiresAt,
+      lastUsedAt: apiTokens.lastUsedAt,
+    }).from(apiTokens)
+      .where(isNull(apiTokens.revokedAt))
+      .orderBy(desc(apiTokens.createdAt))
+      .limit(100),
+    db.select({
+      id: cliSessions.id,
+      prefix: cliSessions.tokenPrefix,
+      scopes: cliSessions.scopes,
+      expiresAt: cliSessions.expiresAt,
+      lastUsedAt: cliSessions.lastUsedAt,
+      displayName: cliInstallations.displayName,
+      platform: cliInstallations.platform,
+      architecture: cliInstallations.architecture,
+    }).from(cliSessions)
+      .innerJoin(cliInstallations, eq(cliInstallations.id, cliSessions.installationId))
+      .where(and(isNull(cliSessions.revokedAt), isNull(cliInstallations.revokedAt)))
+      .orderBy(desc(cliSessions.createdAt))
+      .limit(100),
+  ]);
+
+  return {
     tokens: [
       ...agentTokens.map((token) => ({
         id: token.id,
@@ -116,7 +142,5 @@ export async function getSettingsOverview() {
       })),
     ],
     origin: process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "",
-    databaseHealth: databaseHealthResult.data,
-    databaseHealthError: databaseHealthResult.error,
   };
 }

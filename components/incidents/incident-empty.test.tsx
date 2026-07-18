@@ -15,6 +15,6 @@ describe("IncidentEmpty", () => {
     const html = renderToStaticMarkup(<IncidentEmpty />);
 
     expect(html).toContain("Add monitors");
-    expect(html).toContain('href="/settings"');
+    expect(html).toContain('href="/settings/monitors"');
   });
 });
