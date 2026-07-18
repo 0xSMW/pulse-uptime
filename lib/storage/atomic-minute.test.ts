@@ -28,10 +28,13 @@ describe("atomic completed minute persistence", () => {
     expect(PERSIST_ATOMIC_MINUTE_SQL).not.toContain("check_results");
     expect(PERSIST_ATOMIC_MINUTE_SQL).toContain("cross join batch_insert");
     expect(PERSIST_ATOMIC_MINUTE_SQL).toContain("pulse_assert_equal");
+    expect(PERSIST_ATOMIC_MINUTE_SQL.trim().toLowerCase()).not.toMatch(/returning\s+\w+\s*$/);
     const values = query.mock.calls[0]![1];
     expect(JSON.parse(String(values[11]))).toHaveLength(1);
     expect(JSON.parse(String(values[14]))).toHaveLength(1);
     expect(JSON.parse(String(values[15]))[0]?.payload).toMatchObject({ errorMessage: "HTTP 503" });
+    const detail = JSON.parse(String(values[15]))[0] as { createdAt: string; expiresAt: string };
+    expect(new Date(detail.expiresAt).getTime() - new Date(detail.createdAt).getTime()).toBe(30 * 86_400_000);
     expect(JSON.parse(String(values[16]))[0]).toMatchObject({ eventType: "failure", latencyMs: 900 });
   });
 
@@ -55,5 +58,18 @@ describe("atomic completed minute persistence", () => {
     const values = query.mock.calls[0]![1];
     expect(JSON.parse(String(values[10]))).toEqual([]);
     expect(JSON.parse(String(values[16]))).toMatchObject([{ eventType: "scheduler_gap" }]);
+  });
+
+  it("requests cache invalidation only for state changes or completed 15-minute buckets", async () => {
+    const query = vi.fn().mockResolvedValue([]);
+    const invalidate = vi.fn().mockResolvedValue(undefined);
+    const base = { configVersion: 1, monitorIds: ["api"], expectedMonitorIds: ["api"], results: [],
+      states: new Map([["api", state]]), schedulerStartedAt: at, schedulerCompletedAt: at,
+      invalidatePublicStatus: invalidate };
+    await persistAtomicMinute({ query }, { ...base, scheduledMinute: new Date("2026-07-18T03:14:00Z") });
+    expect(invalidate).toHaveBeenCalledWith("completed-rollup-bucket");
+    invalidate.mockClear();
+    await persistAtomicMinute({ query }, { ...base, scheduledMinute: new Date("2026-07-18T03:13:00Z") });
+    expect(invalidate).not.toHaveBeenCalled();
   });
 });
