@@ -54,6 +54,66 @@ func TestListAutoPaginationPreservesOrderAndCapsTotal(t *testing.T) {
 	}
 }
 
+func TestListSendsGroupIDFilter(t *testing.T) {
+	client := clientFunc(func(_ context.Context, r Request) error {
+		if got := r.Query.Get("groupId"); got != "production" {
+			t.Fatalf("groupId = %q", got)
+		}
+		setListResult(t, r.Result, nil, nil)
+		return nil
+	})
+	if _, err := List(context.Background(), client, ListOptions{GroupID: "production"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestListRejectsGroupNameAndID(t *testing.T) {
+	d := Dependencies{Client: clientFunc(func(context.Context, Request) error { t.Fatal("API called"); return nil }), Format: func() string { return "json" }}
+	cmd := NewGroup(d)
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	cmd.SetArgs([]string{"list", "--group", "Production", "--group-id", "production"})
+	err := cmd.Execute()
+	var ce *Error
+	if !errors.As(err, &ce) || ce.Exit != ExitInvalidInput {
+		t.Fatalf("error = %#v", err)
+	}
+}
+
+func TestCreateAcceptsGroupID(t *testing.T) {
+	client := clientFunc(func(_ context.Context, r Request) error {
+		body, ok := r.Body.(map[string]any)
+		if !ok || body["groupId"] != "production" {
+			t.Fatalf("body = %#v", r.Body)
+		}
+		doc := r.Result.(*Envelope)
+		doc.APIVersion, doc.Kind, doc.Data = "v1", "Monitor", json.RawMessage(`{"id":"api"}`)
+		return nil
+	})
+	d := Dependencies{Client: client, Format: func() string { return "json" }, NewID: func() (string, error) { return "key", nil }}
+	cmd := NewGroup(d)
+	cmd.SetArgs([]string{"create", "--id", "api", "--name", "API", "--url", "https://example.com", "--group-id", "production"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGroupSelectorsAreMutuallyExclusive(t *testing.T) {
+	d := Dependencies{Client: clientFunc(func(context.Context, Request) error { t.Fatal("API called"); return nil }), Format: func() string { return "json" }}
+	for _, args := range [][]string{
+		{"update", "api", "--group", "Production", "--group-id", "production"},
+		{"update", "api", "--group-id", "production", "--clear-group"},
+	} {
+		cmd := NewGroup(d)
+		cmd.SilenceErrors, cmd.SilenceUsage = true, true
+		cmd.SetArgs(args)
+		err := cmd.Execute()
+		var ce *Error
+		if !errors.As(err, &ce) || ce.Exit != ExitInvalidInput {
+			t.Fatalf("args=%v error=%#v", args, err)
+		}
+	}
+}
+
 func TestDeleteRequiresYesWhenNoninteractive(t *testing.T) {
 	called := false
 	d := Dependencies{Client: clientFunc(func(context.Context, Request) error { called = true; return nil }), Format: func() string { return "json" }, NewID: func() (string, error) { return "key", nil }}
