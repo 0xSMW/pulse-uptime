@@ -598,7 +598,7 @@
           "Database Health"
         ],
         "summary": "Refresh database health",
-        "description": "Returns a cached measurement when refresh occurred within the prior 15 minutes. At most one effective provider measurement is performed per 15-minute cache window.",
+        "description": "Returns a cached measurement when refresh occurred within the prior 15 minutes. When refresh fails and a prior snapshot exists, that snapshot is returned with refresh.status STALE_FALLBACK.",
         "x-required-scopes": [
           "config:write"
         ],
@@ -620,7 +620,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Fresh or 15-minute-cached database health",
+            "description": "Fresh, 15-minute-cached, or stale-fallback database health",
             "content": {
               "application/json": {
                 "schema": {
@@ -3405,7 +3405,7 @@
           "freshness": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["capturedAt", "ageSeconds", "stale", "providerMetricsAvailable"],
+            "required": ["capturedAt", "ageSeconds", "stale", "providerMetricsAvailable", "providerCapturedAt", "providerAgeSeconds"],
             "properties": {
               "capturedAt": {
                 "type": ["string", "null"],
@@ -3421,6 +3421,14 @@
               },
               "providerMetricsAvailable": {
                 "type": "boolean"
+              },
+              "providerCapturedAt": {
+                "type": ["string", "null"],
+                "format": "date-time"
+              },
+              "providerAgeSeconds": {
+                "type": ["integer", "null"],
+                "minimum": 0
               }
             }
           },
@@ -3430,11 +3438,16 @@
           "refresh": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["cached", "nextEligibleAt"],
+            "required": ["cached", "status", "nextEligibleAt"],
             "properties": {
               "cached": {
                 "type": "boolean",
                 "description": "True when the 15-minute refresh cache served this response without a new provider measurement."
+              },
+              "status": {
+                "type": "string",
+                "enum": ["CURRENT", "CACHED", "STALE_FALLBACK"],
+                "description": "Indicates whether the response is current, cache-served, or a prior snapshot retained after refresh failure."
               },
               "nextEligibleAt": {
                 "type": ["string", "null"],
