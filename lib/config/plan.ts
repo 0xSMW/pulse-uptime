@@ -1,5 +1,5 @@
 import { hashCanonical, hashDeclarativeConfig } from "./canonical";
-import type { DeclarativeConfig, MonitorConfig, MonitoringSettings } from "./schema";
+import type { DeclarativeConfig, GroupConfig, MonitorConfig, MonitoringSettings } from "./schema";
 import { evaluateDestructiveChange, type DestructiveChangeEvaluation } from "./tripwire";
 import { validateDeclarativeConfig } from "./validation";
 
@@ -19,6 +19,9 @@ export interface MonitorUpdate {
 
 export interface ConfigurationDiff {
   settingsChanged: SettingChange[];
+  groupCreates: GroupConfig[];
+  groupUpdates: Array<{ id: string; before: GroupConfig; after: GroupConfig; changedFields: string[] }>;
+  groupDeletes: GroupConfig[];
   creates: MonitorConfig[];
   updates: MonitorUpdate[];
   pauses: MonitorConfig[];
@@ -82,8 +85,19 @@ export function calculateConfigurationDiff(
   const archivedById = new Map(archivedMonitors.map((monitor) => [monitor.id, monitor]));
   const diff: ConfigurationDiff = {
     settingsChanged: diffSettings(current.settings, target.settings),
+    groupCreates: [], groupUpdates: [], groupDeletes: [],
     creates: [], updates: [], pauses: [], resumes: [], archives: [], unchanged: [],
   };
+  const currentGroups = new Map(current.groups.map((group) => [group.id, group]));
+  const targetGroups = new Map(target.groups.map((group) => [group.id, group]));
+  for (const group of target.groups) {
+    const before = currentGroups.get(group.id);
+    if (!before) diff.groupCreates.push(group);
+    else if (hashCanonical(before) !== hashCanonical(group)) {
+      diff.groupUpdates.push({ id: group.id, before, after: group, changedFields: [`groups.${group.id}.name`] });
+    }
+  }
+  for (const group of current.groups) if (!targetGroups.has(group.id)) diff.groupDeletes.push(group);
 
   for (const monitor of target.monitors) {
     const before = currentById.get(monitor.id);
