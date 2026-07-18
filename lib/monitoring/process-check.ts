@@ -4,6 +4,9 @@ import { and, eq, isNull } from "drizzle-orm";
 
 import type { Database } from "@/lib/db/client";
 import { checkResults, incidents, monitorState, notificationOutbox } from "@/lib/db/schema";
+import { incidentNotificationKey } from "@/lib/notifications/idempotency";
+import type { NotificationPayload } from "@/lib/notifications/types";
+import { formatDuration } from "@/lib/reporting/format";
 
 import { transitionMonitor } from "./state-machine";
 import type {
@@ -42,20 +45,37 @@ function deterministicUuid(value: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-function recipientHash(recipient: string): string {
-  return createHash("sha256").update(recipient.trim().toLowerCase()).digest("hex");
-}
-
 function notificationRows(
   check: ScheduledCheck,
   incidentId: string,
   event: "opened" | "resolved",
+  openedAt: Date,
+  resolvedAt?: Date,
 ): OutboxInsert[] {
   const eventType = `incident.${event}`;
+  const payload: NotificationPayload = event === "opened"
+    ? {
+        type: "incident.opened",
+        monitorName: check.monitorName,
+        incidentId,
+        startedAt: openedAt.toISOString(),
+        cause: check.errorMessage
+          ?? (check.statusCode ? `HTTP ${check.statusCode}` : check.errorCode ?? "Check failed"),
+      }
+    : {
+        type: "incident.resolved",
+        monitorName: check.monitorName,
+        incidentId,
+        recoveredAt: (resolvedAt ?? check.checkedAt).toISOString(),
+        duration: formatDuration(Math.max(
+          0,
+          ((resolvedAt ?? check.checkedAt).getTime() - openedAt.getTime()) / 1_000,
+        )),
+      };
   return [...new Set(check.recipients.map((recipient) => recipient.trim().toLowerCase()))]
     .sort()
     .map((recipient) => {
-      const idempotencyKey = `incident/${incidentId}/${event}/${recipientHash(recipient)}`;
+      const idempotencyKey = incidentNotificationKey(incidentId, event, recipient);
       return {
         id: deterministicUuid(`outbox/${idempotencyKey}`),
         incidentId,
@@ -63,7 +83,7 @@ function notificationRows(
         eventType,
         recipient,
         idempotencyKey,
-        payload: { event: eventType, incidentId, monitorId: check.monitorId },
+        payload,
         status: "pending" as const,
         attemptCount: 0,
         nextAttemptAt: check.checkedAt,
@@ -96,14 +116,25 @@ async function applyTransition(
       createdAt: check.checkedAt,
       updatedAt: check.checkedAt,
     });
-    const rows = notificationRows(check, incidentId, "opened");
+    const rows = notificationRows(
+      check,
+      incidentId,
+      "opened",
+      transition.incident.openedAt,
+    );
     if (rows.length > 0) await tx.insertOutbox(rows);
     transition.state.activeIncidentId = incidentId;
     event = "incident.opened";
   } else if (transition.incident?.type === "resolve") {
     incidentId = transition.incident.incidentId;
     await tx.resolveIncident(incidentId, transition.incident.firstSuccessAt, check.checkedAt);
-    const rows = notificationRows(check, incidentId, "resolved");
+    const rows = notificationRows(
+      check,
+      incidentId,
+      "resolved",
+      transition.incident.openedAt,
+      transition.incident.resolvedAt,
+    );
     if (rows.length > 0) await tx.insertOutbox(rows);
     event = "incident.resolved";
   } else if (incidentId && !check.successful &&
