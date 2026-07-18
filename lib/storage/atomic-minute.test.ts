@@ -29,10 +29,10 @@ describe("atomic completed minute persistence", () => {
     expect(PERSIST_ATOMIC_MINUTE_SQL).toContain("cross join batch_insert");
     expect(PERSIST_ATOMIC_MINUTE_SQL).toContain("pulse_assert_equal");
     const values = query.mock.calls[0]![1];
-    expect(values[11]).toHaveLength(1);
-    expect(values[14]).toHaveLength(1);
-    expect((values[15] as Array<{ payload: unknown }>)[0]?.payload).toMatchObject({ errorMessage: "HTTP 503" });
-    expect((values[16] as unknown[])[0]).toMatchObject({ eventType: "failure", latencyMs: 900 });
+    expect(JSON.parse(String(values[11]))).toHaveLength(1);
+    expect(JSON.parse(String(values[14]))).toHaveLength(1);
+    expect(JSON.parse(String(values[15]))[0]?.payload).toMatchObject({ errorMessage: "HTTP 503" });
+    expect(JSON.parse(String(values[16]))[0]).toMatchObject({ eventType: "failure", latencyMs: 900 });
   });
 
   it("rejects duplicate results before making a database request", async () => {
@@ -53,7 +53,7 @@ describe("atomic completed minute persistence", () => {
       monitorIds: ["api"], expectedMonitorIds: ["api"], results: [], states: new Map([["api", state]]),
       schedulerStartedAt: at, schedulerCompletedAt: at });
     const values = query.mock.calls[0]![1];
-    expect(values[10]).toEqual([]);
-    expect(values[16]).toMatchObject([{ eventType: "scheduler_gap" }]);
+    expect(JSON.parse(String(values[10]))).toEqual([]);
+    expect(JSON.parse(String(values[16]))).toMatchObject([{ eventType: "scheduler_gap" }]);
   });
 });
