@@ -38,6 +38,7 @@ const DEFAULT_ACTIONS: Record<DatabaseGovernorMode, string> = {
 
 type CacheEntry = { measurement: DatabaseHealthMeasurement; eligibleAt: number };
 const cache = new WeakMap<DatabaseHealthRepository, CacheEntry>();
+const refreshes = new WeakMap<DatabaseHealthRepository, Promise<DatabaseHealthMeasurement | null>>();
 
 export class DatabaseHealthUnavailableError extends Error {
   constructor() {
@@ -55,8 +56,18 @@ export function deriveDatabaseHealthState(
   now = new Date(),
 ): DatabaseHealthState {
   const age = now.valueOf() - measurement.capturedAt.valueOf();
+  const providerAge = measurement.providerMetricsCapturedAt === null
+    ? Number.POSITIVE_INFINITY
+    : now.valueOf() - measurement.providerMetricsCapturedAt.valueOf();
   if (measurement.maintenanceHealthy === false) return "CRITICAL";
-  if (!measurement.providerMetricsAvailable || measurement.maintenanceHealthy === null || !Number.isFinite(age) || age > DATABASE_HEALTH_STALE_AFTER_MS) return "UNKNOWN";
+  if (
+    !measurement.providerMetricsAvailable
+    || measurement.maintenanceHealthy === null
+    || !Number.isFinite(age)
+    || age > DATABASE_HEALTH_STALE_AFTER_MS
+    || !Number.isFinite(providerAge)
+    || providerAge > DATABASE_HEALTH_STALE_AFTER_MS
+  ) return "UNKNOWN";
   const projected = finiteBytes(measurement.projected30DayBytes);
   if (projected === null) return "UNKNOWN";
   const utilization = projected / DATABASE_STORAGE_BUDGET_BYTES;
@@ -80,20 +91,27 @@ function summaryFor(state: DatabaseHealthState): string {
 
 export function presentDatabaseHealth(
   measurement: DatabaseHealthMeasurement,
-  options: { now?: Date; cached?: boolean } = {},
+  options: { now?: Date; refreshStatus?: DatabaseHealth["refresh"]["status"] } = {},
 ): DatabaseHealth {
   const now = options.now ?? new Date();
   const usedBytes = finiteBytes(measurement.storageBytes);
   const projected30DayBytes = finiteBytes(measurement.projected30DayBytes);
   const ageMs = Math.max(0, now.valueOf() - measurement.capturedAt.valueOf());
-  const stale = !Number.isFinite(ageMs) || ageMs > DATABASE_HEALTH_STALE_AFTER_MS;
+  const providerAgeMs = measurement.providerMetricsCapturedAt === null
+    ? null
+    : Math.max(0, now.valueOf() - measurement.providerMetricsCapturedAt.valueOf());
+  const stale = !Number.isFinite(ageMs)
+    || ageMs > DATABASE_HEALTH_STALE_AFTER_MS
+    || providerAgeMs === null
+    || !Number.isFinite(providerAgeMs)
+    || providerAgeMs > DATABASE_HEALTH_STALE_AFTER_MS;
   const attributed = DATABASE_HEALTH_CATEGORY_KEYS.filter((key): key is AttributedDatabaseCategoryKey => key !== "other")
     .map((key) => ({ key, label: CATEGORY_LABELS[key], bytes: finiteBytes(measurement.categoryBytes[key]) ?? 0 }));
   const attributedBytes = attributed.reduce((total, category) => total + category.bytes, 0);
   const categories = [...attributed, {
     key: "other" as const,
     label: CATEGORY_LABELS.other,
-    bytes: Math.max(0, (usedBytes ?? attributedBytes) - attributedBytes),
+    bytes: finiteBytes(measurement.otherBytes) ?? Math.max(0, (usedBytes ?? attributedBytes) - attributedBytes),
   }];
   const health = deriveDatabaseHealthState(measurement, now);
   const eligibleAt = measurement.capturedAt.valueOf() + DATABASE_HEALTH_REFRESH_INTERVAL_MS;
@@ -127,10 +145,13 @@ export function presentDatabaseHealth(
       ageSeconds: Math.round(ageMs / 1000),
       stale,
       providerMetricsAvailable: measurement.providerMetricsAvailable,
+      providerCapturedAt: measurement.providerMetricsCapturedAt?.toISOString() ?? null,
+      providerAgeSeconds: providerAgeMs === null ? null : Math.round(providerAgeMs / 1000),
     },
     maintenanceHealthy: measurement.maintenanceHealthy,
     refresh: {
-      cached: options.cached ?? false,
+      cached: options.refreshStatus === "CACHED",
+      status: options.refreshStatus ?? "CURRENT",
       nextEligibleAt: new Date(eligibleAt).toISOString(),
     },
   };
@@ -141,8 +162,13 @@ export async function getDatabaseHealth(
   now = new Date(),
 ): Promise<DatabaseHealth | null> {
   const cached = cache.get(repository);
-  if (cached && cached.eligibleAt > now.valueOf()) return presentDatabaseHealth(cached.measurement, { now, cached: true });
-  const measurement = await repository.readLatest();
+  if (cached && cached.eligibleAt > now.valueOf()) return presentDatabaseHealth(cached.measurement, { now, refreshStatus: "CACHED" });
+  let measurement: DatabaseHealthMeasurement | null;
+  try {
+    measurement = await repository.readLatest();
+  } catch {
+    throw new DatabaseHealthUnavailableError();
+  }
   if (!measurement) return null;
   cache.set(repository, { measurement, eligibleAt: measurement.capturedAt.valueOf() + DATABASE_HEALTH_REFRESH_INTERVAL_MS });
   return presentDatabaseHealth(measurement, { now });
@@ -152,14 +178,34 @@ export async function refreshDatabaseHealth(
   repository: DatabaseHealthRepository = databaseHealthRepository,
   now = new Date(),
 ): Promise<DatabaseHealth> {
-  const current = cache.get(repository)?.measurement ?? await repository.readLatest();
+  let current = cache.get(repository)?.measurement ?? null;
+  if (!current) {
+    try {
+      current = await repository.readLatest();
+    } catch {
+      // A capture may recover a failed read; otherwise the API returns a safe unavailable error.
+    }
+  }
   if (current && current.capturedAt.valueOf() + DATABASE_HEALTH_REFRESH_INTERVAL_MS > now.valueOf()) {
     cache.set(repository, { measurement: current, eligibleAt: current.capturedAt.valueOf() + DATABASE_HEALTH_REFRESH_INTERVAL_MS });
-    return presentDatabaseHealth(current, { now, cached: true });
+    return presentDatabaseHealth(current, { now, refreshStatus: "CACHED" });
   }
-  const measurement = await repository.capture();
+  let pending = refreshes.get(repository);
+  if (!pending) {
+    pending = repository.capture();
+    refreshes.set(repository, pending);
+  }
+  let measurement: DatabaseHealthMeasurement | null;
+  try {
+    measurement = await pending;
+  } catch {
+    if (current) return presentDatabaseHealth(current, { now, refreshStatus: "STALE_FALLBACK" });
+    throw new DatabaseHealthUnavailableError();
+  } finally {
+    if (refreshes.get(repository) === pending) refreshes.delete(repository);
+  }
   if (!measurement) {
-    if (current) return presentDatabaseHealth(current, { now });
+    if (current) return presentDatabaseHealth(current, { now, refreshStatus: "STALE_FALLBACK" });
     throw new DatabaseHealthUnavailableError();
   }
   cache.set(repository, { measurement, eligibleAt: measurement.capturedAt.valueOf() + DATABASE_HEALTH_REFRESH_INTERVAL_MS });
