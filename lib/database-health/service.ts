@@ -56,17 +56,13 @@ export function deriveDatabaseHealthState(
   now = new Date(),
 ): DatabaseHealthState {
   const age = now.valueOf() - measurement.capturedAt.valueOf();
-  const providerAge = measurement.providerMetricsCapturedAt === null
-    ? Number.POSITIVE_INFINITY
-    : now.valueOf() - measurement.providerMetricsCapturedAt.valueOf();
   if (measurement.maintenanceHealthy === false) return "CRITICAL";
+  // Provider metrics only refine the relation-level measurement; their absence
+  // (or staleness) is reported through freshness, not as an Unknown state.
   if (
-    !measurement.providerMetricsAvailable
-    || measurement.maintenanceHealthy === null
+    measurement.maintenanceHealthy === null
     || !Number.isFinite(age)
     || age > DATABASE_HEALTH_STALE_AFTER_MS
-    || !Number.isFinite(providerAge)
-    || providerAge > DATABASE_HEALTH_STALE_AFTER_MS
   ) return "UNKNOWN";
   const projected = finiteBytes(measurement.projected30DayBytes);
   if (projected === null) return "UNKNOWN";
@@ -100,11 +96,7 @@ export function presentDatabaseHealth(
   const providerAgeMs = measurement.providerMetricsCapturedAt === null
     ? null
     : Math.max(0, now.valueOf() - measurement.providerMetricsCapturedAt.valueOf());
-  const stale = !Number.isFinite(ageMs)
-    || ageMs > DATABASE_HEALTH_STALE_AFTER_MS
-    || providerAgeMs === null
-    || !Number.isFinite(providerAgeMs)
-    || providerAgeMs > DATABASE_HEALTH_STALE_AFTER_MS;
+  const stale = !Number.isFinite(ageMs) || ageMs > DATABASE_HEALTH_STALE_AFTER_MS;
   const attributed = DATABASE_HEALTH_CATEGORY_KEYS.filter((key): key is AttributedDatabaseCategoryKey => key !== "other")
     .map((key) => ({ key, label: CATEGORY_LABELS[key], bytes: finiteBytes(measurement.categoryBytes[key]) ?? 0 }));
   const attributedBytes = attributed.reduce((total, category) => total + category.bytes, 0);
