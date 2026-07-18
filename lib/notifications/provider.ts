@@ -32,6 +32,13 @@ export function createResendSender(options: {
   apiKey: string;
   from: string;
 }): NotificationSender {
+  if (!options.apiKey || !options.from) {
+    return {
+      async send() {
+        throw new NotificationProviderError("email_not_configured", false);
+      },
+    };
+  }
   const resend = new Resend(options.apiKey);
   return {
     async send(message, idempotencyKey) {
