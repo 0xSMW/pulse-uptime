@@ -31,7 +31,7 @@ pnpm build
 (cd cli && go test -race ./... && go vet ./...)
 ```
 
-Test web behavior through the running application in the in-app browser. Do not add Playwright or standalone browser automation.
+Test web behavior only through the running application in the in-app browser.
 
 ## Pull requests
 
@@ -40,4 +40,3 @@ Test web behavior through the running application in the in-app browser. Do not 
 - Preserve the reliability, SSRF, idempotency, and credential-storage invariants in `Docs/INIT.md`.
 - Update OpenAPI whenever `/api/v1` behavior changes.
 - Never commit credentials, local environment files, database URLs, or generated CLI tokens.
-
