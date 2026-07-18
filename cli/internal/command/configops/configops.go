@@ -550,10 +550,9 @@ func UpgradeDocument(doc map[string]any) (map[string]any, error) {
 			return nil, fmt.Errorf("monitors[%d].group must not be empty", i)
 		}
 		folded := strings.ToLower(name)
-		if prior, exists := names[folded]; exists && prior != name {
-			return nil, fmt.Errorf("legacy group names %q and %q are ambiguous ignoring case", prior, name)
+		if _, exists := names[folded]; !exists {
+			names[folded] = name
 		}
-		names[folded] = name
 	}
 
 	ids := make(map[string]string, len(names))
