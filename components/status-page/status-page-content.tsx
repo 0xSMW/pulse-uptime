@@ -10,6 +10,7 @@ import {
   formatUptimePercent,
   statusAssetUrl,
   timezoneDisplay,
+  timezoneOffsetLabel,
   type TimezoneDisplay,
 } from "@/lib/status-page/display";
 import {
@@ -234,10 +235,16 @@ function MaintenanceSchedule({ data, zone }: { data: PublicStatusData; zone: Tim
   if (upcoming.length === 0 && windowEnded.length === 0) return null;
   const allMaintenance = [...upcoming, ...windowEnded].every((report) => report.type === "maintenance");
   const heading = allMaintenance ? "Scheduled Maintenance" : "Scheduled Reports";
+  // Each timestamp gets its OWN offset label (finding: a single page-level
+  // offset reused across rows is wrong for rows on the other side of a DST
+  // boundary) — startsAt and endsAt can even differ from each other when a
+  // long window straddles the transition.
   const window = (report: PublicReportEntry) => (
     <>
-      {formatStatusTimestamp(report.startsAt, zone.timeZone)}
-      {report.endsAt ? ` – ${formatStatusTimestamp(report.endsAt, zone.timeZone)}` : ""} {zone.short}
+      {formatStatusTimestamp(report.startsAt, zone.timeZone)} {timezoneOffsetLabel(data.config.timezone, new Date(report.startsAt))}
+      {report.endsAt
+        ? <> – {formatStatusTimestamp(report.endsAt, zone.timeZone)} {timezoneOffsetLabel(data.config.timezone, new Date(report.endsAt))}</>
+        : null}
     </>
   );
   return (
@@ -498,7 +505,7 @@ export function StatusPageContent({
                 <h3 className="text-sm font-semibold">{incident.monitorName}</h3>
               </div>
               <p className="mt-2 text-[13px] text-[var(--fg-muted)]">
-                Ongoing since <span className="font-data">{formatStatusTimestamp(incident.openedAt, zone.timeZone)} {zone.short}</span>
+                Ongoing since <span className="font-data">{formatStatusTimestamp(incident.openedAt, zone.timeZone)} {timezoneOffsetLabel(data.config.timezone, new Date(incident.openedAt))}</span>
                 {" · "}
                 <span className="font-data">{formatDuration(incident.elapsedSeconds)}</span> elapsed
               </p>
@@ -542,7 +549,7 @@ export function StatusPageContent({
                     <span className="sr-only">Resolved report</span>
                   </span>
                   <time dateTime={entry.report.startsAt} className="font-data text-[var(--fg-muted)]">
-                    {formatStatusTimestamp(entry.report.startsAt, zone.timeZone)} {zone.short}
+                    {formatStatusTimestamp(entry.report.startsAt, zone.timeZone)} {timezoneOffsetLabel(data.config.timezone, new Date(entry.report.startsAt))}
                   </time>
                   <span className="font-data sm:min-w-16 sm:text-right">
                     {formatDuration(reportDurationSeconds(entry.report))}
@@ -562,7 +569,7 @@ export function StatusPageContent({
                     dateTime={entry.incident.openedAt}
                     className="font-data text-[var(--fg-muted)]"
                   >
-                    {formatStatusTimestamp(entry.incident.openedAt, zone.timeZone)} {zone.short}
+                    {formatStatusTimestamp(entry.incident.openedAt, zone.timeZone)} {timezoneOffsetLabel(data.config.timezone, new Date(entry.incident.openedAt))}
                   </time>
                   <span className="font-data sm:min-w-16 sm:text-right">
                     {formatDuration(entry.incident.durationSeconds)}

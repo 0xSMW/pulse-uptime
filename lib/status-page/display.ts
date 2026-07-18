@@ -59,6 +59,18 @@ export function timezoneDisplay(timezone: string | null, at: Date = new Date()):
   }
 }
 
+/**
+ * Per-timestamp offset suffix (finding: a page-level TimezoneDisplay computed
+ * once — e.g. at lastUpdatedAt — and reused for every rendered row gives rows
+ * on the other side of a DST boundary the correct wall-clock time but the
+ * WRONG offset label. Callers rendering a specific row's own instant should
+ * call this instead of reusing a single page-level `.short`. UTC (the
+ * default) never observes DST, so its behavior is unchanged either way.
+ */
+export function timezoneOffsetLabel(timezone: string | null, at: Date): string {
+  return timezoneDisplay(timezone, at).short;
+}
+
 export function formatStatusTimestamp(value: string, timeZone: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Unavailable";

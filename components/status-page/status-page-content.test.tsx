@@ -106,6 +106,37 @@ describe("StatusPageContent", () => {
     expect(html).not.toContain("Scheduled Reports");
   });
 
+  it("computes each row's own DST offset instead of reusing the offset from lastUpdatedAt (finding: rows on the other side of a DST boundary showed the wrong offset label)", () => {
+    // lastUpdatedAt sits in EDT (GMT-4, after the 2026-03-08 spring-forward).
+    // A page-level offset computed once there and reused for every row would
+    // mislabel the resolved report that started back in EST (GMT-5).
+    const data: PublicStatusData = {
+      ...operationalData,
+      lastUpdatedAt: "2026-07-18T12:00:00.000Z",
+      config: { ...baseConfig, timezone: "America/New_York" },
+      reports: {
+        ...operationalData.reports,
+        resolved: [
+          {
+            id: "rep-before-dst", type: "incident", title: "Before DST",
+            startsAt: "2026-03-01T12:00:00.000Z", endsAt: null,
+            publishedAt: "2026-03-01T12:00:00.000Z", resolvedAt: "2026-03-01T13:00:00.000Z",
+            originIncidentId: null, currentStatus: "resolved", phase: "resolved", latestUpdate: null, affected: [],
+          },
+          {
+            id: "rep-after-dst", type: "incident", title: "After DST",
+            startsAt: "2026-03-15T12:00:00.000Z", endsAt: null,
+            publishedAt: "2026-03-15T12:00:00.000Z", resolvedAt: "2026-03-15T13:00:00.000Z",
+            originIncidentId: null, currentStatus: "resolved", phase: "resolved", latestUpdate: null, affected: [],
+          },
+        ],
+      },
+    };
+    const html = renderToStaticMarkup(<StatusPageContent data={data} />);
+    expect(html).toContain("GMT-5"); // Before DST: EST
+    expect(html).toContain("GMT-4"); // After DST: EDT (also lastUpdatedAt's own offset)
+  });
+
   it("generalizes the heading and per-row label when a future-dated incident is scheduled (finding: future incidents rendered as maintenance)", () => {
     const data: PublicStatusData = {
       ...operationalData,

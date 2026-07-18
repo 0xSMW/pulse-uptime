@@ -13,6 +13,7 @@ import {
   imageDataUri,
   statusAssetUrl,
   timezoneDisplay,
+  timezoneOffsetLabel,
 } from "./display";
 
 describe("defaultStatusPageDocument", () => {
@@ -52,6 +53,21 @@ describe("timezoneDisplay", () => {
 
   it("falls back to UTC for an invalid zone", () => {
     expect(timezoneDisplay("Not/A_Zone", at)).toEqual({ timeZone: "UTC", short: "UTC", full: "UTC" });
+  });
+});
+
+describe("timezoneOffsetLabel", () => {
+  it("computes the offset for the GIVEN instant, not a fixed page-load time (finding: DST rows showed a stale offset)", () => {
+    // America/New_York springs forward on 2026-03-08: EST (GMT-5) before,
+    // EDT (GMT-4) after. A helper that reused one offset for every row would
+    // mislabel one side of the boundary.
+    expect(timezoneOffsetLabel("America/New_York", new Date("2026-03-01T12:00:00.000Z"))).toBe("GMT-5");
+    expect(timezoneOffsetLabel("America/New_York", new Date("2026-03-15T12:00:00.000Z"))).toBe("GMT-4");
+  });
+
+  it("stays UTC regardless of instant (default behavior unchanged)", () => {
+    expect(timezoneOffsetLabel(null, new Date("2026-03-01T12:00:00.000Z"))).toBe("UTC");
+    expect(timezoneOffsetLabel("UTC", new Date("2026-03-15T12:00:00.000Z"))).toBe("UTC");
   });
 });
 

@@ -767,29 +767,6 @@ export async function recoverAddedReportUpdate(
   return persistResolutionAndSerialize(store, report, now);
 }
 
-/**
- * Idempotency recovery for DELETE /status-reports/{id}/updates/{updateId}
- * (finding: a committed delete + crash makes the retry rerun into
- * UPDATE_NOT_FOUND -> 404 for a delete that already succeeded). Recovery is
- * "the report still exists AND the update is gone" — a still-present update
- * (the crash landed before the delete committed) returns null so work()
- * reruns normally, including the LAST_UPDATE guard on what would be the
- * report's final update.
- */
-export async function recoverDeletedReportUpdate(
-  reportId: string,
-  updateId: string,
-  dependencies: StatusReportsDependencies = {},
-): Promise<StatusReportData | null> {
-  const store = dependencies.store ?? databaseStatusReportsStore;
-  const now = dependencies.now?.() ?? new Date();
-  const report = await store.getReport(reportId);
-  if (!report) return null;
-  const stillExists = await store.getUpdate(reportId, updateId);
-  if (stillExists) return null;
-  return persistResolutionAndSerialize(store, report, now);
-}
-
 export async function editReportUpdate(
   reportId: string,
   updateId: string,
@@ -806,6 +783,53 @@ export async function editReportUpdate(
   const edited = await store.editUpdate({ reportId, updateId, patch: parsed, now });
   if (!edited) throw new StatusReportError("UPDATE_NOT_FOUND", "Report update was not found");
   return persistResolutionAndSerialize(store, report, now);
+}
+
+/**
+ * Idempotency recovery for PATCH /status-reports/{id}/updates/{updateId}
+ * (finding: the only mutation in this route family that shipped without a
+ * recover callback — a committed edit + crash makes the retry rerun
+ * editUpdate a second time, and re-run persistResolutionAndSerialize's
+ * recompute). Recovery is "the report and update still exist, and the
+ * update's CURRENT fields already match everything this patch asked for" —
+ * status/markdown/publishedAt compared only where the caller sent them,
+ * mirroring statusReportPatchAlreadyApplied for the report-level PATCH. A
+ * genuine difference (crash landed before the edit committed) or an unknown
+ * report/update returns null so work() reruns normally.
+ */
+export async function recoverEditedReportUpdate(
+  reportId: string,
+  updateId: string,
+  patch: unknown,
+  dependencies: StatusReportsDependencies = {},
+): Promise<StatusReportData | null> {
+  const store = dependencies.store ?? databaseStatusReportsStore;
+  const now = dependencies.now?.() ?? new Date();
+  const report = await store.getReport(reportId);
+  if (!report) return null;
+  // Point lookup by id (uncapped) rather than the capped getReportDetails
+  // scan (mirrors recoverAddedReportUpdate) — PER_REPORT_UPDATE_LIMIT could
+  // otherwise miss a backdated update on a report with 500+ newer ones.
+  const current = await store.getUpdate(reportId, updateId);
+  if (!current || !reportUpdatePatchAlreadyApplied(current, patch)) return null;
+  return persistResolutionAndSerialize(store, report, now);
+}
+
+function reportUpdatePatchAlreadyApplied(
+  current: Pick<StatusReportUpdateRow, "status" | "markdown" | "publishedAt">,
+  body: unknown,
+): boolean {
+  if (body === null || typeof body !== "object") return false;
+  const patch = body as Record<string, unknown>;
+  if ("status" in patch && patch.status !== current.status) return false;
+  if ("markdown" in patch && patch.markdown !== current.markdown) return false;
+  if ("publishedAt" in patch) {
+    const value = patch.publishedAt;
+    if (typeof value !== "string") return false;
+    const parsed = Date.parse(value);
+    if (Number.isNaN(parsed) || parsed !== current.publishedAt.getTime()) return false;
+  }
+  return true;
 }
 
 export async function deleteReportUpdate(
@@ -940,20 +964,27 @@ export type PublicReportsFilter = { monitorIds: readonly string[]; groupNames: r
  * §3.1 lifecycle rules: upcoming = published ∧ startsAt > now — for EITHER
  * report type, since a future-dated report of any kind hasn't started yet;
  * ongoing = published ∧ startsAt ≤ now ∧ not completed; a maintenance window
- * past endsAt with no completing update is demoted to "window_ended"; a
- * `scheduled` current status never places a report in the ongoing section.
+ * past endsAt with no completing update is demoted to "window_ended".
+ *
+ * `currentStatus` is NOT consulted to move a started window back to
+ * "upcoming" (finding: a maintenance report whose window already started but
+ * whose latest update is still `scheduled` — the operator never posted
+ * in_progress — classified here as "upcoming" while the SQL cap in
+ * getPublicReportRows ranks it as active, a mismatch. Per the lifecycle
+ * rule above, a started, non-completed window is ongoing regardless of
+ * whether anyone posted an in_progress update; the parameter is kept for
+ * API/call-site stability even though it no longer affects the result.
  */
 export function classifyPublicReport(
   report: Pick<StatusReportRow, "type" | "startsAt" | "endsAt" | "resolvedAt">,
+  // Unused: kept for call-site/API stability. See the doc comment above.
   currentStatus: StatusReportUpdateStatus | null,
   now: Date,
 ): PublicReportPhase {
   if (report.resolvedAt) return "resolved";
   if (report.startsAt.getTime() > now.getTime()) return "upcoming";
-  if (report.type === "maintenance") {
-    if (report.endsAt && report.endsAt.getTime() <= now.getTime()) return "window_ended";
-    if (currentStatus === "scheduled") return "upcoming";
-    return "ongoing";
+  if (report.type === "maintenance" && report.endsAt && report.endsAt.getTime() <= now.getTime()) {
+    return "window_ended";
   }
   return "ongoing";
 }

@@ -5,8 +5,9 @@ import {
   revalidateStatusReportPaths,
   statusReportPatchAlreadyApplied,
   statusReportRouteError,
+  storedStatusReportError,
 } from "@/lib/api/status-report-http";
-import { deleteStatusReport, getStatusReport, updateStatusReport } from "@/lib/api/status-reports";
+import { deleteStatusReport, getStatusReport, StatusReportError, updateStatusReport } from "@/lib/api/status-reports";
 
 type Params = { params: Promise<{ reportId: string }> };
 
@@ -72,26 +73,26 @@ export async function DELETE(request: Request, { params }: Params) {
       principalKey: context.principalKey,
       routeKey: `/api/v1/status-reports/${reportId}`,
       body: {},
-      // A retry after a stale-record reclaim means a prior attempt may have
-      // already committed the delete before crashing (finding: a committed
-      // delete makes the retry rerun getStatusReport against a gone row and
-      // 404 for a delete that actually succeeded). This only runs on a
-      // reclaimed replay of THIS operation's key — a first attempt against a
-      // genuinely-unknown id never reaches here and still 404s via work().
-      // If the report still exists, return null so work() reruns the actual
-      // delete; if it's gone, treat that as this operation's own recovered
-      // success.
-      recover: async () => {
-        const stillExists = await getStatusReport(reportId).catch(() => null);
-        return stillExists
-          ? null
-          : { status: 200, body: objectEnvelope("StatusReportDeleted", { id: reportId }, context.requestId) };
-      },
+      // REPORT_NOT_FOUND is a deterministic outcome of the CURRENT state, not
+      // proof this operation ever ran — it's mapped and recorded as this
+      // operation's own response here rather than thrown past
+      // executeIdempotent (finding: a thrown 404 left the idempotency record
+      // stuck "running" until a stale reclaim's recover callback saw the
+      // exact "report is gone" state a genuine 404 would also produce, and
+      // replayed it as a false 200). No recover callback: a retry with the
+      // same key now replays the recorded 404 (or 200) verbatim via the
+      // ordinary completed-record path, and a genuine prior success replays
+      // the same way.
       work: async () => {
-        const report = await getStatusReport(reportId);
-        await deleteStatusReport(reportId);
-        await revalidateStatusReportPaths(report);
-        return { status: 200, body: objectEnvelope("StatusReportDeleted", { id: reportId }, context.requestId) };
+        try {
+          const report = await getStatusReport(reportId);
+          await deleteStatusReport(reportId);
+          await revalidateStatusReportPaths(report);
+          return { status: 200, body: objectEnvelope("StatusReportDeleted", { id: reportId }, context.requestId) };
+        } catch (error) {
+          if (error instanceof StatusReportError) return storedStatusReportError(error, context.requestId);
+          throw error;
+        }
       },
     });
     return apiJson(result.body, { status: result.status });

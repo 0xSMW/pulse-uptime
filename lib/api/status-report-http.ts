@@ -4,21 +4,43 @@ import { revalidatePath } from "next/cache";
 
 import { statusGroupSlug } from "@/lib/reporting/queries/timeline";
 
-import { apiError } from "./envelopes";
+import { apiError, errorEnvelope } from "./envelopes";
+import type { StoredResponse } from "./idempotency";
 import { routeError } from "./route";
 import { databaseStatusReportsStore, StatusReportError } from "./status-reports";
+
+function statusReportErrorStatus(error: StatusReportError): number {
+  return error.code === "VALIDATION_ERROR" || error.code === "INVALID_CURSOR"
+    ? 400
+    : error.code === "LAST_UPDATE" || error.code === "ALREADY_PUBLISHED"
+      ? 409
+      : 404;
+}
 
 /** Shared HTTP mapping for the status-reports route family. */
 export function statusReportRouteError(error: unknown, requestId: string): Response {
   if (error instanceof StatusReportError) {
-    const status = error.code === "VALIDATION_ERROR" || error.code === "INVALID_CURSOR"
-      ? 400
-      : error.code === "LAST_UPDATE" || error.code === "ALREADY_PUBLISHED"
-        ? 409
-        : 404;
-    return apiError(requestId, status, error.code, error.message, error.details);
+    return apiError(requestId, statusReportErrorStatus(error), error.code, error.message, error.details);
   }
   return routeError(error, requestId);
+}
+
+/**
+ * Maps a StatusReportError to a StoredResponse (finding: publish's
+ * ALREADY_PUBLISHED 409, and the REPORT_NOT_FOUND/UPDATE_NOT_FOUND/
+ * LAST_UPDATE 404s/409 the report- and update-delete routes can throw, are
+ * deterministic outcomes of CURRENT state — not proof this operation ever
+ * ran. Letting them throw past executeIdempotent left the idempotency record
+ * stuck "running" until a stale reclaim's recover callback saw the exact
+ * state the failure described — already published, already gone — and
+ * replayed it as a false 200. Callers should catch StatusReportError INSIDE
+ * their idempotent work() and return this mapping instead of rethrowing, so
+ * executeIdempotent records the genuine 409/404 as the operation's own
+ * response: a retry with the same key then replays it verbatim via the
+ * ordinary completed-record path, with no recover callback needed.
+ */
+export function storedStatusReportError(error: StatusReportError, requestId: string): StoredResponse {
+  return { status: statusReportErrorStatus(error), body: errorEnvelope(error.code, error.message, requestId, error.details) };
 }
 
 /**

@@ -23,7 +23,7 @@ vi.mock("@/lib/api/status-reports", async (importOriginal) => ({
 
 import { revalidatePath } from "next/cache";
 
-import { objectEnvelope } from "@/lib/api/envelopes";
+import { errorEnvelope, objectEnvelope } from "@/lib/api/envelopes";
 import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, type ApiContext } from "@/lib/api/middleware";
 import {
@@ -193,24 +193,17 @@ describe("DELETE /api/v1/status-reports/{reportId}", () => {
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 
-  it("wires a recover callback that returns deleted-success instead of rerunning into a 404 (finding: delete retries 404 after a crash)", async () => {
+  it("maps REPORT_NOT_FOUND inside work() itself, with no recover callback (finding: a thrown 404 left the idempotency record stuck 'running' until a stale reclaim's recover callback saw the exact 'report is gone' state a genuine 404 would also produce, and replayed it as a false 200)", async () => {
+    vi.mocked(getStatusReport).mockRejectedValue(new StatusReportError("REPORT_NOT_FOUND", "missing"));
     await DELETE(request("DELETE"), params);
     const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
-      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
+      recover?: unknown;
+      work: (context: { operationId: string }) => Promise<{ status: number; body: unknown }>;
     };
-
-    // Recovery hit: a prior attempt already committed the delete before
-    // crashing — the report is gone, so the retry must surface the deleted
-    // envelope instead of rerunning into getStatusReport's 404.
-    vi.mocked(getStatusReport).mockRejectedValue(new StatusReportError("REPORT_NOT_FOUND", "missing"));
-    await expect(options.recover({ operationId: "op-1" })).resolves.toEqual({
-      status: 200,
-      body: objectEnvelope("StatusReportDeleted", { id: "rep-1" }, context.requestId),
+    expect(options.recover).toBeUndefined();
+    await expect(options.work({ operationId: "op-1" })).resolves.toEqual({
+      status: 404,
+      body: errorEnvelope("REPORT_NOT_FOUND", "missing", context.requestId, {}),
     });
-
-    // Recovery miss: the report still exists (the crash hit before the
-    // delete committed) — fall through so work() actually deletes it.
-    vi.mocked(getStatusReport).mockResolvedValue(report);
-    await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
   });
 });

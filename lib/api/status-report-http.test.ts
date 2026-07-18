@@ -13,9 +13,11 @@ vi.mock("@/lib/api/status-reports", async (importOriginal) => {
 
 import { revalidatePath } from "next/cache";
 
-import { databaseStatusReportsStore } from "@/lib/api/status-reports";
+import { errorEnvelope } from "@/lib/api/envelopes";
+import { executeIdempotent, type IdempotencyPersistence, type IdempotencyRecord } from "@/lib/api/idempotency";
+import { databaseStatusReportsStore, StatusReportError } from "@/lib/api/status-reports";
 
-import { revalidateStatusReportPaths } from "./status-report-http";
+import { revalidateStatusReportPaths, storedStatusReportError } from "./status-report-http";
 
 beforeEach(() => {
   vi.mocked(revalidatePath).mockReset();
@@ -74,5 +76,89 @@ describe("revalidateStatusReportPaths", () => {
   it("never calls findMonitors when no monitor was ever affected", async () => {
     await revalidateStatusReportPaths({ id: "rep-1", affected: [] });
     expect(databaseStatusReportsStore.findMonitors).not.toHaveBeenCalled();
+  });
+});
+
+/** Minimal in-memory IdempotencyPersistence, mirroring lib/api/idempotency.test.ts. */
+class MemoryPersistence implements IdempotencyPersistence {
+  owner: IdempotencyRecord | undefined;
+
+  async insertRunning(value: Parameters<IdempotencyPersistence["insertRunning"]>[0]) {
+    if (this.owner) return undefined;
+    this.owner = { responseStatus: null, responseBody: null, completedAt: null, ...value } as IdempotencyRecord;
+    return this.owner.id;
+  }
+
+  async findOwner(principalKey: string, idempotencyKey: string) {
+    return this.owner?.principalKey === principalKey && this.owner.idempotencyKey === idempotencyKey ? this.owner : undefined;
+  }
+
+  async reclaimExpired(id: string, now: Date, value: Parameters<IdempotencyPersistence["reclaimExpired"]>[2]) {
+    if (!this.owner || this.owner.id !== id || this.owner.expiresAt > now) return null;
+    this.owner = { responseStatus: null, responseBody: null, completedAt: null, ...value } as IdempotencyRecord;
+    return this.owner.id;
+  }
+
+  async claimStale(id: string, staleBefore: Date, now: Date, expiresAt: Date) {
+    if (!this.owner || this.owner.id !== id || this.owner.createdAt >= staleBefore) return undefined;
+    this.owner = { ...this.owner, createdAt: now, expiresAt };
+    return id;
+  }
+
+  async complete(id: string, status: number, body: unknown, completedAt: Date) {
+    if (!this.owner || this.owner.id !== id) return;
+    this.owner = { ...this.owner, state: "completed", responseStatus: status, responseBody: body, completedAt };
+  }
+}
+
+function idempotentRequest() {
+  return new Request("https://pulse.test/api/v1/status-reports/rep-1/publish", {
+    method: "POST",
+    headers: { "Idempotency-Key": "00000000-0000-4000-8000-000000000001" },
+  });
+}
+
+describe("storedStatusReportError + executeIdempotent (finding: publish/report-delete/update-delete threw their deterministic 409/404s past executeIdempotent, leaving the idempotency record stuck 'running' until a stale reclaim's recover callback saw the exact state the failure described and replayed it as a false 200)", () => {
+  it("records a genuine conflict inside work() and replays it verbatim on retry, instead of a recover callback manufacturing success", async () => {
+    const persistence = new MemoryPersistence();
+    const work = vi.fn(async () => {
+      try {
+        throw new StatusReportError("ALREADY_PUBLISHED", "The status report is already published");
+      } catch (error) {
+        if (error instanceof StatusReportError) return storedStatusReportError(error, "req-1");
+        throw error;
+      }
+    });
+
+    const first = await executeIdempotent({
+      request: idempotentRequest(), principalKey: "human:1", routeKey: "test", body: {}, persistence, work,
+    });
+    expect(first).toMatchObject({ status: 409, replayed: false });
+    expect(first.body).toEqual(errorEnvelope("ALREADY_PUBLISHED", "The status report is already published", "req-1", {}));
+
+    // Retry with the SAME idempotency key: replays the recorded 409 verbatim
+    // via the ordinary completed-record path — work() never runs again, so
+    // there's no recover callback in the loop to manufacture a false success.
+    const second = await executeIdempotent({
+      request: idempotentRequest(), principalKey: "human:1", routeKey: "test", body: {}, persistence, work,
+    });
+    expect(work).toHaveBeenCalledOnce();
+    expect(second).toEqual({ ...first, replayed: true });
+  });
+
+  it("still replays a genuine success on retry, with no recover callback needed", async () => {
+    const persistence = new MemoryPersistence();
+    const work = vi.fn(async () => ({ status: 200, body: { ok: true } }));
+
+    const first = await executeIdempotent({
+      request: idempotentRequest(), principalKey: "human:1", routeKey: "test", body: {}, persistence, work,
+    });
+    expect(first).toMatchObject({ status: 200, body: { ok: true }, replayed: false });
+
+    const second = await executeIdempotent({
+      request: idempotentRequest(), principalKey: "human:1", routeKey: "test", body: {}, persistence, work,
+    });
+    expect(work).toHaveBeenCalledOnce();
+    expect(second).toMatchObject({ status: 200, body: { ok: true }, replayed: true });
   });
 });

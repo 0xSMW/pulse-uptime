@@ -25,7 +25,7 @@ import {
   publishStatusReport,
   recoverAddedReportUpdate,
   recoverCreatedStatusReport,
-  recoverDeletedReportUpdate,
+  recoverEditedReportUpdate,
   StatusReportError,
   updateStatusReport,
   type StatusReportAffectedRow,
@@ -872,33 +872,48 @@ describe("idempotent-create recovery (finding: duplicate report/update after a c
   });
 });
 
-describe("idempotent-delete recovery (finding: update-delete retries 404 after a crash)", () => {
-  it("recovers by recomputing/serializing when the update is gone but the report exists", async () => {
+describe("idempotent-edit recovery (finding: PATCH /updates/{updateId} was the only mutation in this family shipped without a recover callback)", () => {
+  it("recovers by serializing current state when the update's fields already match the requested patch", async () => {
     const store = memoryStore();
     const deps = dependencies(store);
     const created = await createStatusReport(validCreate, deps);
-    const withSecond = await addReportUpdate(created.id, {
-      status: "resolved", markdown: "Fixed.", publishedAt: "2026-07-18T13:00:00.000Z",
-    }, deps);
-    const resolvedUpdateId = withSecond.updates.find((update) => update.status === "resolved")!.id;
+    const updateId = created.updates[0].id;
 
-    // Simulate the delete having committed (and resolution recomputed to
-    // reflect only the surviving update) but the process dying before the
-    // idempotency record completed.
-    await store.deleteUpdate({ reportId: created.id, updateId: resolvedUpdateId });
+    // Simulate the edit having committed (and resolution recomputed) but the
+    // process dying before the idempotency record completed.
+    const edited = await editReportUpdate(created.id, updateId, { status: "monitoring", markdown: "Watching." }, deps);
 
-    const recovered = await recoverDeletedReportUpdate(created.id, resolvedUpdateId, deps);
-    expect(recovered?.updates).toHaveLength(1);
-    expect(recovered?.resolvedAt).toBeNull();
-    expect(recovered?.updates.some((update) => update.id === resolvedUpdateId)).toBe(false);
+    const recovered = await recoverEditedReportUpdate(created.id, updateId, { status: "monitoring", markdown: "Watching." }, deps);
+    expect(recovered).toEqual(edited);
   });
 
-  it("returns null when the update still exists (crash before the delete committed) or the report is unknown", async () => {
+  it("only compares fields the caller actually sent", async () => {
     const store = memoryStore();
     const deps = dependencies(store);
     const created = await createStatusReport(validCreate, deps);
-    await expect(recoverDeletedReportUpdate(created.id, created.updates[0].id, deps)).resolves.toBeNull();
-    await expect(recoverDeletedReportUpdate("missing-report", "missing-update", deps)).resolves.toBeNull();
+    const updateId = created.updates[0].id;
+    const edited = await editReportUpdate(created.id, updateId, { status: "monitoring" }, deps);
+
+    // markdown wasn't part of the patch, so it must not be compared even
+    // though it (obviously) still matches the original, untouched value.
+    const recovered = await recoverEditedReportUpdate(created.id, updateId, { status: "monitoring" }, deps);
+    expect(recovered).toEqual(edited);
+  });
+
+  it("returns null when the current state genuinely differs from the requested patch (crash before the edit committed)", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const created = await createStatusReport(validCreate, deps);
+    const updateId = created.updates[0].id;
+    await expect(recoverEditedReportUpdate(created.id, updateId, { status: "monitoring" }, deps)).resolves.toBeNull();
+  });
+
+  it("returns null for an unknown report or update", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const created = await createStatusReport(validCreate, deps);
+    await expect(recoverEditedReportUpdate("missing-report", "missing-update", { status: "monitoring" }, deps)).resolves.toBeNull();
+    await expect(recoverEditedReportUpdate(created.id, "missing-update", { status: "monitoring" }, deps)).resolves.toBeNull();
   });
 });
 
@@ -949,15 +964,29 @@ describe("getPublicReports", () => {
     expect(result.ongoing[0].latestUpdate?.status).toBe("in_progress");
   });
 
-  it("never places a scheduled-status window in the ongoing section", () => {
+  it("classifies a started-but-still-scheduled maintenance window as ongoing, matching the SQL active-bucket ranking (finding: classification vs SQL cap mismatch)", () => {
+    // startsAt is already in the past relative to NOW: the window has
+    // started even though the operator never posted an in_progress update,
+    // so it must not sit in "upcoming" while getPublicReportRows ranks the
+    // same row as active.
     const report = {
       type: "maintenance" as const,
       startsAt: new Date("2026-07-18T11:00:00.000Z"),
       endsAt: null,
       resolvedAt: null,
     };
-    expect(classifyPublicReport(report, "scheduled", NOW)).toBe("upcoming");
+    expect(classifyPublicReport(report, "scheduled", NOW)).toBe("ongoing");
     expect(classifyPublicReport(report, "in_progress", NOW)).toBe("ongoing");
+  });
+
+  it("still classifies a future-scheduled window as upcoming (startsAt has not arrived yet)", () => {
+    const report = {
+      type: "maintenance" as const,
+      startsAt: new Date("2026-07-19T00:00:00.000Z"),
+      endsAt: null,
+      resolvedAt: null,
+    };
+    expect(classifyPublicReport(report, "scheduled", NOW)).toBe("upcoming");
   });
 
   it("classifies a future-dated incident report as upcoming, not ongoing (finding: future incidents leaked into the ongoing banner)", () => {

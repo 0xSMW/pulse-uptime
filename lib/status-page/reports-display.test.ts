@@ -201,8 +201,16 @@ describe("publicReportPhase", () => {
     expect(publicReportPhase({ ...base, startsAt: "2026-07-19T10:00:00.000Z" }, now)).toBe("upcoming");
   });
 
-  it("never places a scheduled current status in the ongoing section", () => {
-    expect(publicReportPhase({ ...base, currentStatus: "scheduled" }, now)).toBe("upcoming");
+  it("classifies a started-but-still-scheduled maintenance window as ongoing, matching the SQL active-bucket ranking (finding: classification vs SQL cap mismatch)", () => {
+    // base.startsAt is already in the past relative to `now`: the window has
+    // started even though the operator never posted an in_progress update.
+    expect(publicReportPhase({ ...base, currentStatus: "scheduled" }, now)).toBe("ongoing");
+  });
+
+  it("still classifies a future-scheduled window as upcoming (startsAt has not arrived yet)", () => {
+    expect(
+      publicReportPhase({ ...base, currentStatus: "scheduled", startsAt: "2026-07-19T10:00:00.000Z" }, now),
+    ).toBe("upcoming");
   });
 
   it("demotes a window past endsAt with no completing update", () => {

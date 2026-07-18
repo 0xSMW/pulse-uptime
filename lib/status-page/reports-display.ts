@@ -204,9 +204,17 @@ export function monitorReportAnnotations(
 /**
  * Phase for the permalink page, mirroring classifyPublicReport in
  * lib/api/status-reports.ts on the serialized (string-timestamp) shape:
- * upcoming = startsAt > now for EITHER report type (or a `scheduled` current
- * status); a maintenance window past endsAt with no completing update is
- * "window_ended"; resolved wins over everything.
+ * upcoming = startsAt > now for EITHER report type; a maintenance window past
+ * endsAt with no completing update is "window_ended"; resolved wins over
+ * everything.
+ *
+ * `currentStatus` is NOT consulted to move a started window back to
+ * "upcoming" (finding: a maintenance report whose window already started but
+ * whose latest update is still `scheduled` classified as "upcoming" here
+ * while the SQL cap in getPublicReportRows ranks it as active — a mismatch.
+ * A started, non-completed window is ongoing regardless of whether anyone
+ * posted an in_progress update). The field is kept on the input shape for
+ * call-site stability even though it no longer affects the result.
  */
 export function publicReportPhase(
   report: {
@@ -220,10 +228,8 @@ export function publicReportPhase(
 ): ReportPhase {
   if (report.resolvedAt) return "resolved";
   if (Date.parse(report.startsAt) > now.getTime()) return "upcoming";
-  if (report.type === "maintenance") {
-    if (report.endsAt && Date.parse(report.endsAt) <= now.getTime()) return "window_ended";
-    if (report.currentStatus === "scheduled") return "upcoming";
-    return "ongoing";
+  if (report.type === "maintenance" && report.endsAt && Date.parse(report.endsAt) <= now.getTime()) {
+    return "window_ended";
   }
   return "ongoing";
 }

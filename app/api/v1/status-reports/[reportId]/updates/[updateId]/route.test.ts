@@ -18,18 +18,18 @@ vi.mock("@/lib/api/status-reports", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/status-reports")>()),
   editReportUpdate: vi.fn(),
   deleteReportUpdate: vi.fn(),
-  recoverDeletedReportUpdate: vi.fn(),
+  recoverEditedReportUpdate: vi.fn(),
 }));
 
 import { revalidatePath } from "next/cache";
 
-import { objectEnvelope } from "@/lib/api/envelopes";
+import { errorEnvelope, objectEnvelope } from "@/lib/api/envelopes";
 import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, type ApiContext } from "@/lib/api/middleware";
 import {
   deleteReportUpdate,
   editReportUpdate,
-  recoverDeletedReportUpdate,
+  recoverEditedReportUpdate,
   StatusReportError,
   type StatusReportData,
 } from "@/lib/api/status-reports";
@@ -67,7 +67,7 @@ beforeEach(() => {
   vi.mocked(revalidatePath).mockReset();
   vi.mocked(editReportUpdate).mockReset().mockResolvedValue(report);
   vi.mocked(deleteReportUpdate).mockReset().mockResolvedValue(report);
-  vi.mocked(recoverDeletedReportUpdate).mockReset();
+  vi.mocked(recoverEditedReportUpdate).mockReset();
   vi.mocked(executeIdempotent).mockClear();
 });
 
@@ -86,6 +86,29 @@ describe("PATCH /api/v1/status-reports/{reportId}/updates/{updateId}", () => {
     const response = await PATCH(request("PATCH", { status: "monitoring" }), params);
     expect(response.status).toBe(404);
     expect((await response.json()).error.code).toBe("UPDATE_NOT_FOUND");
+  });
+
+  it("wires a recover callback that returns the current state instead of rerunning the edit (finding: PATCH /updates/{updateId} was the only mutation in this family shipped without one)", async () => {
+    const body = { status: "monitoring" };
+    await PATCH(request("PATCH", body), params);
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
+    };
+
+    // Recovery hit: a prior attempt already committed the edit before
+    // crashing — the retry must surface that state as success instead of
+    // rerunning editReportUpdate (and its resolution recompute) again.
+    vi.mocked(recoverEditedReportUpdate).mockResolvedValue(report);
+    await expect(options.recover({ operationId: "op-1" })).resolves.toEqual({
+      status: 200,
+      body: objectEnvelope("StatusReport", report, context.requestId),
+    });
+    expect(recoverEditedReportUpdate).toHaveBeenCalledWith("rep-1", "upd-1", body);
+
+    // Recovery miss: the current state genuinely differs (crash before the
+    // edit committed) — fall through so work() actually applies it.
+    vi.mocked(recoverEditedReportUpdate).mockResolvedValue(null);
+    await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
   });
 });
 
@@ -106,24 +129,24 @@ describe("DELETE /api/v1/status-reports/{reportId}/updates/{updateId}", () => {
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 
-  it("wires a recover callback that returns the recomputed report instead of rerunning into a 404 (finding: update-delete retries 404 after a crash)", async () => {
+  it("maps a missing update to 404 UPDATE_NOT_FOUND", async () => {
+    vi.mocked(deleteReportUpdate).mockRejectedValue(new StatusReportError("UPDATE_NOT_FOUND", "missing"));
+    const response = await DELETE(request("DELETE"), params);
+    expect(response.status).toBe(404);
+    expect((await response.json()).error.code).toBe("UPDATE_NOT_FOUND");
+  });
+
+  it("maps UPDATE_NOT_FOUND inside work() itself, with no recover callback (finding: a thrown 404 left the idempotency record stuck 'running' until a stale reclaim's recover manufactured a false success from the same 'update is gone' state a genuine 404 would also produce)", async () => {
+    vi.mocked(deleteReportUpdate).mockRejectedValue(new StatusReportError("UPDATE_NOT_FOUND", "missing"));
     await DELETE(request("DELETE"), params);
     const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
-      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
+      recover?: unknown;
+      work: (context: { operationId: string }) => Promise<{ status: number; body: unknown }>;
     };
-
-    // Recovery hit: a prior attempt already committed the delete (and its
-    // resolution recompute) before crashing — the retry must surface that
-    // recomputed report as success instead of rerunning into UPDATE_NOT_FOUND.
-    vi.mocked(recoverDeletedReportUpdate).mockResolvedValue(report);
-    await expect(options.recover({ operationId: "op-1" })).resolves.toEqual({
-      status: 200,
-      body: objectEnvelope("StatusReport", report, context.requestId),
+    expect(options.recover).toBeUndefined();
+    await expect(options.work({ operationId: "op-1" })).resolves.toEqual({
+      status: 404,
+      body: errorEnvelope("UPDATE_NOT_FOUND", "missing", context.requestId, {}),
     });
-
-    // Recovery miss: the update still exists (crash before the delete
-    // committed) — fall through so work() actually deletes it.
-    vi.mocked(recoverDeletedReportUpdate).mockResolvedValue(null);
-    await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
   });
 });

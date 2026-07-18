@@ -10,7 +10,7 @@ import {
   getStatusFaviconDataUri,
   getStatusPageDisplayConfig,
 } from "@/lib/reporting/queries/status";
-import { formatStatusTimestamp, timezoneDisplay } from "@/lib/status-page/display";
+import { formatStatusTimestamp, timezoneDisplay, timezoneOffsetLabel } from "@/lib/status-page/display";
 import {
   publicReportPhase,
   reportDurationSeconds,
@@ -76,9 +76,15 @@ export default async function PublicReportPage({ params }: ReportPageProps) {
   const zone = timezoneDisplay(config.timezone);
   const phase = publicReportPhase(report, new Date());
   const typeLabel = report.type === "maintenance" ? "Maintenance" : "Incident";
-  const window = `${formatStatusTimestamp(report.startsAt, zone.timeZone)}${
-    report.endsAt ? ` – ${formatStatusTimestamp(report.endsAt, zone.timeZone)}` : ""
-  } ${zone.short}`;
+  // Each timestamp gets its OWN offset label (finding: a single zone offset
+  // reused across every timestamp on the page is wrong for rows on the other
+  // side of a DST boundary) — startsAt and endsAt can even differ from each
+  // other when a long window straddles the transition.
+  const window = `${formatStatusTimestamp(report.startsAt, zone.timeZone)} ${timezoneOffsetLabel(config.timezone, new Date(report.startsAt))}${
+    report.endsAt
+      ? ` – ${formatStatusTimestamp(report.endsAt, zone.timeZone)} ${timezoneOffsetLabel(config.timezone, new Date(report.endsAt))}`
+      : ""
+  }`;
 
   return (
     <main className="mx-auto w-full max-w-[720px] px-4 pb-16 pt-12 sm:px-6">
@@ -156,7 +162,7 @@ export default async function PublicReportPage({ params }: ReportPageProps) {
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                 <h3 className="text-[13px] font-semibold">{reportStatusLabels[update.status]}</h3>
                 <time dateTime={update.publishedAt} className="font-data text-xs text-[var(--fg-faint)]">
-                  {formatStatusTimestamp(update.publishedAt, zone.timeZone)} {zone.short}
+                  {formatStatusTimestamp(update.publishedAt, zone.timeZone)} {timezoneOffsetLabel(config.timezone, new Date(update.publishedAt))}
                 </time>
               </div>
               <RestrictedMarkdown
