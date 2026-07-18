@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { apiRequest, expiryFromDays, generatedMonitorId, messageForError, SettingsApiError } from "./settings-api";
-import { isPublicMonitorUrl, monitorSheetActionLabels, parseRecipients, validateMonitorForm, type MonitorFormValues } from "./monitor-sheet";
+import { hasAdvancedMonitorFormErrors, isPublicMonitorUrl, monitorSheetActionLabels, parseRecipients, validateMonitorForm, type MonitorFormValues } from "./monitor-sheet";
 
 const valid: MonitorFormValues = {
   name: "API", url: "https://example.com/health", enabled: true, group: null,
@@ -32,6 +32,11 @@ describe("Settings form helpers", () => {
     expect(validateMonitorForm({ ...valid, expectedStatusMax: 199, recipientsText: "bad" })).toMatchObject({
       expectedStatusMax: expect.any(String), recipientsText: expect.any(String),
     });
+  });
+
+  it("identifies errors hidden inside advanced settings", () => {
+    expect(hasAdvancedMonitorFormErrors({ timeoutMs: "Enter 1000–15000" })).toBe(true);
+    expect(hasAdvancedMonitorFormErrors({ name: "Enter a monitor name" })).toBe(false);
   });
 
   it("rejects private and reserved monitor targets", () => {
