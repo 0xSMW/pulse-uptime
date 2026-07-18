@@ -34,7 +34,7 @@ The dashboard opens with the first monitor active. Add more monitors, notificati
 Install the CLI from source with Go until signed release artifacts are published:
 
 ```sh
-go install github.com/productos-ai/pulse-uptime/cli/cmd/pulsectl@latest
+go install github.com/0xSMW/pulse-uptime/cli/cmd/pulsectl@latest
 ```
 
 Connect it to the deployed service and sign in:

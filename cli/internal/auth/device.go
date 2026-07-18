@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/productos-ai/pulse-uptime/cli/internal/config"
+	"github.com/0xSMW/pulse-uptime/cli/internal/config"
 )
 
 const (

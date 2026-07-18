@@ -12,7 +12,7 @@ export function CliCard({ origin: initialOrigin }: { origin: string }) {
     () => "",
   );
   const server = initialOrigin || browserOrigin || "https://pulse.example.com";
-  const code = `go install github.com/productos-ai/pulse-uptime/cli/cmd/pulsectl@latest
+  const code = `go install github.com/0xSMW/pulse-uptime/cli/cmd/pulsectl@latest
 pulsectl me --server ${server}
 
 # agents and CI

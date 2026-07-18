@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/productos-ai/pulse-uptime/cli/internal/config"
+	"github.com/0xSMW/pulse-uptime/cli/internal/config"
 	keyring "github.com/zalando/go-keyring"
 )
 

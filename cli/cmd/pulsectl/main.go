@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"syscall"
 
-	"github.com/productos-ai/pulse-uptime/cli/internal/command"
+	"github.com/0xSMW/pulse-uptime/cli/internal/command"
 	"golang.org/x/term"
 )
 

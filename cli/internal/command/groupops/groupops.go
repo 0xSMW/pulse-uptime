@@ -14,7 +14,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/productos-ai/pulse-uptime/cli/internal/output"
+	"github.com/0xSMW/pulse-uptime/cli/internal/output"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
