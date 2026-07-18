@@ -1,0 +1,3491 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Pulse Uptime API",
+    "version": "1.0.0",
+    "description": "The stable v1 control plane for Pulse Uptime. All responses use versioned envelopes and all authenticated operations accept human cookie sessions, API tokens, or CLI session bearer tokens."
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Current Pulse installation"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Compatibility"
+    },
+    {
+      "name": "Principal"
+    },
+    {
+      "name": "Monitors"
+    },
+    {
+      "name": "Incidents"
+    },
+    {
+      "name": "Status"
+    },
+    {
+      "name": "Configuration"
+    },
+    {
+      "name": "Notifications"
+    },
+    {
+      "name": "Tokens"
+    },
+    {
+      "name": "CLI authorization"
+    }
+  ],
+  "paths": {
+    "/api/v1/version": {
+      "get": {
+        "operationId": "getVersion",
+        "tags": [
+          "Compatibility"
+        ],
+        "summary": "Get API compatibility",
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Supported API and CLI versions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me": {
+      "get": {
+        "operationId": "getCurrentPrincipal",
+        "tags": [
+          "Principal"
+        ],
+        "summary": "Get current principal",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authenticated principal without credential material",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/v1/monitors": {
+      "get": {
+        "operationId": "listMonitors",
+        "tags": [
+          "Monitors"
+        ],
+        "summary": "List monitors",
+        "x-required-scopes": [
+          "monitors:read"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "DOWN",
+                "VERIFYING_DOWN",
+                "VERIFYING_UP",
+                "PENDING",
+                "UP",
+                "PAUSED",
+                "ARCHIVED"
+              ]
+            }
+          },
+          {
+            "name": "group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "enabled",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "state",
+                "name",
+                "id"
+              ],
+              "default": "state"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Monitor page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonitorListEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createMonitor",
+        "tags": [
+          "Monitors"
+        ],
+        "summary": "Create monitor",
+        "x-required-scopes": [
+          "monitors:write"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MonitorCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/Monitor"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/v1/monitors/{monitorId}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/MonitorId"
+        }
+      ],
+      "get": {
+        "operationId": "getMonitor",
+        "tags": [
+          "Monitors"
+        ],
+        "summary": "Get monitor",
+        "x-required-scopes": [
+          "monitors:read"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Monitor"
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateMonitor",
+        "tags": [
+          "Monitors"
+        ],
+        "summary": "Update monitor",
+        "x-required-scopes": [
+          "monitors:write"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MonitorUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Monitor"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "archiveMonitor",
+        "tags": [
+          "Monitors"
+        ],
+        "summary": "Archive monitor",
+        "x-required-scopes": [
+          "monitors:write"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Mutation completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/v1/monitors/{monitorId}/pause": {
+      "$ref": "#/components/pathItems/MonitorPause"
+    },
+    "/api/v1/monitors/{monitorId}/resume": {
+      "$ref": "#/components/pathItems/MonitorResume"
+    },
+    "/api/v1/monitors/{monitorId}/test": {
+      "$ref": "#/components/pathItems/MonitorTest"
+    },
+    "/api/v1/incidents": {
+      "get": {
+        "operationId": "listIncidents",
+        "tags": [
+          "Incidents"
+        ],
+        "summary": "List incidents",
+        "x-required-scopes": [
+          "incidents:read"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Incident page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentListEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/v1/incidents/{incidentId}": {
+      "get": {
+        "operationId": "getIncident",
+        "tags": [
+          "Incidents"
+        ],
+        "summary": "Get incident",
+        "x-required-scopes": [
+          "incidents:read"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/IncidentId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Incident",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/v1/database-health": {
+      "get": {
+        "operationId": "getDatabaseHealth",
+        "tags": [
+          "Database Health"
+        ],
+        "summary": "Get database health",
+        "description": "Returns the latest usable measurement. A stale snapshot remains available with health UNKNOWN and freshness.stale set to true.",
+        "x-required-scopes": [
+          "config:read"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current, cached, or stale database health",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseHealthEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "description": "No usable snapshot or provider measurement is available",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "x-error-codes": [
+              "DATABASE_HEALTH_UNAVAILABLE"
+            ]
+          }
+        }
+      }
+    },
+    "/api/v1/database-health/refresh": {
+      "post": {
+        "operationId": "refreshDatabaseHealth",
+        "tags": [
+          "Database Health"
+        ],
+        "summary": "Refresh database health",
+        "description": "Returns a cached measurement when refresh occurred within the prior 15 minutes. At most one effective provider measurement is performed per 15-minute cache window.",
+        "x-required-scopes": [
+          "config:write"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Fresh or 15-minute-cached database health",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseHealthEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "description": "No usable snapshot or provider measurement is available",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "x-error-codes": [
+              "DATABASE_HEALTH_UNAVAILABLE"
+            ]
+          }
+        }
+      }
+    },
+    "/api/v1/status": {
+      "get": {
+        "operationId": "getPrivateStatus",
+        "tags": [
+          "Status"
+        ],
+        "summary": "Get private status",
+        "x-required-scopes": [
+          "status:read"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Private operational status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/v1/config": {
+      "get": {
+        "operationId": "getConfiguration",
+        "tags": [
+          "Configuration"
+        ],
+        "summary": "Export configuration",
+        "x-required-scopes": [
+          "config:read"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Complete accepted configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigurationEnvelope"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "description": "Quoted semantic configuration hash",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/v1/config/schema": {
+      "get": {
+        "operationId": "getConfigurationSchema",
+        "tags": [
+          "Configuration"
+        ],
+        "summary": "Get configuration schema",
+        "x-required-scopes": [
+          "config:read"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Configuration JSON Schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonSchemaEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/v1/config/validate": {
+      "post": {
+        "operationId": "validateConfiguration",
+        "tags": [
+          "Configuration"
+        ],
+        "summary": "Validate configuration",
+        "x-required-scopes": [
+          "config:write"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/Configuration"
+        },
+        "responses": {
+          "200": {
+            "description": "Validation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/v1/config/plan": {
+      "post": {
+        "operationId": "planConfiguration",
+        "tags": [
+          "Configuration"
+        ],
+        "summary": "Plan configuration changes",
+        "x-required-scopes": [
+          "config:write"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigurationPlanRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deterministic change plan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigurationPlanEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/v1/config/apply": {
+      "post": {
+        "operationId": "applyConfiguration",
+        "tags": [
+          "Configuration"
+        ],
+        "summary": "Apply configuration",
+        "x-required-scopes": [
+          "config:write"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigurationApplyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Configuration operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigurationOperationEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/v1/config/operations/{operationId}": {
+      "get": {
+        "operationId": "getConfigurationOperation",
+        "tags": [
+          "Configuration"
+        ],
+        "summary": "Get configuration operation",
+        "x-required-scopes": [
+          "config:read"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/OperationId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Configuration operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigurationOperationEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/v1/notifications/test": {
+      "post": {
+        "operationId": "sendTestNotification",
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Send test notification",
+        "x-required-scopes": [
+          "notifications:test"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationTestRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Test accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationTestEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/v1/tokens": {
+      "post": {
+        "operationId": "createApiToken",
+        "tags": [
+          "Tokens"
+        ],
+        "summary": "Create API token",
+        "x-required-scopes": [
+          "tokens:manage"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Show-once token secret",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedTokenEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      },
+      "get": {
+        "operationId": "listApiTokens",
+        "tags": [
+          "Tokens"
+        ],
+        "summary": "List API tokens",
+        "x-required-scopes": [
+          "tokens:manage"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Token page without secrets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenListEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/v1/tokens/{tokenId}": {
+      "delete": {
+        "operationId": "revokeApiToken",
+        "tags": [
+          "Tokens"
+        ],
+        "summary": "Revoke API token",
+        "x-required-scopes": [
+          "tokens:manage"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/TokenId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Mutation completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/v1/cli-auth/device": {
+      "post": {
+        "operationId": "startCliDeviceAuthorization",
+        "tags": [
+          "CLI authorization"
+        ],
+        "summary": "Start device authorization",
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceAuthorizationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Device authorization",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceAuthorizationEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/v1/cli-auth/token": {
+      "post": {
+        "operationId": "pollCliDeviceAuthorization",
+        "tags": [
+          "CLI authorization"
+        ],
+        "summary": "Poll device authorization",
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceTokenRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Show-once CLI session token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceTokenEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/DeviceAuthorizationError"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/v1/cli-auth/revoke": {
+      "post": {
+        "operationId": "revokeCliSession",
+        "tags": [
+          "CLI authorization"
+        ],
+        "summary": "Revoke CLI session",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Mutation completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "Pulse API or CLI session token",
+        "description": "Opaque digest-verified token. The complete secret is shown once and must never be logged."
+      },
+      "humanSession": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-pulse_session",
+        "description": "First-party administrator session used by the web application."
+      }
+    },
+    "parameters": {
+      "RequestId": {
+        "name": "X-Request-ID",
+        "in": "header",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "description": "Caller correlation ID. Pulse generates one when absent or invalid."
+      },
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "IfMatch": {
+        "name": "If-Match",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Quoted baseConfigHash, exactly matching the request body."
+      },
+      "Cursor": {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 50
+        }
+      },
+      "MonitorId": {
+        "name": "monitorId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "IncidentId": {
+        "name": "incidentId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "OperationId": {
+        "name": "operationId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "TokenId": {
+        "name": "tokenId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "pathItems": {
+      "MonitorPause": {
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/MonitorId"
+          }
+        ],
+        "post": {
+          "operationId": "pauseMonitor",
+          "tags": [
+            "Monitors"
+          ],
+          "summary": "Pause monitor",
+          "x-required-scopes": [
+            "monitors:write"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            },
+            {
+              "humanSession": []
+            }
+          ],
+          "parameters": [
+            {
+              "$ref": "#/components/parameters/RequestId"
+            },
+            {
+              "$ref": "#/components/parameters/IdempotencyKey"
+            }
+          ],
+          "responses": {
+            "200": {
+              "$ref": "#/components/responses/Monitor"
+            },
+            "401": {
+              "$ref": "#/components/responses/AuthenticationRequired"
+            },
+            "403": {
+              "$ref": "#/components/responses/ScopeDenied"
+            },
+            "404": {
+              "$ref": "#/components/responses/NotFound"
+            },
+            "409": {
+              "$ref": "#/components/responses/Conflict"
+            },
+            "429": {
+              "$ref": "#/components/responses/RateLimited"
+            }
+          }
+        }
+      },
+      "MonitorResume": {
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/MonitorId"
+          }
+        ],
+        "post": {
+          "operationId": "resumeMonitor",
+          "tags": [
+            "Monitors"
+          ],
+          "summary": "Resume monitor",
+          "x-required-scopes": [
+            "monitors:write"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            },
+            {
+              "humanSession": []
+            }
+          ],
+          "parameters": [
+            {
+              "$ref": "#/components/parameters/RequestId"
+            },
+            {
+              "$ref": "#/components/parameters/IdempotencyKey"
+            }
+          ],
+          "responses": {
+            "200": {
+              "$ref": "#/components/responses/Monitor"
+            },
+            "401": {
+              "$ref": "#/components/responses/AuthenticationRequired"
+            },
+            "403": {
+              "$ref": "#/components/responses/ScopeDenied"
+            },
+            "404": {
+              "$ref": "#/components/responses/NotFound"
+            },
+            "409": {
+              "$ref": "#/components/responses/Conflict"
+            },
+            "429": {
+              "$ref": "#/components/responses/RateLimited"
+            }
+          }
+        }
+      },
+      "MonitorTest": {
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/MonitorId"
+          }
+        ],
+        "post": {
+          "operationId": "testMonitor",
+          "tags": [
+            "Monitors"
+          ],
+          "summary": "Test monitor",
+          "x-required-scopes": [
+            "monitors:write"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            },
+            {
+              "humanSession": []
+            }
+          ],
+          "parameters": [
+            {
+              "$ref": "#/components/parameters/RequestId"
+            },
+            {
+              "$ref": "#/components/parameters/IdempotencyKey"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Bounded manual check result",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/MonitorTestEnvelope"
+                  }
+                }
+              }
+            },
+            "401": {
+              "$ref": "#/components/responses/AuthenticationRequired"
+            },
+            "403": {
+              "$ref": "#/components/responses/ScopeDenied"
+            },
+            "404": {
+              "$ref": "#/components/responses/NotFound"
+            },
+            "409": {
+              "$ref": "#/components/responses/Conflict"
+            },
+            "429": {
+              "$ref": "#/components/responses/RateLimited"
+            }
+          }
+        }
+      }
+    },
+    "requestBodies": {
+      "Configuration": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Configuration"
+            }
+          },
+          "application/yaml": {
+            "schema": {
+              "$ref": "#/components/schemas/Configuration"
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "Monitor": {
+        "description": "Monitor",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/MonitorEnvelope"
+            }
+          }
+        }
+      },
+      "BadRequest": {
+        "description": "Invalid request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      },
+      "AuthenticationRequired": {
+        "description": "Authentication required or invalid",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        },
+        "headers": {
+          "WWW-Authenticate": {
+            "schema": {
+              "type": "string"
+            },
+            "example": "Bearer realm=\"pulse\", error=\"invalid_token\""
+          }
+        }
+      },
+      "ScopeDenied": {
+        "description": "Principal lacks the required scope",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Resource not found",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "Version, precondition, or idempotency conflict",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "Rate limit exceeded",
+        "headers": {
+          "Retry-After": {
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      },
+      "DeviceAuthorizationError": {
+        "description": "OAuth-style device polling state",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            },
+            "examples": {
+              "pending": {
+                "value": {
+                  "apiVersion": "v1",
+                  "kind": "Error",
+                  "error": {
+                    "code": "authorization_pending",
+                    "message": "Authorization is pending",
+                    "details": {},
+                    "requestId": "req_example"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "ApiVersion": {
+        "type": "string",
+        "const": "v1"
+      },
+      "Scope": {
+        "type": "string",
+        "enum": [
+          "monitors:read",
+          "monitors:write",
+          "incidents:read",
+          "config:read",
+          "config:write",
+          "notifications:test",
+          "tokens:manage",
+          "status:read"
+        ]
+      },
+      "Meta": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "requestId"
+        ],
+        "properties": {
+          "requestId": {
+            "type": "string"
+          },
+          "configHash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        }
+      },
+      "ListMeta": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "requestId",
+          "nextCursor"
+        ],
+        "properties": {
+          "requestId": {
+            "type": "string"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ErrorEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "apiVersion",
+          "kind",
+          "error"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "const": "Error"
+          },
+          "error": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "message",
+              "details",
+              "requestId"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "requestId": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "VersionEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "apiVersion",
+          "kind",
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "const": "Version"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "supportedApiVersions",
+              "minimumCliVersion",
+              "latestCliVersion"
+            ],
+            "properties": {
+              "supportedApiVersions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ApiVersion"
+                }
+              },
+              "minimumCliVersion": {
+                "type": "string"
+              },
+              "latestCliVersion": {
+                "type": "string"
+              }
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "Installation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "platform",
+          "arch",
+          "clientVersion",
+          "linkedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "arch": {
+            "type": "string"
+          },
+          "clientVersion": {
+            "type": "string"
+          },
+          "linkedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Me": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "principalType",
+          "email",
+          "tokenId",
+          "tokenName",
+          "scopes",
+          "installation"
+        ],
+        "properties": {
+          "principalType": {
+            "type": "string",
+            "enum": [
+              "human",
+              "api_token",
+              "cli_session"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "email"
+          },
+          "tokenId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tokenName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Scope"
+            },
+            "uniqueItems": true
+          },
+          "installation": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Installation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "MeEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "apiVersion",
+          "kind",
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "const": "Me"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Me"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "ExpectedStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "minimum",
+          "maximum"
+        ],
+        "description": "Inclusive status range. maximum must be greater than or equal to minimum.",
+        "properties": {
+          "minimum": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 599
+          },
+          "maximum": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 599
+          }
+        }
+      },
+      "MonitorFields": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 64,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https?://",
+            "description": "Public HTTP or HTTPS URL without embedded credentials. Literal private and reserved addresses are rejected."
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "group": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 50
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "HEAD"
+            ]
+          },
+          "intervalMinutes": {
+            "type": "integer",
+            "enum": [
+              1,
+              5,
+              10,
+              15
+            ]
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 15000
+          },
+          "expectedStatus": {
+            "$ref": "#/components/schemas/ExpectedStatus"
+          },
+          "failureThreshold": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "recoveryThreshold": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "recipients": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "format": "email"
+            },
+            "uniqueItems": true
+          }
+        }
+      },
+      "MonitorCreate": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MonitorFields"
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "url"
+            ]
+          }
+        ]
+      },
+      "MonitorUpdate": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MonitorFields"
+          },
+          {
+            "type": "object",
+            "minProperties": 1
+          }
+        ]
+      },
+      "MonitorConfig": {
+        "unevaluatedProperties": false,
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MonitorFields"
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "url",
+              "enabled",
+              "group",
+              "method",
+              "intervalMinutes",
+              "timeoutMs",
+              "expectedStatus",
+              "failureThreshold",
+              "recoveryThreshold",
+              "recipients"
+            ]
+          }
+        ]
+      },
+      "Monitor": {
+        "type": "object",
+        "unevaluatedProperties": false,
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MonitorFields"
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "url",
+              "enabled",
+              "group",
+              "method",
+              "intervalMinutes",
+              "timeoutMs",
+              "expectedStatus",
+              "failureThreshold",
+              "recoveryThreshold",
+              "recipients"
+            ],
+            "properties": {
+              "state": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "updatedAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        ]
+      },
+      "MonitorEnvelope": {
+        "type": "object",
+        "required": [
+          "apiVersion",
+          "kind",
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "const": "Monitor"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Monitor"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "MonitorListEnvelope": {
+        "type": "object",
+        "required": [
+          "apiVersion",
+          "kind",
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "const": "MonitorList"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Monitor"
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ListMeta"
+          }
+        }
+      },
+      "MonitorTestEnvelope": {
+        "type": "object",
+        "required": [
+          "apiVersion",
+          "kind",
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "const": "MonitorTest"
+          },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "successful",
+            "method",
+            "finalUrl",
+            "statusCode",
+            "latencyMs",
+            "redirectCount",
+            "errorCode",
+            "errorMessage"
+          ],
+          "properties": {
+            "successful": {
+              "type": "boolean",
+              "description": "Authoritative manual-check outcome. CLI clients exit with condition-failed status when false."
+            },
+            "method": {
+              "type": "string",
+              "enum": ["GET", "HEAD"]
+            },
+            "finalUrl": {
+              "type": "string",
+              "format": "uri"
+            },
+            "statusCode": {
+              "type": ["integer", "null"],
+              "minimum": 100,
+              "maximum": 599
+            },
+            "latencyMs": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "redirectCount": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 5
+            },
+            "errorCode": {
+              "type": ["string", "null"],
+              "enum": [
+                "TIMEOUT",
+                "DNS_ERROR",
+                "CONNECTION_REFUSED",
+                "CONNECTION_RESET",
+                "TLS_ERROR",
+                "TOO_MANY_REDIRECTS",
+                "INVALID_REDIRECT",
+                "INVALID_STATUS",
+                "BLOCKED_TARGET",
+                "INVALID_URL",
+                "RESPONSE_ERROR",
+                "UNKNOWN",
+                null
+              ]
+            },
+            "errorMessage": {
+              "type": ["string", "null"]
+            }
+          }
+        },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "Incident": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "monitorId",
+          "openedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "monitorId": {
+            "type": "string"
+          },
+          "openedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "resolvedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "IncidentEnvelope": {
+        "type": "object",
+        "required": [
+          "apiVersion",
+          "kind",
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "const": "Incident"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Incident"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "IncidentListEnvelope": {
+        "type": "object",
+        "required": [
+          "apiVersion",
+          "kind",
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "const": "IncidentList"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Incident"
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ListMeta"
+          }
+        }
+      },
+      "StatusEnvelope": {
+        "type": "object",
+        "required": [
+          "apiVersion",
+          "kind",
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "const": "Status"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "MonitoringSettings": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "concurrency",
+          "defaultTimeoutMs",
+          "defaultFailureThreshold",
+          "defaultRecoveryThreshold",
+          "defaultRecipients",
+          "userAgent"
+        ],
+        "properties": {
+          "concurrency": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "defaultTimeoutMs": {
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 15000
+          },
+          "defaultFailureThreshold": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "defaultRecoveryThreshold": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "defaultRecipients": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "format": "email"
+            }
+          },
+          "userAgent": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "Configuration": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "settings",
+          "monitors"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "const": 1
+          },
+          "settings": {
+            "$ref": "#/components/schemas/MonitoringSettings"
+          },
+          "monitors": {
+            "type": "array",
+            "description": "Monitor IDs must be unique and at most 100 monitors may be enabled.",
+            "items": {
+              "$ref": "#/components/schemas/MonitorConfig"
+            }
+          }
+        }
+      },
+      "ConfigurationEnvelope": {
+        "type": "object",
+        "required": [
+          "apiVersion",
+          "kind",
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "const": "Configuration"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Configuration"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ConfigurationMeta"
+          }
+        }
+      },
+      "JsonSchemaEnvelope": {
+        "type": "object",
+        "required": [
+          "apiVersion",
+          "kind",
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "const": "ConfigurationSchema"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "ValidationEnvelope": {
+        "type": "object",
+        "required": [
+          "apiVersion",
+          "kind",
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "const": "ConfigurationValidation"
+          },
+          "data": {
+            "type": "object",
+            "required": [
+              "valid",
+              "errors"
+            ],
+            "properties": {
+              "valid": {
+                "type": "boolean"
+              },
+              "errors": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "ConfigurationPlanRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "baseConfigHash",
+          "targetConfig"
+        ],
+        "properties": {
+          "baseConfigHash": {
+            "type": "string"
+          },
+          "targetConfig": {
+            "$ref": "#/components/schemas/Configuration"
+          }
+        }
+      },
+      "ConfigurationPlan": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "baseConfigHash",
+          "targetConfigHash",
+          "planHash",
+          "diff",
+          "destructiveApprovalRequired"
+        ],
+        "properties": {
+          "baseConfigHash": {
+            "type": "string"
+          },
+          "targetConfigHash": {
+            "type": "string"
+          },
+          "planHash": {
+            "type": "string"
+          },
+          "diff": {
+            "type": "object",
+            "required": [
+              "settingsChanged",
+              "creates",
+              "updates",
+              "pauses",
+              "resumes",
+              "archives",
+              "unchanged"
+            ],
+            "properties": {
+              "settingsChanged": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "path",
+                    "before",
+                    "after"
+                  ],
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "before": {},
+                    "after": {}
+                  }
+                }
+              },
+              "creates": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/MonitorConfig"
+                }
+              },
+              "updates": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "before",
+                    "after",
+                    "changedFields"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "before": {
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/MonitorConfig"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "after": {
+                      "$ref": "#/components/schemas/MonitorConfig"
+                    },
+                    "changedFields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "restore": {
+                      "type": "boolean",
+                      "const": true
+                    }
+                  }
+                }
+              },
+              "pauses": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/MonitorConfig"
+                }
+              },
+              "resumes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/MonitorConfig"
+                }
+              },
+              "archives": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/MonitorConfig"
+                }
+              },
+              "unchanged": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/MonitorConfig"
+                }
+              }
+            }
+          },
+          "destructiveApprovalRequired": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ConfigurationPlanEnvelope": {
+        "type": "object",
+        "required": [
+          "apiVersion",
+          "kind",
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "const": "ConfigurationPlan"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ConfigurationPlan"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "ConfigurationApplyRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "baseConfigHash",
+          "targetConfigHash",
+          "planHash",
+          "targetConfig",
+          "allowDelete"
+        ],
+        "properties": {
+          "baseConfigHash": {
+            "type": "string"
+          },
+          "targetConfigHash": {
+            "type": "string"
+          },
+          "planHash": {
+            "type": "string"
+          },
+          "targetConfig": {
+            "$ref": "#/components/schemas/Configuration"
+          },
+          "allowDelete": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ConfigurationOperationEnvelope": {
+        "type": "object",
+        "required": [
+          "apiVersion",
+          "kind",
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "const": "ConfigurationOperation"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "id",
+              "state"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "written",
+                  "accepted",
+                  "rejected",
+                  "failed"
+                ]
+              }
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "NotificationTestRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "recipient": {
+            "type": "string",
+            "format": "email"
+          }
+        }
+      },
+      "NotificationTestEnvelope": {
+        "type": "object",
+        "required": [
+          "apiVersion",
+          "kind",
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "const": "NotificationTest"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "TokenCreateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "scopes",
+          "expiresAt"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Scope"
+            },
+            "uniqueItems": true,
+            "minItems": 1
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Token": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "scopes",
+          "createdAt",
+          "expiresAt",
+          "revokedAt",
+          "lastUsedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Scope"
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastUsedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "revokedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "CreatedTokenEnvelope": {
+        "type": "object",
+        "required": [
+          "apiVersion",
+          "kind",
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "const": "CreatedToken"
+          },
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Token"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "token"
+                ],
+                "properties": {
+                  "token": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "TokenListEnvelope": {
+        "type": "object",
+        "required": [
+          "apiVersion",
+          "kind",
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "const": "TokenList"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Token"
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ListMeta"
+          }
+        }
+      },
+      "DeviceAuthorizationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "clientName",
+          "installationKey",
+          "installationName",
+          "clientVersion",
+          "platform",
+          "architecture",
+          "scopeProfile"
+        ],
+        "properties": {
+          "clientName": {
+            "type": "string",
+            "const": "pulsectl"
+          },
+          "installationKey": {
+            "type": "string"
+          },
+          "installationName": {
+            "type": "string"
+          },
+          "clientVersion": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "architecture": {
+            "type": "string"
+          },
+          "scopeProfile": {
+            "type": "string",
+            "const": "administrator"
+          }
+        }
+      },
+      "DeviceAuthorizationEnvelope": {
+        "type": "object",
+        "required": [
+          "apiVersion",
+          "kind",
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "const": "DeviceAuthorization"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "deviceCode",
+              "userCode",
+              "verificationUri",
+              "verificationUriComplete",
+              "expiresIn",
+              "interval"
+            ],
+            "properties": {
+              "deviceCode": {
+                "type": "string"
+              },
+              "userCode": {
+                "type": "string"
+              },
+              "verificationUri": {
+                "type": "string",
+                "format": "uri"
+              },
+              "verificationUriComplete": {
+                "type": "string",
+                "format": "uri"
+              },
+              "expiresIn": {
+                "type": "integer",
+                "const": 600
+              },
+              "interval": {
+                "type": "integer",
+                "const": 5
+              }
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "DeviceTokenRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "deviceCode"
+        ],
+        "properties": {
+          "deviceCode": {
+            "type": "string",
+            "writeOnly": true
+          }
+        }
+      },
+      "DeviceTokenEnvelope": {
+        "type": "object",
+        "required": [
+          "apiVersion",
+          "kind",
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "const": "CliSession"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "token",
+              "tokenType",
+              "expiresAt",
+              "scopes"
+            ],
+            "properties": {
+              "token": {
+                "type": "string"
+              },
+              "tokenType": {
+                "type": "string",
+                "const": "Bearer"
+              },
+              "expiresAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "scopes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Scope"
+                }
+              }
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "DatabaseHealthEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "apiVersion",
+          "kind",
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "type": "string",
+            "const": "DatabaseHealth"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DatabaseHealth"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "DatabaseHealth": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "health",
+          "summary",
+          "budgetBytes",
+          "usedBytes",
+          "availableBytes",
+          "projected30DayBytes",
+          "categories",
+          "retention",
+          "governor",
+          "schedulerCoverage",
+          "transfer",
+          "freshness",
+          "maintenanceHealthy",
+          "refresh"
+        ],
+        "properties": {
+          "health": {
+            "type": "string",
+            "enum": [
+              "HEALTHY",
+              "WATCHING",
+              "OPTIMIZING",
+              "PROTECTING",
+              "CRITICAL",
+              "UNKNOWN"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "budgetBytes": {
+            "type": "integer",
+            "const": 500000000
+          },
+          "usedBytes": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "availableBytes": {
+            "type": ["integer", "null"]
+          },
+          "projected30DayBytes": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["key", "label", "bytes"],
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "enum": [
+                    "recentCheckBatches",
+                    "rollups",
+                    "exceptions",
+                    "incidents",
+                    "coreData",
+                    "operations",
+                    "indexes",
+                    "other"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "retention": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["key", "label", "configuredSeconds", "oldestAt"],
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "configuredSeconds": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "oldestAt": {
+                  "type": ["string", "null"],
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "governor": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["mode", "action", "lastCompactionAt"],
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "FULL_DETAIL",
+                  "EARLY_COMPACTION",
+                  "SHORTENED_RETENTION",
+                  "INCIDENT_HOURLY_ONLY",
+                  "ESSENTIALS_ONLY",
+                  "UNKNOWN"
+                ]
+              },
+              "action": {
+                "type": "string"
+              },
+              "lastCompactionAt": {
+                "type": ["string", "null"],
+                "format": "date-time"
+              }
+            }
+          },
+          "schedulerCoverage": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "maximum": 1
+          },
+          "transfer": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["usedBytes", "budgetBytes", "projectedBytes"],
+            "properties": {
+              "usedBytes": {
+                "type": ["integer", "null"],
+                "minimum": 0
+              },
+              "budgetBytes": {
+                "type": "integer",
+                "const": 5000000000
+              },
+              "projectedBytes": {
+                "type": ["integer", "null"],
+                "minimum": 0
+              }
+            }
+          },
+          "freshness": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["capturedAt", "ageSeconds", "stale", "providerMetricsAvailable"],
+            "properties": {
+              "capturedAt": {
+                "type": ["string", "null"],
+                "format": "date-time"
+              },
+              "ageSeconds": {
+                "type": ["integer", "null"],
+                "minimum": 0
+              },
+              "stale": {
+                "type": "boolean",
+                "description": "True when the returned snapshot is older than the service freshness threshold. Stale snapshots use health UNKNOWN."
+              },
+              "providerMetricsAvailable": {
+                "type": "boolean"
+              }
+            }
+          },
+          "maintenanceHealthy": {
+            "type": ["boolean", "null"]
+          },
+          "refresh": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["cached", "nextEligibleAt"],
+            "properties": {
+              "cached": {
+                "type": "boolean",
+                "description": "True when the 15-minute refresh cache served this response without a new provider measurement."
+              },
+              "nextEligibleAt": {
+                "type": ["string", "null"],
+                "format": "date-time"
+              }
+            }
+          }
+        }
+      },
+      "ConfigurationMeta": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "requestId",
+          "configHash"
+        ],
+        "properties": {
+          "requestId": {
+            "type": "string"
+          },
+          "configHash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        }
+      },
+      "ActionEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "apiVersion",
+          "kind",
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      }
+    }
+  }
+}
