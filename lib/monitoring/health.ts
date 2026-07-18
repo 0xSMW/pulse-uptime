@@ -7,7 +7,7 @@ import { cronRuns, monitoringConfigSnapshots, notificationOutbox } from "@/lib/d
 export async function getHealthWarnings(now = new Date()): Promise<HealthWarning[]> {
   const [checkRun, maintenanceRun, rejected, dead] = await Promise.all([
     db.select({ completedAt: cronRuns.completedAt }).from(cronRuns)
-      .where(and(eq(cronRuns.jobName, "check-monitors"), eq(cronRuns.status, "completed")))
+      .where(and(eq(cronRuns.jobName, "monitor-check"), eq(cronRuns.status, "completed")))
       .orderBy(desc(cronRuns.scheduledMinute)).limit(1),
     db.select({ completedAt: cronRuns.completedAt }).from(cronRuns)
       .where(and(eq(cronRuns.jobName, "maintenance"), eq(cronRuns.status, "completed")))
