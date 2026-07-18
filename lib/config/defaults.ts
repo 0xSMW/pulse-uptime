@@ -11,7 +11,7 @@ export const DEFAULT_MONITOR_SETTINGS: Readonly<MonitoringSettings> = Object.fre
 
 export const DEFAULT_MONITOR_VALUES = Object.freeze({
   enabled: true,
-  group: null,
+  groupId: null,
   method: "GET",
   intervalMinutes: 1,
   timeoutMs: 8_000,
