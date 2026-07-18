@@ -41,7 +41,13 @@ export type MonitorTransitionEvent = CheckTransitionEvent | LifecycleTransitionE
 
 export type IncidentIntent =
   | { type: "open"; openedAt: Date; firstFailureAt: Date }
-  | { type: "resolve"; incidentId: string; resolvedAt: Date; firstSuccessAt: Date }
+  | {
+      type: "resolve";
+      incidentId: string;
+      openedAt: Date;
+      resolvedAt: Date;
+      firstSuccessAt: Date;
+    }
   | null;
 
 export type StateTransition = {
@@ -53,6 +59,7 @@ export type StateTransition = {
 
 export type ScheduledCheck = {
   monitorId: string;
+  monitorName: string;
   runId: string;
   scheduledAt: Date;
   checkedAt: Date;
