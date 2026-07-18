@@ -156,7 +156,9 @@ Admin shell on all screens: top nav per §3.5. Routes and file layout per INIT.m
 
 ### 6.0 Onboarding and login
 
-`/onboarding` appears only when no administrator exists. Use a centered 420px column with the Pulse wordmark, heading "Create Admin Account", and Email, Password, and Confirm Password fields followed by a full-width "Create Account" primary button. Successful creation signs the administrator in and opens the Overview. Once the account exists, this route redirects to `/login` and rejects direct submissions.
+`/onboarding` takes a fresh deployment through the canonical INIT.md flow in a centered 520px column: animated system readiness; Step 1 administrator account; Step 2 first monitor; Step 3 verification and alert recipient; then the unnumbered Getting Started handoff. Use one focused task per screen, no more than three editable fields, full-width actions, and an icon-only left arrow for Back. On readiness, completed checks use an animated green checkmark without status text; only warnings and blockers show text. **Check Again** is full-width above the primary action. Getting Started has no progress bar or completion checkmark and provides copyable `pulsectl` commands and agent prompt above **Open Dashboard**. The remaining rules, persistence, failure behavior, and completion boundary come from INIT.md.
+
+Creating the administrator signs the user in and locks account creation. An incomplete session resumes its persisted step; completed onboarding redirects to Overview. The onboarding shell stays dark by default and has no theme control.
 
 `/login` uses the same shell with heading "Sign In", Email and Password fields, and a full-width "Sign In" primary button. Keep errors generic ("Email or password is incorrect"), preserve the email value, focus the password field after failure, and expose no social-login, SSO, magic-link, registration, or provider controls.
 
