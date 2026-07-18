@@ -3,11 +3,11 @@ import { randomUUID } from "node:crypto";
 import { MAINTENANCE_LEASE, withLease, type LeaseStore } from "@/lib/scheduler/lease";
 import { emptyRunCounts, safeCronError, type CronRunStore } from "@/lib/scheduler/run-record";
 import { scheduledMinuteAt, utcDay } from "@/lib/scheduler/time";
+import type { GovernorMode } from "@/lib/storage/governor";
 
 export interface MaintenanceStore {
   reconcileStaleOutbox(now: Date): Promise<number>;
   reconcileStaleCronRuns(now: Date): Promise<number>;
-  upsertDailyRollup(day: string, now: Date): Promise<number>;
   deleteRawChecks(cutoff: Date, limit: number): Promise<number>;
   deleteSentNotifications(cutoff: Date, limit: number): Promise<number>;
   expireConfigApprovals(now: Date, consumedCutoff: Date, limit: number): Promise<number>;
@@ -18,6 +18,14 @@ export interface MaintenanceStore {
   retainConfigSnapshots(rejectedCutoff: Date, acceptedLimit: number, limit: number): Promise<number>;
   deleteOldCronRuns(cutoff: Date, limit: number): Promise<number>;
   deleteOldRollups(dayCutoff: string, limit: number): Promise<number>;
+  compact15Minute(start: Date, end: Date, now: Date): Promise<number>;
+  fillSchedulerGaps(start: Date, end: Date, now: Date): Promise<number>;
+  promoteRollups(source: "15m" | "hour", target: "hour" | "day", start: Date, end: Date): Promise<number>;
+  measureAndSnapshotUsage(now: Date): Promise<GovernorMode>;
+  enforceTelemetryRetention(now: Date, mode: GovernorMode, limit: number): Promise<number>;
+  retainUsageSnapshots(now: Date, limit: number): Promise<number>;
+  retainExceptions(now: Date, limit: number): Promise<number>;
+  retainExceptionPayloads(now: Date, limit: number): Promise<number>;
 }
 
 export type MaintenanceSummary = {
@@ -26,6 +34,7 @@ export type MaintenanceSummary = {
   rollups: number;
   deleted: number;
   expired: number;
+  governorMode: GovernorMode;
 };
 
 export const RETENTION_BATCH_SIZE = 10_000;
@@ -52,8 +61,6 @@ export async function performMaintenance(
 ): Promise<MaintenanceSummary> {
   const nowMs = options.nowMs ?? Date.now;
   const deadlineAtMs = options.deadlineAtMs ?? nowMs() + MAINTENANCE_WORK_BUDGET_MS;
-  const dayOne = utcDay(now, 1);
-  const dayTwo = utcDay(now, 2);
   const rawCutoff = new Date(now.getTime() - 30 * 86_400_000);
   const sentCutoff = new Date(now.getTime() - 90 * 86_400_000);
   const shortCutoff = new Date(now.getTime() - 7 * 86_400_000);
@@ -61,11 +68,20 @@ export async function performMaintenance(
   const cronCutoff = new Date(now.getTime() - 90 * 86_400_000);
   const rejectedCutoff = new Date(now.getTime() - 30 * 86_400_000);
   const rollupCutoff = utcDay(now, 365);
+  const compactStart = new Date(now.getTime() - 730 * 86_400_000);
 
   const staleOutbox = await store.reconcileStaleOutbox(now);
   const staleCronRuns = await store.reconcileStaleCronRuns(now);
-  const rollups = await store.upsertDailyRollup(dayOne, now) + await store.upsertDailyRollup(dayTwo, now);
+  await store.fillSchedulerGaps(compactStart, now, now);
+  const rollups = await store.compact15Minute(compactStart, now, now)
+    + await store.promoteRollups("15m", "hour", compactStart, now)
+    + await store.promoteRollups("hour", "day", compactStart, now);
+  const governorMode = await store.measureAndSnapshotUsage(now);
   const deleted =
+    await drainBatches((limit) => store.enforceTelemetryRetention(now, governorMode, limit), nowMs, deadlineAtMs) +
+    await drainBatches((limit) => store.retainUsageSnapshots(now, limit), nowMs, deadlineAtMs) +
+    await drainBatches((limit) => store.retainExceptions(now, limit), nowMs, deadlineAtMs) +
+    await drainBatches((limit) => store.retainExceptionPayloads(now, limit), nowMs, deadlineAtMs) +
     await drainBatches((limit) => store.deleteRawChecks(rawCutoff, limit), nowMs, deadlineAtMs) +
     await drainBatches((limit) => store.deleteSentNotifications(sentCutoff, limit), nowMs, deadlineAtMs) +
     await drainBatches((limit) => store.retainConfigSnapshots(rejectedCutoff, 50, limit), nowMs, deadlineAtMs) +
@@ -77,7 +93,7 @@ export async function performMaintenance(
     await drainBatches((limit) => store.markDeviceAuthorizationsExpired(now, limit), nowMs, deadlineAtMs) +
     await drainBatches((limit) => store.deleteExpiredDeviceAuthorizations(shortCutoff, limit), nowMs, deadlineAtMs) +
     await drainBatches((limit) => store.expireRateLimitBuckets(now, limit), nowMs, deadlineAtMs);
-  return { staleOutbox, staleCronRuns, rollups, deleted, expired };
+  return { staleOutbox, staleCronRuns, rollups, deleted, expired, governorMode };
 }
 
 export async function runMaintenanceCoordinator(dependencies: {
