@@ -1,18 +1,70 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { X } from "lucide-react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
+
+import { Button } from "@/components/ui/button";
+
+export function SheetIconButton({
+  label,
+  disabled = false,
+  disabledDescription,
+  destructive = false,
+  onClick,
+  children,
+}: {
+  label: string;
+  disabled?: boolean;
+  disabledDescription?: string;
+  destructive?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  const tooltipId = useId();
+
+  return (
+    <span
+      className="group relative inline-flex"
+      tabIndex={disabled ? 0 : undefined}
+      aria-label={disabled && disabledDescription ? `${label}. ${disabledDescription}` : undefined}
+    >
+      <Button
+        type="button"
+        variant={destructive ? "error-outline" : "tertiary"}
+        size="icon-sm"
+        disabled={disabled}
+        aria-label={label}
+        aria-describedby={tooltipId}
+        onClick={onClick}
+      >
+        {children}
+      </Button>
+      <span
+        id={tooltipId}
+        role="tooltip"
+        className="pointer-events-none absolute top-[calc(100%+8px)] left-1/2 z-20 -translate-x-1/2 rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-2 py-1 text-xs font-medium whitespace-nowrap text-[var(--fg)] opacity-0 shadow-[var(--popover-shadow)] transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none"
+      >
+        {label}
+      </span>
+    </span>
+  );
+}
 
 export function Sheet({
   title,
   description,
   open,
   onClose,
+  closeDisabled = false,
+  headerActions,
   children,
 }: {
   title: string;
   description?: string;
   open: boolean;
   onClose: () => void;
+  closeDisabled?: boolean;
+  headerActions?: ReactNode;
   children: ReactNode;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -41,7 +93,12 @@ export function Sheet({
           <h2 id="settings-sheet-title" className="text-base font-semibold">{title}</h2>
           {description ? <p id="settings-sheet-description" className="mt-1 text-[13px] text-[var(--fg-muted)]">{description}</p> : null}
         </div>
-        <button type="button" onClick={onClose} className="-mr-2 size-8 rounded-[6px] text-xl text-[var(--fg-muted)] hover:bg-[var(--hover)]" aria-label="Close sheet">×</button>
+        <div className="-mr-2 flex shrink-0 items-center gap-1">
+          {headerActions}
+          <SheetIconButton label="Close sheet" disabled={closeDisabled} disabledDescription="A change is in progress" onClick={onClose}>
+            <X className="size-4" aria-hidden />
+          </SheetIconButton>
+        </div>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">{children}</div>
     </dialog>
