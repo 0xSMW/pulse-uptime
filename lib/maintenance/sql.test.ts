@@ -22,4 +22,12 @@ describe("maintenance SQL store", () => {
     expect(query.mock.calls[0]?.[1]).toHaveLength(3);
     expect(query.mock.calls[0]?.[0]).toContain("AMBIGUOUS_PROVIDER_RESULT");
   });
+
+  it("keeps actual same-day captures and later downsamples to daily and monthly points", async () => {
+    const query = vi.fn().mockResolvedValue([]);
+    await createSqlMaintenanceStore({ query }).retainUsageSnapshots(new Date("2026-07-18T12:00:00Z"), 10_000);
+    expect(query.mock.calls[0]?.[0]).toContain("daily_point");
+    expect(query.mock.calls[0]?.[0]).toContain("monthly_point");
+    expect(query.mock.calls[0]?.[0]).toContain("latest_point");
+  });
 });
