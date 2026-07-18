@@ -17,6 +17,7 @@ import (
 	"github.com/productos-ai/pulse-uptime/cli/internal/buildinfo"
 	"github.com/productos-ai/pulse-uptime/cli/internal/command/adminops"
 	"github.com/productos-ai/pulse-uptime/cli/internal/command/configops"
+	"github.com/productos-ai/pulse-uptime/cli/internal/command/groupops"
 	"github.com/productos-ai/pulse-uptime/cli/internal/command/monitorops"
 	"github.com/productos-ai/pulse-uptime/cli/internal/command/readops"
 	"github.com/productos-ai/pulse-uptime/cli/internal/config"
@@ -171,6 +172,7 @@ func (a *App) newRoot() *cobra.Command {
 	root.AddCommand(a.contextGroup())
 	root.AddCommand(adminops.NewTokenCommand(a.adminDependencies()))
 	root.AddCommand(monitorops.NewGroup(a.monitorDependencies()))
+	root.AddCommand(groupops.NewGroup(a.groupDependencies()))
 	root.AddCommand(readops.NewIncidentGroup(a.readDependencies()))
 	root.AddCommand(configops.NewCommand(a.configDependencies()))
 	root.AddCommand(adminops.NewNotificationCommand(a.adminDependencies()))
@@ -485,7 +487,7 @@ func buildManifest(root, target *cobra.Command) manifest {
 
 func commandIsMutation(path []string) bool {
 	joined := strings.Join(path, " ")
-	for _, prefix := range []string{"monitor create", "monitor update", "monitor pause", "monitor resume", "monitor delete", "monitor test", "config validate", "config plan", "config apply", "notification test", "token create", "token revoke", "auth logout", "auth login"} {
+	for _, prefix := range []string{"monitor create", "monitor update", "monitor pause", "monitor resume", "monitor delete", "monitor test", "group create", "group rename", "group delete", "config validate", "config plan", "config apply", "notification test", "token create", "token revoke", "auth logout", "auth login"} {
 		if joined == prefix {
 			return true
 		}
