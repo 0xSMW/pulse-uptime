@@ -1,10 +1,9 @@
-import { and, desc, eq, gte, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lt } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 import {
-  checkResults,
-  dailyRollups,
   incidents,
+  metricRollups,
   monitorRegistry,
   monitoringConfigSnapshots,
   monitorState,
@@ -12,7 +11,7 @@ import {
 import { DEFAULT_MONITOR_VALUES } from "@/lib/config/defaults";
 import { monitoringConfigSchema, type MonitorConfig } from "@/lib/config/schema";
 
-import { buildCheckTimeline, buildDailyTimeline } from "./timeline";
+import { buildRollupTimeline, summarizeRollupCoverage } from "./timeline";
 
 function secondsBetween(start: Date, end: Date): number {
   return Math.max(0, Math.floor((end.getTime() - start.getTime()) / 1_000));
@@ -21,6 +20,41 @@ function secondsBetween(start: Date, end: Date): number {
 function openingFailure(errorCode: string | null, statusCode: number | null): string {
   if (statusCode !== null) return `HTTP ${statusCode}`;
   return errorCode ?? "Unknown failure";
+}
+
+const LATENCY_BUCKET_MAX_MS = [100, 250, 500, 1_000, 2_500, 5_000, 10_000] as const;
+
+function completedRangeEnd(now: Date, resolution: "15m" | "hour" | "day"): Date {
+  const end = new Date(now);
+  if (resolution === "day") {
+    end.setUTCHours(0, 0, 0, 0);
+  } else if (resolution === "hour") {
+    end.setUTCMinutes(0, 0, 0);
+  } else {
+    end.setUTCMinutes(Math.floor(end.getUTCMinutes() / 15) * 15, 0, 0);
+  }
+  return end;
+}
+
+function p95Latency(rows: Array<{
+  latencyCount: number;
+  latencyHistogram: number[];
+  latencyMaxMs: number | null;
+}>): number | null {
+  const count = rows.reduce((sum, row) => sum + row.latencyCount, 0);
+  if (count === 0) return null;
+
+  const rank = Math.ceil(count * 0.95);
+  let cumulative = 0;
+  for (let index = 0; index < 8; index += 1) {
+    cumulative += rows.reduce((sum, row) => sum + (row.latencyHistogram[index] ?? 0), 0);
+    if (cumulative >= rank) {
+      return index < LATENCY_BUCKET_MAX_MS.length
+        ? LATENCY_BUCKET_MAX_MS[index]!
+        : Math.max(...rows.map((row) => row.latencyMaxMs ?? 0));
+    }
+  }
+  return null;
 }
 
 export async function getMonitorDetail(id: string) {
@@ -41,48 +75,37 @@ export async function getMonitorDetail(id: string) {
   if (!monitor || monitor.state === "ARCHIVED") return null;
 
   const now = new Date();
-  const earliest = new Date(now.getTime() - 90 * 86_400_000);
-  const [metricRows, rollups, recentChecks, checks24h, recentIncidents, accepted] = await Promise.all([
-    db
-      .select({
-        p95LatencyMs: sql<number | null>`percentile_cont(0.95) within group (order by ${checkResults.latencyMs}) filter (where ${checkResults.checkedAt} >= now() - interval '24 hours')`,
-        uptime24h: sql<number | null>`100.0 * count(*) filter (where ${checkResults.successful} and ${checkResults.checkedAt} >= now() - interval '24 hours') / nullif(count(*) filter (where ${checkResults.checkedAt} >= now() - interval '24 hours'), 0)`,
-        uptime7d: sql<number | null>`100.0 * count(*) filter (where ${checkResults.successful} and ${checkResults.checkedAt} >= now() - interval '7 days') / nullif(count(*) filter (where ${checkResults.checkedAt} >= now() - interval '7 days'), 0)`,
-        uptime30d: sql<number | null>`100.0 * count(*) filter (where ${checkResults.successful} and ${checkResults.checkedAt} >= now() - interval '30 days') / nullif(count(*) filter (where ${checkResults.checkedAt} >= now() - interval '30 days'), 0)`,
-        uptime90d: sql<number | null>`100.0 * count(*) filter (where ${checkResults.successful}) / nullif(count(*), 0)`,
-      })
-      .from(checkResults)
-      .where(and(eq(checkResults.monitorId, id), gte(checkResults.checkedAt, earliest))),
-    db.select({
-      day: dailyRollups.day,
-      totalChecks: dailyRollups.totalChecks,
-      failedChecks: dailyRollups.failedChecks,
-      incidentSeconds: dailyRollups.incidentSeconds,
-    }).from(dailyRollups)
-      .where(and(eq(dailyRollups.monitorId, id), gte(dailyRollups.day, earliest.toISOString().slice(0, 10))))
-      .orderBy(dailyRollups.day)
-      .limit(90),
-    db.select({
-      id: checkResults.id,
-      checkedAt: checkResults.checkedAt,
-      successful: checkResults.successful,
-      statusCode: checkResults.statusCode,
-      errorCode: checkResults.errorCode,
-      latencyMs: checkResults.latencyMs,
-    }).from(checkResults)
-      .where(eq(checkResults.monitorId, id))
-      .orderBy(desc(checkResults.checkedAt))
-      .limit(240),
-    db.select({
-      checkedAt: checkResults.checkedAt,
-      successful: checkResults.successful,
-    }).from(checkResults)
-      .where(and(
-        eq(checkResults.monitorId, id),
-        gte(checkResults.checkedAt, new Date(now.getTime() - 86_400_000)),
-      ))
-      .orderBy(desc(checkResults.checkedAt))
-      .limit(1_500),
+  const end15m = completedRangeEnd(now, "15m");
+  const endHour = completedRangeEnd(now, "hour");
+  const endDay = completedRangeEnd(now, "day");
+  const rollupColumns = {
+    bucketStart: metricRollups.bucketStart,
+    expectedChecks: metricRollups.expectedChecks,
+    completedChecks: metricRollups.completedChecks,
+    successfulChecks: metricRollups.successfulChecks,
+    failedChecks: metricRollups.failedChecks,
+    unknownChecks: metricRollups.unknownChecks,
+    downtimeSeconds: metricRollups.downtimeSeconds,
+    latencyCount: metricRollups.latencyCount,
+    latencySumMs: metricRollups.latencySumMs,
+    latencyMaxMs: metricRollups.latencyMaxMs,
+    latencyHistogram: metricRollups.latencyHistogram,
+  };
+  const rollupsFor = (resolution: "15m" | "hour" | "day", end: Date, durationMs: number) => db
+    .select(rollupColumns)
+    .from(metricRollups)
+    .where(and(
+      eq(metricRollups.monitorId, id),
+      eq(metricRollups.resolution, resolution),
+      gte(metricRollups.bucketStart, new Date(end.getTime() - durationMs)),
+      lt(metricRollups.bucketStart, end),
+    ))
+    .orderBy(metricRollups.bucketStart);
+  const [rollups24h, rollups7d, rollups30d, rollups90d, recentIncidents, accepted] = await Promise.all([
+    rollupsFor("15m", end15m, 86_400_000),
+    rollupsFor("15m", end15m, 7 * 86_400_000),
+    rollupsFor("hour", endHour, 30 * 86_400_000),
+    rollupsFor("day", endDay, 90 * 86_400_000),
     db.select().from(incidents)
       .where(eq(incidents.monitorId, id))
       .orderBy(desc(incidents.openedAt))
@@ -98,16 +121,12 @@ export async function getMonitorDetail(id: string) {
   const config: MonitorConfig | undefined = parsedConfig.success
     ? parsedConfig.data.monitors.find((candidate) => candidate.id === id)
     : undefined;
-  const metrics = metricRows[0];
-  const timeline90 = buildDailyTimeline(rollups, 90, now);
-  const timeline = (days: number) => timeline90.slice(-days);
-  const checksAscending = recentChecks.toReversed();
-  const pointsSince = (durationMs: number) => checksAscending
-    .filter((check) => check.checkedAt.getTime() >= now.getTime() - durationMs)
-    .map((check) => ({
-      timestamp: check.checkedAt.toISOString(),
-      latencyMs: check.latencyMs,
-      successful: check.successful,
+  const responsePoints = (rows: typeof rollups24h) => rows
+    .filter((row) => row.latencyCount > 0)
+    .map((row) => ({
+      timestamp: row.bucketStart.toISOString(),
+      latencyMs: Number(row.latencySumMs) / row.latencyCount,
+      successful: row.failedChecks === 0 && row.completedChecks === row.expectedChecks,
     }));
   const mappedIncidents = recentIncidents.map((incident) => ({
     id: incident.id,
@@ -137,26 +156,35 @@ export async function getMonitorDetail(id: string) {
       ? (config.recipients.length || (parsedConfig.success ? parsedConfig.data.settings.defaultRecipients.length : 0))
       : 0,
     latestLatencyMs: monitor.latestLatencyMs,
-    p95LatencyMs: metrics?.p95LatencyMs === null || metrics?.p95LatencyMs === undefined ? null : Number(metrics.p95LatencyMs),
+    p95LatencyMs: p95Latency(rollups24h),
     uptime: {
-      h24: metrics?.uptime24h == null ? null : Number(metrics.uptime24h),
-      d7: metrics?.uptime7d == null ? null : Number(metrics.uptime7d),
-      d30: metrics?.uptime30d == null ? null : Number(metrics.uptime30d),
-      d90: metrics?.uptime90d == null ? null : Number(metrics.uptime90d),
+      h24: summarizeRollupCoverage(rollups24h).uptime,
+      d7: summarizeRollupCoverage(rollups7d).uptime,
+      d30: summarizeRollupCoverage(rollups30d).uptime,
+      d90: summarizeRollupCoverage(rollups90d).uptime,
     },
     availability: {
       h24: {
-        start: new Date(now.getTime() - 86_400_000).toISOString(),
-        buckets: buildCheckTimeline(checks24h, 60, 86_400_000, now),
+        start: new Date(end15m.getTime() - 86_400_000).toISOString(),
+        buckets: buildRollupTimeline(rollups24h, 60, 86_400_000, end15m),
       },
-      d7: { start: new Date(now.getTime() - 7 * 86_400_000).toISOString(), buckets: timeline(7) },
-      d30: { start: new Date(now.getTime() - 30 * 86_400_000).toISOString(), buckets: timeline(30) },
-      d90: { start: earliest.toISOString(), buckets: timeline90 },
+      d7: {
+        start: new Date(end15m.getTime() - 7 * 86_400_000).toISOString(),
+        buckets: buildRollupTimeline(rollups7d, 84, 7 * 86_400_000, end15m),
+      },
+      d30: {
+        start: new Date(endHour.getTime() - 30 * 86_400_000).toISOString(),
+        buckets: buildRollupTimeline(rollups30d, 90, 30 * 86_400_000, endHour),
+      },
+      d90: {
+        start: new Date(endDay.getTime() - 90 * 86_400_000).toISOString(),
+        buckets: buildRollupTimeline(rollups90d, 90, 90 * 86_400_000, endDay),
+      },
     },
     responseTime: {
-      h24: pointsSince(86_400_000),
-      d7: pointsSince(7 * 86_400_000),
-      d30: pointsSince(30 * 86_400_000),
+      h24: responsePoints(rollups24h),
+      d7: responsePoints(rollups7d),
+      d30: responsePoints(rollups30d),
     },
     latestIncident: recentIncidents[0] && (
       recentIncidents[0].resolvedAt === null ||
@@ -170,13 +198,13 @@ export async function getMonitorDetail(id: string) {
       openingFailure: openingFailure(recentIncidents[0].openingErrorCode, recentIncidents[0].openingStatusCode),
     } : null,
     recentIncidents: mappedIncidents,
-    recentChecks: recentChecks.slice(0, 20).map((check) => ({
-      id: check.id.toString(),
-      checkedAt: check.checkedAt.toISOString(),
-      successful: check.successful,
-      statusCode: check.statusCode,
-      resultLabel: check.statusCode !== null ? `${check.statusCode} ${check.successful ? "OK" : "Failed"}` : (check.errorCode ?? "Failed"),
-      latencyMs: check.latencyMs,
+    recentChecks: rollups24h.slice(-20).toReversed().map((rollup) => ({
+      id: `15m:${rollup.bucketStart.toISOString()}`,
+      checkedAt: rollup.bucketStart.toISOString(),
+      successful: rollup.failedChecks === 0 && rollup.completedChecks === rollup.expectedChecks,
+      statusCode: null,
+      resultLabel: rollup.unknownChecks > 0 ? "Unknown coverage" : rollup.failedChecks > 0 ? "Failed checks" : "Healthy rollup",
+      latencyMs: rollup.latencyCount === 0 ? null : Math.round(Number(rollup.latencySumMs) / rollup.latencyCount),
     })),
   };
 }
