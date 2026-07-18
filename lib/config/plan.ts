@@ -1,0 +1,146 @@
+import { hashCanonical } from "./canonical";
+import type { DeclarativeConfig, MonitorConfig, MonitoringSettings } from "./schema";
+import { evaluateDestructiveChange, type DestructiveChangeEvaluation } from "./tripwire";
+import { validateDeclarativeConfig } from "./validation";
+
+export interface SettingChange {
+  path: string;
+  before: unknown;
+  after: unknown;
+}
+
+export interface MonitorUpdate {
+  id: string;
+  before: MonitorConfig | null;
+  after: MonitorConfig;
+  changedFields: string[];
+  restore?: true;
+}
+
+export interface ConfigurationDiff {
+  settingsChanged: SettingChange[];
+  creates: MonitorConfig[];
+  updates: MonitorUpdate[];
+  pauses: MonitorConfig[];
+  resumes: MonitorConfig[];
+  archives: MonitorConfig[];
+  unchanged: MonitorConfig[];
+}
+
+export interface ConfigurationPlan {
+  baseConfigHash: string;
+  targetConfigHash: string;
+  planHash: string;
+  targetConfig: DeclarativeConfig;
+  diff: ConfigurationDiff;
+  destructiveApprovalRequired: boolean;
+  destructiveChange: DestructiveChangeEvaluation;
+}
+
+export interface PlanOptions {
+  baseConfigHash?: string;
+  /** Registry entries omitted from accepted config because they were archived. */
+  archivedMonitors?: readonly MonitorConfig[];
+}
+
+function diffSettings(before: MonitoringSettings, after: MonitoringSettings): SettingChange[] {
+  const changes: SettingChange[] = [];
+  const walk = (left: unknown, right: unknown, path: string): void => {
+    if (hashCanonical(left) === hashCanonical(right)) return;
+    if (
+      left !== null && right !== null && typeof left === "object" && typeof right === "object" &&
+      !Array.isArray(left) && !Array.isArray(right)
+    ) {
+      const keys = [...new Set([...Object.keys(left), ...Object.keys(right)])].sort();
+      keys.forEach((key) => walk(
+        (left as Record<string, unknown>)[key],
+        (right as Record<string, unknown>)[key],
+        path ? `${path}.${key}` : key,
+      ));
+      return;
+    }
+    changes.push({ path, before: left, after: right });
+  };
+  walk(before, after, "settings");
+  return changes;
+}
+
+function changedMonitorFields(before: MonitorConfig, after: MonitorConfig): string[] {
+  return Object.keys(after)
+    .filter((key) => key !== "id" && hashCanonical(before[key as keyof MonitorConfig]) !== hashCanonical(after[key as keyof MonitorConfig]))
+    .sort()
+    .map((key) => `monitors.${after.id}.${key}`);
+}
+
+export function calculateConfigurationDiff(
+  current: DeclarativeConfig,
+  target: DeclarativeConfig,
+  archivedMonitors: readonly MonitorConfig[] = [],
+): ConfigurationDiff {
+  const currentById = new Map(current.monitors.map((monitor) => [monitor.id, monitor]));
+  const targetById = new Map(target.monitors.map((monitor) => [monitor.id, monitor]));
+  const archivedById = new Map(archivedMonitors.map((monitor) => [monitor.id, monitor]));
+  const diff: ConfigurationDiff = {
+    settingsChanged: diffSettings(current.settings, target.settings),
+    creates: [], updates: [], pauses: [], resumes: [], archives: [], unchanged: [],
+  };
+
+  for (const monitor of target.monitors) {
+    const before = currentById.get(monitor.id);
+    if (!before) {
+      const archived = archivedById.get(monitor.id);
+      if (archived) {
+        diff.updates.push({
+          id: monitor.id,
+          before: archived,
+          after: monitor,
+          changedFields: changedMonitorFields(archived, monitor),
+          restore: true,
+        });
+        if (monitor.enabled) diff.resumes.push(monitor);
+      } else {
+        diff.creates.push(monitor);
+      }
+      continue;
+    }
+
+    const changedFields = changedMonitorFields(before, monitor);
+    const nonStateChanges = changedFields.filter((path) => !path.endsWith(".enabled"));
+    if (nonStateChanges.length > 0) {
+      diff.updates.push({ id: monitor.id, before, after: monitor, changedFields: nonStateChanges });
+    }
+    if (before.enabled && !monitor.enabled) diff.pauses.push(monitor);
+    if (!before.enabled && monitor.enabled) diff.resumes.push(monitor);
+    if (changedFields.length === 0) diff.unchanged.push(monitor);
+  }
+
+  for (const monitor of current.monitors) {
+    if (!targetById.has(monitor.id)) diff.archives.push(monitor);
+  }
+
+  return diff;
+}
+
+export function createConfigurationPlan(
+  currentInput: unknown,
+  targetInput: unknown,
+  options: PlanOptions = {},
+): ConfigurationPlan {
+  const current = validateDeclarativeConfig(currentInput);
+  const targetConfig = validateDeclarativeConfig(targetInput);
+  const baseConfigHash = options.baseConfigHash ?? hashCanonical(current);
+  const targetConfigHash = hashCanonical(targetConfig);
+  const diff = calculateConfigurationDiff(current, targetConfig, options.archivedMonitors);
+  const destructiveChange = evaluateDestructiveChange(current, targetConfig);
+  const planHash = hashCanonical({ baseConfigHash, targetConfigHash, diff });
+  return {
+    baseConfigHash,
+    targetConfigHash,
+    planHash,
+    targetConfig,
+    diff,
+    destructiveApprovalRequired: destructiveChange.required,
+    destructiveChange,
+  };
+}
+
