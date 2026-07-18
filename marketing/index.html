@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Pulse is a self-hosted uptime monitor for people and agents"
+    />
+    <title>Pulse — Own your uptime</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="./script.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <nav class="nav shell" aria-label="Main navigation">
+        <a class="brand" href="#top" aria-label="Pulse home">
+          <span class="status-dot up" aria-hidden="true"></span>
+          <span>Pulse</span>
+        </a>
+
+        <div class="nav-links" id="nav-links">
+          <a href="#product">Product</a>
+          <a href="#response">Incidents</a>
+          <a href="#cli">CLI</a>
+          <a href="#architecture">Architecture</a>
+          <a href="../Docs/INIT.md">Docs</a>
+        </div>
+
+        <div class="nav-actions">
+          <button class="icon-button" id="theme-toggle" type="button" aria-label="Use light theme" data-tooltip="Light theme">
+            <span aria-hidden="true">☼</span>
+          </button>
+          <a class="button primary compact" href="#deploy">Deploy Pulse</a>
+          <button class="icon-button menu-toggle" id="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="nav-links">
+            <span aria-hidden="true">≡</span>
+          </button>
+        </div>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero shell" id="top">
+        <div class="hero-copy">
+          <p class="eyebrow">Open-source uptime monitoring</p>
+          <h1>Own your uptime</h1>
+          <p class="lede">Pulse checks your endpoints, opens incidents, and gives people and agents the same control plane.</p>
+          <div class="hero-actions">
+            <a class="button primary" href="#deploy">Deploy Pulse</a>
+            <button class="button secondary" type="button" data-scroll-to="simulation">Explore the demo</button>
+            <a class="text-link" href="#architecture">View on GitHub <span aria-hidden="true">↗</span></a>
+          </div>
+        </div>
+
+        <div class="product-frame hero-dashboard" id="product" aria-label="Interactive Pulse dashboard">
+          <div class="app-bar">
+            <a class="brand app-brand" href="#top">
+              <span class="status-dot up" aria-hidden="true"></span>
+              <span>Pulse</span>
+            </a>
+            <div class="app-tabs" aria-label="Product demo navigation">
+              <button class="app-tab active" type="button">Overview</button>
+              <button class="app-tab" type="button" data-scroll-to="response">Incidents</button>
+              <button class="app-tab" type="button" data-scroll-to="database">Settings</button>
+              <button class="app-tab" type="button" data-scroll-to="status-page">Status Page <span aria-hidden="true">↗</span></button>
+            </div>
+            <button class="command-key" type="button" data-scroll-to="cli" aria-label="Open command menu">⌘K</button>
+          </div>
+
+          <div class="dashboard-body">
+            <div class="app-heading-row">
+              <div>
+                <p class="app-kicker">Overview</p>
+                <h2>All systems</h2>
+              </div>
+              <button class="button primary compact" type="button" data-open-monitor>New Monitor</button>
+            </div>
+
+            <div class="table-shell">
+              <table class="monitor-table">
+                <thead>
+                  <tr>
+                    <th>Status</th>
+                    <th>Monitor</th>
+                    <th class="numeric">Uptime 24h</th>
+                    <th>Timeline</th>
+                    <th class="numeric">Latency</th>
+                    <th class="numeric last-checked">Last Checked</th>
+                  </tr>
+                </thead>
+                <tbody id="monitor-rows"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="frame-fade" aria-hidden="true"></div>
+        </div>
+      </section>
+
+      <section class="principles shell section-rule" aria-label="Pulse principles">
+        <article>
+          <p class="figure">FIG 0.1</p>
+          <div class="principle-mark concentric" aria-hidden="true"><i></i><i></i><i></i></div>
+          <h3>Built for ownership</h3>
+          <p>Deploy to your infrastructure and keep control of your operational data.</p>
+        </article>
+        <article>
+          <p class="figure">FIG 0.2</p>
+          <div class="principle-mark nodes" aria-hidden="true"><i></i><i></i><i></i></div>
+          <h3>Ready for agents</h3>
+          <p>One typed API and CLI for people, scripts, and autonomous workflows.</p>
+        </article>
+        <article>
+          <p class="figure">FIG 0.3</p>
+          <div class="principle-mark signal" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+          <h3>Focused on incidents</h3>
+          <p>Compact routine checks and preserve the failures that need attention.</p>
+        </article>
+      </section>
+
+      <section class="story shell section-rule" id="monitoring">
+        <div class="section-intro">
+          <div>
+            <p class="section-number">1.0 &nbsp; Monitor</p>
+            <h2>Monitor what matters</h2>
+          </div>
+          <p>Add a public endpoint in seconds. Pulse keeps the first decision simple and tucks advanced controls away.</p>
+        </div>
+
+        <div class="monitor-scene scene-panel">
+          <div class="scene-context" aria-hidden="true">
+            <div class="ghost-row"><span></span><span></span><span></span></div>
+            <div class="ghost-row"><span></span><span></span><span></span></div>
+            <div class="ghost-row"><span></span><span></span><span></span></div>
+          </div>
+
+          <form class="monitor-sheet" id="inline-monitor-form">
+            <div class="sheet-heading">
+              <div>
+                <p class="app-kicker">New Monitor</p>
+                <h3>Start checking</h3>
+              </div>
+              <span class="sheet-step">1 of 1</span>
+            </div>
+
+            <label class="field">
+              <span>Name</span>
+              <input name="name" value="API" autocomplete="off" required />
+            </label>
+            <label class="field">
+              <span>URL</span>
+              <input name="url" type="url" value="https://api.example.com/health" required />
+            </label>
+            <div class="field-grid">
+              <label class="field">
+                <span>Group</span>
+                <select name="group">
+                  <option>Production</option>
+                  <option>Marketing</option>
+                  <option>Ungrouped</option>
+                  <option value="create">Create new group…</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Interval</span>
+                <select name="interval">
+                  <option>1 min</option>
+                  <option>5 min</option>
+                  <option>15 min</option>
+                </select>
+              </label>
+            </div>
+
+            <details class="advanced">
+              <summary>Advanced <span aria-hidden="true">⌄</span></summary>
+              <div class="advanced-fields">
+                <label class="field">
+                  <span>Method</span>
+                  <select name="method"><option>GET</option><option>HEAD</option></select>
+                </label>
+                <label class="field">
+                  <span>Timeout ms</span>
+                  <input name="timeout" type="number" value="8000" min="1000" />
+                </label>
+              </div>
+            </details>
+
+            <button class="button primary full" type="submit">Save Monitor</button>
+            <p class="form-note" id="monitor-form-note" aria-live="polite">Runs locally in this demo</p>
+          </form>
+        </div>
+      </section>
+
+      <section class="story shell section-rule" id="simulation">
+        <div class="section-intro">
+          <div>
+            <p class="section-number">2.0 &nbsp; Detect</p>
+            <h2>From failure to recovery</h2>
+          </div>
+          <p>Advance one check at a time. Every surface below follows the same monitor state.</p>
+        </div>
+
+        <div class="simulation-grid">
+          <div class="simulator panel">
+            <div class="simulator-header">
+              <div>
+                <p class="app-kicker">Live Monitor</p>
+                <h3>API</h3>
+              </div>
+              <div class="status-badge" id="sim-status-badge"><span class="status-dot up"></span><span>Up</span></div>
+            </div>
+
+            <div class="endpoint-line">
+              <span class="mono">GET</span>
+              <span class="mono">api.example.com/health</span>
+              <span class="mono" id="sim-latency">42 ms</span>
+            </div>
+
+            <div class="large-timeline" id="large-timeline" aria-label="Recent monitor checks"></div>
+            <div class="timeline-labels mono"><span>24 hours ago</span><span>Now</span></div>
+
+            <div class="state-track" aria-label="Outage simulation progress">
+              <div class="state-step active" data-stage="0"><span></span><small>Up</small></div>
+              <div class="state-step" data-stage="1"><span></span><small>Verifying</small></div>
+              <div class="state-step" data-stage="2"><span></span><small>Down</small></div>
+              <div class="state-step" data-stage="3"><span></span><small>Verifying</small></div>
+              <div class="state-step" data-stage="4"><span></span><small>Recovered</small></div>
+            </div>
+          </div>
+
+          <aside class="simulation-control panel">
+            <p class="app-kicker">Demo Control</p>
+            <h3 id="control-heading">Service is healthy</h3>
+            <p id="control-copy">Pulse is checking the endpoint every minute.</p>
+            <div class="control-buttons">
+              <button class="button primary full" id="advance-demo" type="button">Simulate Outage</button>
+              <button class="button secondary full" id="recover-demo" type="button" disabled>Recover Service</button>
+              <button class="text-button" id="reset-demo" type="button">Reset Demo</button>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="story shell section-rule" id="response">
+        <div class="section-intro">
+          <div>
+            <p class="section-number">3.0 &nbsp; Respond</p>
+            <h2>Every failure has a history</h2>
+          </div>
+          <p>Pulse confirms outages, records each transition, and sends one clear alert.</p>
+        </div>
+
+        <div class="response-scene">
+          <article class="incident-panel panel" id="incident-panel">
+            <div class="incident-header">
+              <div>
+                <p class="app-kicker">Incident</p>
+                <h3>API availability</h3>
+              </div>
+              <span class="neutral-badge" id="incident-badge">No incident</span>
+            </div>
+            <dl class="incident-stats">
+              <div><dt>Started</dt><dd class="mono" id="incident-started">—</dd></div>
+              <div><dt>Duration</dt><dd class="mono" id="incident-duration">—</dd></div>
+              <div><dt>Cause</dt><dd class="mono" id="incident-cause">—</dd></div>
+            </dl>
+            <div class="event-trail" id="event-trail">
+              <div class="empty-trail"><span class="status-dot up"></span><p>No incidents yet</p></div>
+            </div>
+          </article>
+
+          <aside class="status-preview panel" id="status-page">
+            <div class="status-preview-head">
+              <span class="mini-brand"><span class="status-dot up"></span> Pulse Status</span>
+              <span class="mono">status.example.com</span>
+            </div>
+            <div class="public-state up-state" id="public-state">
+              <span class="status-dot up"></span>
+              <strong>All systems operational</strong>
+            </div>
+            <div class="public-monitor">
+              <div><strong>API</strong><span class="mono">api.example.com</span></div>
+              <span id="public-monitor-status">Operational</span>
+            </div>
+          </aside>
+
+          <article class="email-card" id="email-card" aria-live="polite">
+            <div class="email-meta"><span>Pulse</span><span class="mono">Now</span></div>
+            <h3 id="email-title">Your services are operational</h3>
+            <p id="email-copy">Pulse will send one clear alert when the state changes.</p>
+            <div class="email-footer"><span class="status-dot up"></span><span id="email-state">API is up</span></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="story shell section-rule" id="cli">
+        <div class="section-intro">
+          <div>
+            <p class="section-number">4.0 &nbsp; Automate</p>
+            <h2>The same controls everywhere</h2>
+          </div>
+          <p>Use <span class="mono">pulsectl</span> from your terminal or give agents scoped access through the same API.</p>
+        </div>
+
+        <div class="cli-grid">
+          <div class="terminal panel">
+            <div class="terminal-bar">
+              <div class="terminal-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+              <span class="mono">pulsectl</span>
+              <div class="output-toggle" role="group" aria-label="CLI output format">
+                <button class="active" type="button" data-output="table">Table</button>
+                <button type="button" data-output="json">JSON</button>
+              </div>
+            </div>
+            <div class="terminal-body">
+              <div class="command-list" aria-label="Example CLI commands">
+                <button class="command active" type="button" data-command="me"><span class="mono">pulsectl me</span><span>Run</span></button>
+                <button class="command" type="button" data-command="monitors"><span class="mono">pulsectl monitor list</span><span>Run</span></button>
+                <button class="command" type="button" data-command="incidents"><span class="mono">pulsectl incident list</span><span>Run</span></button>
+              </div>
+              <pre class="terminal-output" id="terminal-output" aria-live="polite"></pre>
+              <button class="copy-button" type="button" id="copy-command" data-copy-value="pulsectl me">Copy Command</button>
+            </div>
+          </div>
+
+          <aside class="agent-card panel">
+            <p class="app-kicker">Agents</p>
+            <h3>Give agents the same context</h3>
+            <p>Connect Pulse once, then let your agent inspect monitors and incidents from the terminal.</p>
+            <button class="button secondary full" id="reveal-agent-prompt" type="button" aria-expanded="false" aria-controls="agent-prompt">Show Agent Prompt</button>
+            <div class="agent-prompt" id="agent-prompt" hidden>
+              <code>Install pulsectl, run pulsectl me to link this deployment, then inspect current monitor and incident status. Ask before making changes.</code>
+              <button class="copy-button" type="button" data-copy-target="agent-prompt">Copy Prompt</button>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="story shell section-rule" id="database">
+        <div class="section-intro">
+          <div>
+            <p class="section-number">5.0 &nbsp; Operate</p>
+            <h2>Built to stay small</h2>
+          </div>
+          <p>Pulse compacts routine checks and preserves high-value incident history within a clear storage budget.</p>
+        </div>
+
+        <div class="database-panel panel">
+          <div class="database-heading">
+            <div>
+              <p class="app-kicker">Database Health</p>
+              <h3 id="db-health-title">Healthy</h3>
+              <p id="db-health-copy">Storage remains within its configured budget</p>
+            </div>
+            <span class="health-label healthy" id="db-health-label">Healthy</span>
+          </div>
+
+          <div class="storage-overview">
+            <div class="storage-stat"><strong class="mono" id="storage-value">118 MB</strong><span>of 500 MB</span></div>
+            <span class="mono" id="storage-percent">24%</span>
+          </div>
+          <div class="storage-bar"><span id="storage-fill" style="width: 24%"></span></div>
+          <input class="storage-range" id="storage-range" type="range" min="10" max="98" value="24" aria-label="Projected storage percentage" />
+
+          <div class="database-grid">
+            <div>
+              <p class="meta-heading">Data Breakdown</p>
+              <div class="breakdown-list">
+                <div><span>Rollups</span><span class="bar"><i style="width:53%"></i></span><span class="mono">62 MB</span></div>
+                <div><span>Exceptions</span><span class="bar"><i style="width:15%"></i></span><span class="mono">18 MB</span></div>
+                <div><span>Incidents</span><span class="bar"><i style="width:8%"></i></span><span class="mono">9 MB</span></div>
+                <div><span>Recent checks</span><span class="bar"><i style="width:3%"></i></span><span class="mono">3 MB</span></div>
+                <div><span>Core and indexes</span><span class="bar"><i style="width:19%"></i></span><span class="mono">22 MB</span></div>
+              </div>
+            </div>
+            <div>
+              <p class="meta-heading">Automatic Management</p>
+              <dl class="retention-list">
+                <div><dt>Mode</dt><dd id="governor-mode">Full detail</dd></div>
+                <div><dt>Recent checks</dt><dd class="mono" id="minute-retention">48 hours</dd></div>
+                <div><dt>Hourly rollups</dt><dd class="mono" id="hourly-retention">30 days</dd></div>
+                <div><dt>Scheduler coverage</dt><dd class="mono">99.99%</dd></div>
+                <div><dt>Next action</dt><dd id="governor-action">None required</dd></div>
+              </dl>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="story shell section-rule" id="architecture">
+        <div class="section-intro architecture-intro">
+          <div>
+            <p class="section-number">6.0 &nbsp; Architecture</p>
+            <h2>Runs where your app runs</h2>
+          </div>
+          <p>Pulse is Vercel-native, Postgres-backed, and small enough to understand end to end.</p>
+        </div>
+
+        <div class="architecture-map" aria-label="Pulse system architecture">
+          <button class="system-node vercel" type="button" data-system="Vercel Cron schedules one packed check batch each minute">
+            <span class="node-index mono">01</span><strong>Vercel Cron</strong><small>Schedules checks</small>
+          </button>
+          <div class="connector horizontal first" aria-hidden="true"><i></i></div>
+          <button class="system-node pulse-node" type="button" data-system="Pulse checks endpoints, resolves state, and serves every interface">
+            <span class="node-index mono">02</span><strong>Pulse</strong><small>Coordinates state</small>
+          </button>
+          <div class="connector branch" aria-hidden="true"><i></i><i></i><i></i></div>
+          <div class="destination-nodes">
+            <button class="system-node" type="button" data-system="Neon stores incidents, exceptions, and compact rollups"><span class="status-dot up"></span><strong>Neon</strong><small>Durable history</small></button>
+            <button class="system-node" type="button" data-system="Edge Config serves the latest public state with minimal latency"><span class="status-dot up"></span><strong>Edge Config</strong><small>Current state</small></button>
+            <button class="system-node" type="button" data-system="Resend delivers outage and recovery notifications"><span class="status-dot up"></span><strong>Resend</strong><small>Notifications</small></button>
+          </div>
+          <p class="system-description" id="system-description" aria-live="polite">Select a system to see its role</p>
+        </div>
+
+        <div class="architecture-principles">
+          <div><span class="mono">01</span><strong>Vercel-native</strong><p>Deploy with the platform you already use.</p></div>
+          <div><span class="mono">02</span><strong>Exception-first history</strong><p>Keep detail where it carries meaning.</p></div>
+          <div><span class="mono">03</span><strong>One control plane</strong><p>Serve people and agents consistently.</p></div>
+        </div>
+      </section>
+
+      <section class="final-cta section-rule" id="deploy">
+        <div class="shell">
+          <p class="section-number">Deploy Pulse</p>
+          <h2>Deploy monitoring you control</h2>
+          <p>One dashboard, one API, and one clear history of what happened.</p>
+          <div class="hero-actions centered">
+            <a class="button primary" href="#top">Deploy Pulse</a>
+            <a class="button secondary" href="#architecture">View on GitHub</a>
+            <a class="text-link" href="../Docs/INIT.md">Read the docs <span aria-hidden="true">↗</span></a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer section-rule">
+      <div class="shell footer-inner">
+        <a class="brand" href="#top"><span class="status-dot up"></span>Pulse</a>
+        <p>Open-source uptime monitoring</p>
+        <div><a href="#product">Product</a><a href="#cli">CLI</a><a href="../Docs/INIT.md">Docs</a></div>
+      </div>
+    </footer>
+
+    <dialog class="monitor-dialog" id="monitor-dialog">
+      <form class="dialog-card" id="dialog-monitor-form" method="dialog">
+        <div class="sheet-heading">
+          <div><p class="app-kicker">New Monitor</p><h3>Add an endpoint</h3></div>
+          <button class="icon-button" type="button" data-close-monitor aria-label="Close new monitor">×</button>
+        </div>
+        <label class="field"><span>Name</span><input name="name" value="Web app" required /></label>
+        <label class="field"><span>URL</span><input name="url" type="url" value="https://app.example.com" required /></label>
+        <label class="field"><span>Group</span><select name="group"><option>Production</option><option>Marketing</option><option>Ungrouped</option></select></label>
+        <div class="dialog-actions">
+          <button class="button secondary" type="button" data-close-monitor>Cancel</button>
+          <button class="button primary" type="submit">Save Monitor</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>
