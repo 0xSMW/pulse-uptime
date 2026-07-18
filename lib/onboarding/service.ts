@@ -6,7 +6,7 @@ import { runManualCheck, parsePublicHttpUrl, type CheckResult } from "@/lib/chec
 import {
   createMonitorWithDefaults,
   DEFAULT_MONITOR_SETTINGS,
-  hashCanonical,
+  hashMonitoringConfig,
   validateMonitoringConfig,
   type MonitorConfig,
   type MonitoringConfig,
@@ -116,7 +116,7 @@ export async function activateFirstMonitor(
       settings: { ...DEFAULT_MONITOR_SETTINGS, defaultRecipients: recipients },
       monitors: [configuredMonitor],
     }) as MonitoringConfig;
-    const hash = hashCanonical(config);
+    const hash = hashMonitoringConfig(config);
 
     const existing = await tx.select({ hash: monitoringConfigSnapshots.configHash })
       .from(monitoringConfigSnapshots)
