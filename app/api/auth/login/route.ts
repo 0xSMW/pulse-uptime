@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { login } from "@/lib/auth/service";
 import { getCurrentSession, sessionCookie } from "@/lib/auth/session";
+import { safeReturnTo } from "@/lib/auth/return-to";
 import { mutationOriginAllowed } from "@/lib/onboarding/http";
 
 export async function POST(request: Request) {
@@ -14,11 +15,12 @@ export async function POST(request: Request) {
       ip: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown",
       currentSessionId: current?.sessionId,
     });
-    const response = NextResponse.json({ redirect: result.onboardingComplete ? "/" : "/onboarding" });
+    const response = NextResponse.json({
+      redirect: result.onboardingComplete ? safeReturnTo(body.returnTo) : "/onboarding",
+    });
     response.cookies.set(sessionCookie(result.token, result.expiresAt));
     return response;
   } catch {
     return NextResponse.json({ error: "Sign in failed" }, { status: 401 });
   }
 }
-
