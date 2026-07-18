@@ -1,12 +1,14 @@
 "use client";
 
-import { Activity, Archive, Pause, Play } from "lucide-react";
+import { Activity, Archive, ChevronDown, Pause, Play } from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiRequest, generatedMonitorId, messageForError } from "./settings-api";
 import { Sheet, SheetIconButton } from "./sheet";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export type EditableMonitor = {
   id: string;
@@ -26,6 +28,12 @@ export type EditableMonitor = {
 
 export type MonitorFormValues = Omit<EditableMonitor, "id"> & { recipientsText: string };
 export type MonitorFormErrors = Partial<Record<keyof MonitorFormValues, string>>;
+
+const advancedMonitorFields = ["timeoutMs", "expectedStatusMin", "expectedStatusMax", "failureThreshold", "recoveryThreshold", "recipientsText"] as const;
+
+export function hasAdvancedMonitorFormErrors(errors: MonitorFormErrors): boolean {
+  return advancedMonitorFields.some((field) => Boolean(errors[field]));
+}
 
 export function monitorSheetActionLabels(enabled: boolean) {
   return ["Run Test", enabled ? "Pause" : "Resume", "Archive"] as const;
@@ -110,12 +118,14 @@ function ArchiveDialog({ monitorName, value, busy, status, onValueChange, onCanc
 export function MonitorSheet({ open, monitor, onClose }: { open: boolean; monitor: EditableMonitor | null; onClose: () => void }) {
   const router = useRouter();
   const firstField = useRef<HTMLInputElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   const [values, setValues] = useState<MonitorFormValues>(() => valuesFor(monitor));
   const [errors, setErrors] = useState<MonitorFormErrors>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [status, setStatus] = useState("");
   const [archiveName, setArchiveName] = useState("");
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const propagationTimer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -134,7 +144,8 @@ export function MonitorSheet({ open, monitor, onClose }: { open: boolean; monito
     const nextErrors = validateMonitorForm(values);
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) {
-      requestAnimationFrame(() => document.querySelector<HTMLElement>("[aria-invalid='true']")?.focus());
+      if (hasAdvancedMonitorFormErrors(nextErrors)) setAdvancedOpen(true);
+      requestAnimationFrame(() => requestAnimationFrame(() => formRef.current?.querySelector<HTMLElement>("[aria-invalid='true']")?.focus()));
       return;
     }
     setBusy("save"); setStatus("");
@@ -205,16 +216,24 @@ export function MonitorSheet({ open, monitor, onClose }: { open: boolean; monito
         </SheetIconButton>
       </> : undefined}
     >
-      <form onSubmit={submit} className="space-y-4">
+      <form ref={formRef} onSubmit={submit} className="space-y-4">
         <label className="block"><span className="mb-1.5 block text-[13px] font-medium">Name</span><input ref={firstField} value={values.name} onChange={(e) => set("name", e.target.value)} aria-invalid={Boolean(errors.name)} className={inputClass} />{errors.name ? <span className="mt-1 block text-xs text-[var(--down-text)]">{errors.name}</span> : null}</label>
         <label className="block"><span className="mb-1.5 block text-[13px] font-medium">URL</span><input value={values.url} onChange={(e) => set("url", e.target.value)} aria-invalid={Boolean(errors.url)} className={`${inputClass} font-data`} placeholder="https://example.com/health" />{errors.url ? <span className="mt-1 block text-xs text-[var(--down-text)]">{errors.url}</span> : null}</label>
         <label className="block"><span className="mb-1.5 block text-[13px] font-medium">Group</span><input value={values.group ?? ""} onChange={(e) => set("group", e.target.value || null)} aria-invalid={Boolean(errors.group)} className={inputClass} placeholder="Ungrouped" />{errors.group ? <span className="mt-1 block text-xs text-[var(--down-text)]">{errors.group}</span> : null}</label>
-        <label className="block"><span className="mb-1.5 block text-[13px] font-medium">Method</span><select value={values.method} onChange={(e) => set("method", e.target.value)} className={inputClass}><option>GET</option><option>HEAD</option></select></label>
-        <label className="block"><span className="mb-1.5 block text-[13px] font-medium">Interval</span><select value={values.intervalMinutes} onChange={(e) => set("intervalMinutes", Number(e.target.value))} className={inputClass}>{[1,5,10,15].map((value) => <option key={value} value={value}>{value} min</option>)}</select></label>
-        <NumberField label="Timeout ms" value={values.timeoutMs} onChange={(v) => set("timeoutMs", v)} min={1000} max={15000} error={errors.timeoutMs} />
-        <div className="grid grid-cols-2 gap-3"><NumberField label="Expected Status Min" value={values.expectedStatusMin} onChange={(v) => set("expectedStatusMin", v)} min={100} max={599} error={errors.expectedStatusMin} /><NumberField label="Expected Status Max" value={values.expectedStatusMax} onChange={(v) => set("expectedStatusMax", v)} min={100} max={599} error={errors.expectedStatusMax} /></div>
-        <div className="grid grid-cols-2 gap-3"><NumberField label="Failure Threshold" value={values.failureThreshold} onChange={(v) => set("failureThreshold", v)} min={1} max={5} error={errors.failureThreshold} /><NumberField label="Recovery Threshold" value={values.recoveryThreshold} onChange={(v) => set("recoveryThreshold", v)} min={1} max={5} error={errors.recoveryThreshold} /></div>
-        <label className="block"><span className="mb-1.5 block text-[13px] font-medium">Recipients</span><textarea rows={4} value={values.recipientsText} onChange={(e) => set("recipientsText", e.target.value)} aria-invalid={Boolean(errors.recipientsText)} className="w-full resize-y rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-3 py-2 font-data text-[13px]" /><span className="mt-1 block text-xs text-[var(--fg-faint)]">Empty inherits default recipients</span>{errors.recipientsText ? <span className="mt-1 block text-xs text-[var(--down-text)]">{errors.recipientsText}</span> : null}</label>
+        <div><label id="monitor-method-label" className="mb-1.5 block text-[13px] font-medium">Method</label><Select value={values.method} onValueChange={(value) => set("method", value)}><SelectTrigger aria-labelledby="monitor-method-label"><SelectValue /></SelectTrigger><SelectContent>{["GET", "HEAD"].map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div>
+        <div><label id="monitor-interval-label" className="mb-1.5 block text-[13px] font-medium">Interval</label><Select value={String(values.intervalMinutes)} onValueChange={(value) => set("intervalMinutes", Number(value))}><SelectTrigger aria-labelledby="monitor-interval-label"><SelectValue /></SelectTrigger><SelectContent>{[1,5,10,15].map((value) => <SelectItem key={value} value={String(value)}>{value} min</SelectItem>)}</SelectContent></Select></div>
+        <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen} className="border-y border-[var(--border)]">
+          <CollapsibleTrigger className="group flex w-full items-center justify-between py-3 text-left text-[13px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]">
+            Advanced
+            <ChevronDown className="size-4 text-[var(--fg-muted)] transition-transform group-data-[panel-open]:rotate-180 motion-reduce:transition-none" aria-hidden />
+          </CollapsibleTrigger>
+          <CollapsibleContent className="space-y-4 pb-4 transition-opacity duration-150">
+            <NumberField label="Timeout ms" value={values.timeoutMs} onChange={(v) => set("timeoutMs", v)} min={1000} max={15000} error={errors.timeoutMs} />
+            <div className="grid grid-cols-2 gap-3"><NumberField label="Expected Status Min" value={values.expectedStatusMin} onChange={(v) => set("expectedStatusMin", v)} min={100} max={599} error={errors.expectedStatusMin} /><NumberField label="Expected Status Max" value={values.expectedStatusMax} onChange={(v) => set("expectedStatusMax", v)} min={100} max={599} error={errors.expectedStatusMax} /></div>
+            <div className="grid grid-cols-2 gap-3"><NumberField label="Failure Threshold" value={values.failureThreshold} onChange={(v) => set("failureThreshold", v)} min={1} max={5} error={errors.failureThreshold} /><NumberField label="Recovery Threshold" value={values.recoveryThreshold} onChange={(v) => set("recoveryThreshold", v)} min={1} max={5} error={errors.recoveryThreshold} /></div>
+            <label className="block"><span className="mb-1.5 block text-[13px] font-medium">Recipients</span><textarea rows={4} value={values.recipientsText} onChange={(e) => set("recipientsText", e.target.value)} aria-invalid={Boolean(errors.recipientsText)} className="w-full resize-y rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-3 py-2 font-data text-[13px]" /><span className="mt-1 block text-xs text-[var(--fg-faint)]">Empty inherits default recipients</span>{errors.recipientsText ? <span className="mt-1 block text-xs text-[var(--down-text)]">{errors.recipientsText}</span> : null}</label>
+          </CollapsibleContent>
+        </Collapsible>
         <label className="flex items-center justify-between gap-4 border-y border-[var(--border)] py-3 text-[13px] font-medium"><span>Enabled</span><input type="checkbox" checked={values.enabled} onChange={(e) => set("enabled", e.target.checked)} className="size-4 accent-[var(--fg)]" /></label>
         {status ? <p aria-live="polite" className={`text-[13px] ${["Updating configuration…", "Testing…", "Pausing…", "Resuming…", "Test completed", "Monitor paused", "Monitor resumed"].includes(status) ? "text-[var(--fg-muted)]" : "text-[var(--down-text)]"}`}>{status}</p> : null}
         <div className="flex justify-end gap-2"><Button type="button" variant="secondary" onClick={onClose} disabled={Boolean(busy)}>Cancel</Button><Button type="submit" disabled={Boolean(busy)}>{busy === "save" ? "Saving…" : busy === "propagation" ? "Updating…" : monitor ? "Save Monitor" : "Create Monitor"}</Button></div>
