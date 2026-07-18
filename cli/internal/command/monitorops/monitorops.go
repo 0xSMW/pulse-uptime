@@ -94,6 +94,7 @@ type Monitor struct {
 	Name              string         `json:"name" yaml:"name"`
 	URL               string         `json:"url" yaml:"url"`
 	Enabled           bool           `json:"enabled" yaml:"enabled"`
+	GroupID           *string        `json:"groupId" yaml:"groupId"`
 	Group             *string        `json:"group" yaml:"group"`
 	Method            string         `json:"method" yaml:"method"`
 	IntervalMinutes   int            `json:"intervalMinutes" yaml:"intervalMinutes"`
@@ -114,12 +115,12 @@ type ExpectedStatus struct {
 }
 
 type ListOptions struct {
-	State, Group, Sort string
-	Enabled            *bool
-	Limit              int
-	Cursor             string
-	All                bool
-	Machine            bool
+	State, Group, GroupID, Sort string
+	Enabled                     *bool
+	Limit                       int
+	Cursor                      string
+	All                         bool
+	Machine                     bool
 }
 
 type WatchEvent struct {
@@ -179,6 +180,9 @@ func newListCommand(d Dependencies) *cobra.Command {
 	var o ListOptions
 	var enabled, disabled bool
 	cmd := &cobra.Command{Use: "list", Short: "List monitors", Args: cobra.NoArgs, Annotations: annotations("monitors:read"), RunE: func(cmd *cobra.Command, _ []string) error {
+		if cmd.Flags().Changed("group") && cmd.Flags().Changed("group-id") {
+			return invalid("--group and --group-id cannot be combined")
+		}
 		if enabled && disabled {
 			return invalid("--enabled and --disabled cannot be combined")
 		}
@@ -200,6 +204,7 @@ func newListCommand(d Dependencies) *cobra.Command {
 	f := cmd.Flags()
 	f.StringVar(&o.State, "state", "", "Filter by state")
 	f.StringVar(&o.Group, "group", "", "Filter by group")
+	f.StringVar(&o.GroupID, "group-id", "", "Filter by group ID")
 	f.BoolVar(&enabled, "enabled", false, "Show enabled monitors")
 	f.BoolVar(&disabled, "disabled", false, "Show disabled monitors")
 	f.IntVar(&o.Limit, "limit", 0, "Maximum records")
@@ -227,11 +232,11 @@ func newGetCommand(d Dependencies) *cobra.Command {
 }
 
 type editFlags struct {
-	id, name, targetURL, method, interval, expect, group string
-	timeout                                              time.Duration
-	failure, recovery                                    int
-	recipients                                           []string
-	enabled, disabled, clearGroup, clearRecipients       bool
+	id, name, targetURL, method, interval, expect, group, groupID string
+	timeout                                                       time.Duration
+	failure, recovery                                             int
+	recipients                                                    []string
+	enabled, disabled, clearGroup, clearRecipients                bool
 }
 
 func newCreateCommand(d Dependencies) *cobra.Command {
@@ -283,6 +288,7 @@ func addEditFlags(cmd *cobra.Command, f *editFlags, create bool) {
 	flags.IntVar(&f.failure, "failure-threshold", 0, "Failures before opening")
 	flags.IntVar(&f.recovery, "recovery-threshold", 0, "Successes before recovery")
 	flags.StringVar(&f.group, "group", "", "Monitor group")
+	flags.StringVar(&f.groupID, "group-id", "", "Monitor group ID")
 	flags.BoolVar(&f.clearGroup, "clear-group", false, "Clear monitor group")
 	flags.StringSliceVar(&f.recipients, "recipient", nil, "Notification recipient")
 	flags.BoolVar(&f.clearRecipients, "clear-recipients", false, "Clear notification recipients")
@@ -294,8 +300,13 @@ func editBody(cmd *cobra.Command, f editFlags, create bool) (map[string]any, err
 	if f.enabled && f.disabled {
 		return nil, invalid("--enabled and --disabled cannot be combined")
 	}
-	if f.clearGroup && cmd.Flags().Changed("group") {
-		return nil, invalid("--group and --clear-group cannot be combined")
+	groupByName := cmd.Flags().Changed("group")
+	groupByID := cmd.Flags().Changed("group-id")
+	if groupByName && groupByID {
+		return nil, invalid("--group and --group-id cannot be combined")
+	}
+	if f.clearGroup && (groupByName || groupByID) {
+		return nil, invalid("--clear-group cannot be combined with --group or --group-id")
 	}
 	if f.clearRecipients && cmd.Flags().Changed("recipient") {
 		return nil, invalid("--recipient and --clear-recipients cannot be combined")
@@ -351,8 +362,10 @@ func editBody(cmd *cobra.Command, f editFlags, create bool) (map[string]any, err
 		body["recoveryThreshold"] = f.recovery
 	}
 	if f.clearGroup {
-		body["group"] = nil
-	} else if cmd.Flags().Changed("group") {
+		body["groupId"] = nil
+	} else if groupByID {
+		body["groupId"] = f.groupID
+	} else if groupByName {
 		body["group"] = f.group
 	}
 	if f.clearRecipients {
@@ -456,6 +469,7 @@ func List(ctx context.Context, client Client, o ListOptions) (ListEnvelope, erro
 	query := url.Values{}
 	set(query, "state", o.State)
 	set(query, "group", o.Group)
+	set(query, "groupId", o.GroupID)
 	set(query, "sort", o.Sort)
 	set(query, "cursor", o.Cursor)
 	if o.Enabled != nil {
