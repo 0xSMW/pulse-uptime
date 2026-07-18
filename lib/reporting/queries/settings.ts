@@ -14,7 +14,7 @@ import {
 } from "@/lib/db/schema";
 
 export async function getSettingsOverview() {
-  const [registrations, accepted, agentTokens, sessions, databaseHealth] = await Promise.all([
+  const [registrations, accepted, agentTokens, sessions, databaseHealthResult] = await Promise.all([
     db.select({
       id: monitorRegistry.id,
       name: monitorRegistry.name,
@@ -57,7 +57,9 @@ export async function getSettingsOverview() {
       .where(and(isNull(cliSessions.revokedAt), isNull(cliInstallations.revokedAt)))
       .orderBy(desc(cliSessions.createdAt))
       .limit(100),
-    getDatabaseHealth().catch(() => null),
+    getDatabaseHealth()
+      .then((data) => ({ data, error: false }))
+      .catch(() => ({ data: null, error: true })),
   ]);
   const parsed = monitoringConfigSchema.safeParse(accepted[0]?.configJson);
   const config = parsed.success ? parsed.data : null;
@@ -107,6 +109,7 @@ export async function getSettingsOverview() {
       })),
     ],
     origin: process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "",
-    databaseHealth,
+    databaseHealth: databaseHealthResult.data,
+    databaseHealthError: databaseHealthResult.error,
   };
 }
