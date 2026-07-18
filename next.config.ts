@@ -24,6 +24,10 @@ const SECURITY_HEADERS = [
 const nextConfig: NextConfig = {
   experimental: {
     authInterrupts: true,
+    // Client router cache: revisits within 30s render from memory instead of
+    // re-fetching from us-east-1. Mutations purge it via router.refresh();
+    // cron-driven data is kept honest by AutoRefresh (focus + interval).
+    staleTimes: { dynamic: 30, static: 180 },
   },
   poweredByHeader: false,
   async headers() {

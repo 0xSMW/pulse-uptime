@@ -4,7 +4,8 @@ import { ArrowLeft, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
-import { LatencyChart, type LatencyPoint } from "@/components/charts/latency-chart";
+import type { LatencyPoint } from "@/components/charts/latency-chart";
+import { LazyLatencyChart } from "@/components/charts/lazy-latency-chart";
 import { useTimezone } from "@/components/dashboard/timezone-provider";
 import { StatusBadge } from "@/components/monitors/status-badge";
 import { MonitorActions, MonitorEditButton } from "@/components/monitors/monitor-actions";
@@ -303,7 +304,7 @@ export function MonitorDetail({ monitor }: { monitor: MonitorDetailData }) {
         </CardHeader>
         <CardContent>
           {responseTime.length ? (
-            <LatencyChart data={responseTime} />
+            <LazyLatencyChart data={responseTime} />
           ) : (
             <EmptyCardContent>No response data yet</EmptyCardContent>
           )}

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { UserMenu } from "@/components/dashboard/user-menu";
+import { LinkPendingPulse } from "@/components/ui/link-status";
 import { cn } from "@/lib/utils";
 
 const links = [
@@ -34,6 +35,7 @@ export function TopNav({ email }: { email: string }) {
               <Link
                 key={link.href}
                 href={link.href}
+                prefetch={"external" in link && link.external ? undefined : true}
                 target={"external" in link && link.external ? "_blank" : undefined}
                 rel={"external" in link && link.external ? "noreferrer" : undefined}
                 className={cn(
@@ -44,6 +46,7 @@ export function TopNav({ email }: { email: string }) {
               >
                 {link.label}
                 {"external" in link && link.external ? <ArrowUpRight className="size-3" aria-hidden="true" /> : null}
+                <LinkPendingPulse />
               </Link>
             );
           })}

@@ -6,6 +6,8 @@ import {
   createContext,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
+  Suspense,
+  use,
   useCallback,
   useContext,
   useEffect,
@@ -130,26 +132,19 @@ export function useCommandPalette(): PaletteContextValue {
 }
 
 export function CommandPaletteProvider({
-  monitors,
-  incidents,
+  monitorsPromise,
+  incidentsPromise,
   children,
 }: {
-  monitors: PaletteMonitor[];
-  incidents: PaletteIncident[];
+  monitorsPromise: Promise<PaletteMonitor[]>;
+  incidentsPromise: Promise<PaletteIncident[]>;
   children: ReactNode;
 }) {
-  const router = useRouter();
-  const inputRef = useRef<HTMLInputElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [now, setNow] = useState(() => new Date());
 
   const openPalette = useCallback(() => {
     previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    setQuery("");
-    setActiveIndex(0);
     setOpen(true);
   }, []);
   const closePalette = useCallback(() => {
@@ -172,12 +167,75 @@ export function CommandPaletteProvider({
     return () => window.removeEventListener("keydown", handleGlobalKey);
   }, [closePalette, open, openPalette]);
 
+  return (
+    <PaletteContext.Provider value={{ openPalette }}>
+      {children}
+      {open ? (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 px-4 pt-[min(18vh,160px)]"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closePalette();
+          }}
+        >
+          <Suspense fallback={<PaletteDialogFrame><PaletteDialogLoading /></PaletteDialogFrame>}>
+            <PaletteDialog
+              monitorsPromise={monitorsPromise}
+              incidentsPromise={incidentsPromise}
+              closePalette={closePalette}
+            />
+          </Suspense>
+        </div>
+      ) : null}
+    </PaletteContext.Provider>
+  );
+}
+
+function PaletteDialogFrame({ children }: { children: ReactNode }) {
+  return (
+    <section
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="command-palette-title"
+      className="flex max-h-[min(620px,70vh)] w-full max-w-[560px] flex-col overflow-hidden rounded-xl border border-[var(--border-strong)] bg-[var(--bg)] shadow-[var(--modal-shadow)]"
+    >
+      <h2 id="command-palette-title" className="sr-only">Command Palette</h2>
+      {children}
+    </section>
+  );
+}
+
+function PaletteDialogLoading() {
+  return (
+    <div className="px-4 py-12 text-center text-[13px] text-[var(--fg-muted)]" aria-busy="true">
+      Loading…
+    </div>
+  );
+}
+
+function PaletteDialog({
+  monitorsPromise,
+  incidentsPromise,
+  closePalette,
+}: {
+  monitorsPromise: Promise<PaletteMonitor[]>;
+  incidentsPromise: Promise<PaletteIncident[]>;
+  closePalette: () => void;
+}) {
+  // Streamed from the layout; resolved by the time a human opens the palette,
+  // so use() is effectively synchronous here.
+  const monitors = use(monitorsPromise);
+  const incidents = use(incidentsPromise);
+  const router = useRouter();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [now, setNow] = useState(() => new Date());
+
   useEffect(() => {
-    if (!open) return;
     inputRef.current?.focus();
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
     return () => window.clearInterval(timer);
-  }, [open]);
+  }, []);
 
   const groups = useMemo(() => buildPaletteGroups(monitors, incidents, now), [incidents, monitors, now]);
   const visibleGroups = useMemo(() => filterPaletteGroups(groups, query), [groups, query]);
@@ -214,22 +272,7 @@ export function CommandPaletteProvider({
   }
 
   return (
-    <PaletteContext.Provider value={{ openPalette }}>
-      {children}
-      {open ? (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 px-4 pt-[min(18vh,160px)]"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) closePalette();
-          }}
-        >
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="command-palette-title"
-            className="flex max-h-[min(620px,70vh)] w-full max-w-[560px] flex-col overflow-hidden rounded-xl border border-[var(--border-strong)] bg-[var(--bg)] shadow-[var(--modal-shadow)]"
-          >
-            <h2 id="command-palette-title" className="sr-only">Command Palette</h2>
+    <PaletteDialogFrame>
             <div className="relative border-b border-[var(--border)]">
               <Search className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-[var(--fg-muted)]" aria-hidden />
               <input
@@ -294,9 +337,6 @@ export function CommandPaletteProvider({
               <span><kbd>↵</kbd> Open</span>
               <span><kbd>esc</kbd> Close</span>
             </footer>
-          </section>
-        </div>
-      ) : null}
-    </PaletteContext.Provider>
+    </PaletteDialogFrame>
   );
 }

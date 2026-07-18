@@ -47,6 +47,7 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
   const router = useRouter();
   const { resolvedTimeZone } = useTimezone();
   const [query, setQuery] = useState("");
+  const [pendingMonitorId, setPendingMonitorId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -111,11 +112,18 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
               <tr
                 key={monitor.id}
                 onClick={(event) => {
-                  navigateFromMonitorRow(event.target, monitor.id, router.push);
+                  if (navigateFromMonitorRow(event.target, monitor.id, router.push)) {
+                    setPendingMonitorId(monitor.id);
+                  }
                 }}
+                // Rows are unbounded, so no viewport prefetch — a full dynamic
+                // prefetch fires on hover/focus instead, when intent is clear.
+                onMouseEnter={() => router.prefetch(`/monitors/${encodeURIComponent(monitor.id)}`)}
+                onFocus={() => router.prefetch(`/monitors/${encodeURIComponent(monitor.id)}`)}
                 className={cn(
                   "h-[60px] cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--hover)]",
                   monitor.state === "DOWN" && "shadow-[inset_3px_0_var(--down)]",
+                  pendingMonitorId === monitor.id && "animate-pulse bg-[var(--hover)]",
                 )}
               >
                 <td className="px-6">
@@ -125,7 +133,12 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
                   </span>
                 </td>
                 <td className="px-4">
-                  <Link href={`/monitors/${encodeURIComponent(monitor.id)}`} className="font-medium hover:underline">
+                  <Link
+                    href={`/monitors/${encodeURIComponent(monitor.id)}`}
+                    prefetch={false}
+                    onClick={() => setPendingMonitorId(monitor.id)}
+                    className="font-medium hover:underline"
+                  >
                     {monitor.name}
                   </Link>
                   <div className="max-w-[320px] truncate font-data text-xs text-[var(--fg-muted)]">

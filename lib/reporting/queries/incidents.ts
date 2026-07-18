@@ -1,4 +1,4 @@
-import { desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { desc, eq, inArray, isNotNull, isNull, sql as dsql } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 import { incidents, monitorRegistry, notificationOutbox } from "@/lib/db/schema";
@@ -39,6 +39,31 @@ function summarizeNotifications(rows: NotificationRow[]) {
   return { state, sentCount };
 }
 
+// Slim projection for the command palette: no notification data, so the
+// dashboard layout never drags the outbox into its critical path.
+export async function listCommandPaletteIncidents() {
+  const rows = await db.select({
+    id: incidents.id,
+    monitorId: incidents.monitorId,
+    monitorName: monitorRegistry.name,
+    openedAt: incidents.openedAt,
+    openingErrorCode: incidents.openingErrorCode,
+    openingStatusCode: incidents.openingStatusCode,
+  }).from(incidents)
+    .innerJoin(monitorRegistry, eq(monitorRegistry.id, incidents.monitorId))
+    .where(isNull(incidents.resolvedAt))
+    .orderBy(desc(incidents.openedAt))
+    .limit(100);
+
+  return rows.map((row) => ({
+    id: row.id,
+    monitorId: row.monitorId,
+    monitorName: row.monitorName,
+    openedAt: row.openedAt.toISOString(),
+    openingFailure: failureLabel(row.openingErrorCode, row.openingStatusCode),
+  }));
+}
+
 export async function listIncidents(filter: IncidentFilter = "all") {
   const condition = filter === "ongoing"
     ? isNull(incidents.resolvedAt)
@@ -59,15 +84,20 @@ export async function listIncidents(filter: IncidentFilter = "all") {
     .orderBy(desc(incidents.openedAt))
     .limit(100);
 
-  const notifications = rows.length === 0 ? [] : await db.select({
+  // Aggregate in SQL: bounded result (one row per incident) instead of up to
+  // 4,000 outbox rows filtered per-incident in JS, and no silent truncation.
+  const summaries = rows.length === 0 ? [] : await db.select({
     incidentId: notificationOutbox.incidentId,
-    status: notificationOutbox.status,
+    sentCount: dsql<number>`count(*) filter (where ${notificationOutbox.status} = 'sent')`.mapWith(Number),
+    anyDead: dsql<boolean>`bool_or(${notificationOutbox.status} = 'dead')`,
+    anyUnsent: dsql<boolean>`bool_or(${notificationOutbox.status} <> 'sent')`,
   }).from(notificationOutbox)
     .where(inArray(notificationOutbox.incidentId, rows.map((row) => row.id)))
-    .limit(4_000);
+    .groupBy(notificationOutbox.incidentId);
+  const summaryByIncident = new Map(summaries.map((summary) => [summary.incidentId, summary]));
 
   return rows.map((row) => {
-    const related = notifications.filter((notification) => notification.incidentId === row.id);
+    const summary = summaryByIncident.get(row.id);
     return {
       id: row.id,
       monitorId: row.monitorId,
@@ -77,7 +107,18 @@ export async function listIncidents(filter: IncidentFilter = "all") {
       durationSeconds: durationSeconds(row.openedAt, row.resolvedAt),
       openingFailure: failureLabel(row.openingErrorCode, row.openingStatusCode),
       status: row.openingStatusCode?.toString() ?? null,
-      notificationSummary: summarizeNotifications(related),
+      notificationSummary: summary
+        ? {
+            state: summary.anyDead
+              ? "dead" as const
+              : summary.anyUnsent
+                ? "retrying" as const
+                : summary.sentCount > 0
+                  ? "sent" as const
+                  : "none" as const,
+            sentCount: summary.sentCount,
+          }
+        : { state: "none" as const, sentCount: 0 },
     };
   });
 }
