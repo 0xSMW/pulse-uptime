@@ -21,6 +21,7 @@ import {
   validateMonitoringConfig,
   type DeclarativeConfig,
   type DestructiveApproval,
+  type LegacyMonitorConfig,
   type MonitorConfig,
   type MonitoringConfig,
 } from "./index";
@@ -40,7 +41,7 @@ function monitor(id: string, overrides: Partial<MonitorConfig> = {}): MonitorCon
     name: id.toUpperCase(),
     url: `https://${id}.example.com`,
     enabled: true,
-    group: null,
+    groupId: null,
     method: "GET",
     intervalMinutes: 1,
     timeoutMs: 8_000,
@@ -53,21 +54,51 @@ function monitor(id: string, overrides: Partial<MonitorConfig> = {}): MonitorCon
 }
 
 function document(monitors: MonitorConfig[] = [], overrides: Partial<DeclarativeConfig["settings"]> = {}): DeclarativeConfig {
-  return { version: 1, settings: { ...settings, ...overrides }, monitors };
+  const ids = [...new Set(monitors.map((monitor) => monitor.groupId).filter((id): id is string => id !== null))];
+  return { version: 2, settings: { ...settings, ...overrides }, groups: ids.map((id) => ({ id, name: id })), monitors };
 }
 
 function runtime(monitors: MonitorConfig[] = [], configVersion = 1): MonitoringConfig {
-  return { schemaVersion: 1, configVersion, settings: { ...settings }, monitors };
+  const ids = [...new Set(monitors.map((monitor) => monitor.groupId).filter((id): id is string => id !== null))];
+  return { schemaVersion: 2, configVersion, settings: { ...settings }, groups: ids.map((id) => ({ id, name: id })), monitors };
 }
 
 describe("configuration schemas and normalization", () => {
+  it("adapts legacy group names to stable v2 group references without changing the legacy hash", () => {
+    const legacyMonitor = Object.fromEntries(Object.entries(monitor("api")).filter(([key]) => key !== "groupId")) as LegacyMonitorConfig;
+    const legacy = {
+      schemaVersion: 1 as const, configVersion: 7, settings,
+      monitors: [{ ...legacyMonitor, group: "Production" }],
+    };
+    const legacyHash = hashMonitoringConfig(legacy);
+    const adapted = validateMonitoringConfig(legacy);
+    expect(adapted).toMatchObject({ schemaVersion: 2, configVersion: 7, groups: [{ name: "Production" }] });
+    expect(adapted.monitors[0].groupId).toBe(adapted.groups[0].id);
+    expect(hashMonitoringConfig(legacy)).toBe(legacyHash);
+  });
+
+  it("folds legacy group case variants without making valid v1 unreadable", () => {
+    const legacyMonitors = [
+      { ...Object.fromEntries(Object.entries(monitor("api")).filter(([key]) => key !== "groupId")), group: "Production" },
+      { ...Object.fromEntries(Object.entries(monitor("web")).filter(([key]) => key !== "groupId")), group: "production" },
+    ];
+    const adapted = validateMonitoringConfig({ schemaVersion: 1, configVersion: 7, settings, monitors: legacyMonitors });
+    expect(adapted.groups).toHaveLength(1);
+    expect(adapted.groups[0].name).toBe("Production");
+    expect(new Set(adapted.monitors.map(({ groupId }) => groupId))).toEqual(new Set([adapted.groups[0].id]));
+  });
+
+  it("rejects dangling group references and case-insensitive duplicate names", () => {
+    expect(() => validateDeclarativeConfig({ ...document([monitor("api")]), monitors: [monitor("api", { groupId: "missing" })] })).toThrow();
+    expect(() => validateDeclarativeConfig({ ...document(), groups: [{ id: "one", name: "Production" }, { id: "two", name: "production" }] })).toThrow();
+  });
   it("accepts valid complete documents and applies documented monitor defaults", () => {
     const created = createMonitorWithDefaults({ id: "web", name: "Website", url: "https://example.com" });
     expect(created).toMatchObject(DEFAULT_MONITOR_VALUES);
     expect(created).toMatchObject({
       method: "GET", intervalMinutes: 1, timeoutMs: 8_000,
       expectedStatus: { minimum: 200, maximum: 399 }, failureThreshold: 2,
-      recoveryThreshold: 2, group: null, enabled: true,
+      recoveryThreshold: 2, groupId: null, enabled: true,
     });
     expect(validateDeclarativeConfig(document([created])).monitors[0].url).toBe("https://example.com/");
     expect(resolveMonitorRecipients(created, settings)).toEqual(["ops@example.com"]);
@@ -89,11 +120,11 @@ describe("configuration schemas and normalization", () => {
   it("normalizes monitor order, recipients, strings, URLs, and object keys deterministically", () => {
     const input = document([
       monitor("zzz", { recipients: ["B@example.com", "a@example.com", "b@example.com"] }),
-      monitor("aaa", { name: "  Alpha  ", group: "  Ops  " }),
+      monitor("aaa", { name: "  Alpha  ", groupId: "ops" }),
     ], { defaultRecipients: ["Z@example.com", "a@example.com"] });
     const normalized = validateDeclarativeConfig(input);
     expect(normalized.monitors.map(({ id }) => id)).toEqual(["aaa", "zzz"]);
-    expect(normalized.monitors[0]).toMatchObject({ name: "Alpha", group: "Ops" });
+    expect(normalized.monitors[0]).toMatchObject({ name: "Alpha", groupId: "ops" });
     expect(normalized.monitors[1].recipients).toEqual(["a@example.com", "b@example.com"]);
     expect(normalized.settings.defaultRecipients).toEqual(["a@example.com", "z@example.com"]);
     expect(canonicalSerialize({ z: 1, a: { y: 2, x: 3 } })).toBe('{"a":{"x":3,"y":2},"z":1}');
@@ -126,24 +157,24 @@ describe("destructive-change tripwire", () => {
   });
 
   it("trips on removal of every previously active member of a 2+ monitor group", () => {
-    const grouped = [monitor("grp-a", { group: "Production" }), monitor("grp-b", { group: "Production" })];
+    const grouped = [monitor("grp-a", { groupId: "production" }), monitor("grp-b", { groupId: "production" })];
     const unrelated = Array.from({ length: 8 }, (_, index) => monitor(`web-${index}`));
-    const replacement = monitor("grp-new", { group: "Production" });
+    const replacement = monitor("grp-new", { groupId: "production" });
     const result = evaluateDestructiveChange(document([...grouped, ...unrelated]), document([...unrelated, replacement]));
-    expect(result.reasons).toContainEqual({ type: "active-group-removed", group: "Production", previousActiveCount: 2 });
+    expect(result.reasons).toContainEqual({ type: "active-group-removed", group: "production", previousActiveCount: 2 });
     expect(result.reasons.map(({ type }) => type)).not.toContain("removed-monitor-percentage");
   });
 
   it("trips when every existing member is moved out of a 2+ monitor group", () => {
-    const grouped = [monitor("grp-a", { group: "Production" }), monitor("grp-b", { group: "Production" })];
+    const grouped = [monitor("grp-a", { groupId: "production" }), monitor("grp-b", { groupId: "production" })];
     const unrelated = Array.from({ length: 8 }, (_, index) => monitor(`web-${index}`));
-    const moved = grouped.map((entry) => ({ ...entry, group: "Other" }));
+    const moved = grouped.map((entry) => ({ ...entry, groupId: "other" }));
     const result = evaluateDestructiveChange(document([...grouped, ...unrelated]), document([...moved, ...unrelated]));
-    expect(result.reasons).toContainEqual({ type: "active-group-removed", group: "Production", previousActiveCount: 2 });
+    expect(result.reasons).toContainEqual({ type: "active-group-removed", group: "production", previousActiveCount: 2 });
   });
 
   it("does not apply the group-wide rule to a one-monitor group", () => {
-    const sole = monitor("solo", { group: "Small" });
+    const sole = monitor("solo", { groupId: "small" });
     const unrelated = Array.from({ length: 9 }, (_, index) => monitor(`web-${index}`));
     const result = evaluateDestructiveChange(document([sole, ...unrelated]), document(unrelated));
     expect(result.required).toBe(false);
@@ -152,6 +183,14 @@ describe("destructive-change tripwire", () => {
 });
 
 describe("planning and export", () => {
+  it("diffs group create, rename, and delete independently from monitors", () => {
+    const current = { ...document(), groups: [{ id: "old", name: "Old" }, { id: "rename", name: "Before" }] };
+    const target = { ...document(), groups: [{ id: "rename", name: "After" }, { id: "new", name: "New" }] };
+    const diff = createConfigurationPlan(current, target).diff;
+    expect(diff.groupCreates.map(({ id }) => id)).toEqual(["new"]);
+    expect(diff.groupUpdates).toMatchObject([{ id: "rename", changedFields: ["groups.rename.name"] }]);
+    expect(diff.groupDeletes.map(({ id }) => id)).toEqual(["old"]);
+  });
   it("round-trips exported accepted configuration with an empty semantic plan", () => {
     const accepted = validateMonitoringConfig(runtime([monitor("web"), monitor("api")]));
     const exported = exportDeclarativeConfig(accepted);
@@ -160,7 +199,7 @@ describe("planning and export", () => {
       settingsChanged: [], creates: [], updates: [], pauses: [], resumes: [], archives: [],
     });
     expect(plan.diff.unchanged.map(({ id }) => id)).toEqual(["api", "web"]);
-    expect(toMonitoringConfig(exported, 9)).toMatchObject({ schemaVersion: 1, configVersion: 9 });
+    expect(toMonitoringConfig(exported, 9)).toMatchObject({ schemaVersion: 2, configVersion: 9 });
     expect(hashMonitoringConfig(accepted)).toBe(hashDeclarativeConfig(exported));
     expect(hashMonitoringConfig({ ...accepted, configVersion: 99 })).toBe(hashMonitoringConfig(accepted));
   });
