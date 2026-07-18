@@ -45,7 +45,9 @@ export function evaluateConfigurationAcceptance(
   options: AcceptanceOptions = {},
 ): AcceptanceResult {
   let desired: MonitoringConfig;
+  let candidateHash: string;
   try {
+    candidateHash = hashMonitoringConfig(desiredInput as Parameters<typeof hashMonitoringConfig>[0]);
     desired = validateMonitoringConfig(desiredInput);
   } catch {
     if (!lastAccepted) {
@@ -60,7 +62,6 @@ export function evaluateConfigurationAcceptance(
     };
   }
 
-  const candidateHash = hashMonitoringConfig(desired);
   if (!lastAccepted || candidateHash === lastAccepted.hash) {
     return { status: "accepted", config: desired, hash: candidateHash, fallbackUsed: false, approvalConsumed: false };
   }
