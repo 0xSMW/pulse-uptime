@@ -2971,3 +2971,138 @@ html,
 .terminal-output::-webkit-scrollbar {
   display: none;
 }
+
+/* ---- System detail visuals ---- */
+
+.system-detail {
+  overflow-y: auto;
+}
+
+.detail-inner {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 48px;
+  align-items: center;
+}
+
+.detail-inner.has-visual {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.92fr);
+}
+
+.detail-text,
+.detail-visual {
+  min-width: 0;
+}
+
+.dv-frame {
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--code-bg);
+}
+
+.dv-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-faint);
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dv-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--up-text);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.dv-rows {
+  padding: 5px 0;
+}
+
+.dv-row {
+  display: flex;
+  gap: 12px;
+  overflow: hidden;
+  padding: 6px 14px;
+  color: var(--fg-muted);
+  font: 11px/1.5 "Geist Mono", ui-monospace, monospace;
+  white-space: nowrap;
+}
+
+.dv-row time {
+  flex: 0 0 auto;
+  color: var(--fg-faint);
+}
+
+.dv-ok { color: var(--up-text); flex: 0 0 auto; }
+.dv-path { overflow: hidden; color: var(--fg); text-overflow: ellipsis; }
+.dv-msg { overflow: hidden; margin-left: auto; color: var(--fg-faint); text-overflow: ellipsis; }
+
+.dv-code {
+  margin: 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  color: var(--fg-muted);
+  font: 11px/1.7 "Geist Mono", ui-monospace, monospace;
+  white-space: pre;
+}
+
+.dv-code .dv-key { color: var(--fg-faint); }
+.dv-code .dv-str { color: var(--fg); }
+.dv-code .dv-num { color: var(--up-text); }
+.dv-code .dv-tbl { color: var(--fg); font-weight: 600; }
+.dv-code .dv-type { color: var(--fg-faint); }
+
+@media (max-width: 980px) {
+  .detail-inner.has-visual { grid-template-columns: 1fr; gap: 28px; }
+}
+
+@media (max-width: 760px) {
+  .detail-visual { display: none; }
+}
+
+.dv-row {
+  align-items: center;
+}
+
+/* ---- Pulse detail: browser + CLI duo ---- */
+
+.dv-duo {
+  position: relative;
+  padding-bottom: 76px;
+}
+
+.dv-duo .dv-browser {
+  position: relative;
+  z-index: 1;
+  width: 88%;
+}
+
+.dv-duo .dv-terminal {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  width: 72%;
+  background: var(--bg);
+  box-shadow: var(--shadow);
+}
+
+.dep-catalog {
+  max-height: 380px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.dep-catalog::-webkit-scrollbar {
+  display: none;
+}

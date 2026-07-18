@@ -561,32 +561,37 @@
           <div class="connector branch" aria-hidden="true"><i></i><i></i><i></i></div>
           <div class="destination-nodes">
             <button class="system-node" type="button" data-node="neon" data-system="Neon stores incidents, exceptions, and compact rollups">
-              <span class="status-dot up"></span><strong>Neon</strong>
+              <span class="node-index mono">03</span><strong>Neon</strong>
               <span class="node-caption"><small>Durable history</small><small class="caption-hover" aria-hidden="true">View details</small></span>
               <svg class="node-arrow" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" /></svg>
             </button>
             <button class="system-node" type="button" data-node="edge" data-system="Edge Config feeds the scheduler and status page without touching the database">
-              <span class="status-dot up"></span><strong>Edge Config</strong>
+              <span class="node-index mono">04</span><strong>Edge Config</strong>
               <span class="node-caption"><small>Zero-DB reads</small><small class="caption-hover" aria-hidden="true">View details</small></span>
               <svg class="node-arrow" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" /></svg>
             </button>
             <button class="system-node" type="button" data-node="resend" data-system="Resend delivers outage and recovery notifications">
-              <span class="status-dot up"></span><strong>Resend</strong>
+              <span class="node-index mono">05</span><strong>Resend</strong>
               <span class="node-caption"><small>Notifications</small><small class="caption-hover" aria-hidden="true">View details</small></span>
               <svg class="node-arrow" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" /></svg>
             </button>
           </div>
-          <p class="system-description" id="system-description" aria-live="polite">Hover a system for its role — click to zoom in</p>
+          <p class="system-description" id="system-description" aria-live="polite">Hover a system for its role. Click to zoom in</p>
 
           <div class="system-detail" id="system-detail" role="group" aria-label="System detail" hidden>
             <button class="icon-button detail-close" type="button" data-close-detail aria-label="Back to all systems">
               <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="m4 4 8 8M12 4l-8 8" /></svg>
             </button>
-            <p class="app-kicker" id="detail-kicker"></p>
-            <h3 id="detail-title"></h3>
-            <p class="detail-copy" id="detail-copy"></p>
-            <dl class="detail-stats" id="detail-stats"></dl>
-            <p class="detail-flow mono" id="detail-flow"></p>
+            <div class="detail-inner">
+              <div class="detail-text">
+                <p class="app-kicker" id="detail-kicker"></p>
+                <h3 id="detail-title"></h3>
+                <p class="detail-copy" id="detail-copy"></p>
+                <dl class="detail-stats" id="detail-stats"></dl>
+                <p class="detail-flow mono" id="detail-flow"></p>
+              </div>
+              <div class="detail-visual" id="detail-visual" hidden></div>
+            </div>
           </div>
         </div>
 
