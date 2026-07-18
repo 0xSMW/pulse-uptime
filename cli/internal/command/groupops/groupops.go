@@ -207,7 +207,7 @@ func List(ctx context.Context, client Client, o ListOptions) (ListEnvelope, erro
 	}
 	remaining := o.Limit
 	auto := o.Machine || o.All
-	result := ListEnvelope{APIVersion: "v1", Kind: "GroupList"}
+	result := ListEnvelope{APIVersion: "v1", Kind: "GroupList", Data: make([]json.RawMessage, 0)}
 	for {
 		if remaining > 0 {
 			pageSize := remaining
