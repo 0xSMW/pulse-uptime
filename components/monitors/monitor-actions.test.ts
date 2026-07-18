@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  hasAdvancedMonitorEditErrors,
   type MonitorEditValues,
   validateMonitorEdit,
 } from "./monitor-actions";
@@ -54,5 +55,10 @@ describe("validateMonitorEdit", () => {
 
   it("accepts a complete valid form", () => {
     expect(validateMonitorEdit(validValues)).toEqual({});
+  });
+
+  it("identifies errors hidden inside advanced settings", () => {
+    expect(hasAdvancedMonitorEditErrors({ recipients: "Enter one valid email per line" })).toBe(true);
+    expect(hasAdvancedMonitorEditErrors({ url: "Enter a public HTTP or HTTPS URL" })).toBe(false);
   });
 });
