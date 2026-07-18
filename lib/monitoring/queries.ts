@@ -13,6 +13,25 @@ const stateOrder = [
   "ARCHIVED",
 ] as const;
 
+export async function listCommandPaletteMonitors() {
+  const rows = await db.select({
+    id: monitorRegistry.id,
+    name: monitorRegistry.name,
+    state: monitorState.state,
+    lastLatencyMs: monitorState.lastLatencyMs,
+  }).from(monitorRegistry)
+    .leftJoin(monitorState, eq(monitorState.monitorId, monitorRegistry.id))
+    .where(isNull(monitorRegistry.archivedAt));
+
+  return rows.flatMap((monitor) => {
+    const state = monitor.state ?? ("PENDING" as const);
+    return state === "ARCHIVED" ? [] : [{ ...monitor, state }];
+  }).sort((left, right) => {
+    const state = stateOrder.indexOf(left.state) - stateOrder.indexOf(right.state);
+    return state || left.name.localeCompare(right.name);
+  });
+}
+
 export async function listDashboardMonitors() {
   const rows = await db
     .select({
