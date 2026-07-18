@@ -1,5 +1,6 @@
 "use client";
 
+import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -33,13 +34,15 @@ export function TopNav({ email }: { email: string }) {
                 key={link.href}
                 href={link.href}
                 target={"external" in link && link.external ? "_blank" : undefined}
+                rel={"external" in link && link.external ? "noreferrer" : undefined}
                 className={cn(
-                  "relative flex h-full items-center whitespace-nowrap text-[13px] text-[var(--fg-muted)] hover:text-[var(--fg)]",
+                  "relative flex h-full items-center gap-1 whitespace-nowrap text-[13px] text-[var(--fg-muted)] hover:text-[var(--fg)]",
                   active && "text-[var(--fg)] after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-[var(--fg)]",
                 )}
                 aria-current={active ? "page" : undefined}
               >
                 {link.label}
+                {"external" in link && link.external ? <ArrowUpRight className="size-3" aria-hidden="true" /> : null}
               </Link>
             );
           })}
