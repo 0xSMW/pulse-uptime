@@ -110,8 +110,9 @@ async function defaultWriteEdgeConfig(config: MonitoringConfig): Promise<{ versi
 function createDatabaseStore(): ConfigurationStore {
   const parseAccepted = (row: { configJson: unknown; configHash: string } | undefined): AcceptedConfiguration | null => {
     if (!row) return null;
+    const raw = row.configJson as Parameters<typeof hashMonitoringConfig>[0];
     const config = validateMonitoringConfig(row.configJson);
-    const hash = hashMonitoringConfig(config);
+    const hash = hashMonitoringConfig(raw);
     if (hash !== row.configHash) throw new ConfigurationServiceError("CONFIG_NOT_INITIALIZED", "Accepted configuration hash is invalid");
     return { config, hash };
   };
