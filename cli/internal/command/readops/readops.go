@@ -131,7 +131,7 @@ func List(ctx context.Context, client Client, limit int, cursor string, auto boo
 		q.Set("cursor", cursor)
 	}
 	remaining := limit
-	result := ListEnvelope{APIVersion: "v1", Kind: "IncidentList"}
+	result := ListEnvelope{APIVersion: "v1", Kind: "IncidentList", Data: make([]json.RawMessage, 0)}
 	for {
 		pageSize := 0
 		if remaining > 0 {
