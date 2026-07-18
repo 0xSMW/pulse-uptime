@@ -3,7 +3,7 @@ import "server-only";
 import { createSqlCronRunStore, createSqlLeaseStore } from "@/lib/scheduler/sql";
 import { queryExecutor } from "@/lib/scheduler/runtime";
 
-import { runMaintenanceCoordinator } from "./coordinator";
+import { performSweep, runMaintenanceCoordinator } from "./coordinator";
 import { createSqlMaintenanceStore } from "./sql";
 
 export function runMaintenanceCron() {
@@ -12,4 +12,8 @@ export function runMaintenanceCron() {
     runs: createSqlCronRunStore(queryExecutor),
     store: createSqlMaintenanceStore(queryExecutor),
   });
+}
+
+export function runSweepCron() {
+  return performSweep(createSqlMaintenanceStore(queryExecutor), new Date());
 }

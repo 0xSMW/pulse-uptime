@@ -20,16 +20,26 @@ export async function POST(request: Request) {
     if (error instanceof SyntaxError) return apiError(requestId, 400, "INVALID_JSON", "Request body must be valid JSON");
     return apiError(requestId, 400, "INVALID_DEVICE_REQUEST", "A device code is required");
   }
-  const deviceDigest = digestDeviceCode(deviceCode).toString("hex");
-  const deviceKey = `device:${deviceDigest}`;
-  const [ipRate, deviceRate] = await Promise.all([
-    enforceRateLimit(sourceIpKey(request), POLL_LIMIT),
-    enforceRateLimit(deviceKey, POLL_LIMIT),
-  ]);
-  const rate = !ipRate.allowed ? ipRate : deviceRate;
-  if (!rate.allowed) {
+  // Enforce the stable source-IP limit first and short-circuit before deriving any
+  // device-scoped bucket, so a stream of unique device codes cannot inflate rate-limit
+  // cardinality against unknown codes.
+  const ipRate = await enforceRateLimit(sourceIpKey(request), POLL_LIMIT);
+  if (!ipRate.allowed) {
     const response = apiError(requestId, 429, "RATE_LIMITED", "Too many requests");
-    response.headers.set("Retry-After", String(rate.retryAfterSeconds));
+    response.headers.set("Retry-After", String(ipRate.retryAfterSeconds));
+    return response;
+  }
+  // Reject malformed device codes before hashing or bucketing them. A well-formed code
+  // is base64url of high-entropy bytes; anything else maps to one bounded rejection and
+  // never creates a device bucket.
+  if (!/^[A-Za-z0-9_-]{32,64}$/.test(deviceCode)) {
+    return apiError(requestId, 400, "INVALID_DEVICE_REQUEST", "A device code is required");
+  }
+  const deviceKey = `device:${digestDeviceCode(deviceCode).toString("hex")}`;
+  const deviceRate = await enforceRateLimit(deviceKey, POLL_LIMIT);
+  if (!deviceRate.allowed) {
+    const response = apiError(requestId, 429, "RATE_LIMITED", "Too many requests");
+    response.headers.set("Retry-After", String(deviceRate.retryAfterSeconds));
     return response;
   }
   try {
