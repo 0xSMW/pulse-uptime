@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Archive, Pause, Pencil, Play, X } from "lucide-react";
+import { Activity, Archive, ChevronDown, Pause, Pencil, Play, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   type FormEvent,
@@ -13,8 +13,10 @@ import {
 } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export type EditableMonitor = {
   id: string;
@@ -54,6 +56,12 @@ export type MonitorEditValues = {
 };
 
 export type MonitorEditErrors = Partial<Record<keyof MonitorEditValues, string>>;
+
+const advancedMonitorEditFields = ["timeoutMs", "expectedStatusMin", "expectedStatusMax", "failureThreshold", "recoveryThreshold", "recipients"] as const;
+
+export function hasAdvancedMonitorEditErrors(errors: MonitorEditErrors): boolean {
+  return advancedMonitorEditFields.some((field) => Boolean(errors[field]));
+}
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -396,6 +404,8 @@ function MonitorEditSheet({
   const [errors, setErrors] = useState<MonitorEditErrors>({});
   const [state, setState] = useState<MutationState>({ status: "idle" });
   const [archiveOpen, setArchiveOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => () => {
@@ -412,7 +422,9 @@ function MonitorEditSheet({
     const nextErrors = validateMonitorEdit(values);
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) {
+      if (hasAdvancedMonitorEditErrors(nextErrors)) setAdvancedOpen(true);
       setState({ status: "error", message: "Fix the highlighted fields" });
+      requestAnimationFrame(() => requestAnimationFrame(() => formRef.current?.querySelector<HTMLElement>("[aria-invalid='true']")?.focus()));
       return;
     }
     setState({ status: "loading", message: "Saving…" });
@@ -461,23 +473,33 @@ function MonitorEditSheet({
           <h2 id={titleId} className="text-sm font-semibold">Edit Monitor</h2>
           <Button size="icon-sm" variant="tertiary" aria-label="Close edit monitor" disabled={busy} onClick={onClose}><X className="size-4" /></Button>
         </div>
-        <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
+        <form ref={formRef} onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
             <TextField id="monitor-name" label="Name" value={values.name} error={errors.name} onChange={(value) => update("name", value)} autoFocus data-autofocus />
             <TextField id="monitor-url" label="URL" value={values.url} error={errors.url} onChange={(value) => update("url", value)} className="font-data" />
             <TextField id="monitor-group" label="Group" value={values.group} error={errors.group} onChange={(value) => update("group", value)} />
             <SelectField id="monitor-method" label="Method" value={values.method} onChange={(value) => update("method", value as "GET" | "HEAD")} options={["GET", "HEAD"]} />
             <SelectField id="monitor-interval" label="Interval" value={values.intervalMinutes} error={errors.intervalMinutes} onChange={(value) => update("intervalMinutes", value)} options={["1", "5", "10", "15"]} renderLabel={(value) => `${value} min`} />
-            <TextField id="monitor-timeout" label="Timeout ms" type="number" min={1000} max={15000} value={values.timeoutMs} error={errors.timeoutMs} onChange={(value) => update("timeoutMs", value)} className="font-data" />
-            <div className="grid grid-cols-2 gap-3">
-              <TextField id="monitor-status-min" label="Expected Status Min" type="number" min={100} max={599} value={values.expectedStatusMin} error={errors.expectedStatusMin} onChange={(value) => update("expectedStatusMin", value)} className="font-data" />
-              <TextField id="monitor-status-max" label="Expected Status Max" type="number" min={100} max={599} value={values.expectedStatusMax} error={errors.expectedStatusMax} onChange={(value) => update("expectedStatusMax", value)} className="font-data" />
-            </div>
-            <TextField id="monitor-failure-threshold" label="Failure Threshold" type="number" min={1} max={5} value={values.failureThreshold} error={errors.failureThreshold} onChange={(value) => update("failureThreshold", value)} className="font-data" />
-            <TextField id="monitor-recovery-threshold" label="Recovery Threshold" type="number" min={1} max={5} value={values.recoveryThreshold} error={errors.recoveryThreshold} onChange={(value) => update("recoveryThreshold", value)} className="font-data" />
-            <Field label="Recipients" htmlFor="monitor-recipients" error={errors.recipients} description="Empty inherits default recipients">
-              <textarea id="monitor-recipients" rows={5} value={values.recipients} onChange={(event) => update("recipients", event.target.value)} aria-invalid={Boolean(errors.recipients)} className="w-full resize-y rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-3 py-2 font-data text-sm outline-none hover:border-[var(--border-hover)] aria-invalid:border-[var(--down-text)]" />
-            </Field>
+            <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen} className="border-y border-[var(--border)]">
+              <CollapsibleTrigger className="group flex w-full items-center justify-between py-3 text-left text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]">
+                Advanced
+                <ChevronDown className="size-4 text-[var(--fg-muted)] transition-transform group-data-[panel-open]:rotate-180 motion-reduce:transition-none" aria-hidden />
+              </CollapsibleTrigger>
+              <CollapsibleContent className="space-y-5 pb-5 transition-opacity duration-150">
+                <TextField id="monitor-timeout" label="Timeout ms" type="number" min={1000} max={15000} value={values.timeoutMs} error={errors.timeoutMs} onChange={(value) => update("timeoutMs", value)} className="font-data" />
+                <div className="grid grid-cols-2 gap-3">
+                  <TextField id="monitor-status-min" label="Expected Status Min" type="number" min={100} max={599} value={values.expectedStatusMin} error={errors.expectedStatusMin} onChange={(value) => update("expectedStatusMin", value)} className="font-data" />
+                  <TextField id="monitor-status-max" label="Expected Status Max" type="number" min={100} max={599} value={values.expectedStatusMax} error={errors.expectedStatusMax} onChange={(value) => update("expectedStatusMax", value)} className="font-data" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <TextField id="monitor-failure-threshold" label="Failure Threshold" type="number" min={1} max={5} value={values.failureThreshold} error={errors.failureThreshold} onChange={(value) => update("failureThreshold", value)} className="font-data" />
+                  <TextField id="monitor-recovery-threshold" label="Recovery Threshold" type="number" min={1} max={5} value={values.recoveryThreshold} error={errors.recoveryThreshold} onChange={(value) => update("recoveryThreshold", value)} className="font-data" />
+                </div>
+                <Field label="Recipients" htmlFor="monitor-recipients" error={errors.recipients} description="Empty inherits default recipients">
+                  <textarea id="monitor-recipients" rows={5} value={values.recipients} onChange={(event) => update("recipients", event.target.value)} aria-invalid={Boolean(errors.recipients)} className="w-full resize-y rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-3 py-2 font-data text-sm outline-none hover:border-[var(--border-hover)] aria-invalid:border-[var(--down-text)]" />
+                </Field>
+              </CollapsibleContent>
+            </Collapsible>
             <label className="flex items-center justify-between gap-4 text-sm font-medium">
               Enabled
               <input type="checkbox" checked={values.enabled} onChange={(event) => update("enabled", event.target.checked)} className="size-4 accent-[var(--fg)]" />
@@ -539,5 +561,5 @@ function TextField({ id, label, error, onChange, className, ...props }: { id: st
 }
 
 function SelectField({ id, label, value, onChange, options, renderLabel = (option) => option, error }: { id: string; label: string; value: string; onChange: (value: string) => void; options: string[]; renderLabel?: (value: string) => string; error?: string }) {
-  return <Field label={label} htmlFor={id} error={error}><select id={id} value={value} aria-invalid={Boolean(error)} onChange={(event) => onChange(event.target.value)} className="h-10 w-full rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-3 text-sm outline-none hover:border-[var(--border-hover)] aria-invalid:border-[var(--down-text)]">{options.map((option) => <option key={option} value={option}>{renderLabel(option)}</option>)}</select></Field>;
+  return <Field label={label} htmlFor={id} error={error}><Select value={value} onValueChange={onChange}><SelectTrigger id={id} aria-invalid={Boolean(error)} className="aria-invalid:border-[var(--down-text)]"><SelectValue /></SelectTrigger><SelectContent>{options.map((option) => <SelectItem key={option} value={option}>{renderLabel(option)}</SelectItem>)}</SelectContent></Select></Field>;
 }
