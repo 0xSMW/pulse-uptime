@@ -1320,7 +1320,9 @@ Docs     <span class="dv-num">UP</span>  58ms
 
   $("[data-close-detail]").addEventListener("click", closeSystemDetail);
   window.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeSystemDetail();
+    if (event.key !== "Escape") return;
+    closeSystemDetail();
+    if (elements.navLinks.classList.contains("open")) setMenu(false);
   });
 
   $$("[data-system]").forEach((button) => {
@@ -1340,16 +1342,23 @@ Docs     <span class="dv-num">UP</span>  58ms
 
   elements.themeToggle.addEventListener("click", () => setTheme(demo.theme === "dark" ? "light" : "dark"));
 
-  elements.menuToggle.addEventListener("click", () => {
-    const open = elements.navLinks.classList.toggle("open");
+  function setMenu(open) {
+    elements.navLinks.classList.toggle("open", open);
     elements.menuToggle.setAttribute("aria-expanded", String(open));
     elements.menuToggle.setAttribute("aria-label", open ? "Close navigation" : "Open navigation");
+  }
+
+  elements.menuToggle.addEventListener("click", () => {
+    setMenu(!elements.navLinks.classList.contains("open"));
   });
 
-  $$("a", elements.navLinks).forEach((link) => link.addEventListener("click", () => {
-    elements.navLinks.classList.remove("open");
-    elements.menuToggle.setAttribute("aria-expanded", "false");
-  }));
+  $$("a", elements.navLinks).forEach((link) => link.addEventListener("click", () => setMenu(false)));
+
+  document.addEventListener("click", (event) => {
+    if (!elements.navLinks.classList.contains("open")) return;
+    if (event.target.closest("#nav-links, #menu-toggle")) return;
+    setMenu(false);
+  });
 
   const onScroll = () => elements.header.classList.toggle("scrolled", window.scrollY > 4);
   onScroll();
