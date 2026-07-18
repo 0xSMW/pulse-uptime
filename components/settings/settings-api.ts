@@ -1,12 +1,15 @@
 export type ApiEnvelope<T> = { data: T; meta?: Record<string, unknown> };
 
-type ErrorEnvelope = { error?: { code?: string; message?: string } };
+export type SettingsGroup = { id: string; name: string; monitorCount: number };
+
+type ErrorEnvelope = { error?: { code?: string; message?: string; details?: Record<string, unknown> } };
 
 export class SettingsApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
     readonly code?: string,
+    readonly details?: Record<string, unknown>,
   ) {
     super(message);
   }
@@ -34,6 +37,7 @@ export async function apiRequest<T>(
       envelope.error?.message || `Request failed (${response.status})`,
       response.status,
       envelope.error?.code,
+      envelope.error?.details,
     );
   }
 
@@ -57,6 +61,27 @@ export function generatedMonitorId(name: string): string {
     .slice(0, 55);
   const prefix = base || "monitor";
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`.slice(0, 64);
+}
+
+export function generatedGroupId(name: string): string {
+  const base = name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 55);
+  const prefix = base || "group";
+  return `${prefix}-${crypto.randomUUID().slice(0, 8)}`.slice(0, 64);
+}
+
+export function sortSettingsGroups(groups: readonly SettingsGroup[]): SettingsGroup[] {
+  return [...groups].sort((left, right) => left.name.localeCompare(right.name, "en-US", { sensitivity: "base" }));
+}
+
+export function groupDeleteBlockedCount(error: unknown): number | null {
+  if (!(error instanceof SettingsApiError) || error.code !== "GROUP_NOT_EMPTY") return null;
+  const count = error.details?.monitorCount;
+  return typeof count === "number" && Number.isInteger(count) && count >= 0 ? count : null;
 }
 
 export function expiryFromDays(days: 30 | 90 | 365, now = new Date()): string {
