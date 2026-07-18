@@ -24,9 +24,14 @@ export function shouldAutoRefresh(
 // of always-fresh, instantly-navigable tabs.
 export function AutoRefresh({ intervalMs }: { intervalMs?: number }) {
   const router = useRouter();
-  const lastRefreshAtRef = useRef(Date.now());
+  const lastRefreshAtRef = useRef(0);
 
   useEffect(() => {
+    // Seed the throttle window on mount (not during render, which must stay
+    // pure) so a focus/visibilitychange event firing immediately after mount
+    // doesn't trigger a redundant refresh right on top of the initial load.
+    lastRefreshAtRef.current = Date.now();
+
     const refresh = () => {
       if (!shouldAutoRefresh(document.visibilityState, Date.now(), lastRefreshAtRef.current)) return;
       lastRefreshAtRef.current = Date.now();
