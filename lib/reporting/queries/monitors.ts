@@ -37,6 +37,21 @@ function completedRangeEnd(now: Date, resolution: "15m" | "hour" | "day"): Date 
   return end;
 }
 
+// Re-derives a narrower [cutoffMs, endMs) window from a superset of rows that
+// is already known to be sorted ascending by bucketStart and bounded above by
+// endMs — equivalent to a second `gte(bucketStart, cutoff) AND lt(bucketStart, end)`
+// SQL query, without a second round trip.
+export function selectRecentRollupWindow<T extends { bucketStart: Date }>(
+  supersetRows: T[],
+  cutoffMs: number,
+  endMs: number,
+): T[] {
+  return supersetRows.filter((row) => {
+    const bucketMs = row.bucketStart.getTime();
+    return bucketMs >= cutoffMs && bucketMs < endMs;
+  });
+}
+
 function p95Latency(rows: Array<{
   latencyCount: number;
   latencyHistogram: number[];
@@ -113,8 +128,7 @@ export async function getMonitorDetail(id: string) {
       lt(metricRollups.bucketStart, end),
     ))
     .orderBy(metricRollups.bucketStart);
-  const [rollups24h, rollups7d, rollups30d, rollups90d, recentIncidents, accepted] = await Promise.all([
-    rollupsFor("15m", end15m, 86_400_000),
+  const [rollups7d, rollups30d, rollups90d, recentIncidents, accepted] = await Promise.all([
     rollupsFor("15m", end15m, 7 * 86_400_000),
     rollupsFor("hour", endHour, 30 * 86_400_000),
     rollupsFor("day", endDay, 90 * 86_400_000),
@@ -128,6 +142,10 @@ export async function getMonitorDetail(id: string) {
       .orderBy(desc(monitoringConfigSnapshots.acceptedAt))
       .limit(1),
   ]);
+
+  // rollups7d is a strict superset of the 24h window (same end, wider start), fetched
+  // ascending — re-derive 24h in memory instead of issuing a second 15m rollup query.
+  const rollups24h = selectRecentRollupWindow(rollups7d, end15m.getTime() - 86_400_000, end15m.getTime());
 
   let acceptedConfig = null;
   try { acceptedConfig = accepted[0] ? validateMonitoringConfig(accepted[0].configJson) : null; } catch { acceptedConfig = null; }

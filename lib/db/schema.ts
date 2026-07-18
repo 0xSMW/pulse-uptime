@@ -93,6 +93,9 @@ export const monitoringConfigSnapshots = pgTable(
     acceptedAt: timestamptz("accepted_at"),
   },
   (table) => [
+    index("monitoring_config_snapshots_accepted_order")
+      .on(table.acceptedAt.desc(), table.seenAt.desc())
+      .where(sql`${table.status} = 'accepted'`),
     check("monitoring_config_snapshots_version_nonnegative", sql`${table.configVersion} >= 0`),
     check(
       "monitoring_config_snapshots_status",
@@ -198,6 +201,7 @@ export const incidents = pgTable("incidents", {
   updatedAt: timestamptz("updated_at").notNull(),
 }, (table) => [
   index("incidents_monitor_opened").on(table.monitorId, table.openedAt.desc()),
+  index("incidents_feed_order").on(table.openedAt.desc(), table.id.desc()),
   uniqueIndex("incidents_one_active_per_monitor")
     .on(table.monitorId)
     .where(sql`${table.resolvedAt} is null`),
@@ -228,6 +232,9 @@ export const notificationOutbox = pgTable("notification_outbox", {
   createdAt: timestamptz("created_at").notNull(),
   updatedAt: timestamptz("updated_at").notNull(),
 }, (table) => [
+  index("notification_outbox_incident")
+    .on(table.incidentId)
+    .where(sql`${table.incidentId} is not null`),
   index("notification_outbox_due")
     .on(table.nextAttemptAt)
     .where(sql`${table.status} in ('pending', 'failed')`),
@@ -469,6 +476,9 @@ export const apiTokens = pgTable("api_tokens", {
   lastUsedAt: timestamptz("last_used_at"),
   revokedAt: timestamptz("revoked_at"),
 }, (table) => [
+  index("api_tokens_active_creator")
+    .on(table.createdByPrincipal)
+    .where(sql`${table.revokedAt} is null`),
   check("api_tokens_expiry_order", sql`${table.expiresAt} > ${table.createdAt}`),
   check("api_tokens_expiry_limit", sql`${table.expiresAt} <= ${table.createdAt} + interval '365 days'`),
 ]);
@@ -501,6 +511,7 @@ export const cliSessions = pgTable("cli_sessions", {
   lastUsedAt: timestamptz("last_used_at"),
   revokedAt: timestamptz("revoked_at"),
 }, (table) => [
+  index("cli_sessions_installation").on(table.installationId),
   check("cli_sessions_expiry_order", sql`${table.expiresAt} > ${table.createdAt}`),
 ]);
 
@@ -598,6 +609,7 @@ export const configOperations = pgTable("config_operations", {
   failedAt: timestamptz("failed_at"),
 }, (table) => [
   index("config_operations_target_hash").on(table.targetConfigHash, table.state),
+  index("config_operations_principal_idempotency").on(table.principalKey, table.idempotencyKey),
   check("config_operations_state", sql`${table.state} in ('written', 'accepted', 'rejected', 'failed')`),
   check("config_operations_edge_version", sql`${table.edgeConfigVersion} is null or ${table.edgeConfigVersion} >= 0`),
   check(

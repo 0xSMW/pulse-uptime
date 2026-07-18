@@ -1,12 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const { afterMock } = vi.hoisted(() => ({ afterMock: vi.fn() }));
+
 vi.mock("server-only", () => ({}));
+vi.mock("next/server", () => ({ after: afterMock }));
 
 import { resolvePrincipal, type PrincipalStore } from "./principal";
 import { digestBearerToken } from "./tokens";
 
 beforeEach(() => {
   vi.stubEnv("API_TOKEN_HASH_KEY", "test-key-with-at-least-32-characters");
+  // Mirrors production outside a request scope: `after()` throws synchronously,
+  // so resolvePrincipal falls back to awaiting the touch inline.
+  afterMock.mockReset().mockImplementation(() => {
+    throw new Error("`after` was called outside a request scope.");
+  });
 });
 
 function store(overrides: Partial<PrincipalStore> = {}): PrincipalStore {
@@ -76,5 +84,115 @@ describe("principal resolution", () => {
     await expect(resolvePrincipal(new Request("https://pulse.test/api/v1/me", {
       headers: { Authorization: "Basic secret" },
     }), { store: principalStore, getHumanSession: vi.fn() })).resolves.toBeNull();
+  });
+});
+
+describe("principal touch deferral", () => {
+  it("resolves the API token principal before a request-scoped touch settles", async () => {
+    let releaseTouch!: () => void;
+    let deferredCallback: (() => unknown) | undefined;
+    afterMock.mockImplementation((callback: () => unknown) => {
+      deferredCallback = callback;
+    });
+    const touchApiToken = vi.fn(
+      () => new Promise<void>((resolve) => { releaseTouch = resolve; }),
+    );
+    const now = new Date("2026-07-18T00:00:00Z");
+    const apiToken = {
+      type: "api_token" as const,
+      id: "tok_1",
+      name: "Deploy",
+      scopes: ["status:read" as const],
+      expiresAt: new Date("2026-08-01T00:00:00Z"),
+    };
+    const principalStore = store({ findApiToken: vi.fn().mockResolvedValue(apiToken), touchApiToken });
+
+    const principal = await resolvePrincipal(new Request("https://pulse.test/api/v1/me", {
+      headers: { Authorization: "Bearer pulse_live_secret" },
+    }), { store: principalStore, now: () => now });
+
+    // The principal is returned even though the touch promise above never resolved:
+    // resolution did not wait on it, only on `after()` registering the callback.
+    expect(principal).toEqual(apiToken);
+    expect(afterMock).toHaveBeenCalledTimes(1);
+    expect(touchApiToken).not.toHaveBeenCalled();
+
+    const settled = deferredCallback?.();
+    expect(touchApiToken).toHaveBeenCalledWith("tok_1", now);
+    releaseTouch();
+    await settled;
+  });
+
+  it("resolves the CLI session principal before a request-scoped touch settles", async () => {
+    let deferredCallback: (() => unknown) | undefined;
+    afterMock.mockImplementation((callback: () => unknown) => {
+      deferredCallback = callback;
+    });
+    const touchCliSession = vi.fn().mockResolvedValue(undefined);
+    const cliSession = {
+      type: "cli_session" as const,
+      id: "ses_1",
+      email: "admin@example.com",
+      scopes: ["monitors:read" as const],
+      expiresAt: new Date("2026-08-01T00:00:00Z"),
+      installation: {
+        id: "ins_1", displayName: "Mac", platform: "darwin", architecture: "arm64",
+        clientVersion: "1.0.0", linkedAt: new Date("2026-07-18T00:00:00Z"),
+      },
+    };
+    const principalStore = store({ findCliSession: vi.fn().mockResolvedValue(cliSession), touchCliSession });
+
+    const principal = await resolvePrincipal(new Request("https://pulse.test/api/v1/me", {
+      headers: { Authorization: "Bearer pulse_cli_secret" },
+    }), { store: principalStore });
+
+    expect(principal).toEqual(cliSession);
+    expect(touchCliSession).not.toHaveBeenCalled();
+
+    await deferredCallback?.();
+    expect(touchCliSession).toHaveBeenCalledWith("ses_1", "ins_1", expect.any(Date));
+  });
+
+  it("swallows a deferred touch failure without surfacing it to the caller", async () => {
+    let deferredCallback: (() => unknown) | undefined;
+    afterMock.mockImplementation((callback: () => unknown) => {
+      deferredCallback = callback;
+    });
+    const touchApiToken = vi.fn().mockRejectedValue(new Error("connection reset"));
+    const apiToken = {
+      type: "api_token" as const,
+      id: "tok_1",
+      name: "Deploy",
+      scopes: ["status:read" as const],
+      expiresAt: new Date("2026-08-01T00:00:00Z"),
+    };
+    const principalStore = store({ findApiToken: vi.fn().mockResolvedValue(apiToken), touchApiToken });
+
+    await expect(resolvePrincipal(new Request("https://pulse.test/api/v1/me", {
+      headers: { Authorization: "Bearer pulse_live_secret" },
+    }), { store: principalStore })).resolves.toEqual(apiToken);
+
+    await expect(deferredCallback?.()).resolves.toBeUndefined();
+  });
+
+  it("falls back to an inline, awaited touch when after() has no request scope", async () => {
+    // Default beforeEach mock: afterMock throws, matching production outside a request.
+    const touchApiToken = vi.fn().mockRejectedValue(new Error("connection reset"));
+    const apiToken = {
+      type: "api_token" as const,
+      id: "tok_1",
+      name: "Deploy",
+      scopes: ["status:read" as const],
+      expiresAt: new Date("2026-08-01T00:00:00Z"),
+    };
+    const principalStore = store({ findApiToken: vi.fn().mockResolvedValue(apiToken), touchApiToken });
+
+    await expect(resolvePrincipal(new Request("https://pulse.test/api/v1/me", {
+      headers: { Authorization: "Bearer pulse_live_secret" },
+    }), { store: principalStore })).resolves.toEqual(apiToken);
+
+    // The touch already ran and its rejection was already swallowed inline,
+    // with no deferred callback left pending.
+    expect(touchApiToken).toHaveBeenCalled();
   });
 });

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { and, eq, gt, isNull, lt, or } from "drizzle-orm";
+import { after } from "next/server";
 
 import { getCurrentSession } from "@/lib/auth/session";
 import { db } from "@/lib/db/client";
@@ -78,12 +79,12 @@ export async function resolvePrincipal(
   const digest = digestBearerToken(raw);
   const apiToken = await store.findApiToken(digest, now);
   if (apiToken) {
-    await safeTouch(() => store.touchApiToken(apiToken.id, now));
+    await deferTouch(() => store.touchApiToken(apiToken.id, now));
     return apiToken;
   }
   const cliSession = await store.findCliSession(digest, now);
   if (cliSession) {
-    await safeTouch(() =>
+    await deferTouch(() =>
       store.touchCliSession(cliSession.id, cliSession.installation.id, now),
     );
     return cliSession;
@@ -210,6 +211,18 @@ export const databasePrincipalStore: PrincipalStore = {
     ]);
   },
 };
+
+// Off the render/response critical path; the touch is best-effort and its
+// timing has no readers that need it to be settled before the caller proceeds.
+function deferTouch(touch: () => Promise<void>): Promise<void> {
+  try {
+    after(() => safeTouch(touch));
+    return Promise.resolve();
+  } catch {
+    // after() requires a request scope; direct callers (tests) update inline.
+    return safeTouch(touch);
+  }
+}
 
 async function safeTouch(touch: () => Promise<void>) {
   await touch().catch(() => undefined);

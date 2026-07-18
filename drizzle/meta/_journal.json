@@ -29,6 +29,13 @@
       "when": 1784357082488,
       "tag": "0003_fast_alice",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784398059870,
+      "tag": "0004_spooky_rage",
+      "breakpoints": true
     }
   ]
 }

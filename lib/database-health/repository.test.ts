@@ -69,9 +69,20 @@ describe("database health repository", () => {
     expect(result?.retention.map(({ configuredSeconds }) => configuredSeconds)).toEqual([86_400, 259_200]);
   });
 
+  it("short-circuits on a cold start without querying retention ages", async () => {
+    unsafe.mockResolvedValueOnce([]);
+    await expect(databaseHealthRepository.readLatest()).resolves.toBeNull();
+    // The snapshot and retention reads are not parallelized: with no snapshot yet,
+    // the retention query must never run as a second, unnecessary round trip.
+    expect(unsafe).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects an invalid persisted capture timestamp", async () => {
     unsafe.mockResolvedValueOnce([{ ...snapshot, captured_at: "not-a-date" }]);
     await expect(databaseHealthRepository.readLatest()).rejects.toThrow("Invalid database usage snapshot timestamp");
+    // Validation happens before the retention read, so a bad timestamp never
+    // triggers that second, now-wasted round trip.
+    expect(unsafe).toHaveBeenCalledTimes(1);
   });
 
   it("normalizes timestamps created by another runtime realm", async () => {

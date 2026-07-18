@@ -1,9 +1,9 @@
 import "server-only";
 
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 import { createClient } from "@vercel/edge-config";
-import { and, desc, eq, gt, isNull, notInArray, sql as drizzleSql } from "drizzle-orm";
+import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { createHttpChecker } from "@/lib/checker/checker";
@@ -18,9 +18,6 @@ import { portableQueryValues } from "@/lib/db/query-values";
 import {
   configChangeApprovals,
   configOperations,
-  incidents,
-  monitorRegistry,
-  monitorExceptions,
   monitoringConfigSnapshots,
   monitorState,
 } from "@/lib/db/schema";
@@ -33,7 +30,7 @@ import { completesQuarterHourBucket, refreshRecentRollups } from "@/lib/storage/
 
 import { runMonitoringCoordinator } from "./coordinator";
 import { evaluateConfigurationSource, requireApprovalConsumption } from "./configuration";
-import { targetFor, transitionLifecycle } from "./lifecycle";
+import { synchronizeRegistry as syncRegistryRows } from "./registry-sync";
 import { createSqlCronRunStore, createSqlLeaseStore } from "./sql";
 import { isDueAt } from "./time";
 
@@ -42,14 +39,6 @@ type AcceptedRow = {
   configHash: string;
 };
 
-function deterministicUuid(value: string): string {
-  const bytes = Buffer.from(createHash("sha256").update(value).digest().subarray(0, 16));
-  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
-  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
-  const hex = bytes.toString("hex");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
-
 export const queryExecutor: SqlExecutor = {
   async query<T>(text: string, values: readonly unknown[]): Promise<readonly T[]> {
     return await sql.unsafe(text, portableQueryValues(values) as never[]) as unknown as readonly T[];
@@ -57,115 +46,10 @@ export const queryExecutor: SqlExecutor = {
 };
 
 async function synchronizeRegistry(config: MonitoringConfig, hash: string, now: Date): Promise<void> {
-  await db.transaction(async (tx) => {
-    const applyLifecycle = async (monitorId: string, enabled: boolean, archived: boolean) => {
-      const [current] = await tx.select().from(monitorState)
-        .where(eq(monitorState.monitorId, monitorId)).for("update");
-      if (!current) throw new Error(`Monitor state not found: ${monitorId}`);
-      const mutation = transitionLifecycle(current, targetFor(enabled, archived), now);
-      if (!mutation.changed) return;
-      if (mutation.resolution) {
-        const resolved = await tx.update(incidents).set({
-          firstSuccessAt: mutation.resolution.resolvedAt,
-          resolvedAt: mutation.resolution.resolvedAt,
-          resolutionReason: mutation.resolution.reason,
-          updatedAt: now,
-        }).where(and(
-          eq(incidents.id, mutation.resolution.incidentId),
-          isNull(incidents.resolvedAt),
-        )).returning({ id: incidents.id });
-        if (resolved.length !== 1) throw new Error(`Active incident not found: ${mutation.resolution.incidentId}`);
-      }
-      await tx.update(monitorState).set({
-        state: mutation.state.state,
-        consecutiveFailures: mutation.state.consecutiveFailures,
-        consecutiveSuccesses: mutation.state.consecutiveSuccesses,
-        firstFailureAt: mutation.state.firstFailureAt,
-        firstSuccessAt: mutation.state.firstSuccessAt,
-        activeIncidentId: mutation.state.activeIncidentId,
-        version: mutation.state.version,
-        updatedAt: mutation.state.updatedAt,
-      }).where(eq(monitorState.monitorId, monitorId));
-    };
-
-    const groupNames = new Map(config.groups.map((group) => [group.id, group.name]));
-    for (const monitor of config.monitors) {
-      const groupName = monitor.groupId ? groupNames.get(monitor.groupId) ?? null : null;
-      const [previousRegistry] = await tx.select().from(monitorRegistry)
-        .where(eq(monitorRegistry.id, monitor.id));
-      await tx.insert(monitorRegistry).values({
-        id: monitor.id,
-        name: monitor.name,
-        url: monitor.url,
-        groupName,
-        enabled: monitor.enabled,
-        configHash: hash,
-        firstSeenAt: now,
-        lastSeenAt: now,
-        archivedAt: null,
-      }).onConflictDoUpdate({
-        target: monitorRegistry.id,
-        set: {
-          name: monitor.name,
-          url: monitor.url,
-          groupName,
-          enabled: monitor.enabled,
-          configHash: hash,
-          lastSeenAt: now,
-          archivedAt: null,
-        },
-      });
-      await tx.insert(monitorState).values({
-        monitorId: monitor.id,
-        state: monitor.enabled ? "PENDING" : "PAUSED",
-        updatedAt: now,
-      }).onConflictDoNothing();
-      await applyLifecycle(monitor.id, monitor.enabled, false);
-      const exceptionTypes = [
-        ...(previousRegistry && previousRegistry.configHash !== hash ? ["configuration" as const] : []),
-        ...(previousRegistry && previousRegistry.enabled !== monitor.enabled
-          ? [monitor.enabled ? "resume" as const : "pause" as const]
-          : []),
-      ];
-      for (const eventType of exceptionTypes) {
-        const identity = `${eventType}/${monitor.id}/${hash}`;
-        await tx.insert(monitorExceptions).values({
-          id: deterministicUuid(identity),
-          monitorId: monitor.id,
-          eventType,
-          errorCode: null,
-          identityHash: createHash("sha256").update(identity).digest(),
-          firstSeenAt: now,
-          lastSeenAt: now,
-          occurrenceCount: 1,
-        }).onConflictDoNothing();
-      }
-    }
-
-    const ids = config.monitors.map((monitor) => monitor.id);
-    const removal = ids.length > 0 ? notInArray(monitorRegistry.id, ids) : drizzleSql`true`;
-    const removed = await tx.update(monitorRegistry).set({
-      enabled: false,
-      archivedAt: now,
-      lastSeenAt: now,
-    }).where(and(isNull(monitorRegistry.archivedAt), removal)).returning({ id: monitorRegistry.id });
-    for (const row of removed) {
-      await applyLifecycle(row.id, false, true);
-      for (const eventType of ["pause", "configuration"] as const) {
-        const identity = `${eventType}/${row.id}/${hash}`;
-        await tx.insert(monitorExceptions).values({
-          id: deterministicUuid(identity),
-          monitorId: row.id,
-          eventType,
-          errorCode: eventType === "pause" ? "MONITOR_ARCHIVED" : null,
-          identityHash: createHash("sha256").update(identity).digest(),
-          firstSeenAt: now,
-          lastSeenAt: now,
-          occurrenceCount: 1,
-        }).onConflictDoNothing();
-      }
-    }
-  });
+  await db.transaction((tx) => syncRegistryRows(tx, config, hash, now, {
+    trackExceptions: true,
+    assertIncidentResolution: true,
+  }));
 }
 
 async function loadAcceptedConfiguration(now: Date): Promise<MonitoringConfig> {
