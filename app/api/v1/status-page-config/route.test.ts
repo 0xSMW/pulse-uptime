@@ -2,9 +2,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/db/client", () => ({ db: {} }));
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/api/middleware", () => ({
   authorize: vi.fn(),
   isApiResponse: (value: unknown) => value instanceof Response,
+}));
+vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api/idempotency")>()),
+  executeIdempotent: vi.fn(async ({ work }: { work: (context: { operationId: string }) => Promise<{ status: number; body: unknown }> }) => ({
+    ...(await work({ operationId: "op-1" })),
+    replayed: false,
+  })),
 }));
 vi.mock("@/lib/api/status-page-config", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/status-page-config")>()),
@@ -12,7 +20,10 @@ vi.mock("@/lib/api/status-page-config", async (importOriginal) => ({
   putStatusPageConfig: vi.fn(),
 }));
 
+import { revalidatePath } from "next/cache";
+
 import { apiError } from "@/lib/api/envelopes";
+import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, type ApiContext } from "@/lib/api/middleware";
 import {
   getStatusPageConfig,
@@ -29,6 +40,9 @@ const context: ApiContext = {
 };
 
 const data = { name: "Acme Status", historyDays: 90, updatedAt: "2026-07-18T00:00:00.000Z" };
+// Distinct post-write updatedAt so the ETag the route derives from it
+// (1784333900000) differs from the pre-write ETag above (1784332800000).
+const updatedData = { name: "Acme Status", historyDays: 90, updatedAt: "2026-07-18T00:18:20.000Z" };
 
 function getRequest() {
   return new Request("https://pulse.test/api/v1/status-page-config");
@@ -37,15 +51,17 @@ function getRequest() {
 function putRequest(body: unknown, headers: Record<string, string> = {}) {
   return new Request("https://pulse.test/api/v1/status-page-config", {
     method: "PUT",
-    headers,
+    headers: { "Idempotency-Key": crypto.randomUUID(), ...headers },
     body: JSON.stringify(body),
   });
 }
 
 beforeEach(() => {
   vi.mocked(authorize).mockResolvedValue(context);
+  vi.mocked(revalidatePath).mockReset();
+  vi.mocked(executeIdempotent).mockClear();
   vi.mocked(getStatusPageConfig).mockReset().mockResolvedValue({ data: data as never, etag: '"1784332800000"' });
-  vi.mocked(putStatusPageConfig).mockReset().mockResolvedValue({ data: data as never, etag: '"1784333900000"' });
+  vi.mocked(putStatusPageConfig).mockReset().mockResolvedValue({ data: updatedData as never, etag: '"1784333900000"' });
 });
 
 describe("GET /api/v1/status-page-config", () => {
@@ -95,13 +111,40 @@ describe("PUT /api/v1/status-page-config", () => {
     expect(putStatusPageConfig).not.toHaveBeenCalled();
   });
 
-  it("threads the body and If-Match into the service and returns the new ETag", async () => {
+  it("threads the body and If-Match into the service and returns the ETag derived from the new updatedAt", async () => {
     const response = await PUT(putRequest({ name: "Acme Status" }, { "If-Match": '"1784332800000"' }));
     expect(response.status).toBe(200);
     expect(response.headers.get("ETag")).toBe('"1784333900000"');
     expect(putStatusPageConfig).toHaveBeenCalledWith({ name: "Acme Status" }, '"1784332800000"');
     const payload = await response.json();
     expect(payload.kind).toBe("StatusPageConfig");
+  });
+
+  it("revalidates every public status route on a successful save (finding: ISR pages and image refs go stale otherwise)", async () => {
+    await PUT(putRequest({ name: "Acme Status" }, { "If-Match": '"1784332800000"' }));
+    expect(revalidatePath).toHaveBeenCalledWith("/status", "layout");
+    expect(revalidatePath).toHaveBeenCalledTimes(1);
+  });
+
+  it("replays a stored response for a reused Idempotency-Key instead of re-executing the write (finding: spurious 412 on a lost-response retry)", async () => {
+    vi.mocked(executeIdempotent).mockResolvedValueOnce({
+      status: 200,
+      body: updatedData as never,
+      replayed: true,
+    });
+    const response = await PUT(putRequest({ name: "Acme Status" }, { "If-Match": '"1784332800000"' }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("ETag")).toBe('"1784333900000"');
+    expect(putStatusPageConfig).not.toHaveBeenCalled();
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("does not revalidate when the write fails", async () => {
+    vi.mocked(putStatusPageConfig).mockRejectedValue(
+      new StatusPageConfigError("PRECONDITION_FAILED", "changed since read"),
+    );
+    await PUT(putRequest({}, { "If-Match": '"9"' }));
+    expect(revalidatePath).not.toHaveBeenCalled();
   });
 
   it("maps an ETag mismatch to 412 PRECONDITION_FAILED", async () => {
@@ -128,7 +171,7 @@ describe("PUT /api/v1/status-page-config", () => {
   it("rejects invalid JSON bodies", async () => {
     const request = new Request("https://pulse.test/api/v1/status-page-config", {
       method: "PUT",
-      headers: { "If-Match": '"0"' },
+      headers: { "If-Match": '"0"', "Idempotency-Key": crypto.randomUUID() },
       body: "{not json",
     });
     const response = await PUT(request);

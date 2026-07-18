@@ -1,12 +1,22 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const navigation = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: navigation.push, refresh: navigation.refresh }),
 }));
+
+// jsdom has no layout engine, so Radix Select's scroll-into-view and pointer
+// capture calls are unimplemented; stub them so opening a Select in tests
+// doesn't throw.
+beforeEach(() => {
+  Element.prototype.scrollIntoView ??= () => {};
+  Element.prototype.hasPointerCapture ??= () => false;
+  Element.prototype.setPointerCapture ??= () => {};
+  Element.prototype.releasePointerCapture ??= () => {};
+});
 
 import { TimezoneProvider } from "@/components/dashboard/timezone-provider";
 import { ReportEditor, type ReportEditorMonitor } from "./report-editor";
@@ -255,6 +265,47 @@ describe("ReportEditor edit mode", () => {
     const body = JSON.parse(String(init.body)) as Record<string, unknown>;
     expect(body.markdown).toBe("Recovery confirmed.");
     expect("publishedAt" in body).toBe(false);
+  });
+
+  it("omits affected from the PATCH when only the title changed", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(okEnvelope(report));
+    vi.stubGlobal("fetch", fetchMock);
+    renderEditor(report);
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Retitled report" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/status-reports/rep-1",
+        expect.objectContaining({ method: "PATCH" }),
+      );
+    });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(body.title).toBe("Retitled report");
+    expect("affected" in body).toBe(false);
+  });
+
+  it("still sends the full affected replacement when the impact picker changed", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(okEnvelope(report));
+    vi.stubGlobal("fetch", fetchMock);
+    renderEditor(report);
+    fireEvent.click(screen.getByLabelText("Impact for Marketing site"));
+    fireEvent.click(await screen.findByRole("option", { name: "Degraded" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/status-reports/rep-1",
+        expect.objectContaining({ method: "PATCH" }),
+      );
+    });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body)) as { affected?: Array<{ monitorId: string; impact: string }> };
+    expect(body.affected).toEqual(
+      expect.arrayContaining([
+        { monitorId: "api-prod", impact: "down" },
+        { monitorId: "marketing", impact: "degraded" },
+      ]),
+    );
   });
 
   it("warns inside the delete confirm when removing the resolving update reopens the report", () => {

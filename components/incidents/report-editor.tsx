@@ -228,7 +228,12 @@ export function ReportEditor({ report, monitors }: { report: ReportData | null; 
         title: title.trim(),
         startsAt: fromDatetimeLocal(startsAt)!,
         ...(type === "maintenance" ? { endsAt: endsAt.trim() ? fromDatetimeLocal(endsAt)! : null } : {}),
-        affected: affectedBody(),
+        // Only send affected when it actually changed: the service treats
+        // this key as a full replacement that re-snapshots monitor
+        // names/groups from the live registry, so sending it unconditionally
+        // would silently rewrite the historical snapshot on every basics-only
+        // save (e.g. after a monitor was renamed or moved groups).
+        ...(affectedDirty ? { affected: affectedBody() } : {}),
       };
       await apiRequest(
         `/api/v1/status-reports/${encodeURIComponent(report.id)}`,
