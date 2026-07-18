@@ -35,6 +35,7 @@ export async function PATCH(request: Request, { params }: Params) {
         const monitor = await recoverUpdatedMonitor(monitorId, body);
         return monitor ? { status: 200, body: objectEnvelope("Monitor", monitor, context.requestId) } : null;
       },
+      rerunAfterRecoveryMiss: false,
       work: async () => ({ status: 200, body: objectEnvelope("Monitor", await updateMonitor(monitorId, body, context.principalKey), context.requestId) }),
     });
     return apiJson(result.body, { status: result.status });
@@ -51,6 +52,7 @@ export async function DELETE(request: Request, { params }: Params) {
         const deletion = await recoverDeletedMonitor(monitorId);
         return deletion ? { status: 200, body: objectEnvelope("MonitorDeletion", deletion, context.requestId) } : null;
       },
+      rerunAfterRecoveryMiss: false,
       work: async () => ({ status: 200, body: objectEnvelope("MonitorDeletion", await deleteMonitor(monitorId, context.principalKey), context.requestId) }),
     });
     return apiJson(result.body, { status: result.status });
