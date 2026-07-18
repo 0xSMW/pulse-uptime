@@ -44,6 +44,7 @@ export type DatabaseRetentionMeasurement = {
 export type DatabaseHealthMeasurement = {
   capturedAt: Date;
   storageBytes: number | null;
+  otherBytes: number | null;
   projected30DayBytes: number | null;
   categoryBytes: Partial<Record<AttributedDatabaseCategoryKey, number>>;
   retention: DatabaseRetentionMeasurement[];
@@ -54,6 +55,7 @@ export type DatabaseHealthMeasurement = {
   monthlyTransferBytes: number | null;
   projectedMonthlyTransferBytes: number | null;
   providerMetricsAvailable: boolean;
+  providerMetricsCapturedAt: Date | null;
   maintenanceHealthy: boolean | null;
 };
 
@@ -79,7 +81,13 @@ export type DatabaseHealth = {
     ageSeconds: number | null;
     stale: boolean;
     providerMetricsAvailable: boolean;
+    providerCapturedAt: string | null;
+    providerAgeSeconds: number | null;
   };
   maintenanceHealthy: boolean | null;
-  refresh: { cached: boolean; nextEligibleAt: string | null };
+  refresh: {
+    cached: boolean;
+    status: "CURRENT" | "CACHED" | "STALE_FALLBACK";
+    nextEligibleAt: string | null;
+  };
 };
