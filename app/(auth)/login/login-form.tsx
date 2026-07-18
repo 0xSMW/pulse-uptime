@@ -9,14 +9,14 @@ import { Input } from "@/components/ui/input";
 
 import styles from "../auth.module.css";
 
-export function LoginForm() {
+export function LoginForm({ returnTo }: { returnTo: string }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const emailRef = useRef<HTMLInputElement>(null);
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError("");
     const data = new FormData(event.currentTarget);
-    const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: data.get("email"), password: data.get("password") }) });
+    const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: data.get("email"), password: data.get("password"), returnTo }) });
     const body = await response.json(); setBusy(false);
     if (!response.ok) { setError("Sign in failed"); emailRef.current?.focus(); return; }
     location.assign(body.redirect);
@@ -32,4 +32,3 @@ export function LoginForm() {
     </form></Card>
   </div>;
 }
-
