@@ -14,6 +14,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mon
         const monitor = await recoverMonitorEnabled(id, true);
         return monitor ? { status: 200, body: objectEnvelope("Monitor", monitor, context.requestId) } : null;
       },
+      rerunAfterRecoveryMiss: false,
       work: async () => ({ status: 200, body: objectEnvelope("Monitor", await setMonitorEnabled(id, true, context.principalKey), context.requestId) }),
     });
     return apiJson(result.body, { status: result.status });
