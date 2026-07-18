@@ -7,6 +7,8 @@ const PROBE_TIMEOUT_MS = 8_000;
 
 type DatabaseProbe = () => Promise<void>;
 
+type ResendProbeClient = Pick<Resend, "domains" | "emails">;
+
 export function createVercelProbe(
   env: Record<string, string | undefined> = process.env,
 ): () => Promise<ReadinessResult> {
@@ -122,6 +124,7 @@ export function createEdgeConfigProbe(
 
 export function createEmailProbe(
   env: Record<string, string | undefined> = process.env,
+  createClient: (apiKey: string) => ResendProbeClient = (apiKey) => new Resend(apiKey),
 ): () => Promise<ReadinessResult> {
   return async () => {
     const key = env.RESEND_API_KEY;
@@ -131,13 +134,31 @@ export function createEmailProbe(
     try {
       const domain = from.split("@")[1]?.toLowerCase();
       if (!domain) return emailWarning("EMAIL_SENDER_INVALID");
-      const resend = new Resend(key);
+      const resend = createClient(key);
       const result = await withTimeout(
         resend.domains.list(),
         PROBE_TIMEOUT_MS,
         null,
       );
-      if (!result || result.error) return emailWarning("EMAIL_API_UNAVAILABLE");
+      if (!result) return emailWarning("EMAIL_API_UNAVAILABLE");
+      if (result.error) {
+        const delivery = await withTimeout(
+          resend.emails.send(
+            {
+              from,
+              to: "delivered@resend.dev",
+              subject: "Pulse email readiness check",
+              text: "Pulse verified this sender for outage and recovery alerts.",
+            },
+            { idempotencyKey: `pulse-readiness-${domain}` },
+          ),
+          PROBE_TIMEOUT_MS,
+          null,
+        );
+        return delivery && !delivery.error
+          ? ready("email", "EMAIL_READY")
+          : emailWarning("EMAIL_API_UNAVAILABLE");
+      }
       const verified = result.data?.data.some(
         (entry) =>
           entry.name.toLowerCase() === domain && entry.status === "verified",
