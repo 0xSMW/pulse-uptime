@@ -76,7 +76,10 @@ export function AuthorizationFlow({ accountEmail, initialCode = "", initialError
               <div className={styles.clientCopy}>
                 <h2>{request.clientName} · {request.installationName}</h2>
                 <p>{request.installationName} wants full access to <span>{accountEmail}</span></p>
-                <p className={styles.meta}>{request.clientVersion} · {request.platform}/{request.architecture}</p>
+                <p className={styles.meta}>
+                  {request.clientVersion} · {request.platform}/{request.architecture}
+                  {request.requestIp ? ` · ${request.requestIp}` : ""}
+                </p>
               </div>
             </div>
 
