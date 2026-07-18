@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { StatusUnavailableNotice } from "@/components/status-page/status-unavailable-notice";
 import { RestrictedMarkdown } from "@/lib/markdown/restricted-markdown";
 import { formatDuration } from "@/lib/reporting/format";
 import {
@@ -29,15 +30,16 @@ type ReportPageProps = {
 export async function generateMetadata({ params }: ReportPageProps): Promise<Metadata> {
   const { reportId } = await params;
   // Report lookup first: unknown ids and drafts 404 without paying for the
-  // config read or the favicon bytes.
+  // config read or the favicon bytes. A database-unavailable read is neither
+  // of those — it falls through to the default page name below.
   const report = await getPublicReportDetail(reportId);
-  if (!report) notFound();
+  if (report === null) notFound();
   const [config, favicon] = await Promise.all([
     getStatusPageDisplayConfig(),
     getStatusFaviconDataUri(),
   ]);
   return {
-    title: { absolute: `${report.title} — ${config.name}` },
+    title: { absolute: report === "unavailable" ? config.name : `${report.title} — ${config.name}` },
     robots: { index: true, follow: true },
     ...(favicon ? { icons: { icon: favicon } } : {}),
   };
@@ -53,8 +55,23 @@ const phaseLabels: Record<ReportPhase, string> = {
 export default async function PublicReportPage({ params }: ReportPageProps) {
   const { reportId } = await params;
   const report = await getPublicReportDetail(reportId);
-  if (!report) notFound();
+  if (report === null) notFound();
   const config = await getStatusPageDisplayConfig();
+
+  if (report === "unavailable") {
+    return (
+      <main className="mx-auto w-full max-w-[720px] px-4 pb-16 pt-12 sm:px-6">
+        <Link
+          href="/status"
+          className="mb-5 inline-flex text-[13px] text-[var(--fg-muted)] hover:text-[var(--fg)] hover:underline"
+        >
+          ← All Systems
+        </Link>
+        <h1 className="mb-6 text-base font-semibold tracking-[-0.32px]">{config.name}</h1>
+        <StatusUnavailableNotice />
+      </main>
+    );
+  }
 
   const zone = timezoneDisplay(config.timezone);
   const phase = publicReportPhase(report, new Date());

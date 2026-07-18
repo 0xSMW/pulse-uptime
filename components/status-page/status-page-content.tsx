@@ -26,6 +26,7 @@ import type { StatusPageNavLink } from "@/lib/status-page/schema";
 
 import { OverallBanner } from "./overall-banner";
 import styles from "./status-page.module.css";
+import { StatusUnavailableNotice } from "./status-unavailable-notice";
 
 export type StatusPageDisplayConfig = {
   layout: "vertical" | "horizontal";
@@ -46,6 +47,8 @@ export type PublicStatusData = {
   pageName: string;
   lastUpdatedAt: string;
   overallState: PublicOverallState;
+  /** True when the database was unreachable or not yet migrated; every other field is a degraded placeholder. */
+  unavailable: boolean;
   config: StatusPageDisplayConfig;
   reports: PublicReportsView;
   currentIncidents: Array<{
@@ -394,6 +397,30 @@ export function StatusPageContent({
       {groupName ? <p className="mt-1 text-[13px] text-[var(--fg-muted)]">{groupName}</p> : null}
     </div>
   );
+
+  // Database unreachable or not yet migrated: render just the page shell
+  // (name, logo) plus a neutral notice — no monitor sections, no report
+  // sections, and no outage-tinted banner (§ build on Preview with no
+  // DATABASE_URL, or a runtime DB outage).
+  if (data.unavailable) {
+    return (
+      <main className="mx-auto w-full max-w-[720px] px-4 pb-16 pt-12 sm:px-6">
+        {groupView ? (
+          <Link
+            href="/status"
+            className="mb-5 inline-flex text-[13px] text-[var(--fg-muted)] hover:text-[var(--fg)] hover:underline"
+          >
+            ← All Systems
+          </Link>
+        ) : null}
+        <header className="mb-6 space-y-3">
+          <PageLogo config={data.config} pageName={data.pageName} />
+          {title}
+        </header>
+        <StatusUnavailableNotice />
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto w-full max-w-[720px] px-4 pb-16 pt-12 sm:px-6">
