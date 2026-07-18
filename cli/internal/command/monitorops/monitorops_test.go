@@ -54,6 +54,24 @@ func TestListAutoPaginationPreservesOrderAndCapsTotal(t *testing.T) {
 	}
 }
 
+func TestListEmptyDataSerializesAsArray(t *testing.T) {
+	client := clientFunc(func(_ context.Context, r Request) error {
+		setListResult(t, r.Result, nil, nil)
+		return nil
+	})
+	doc, err := List(context.Background(), client, ListOptions{Machine: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(encoded, []byte(`"data":[]`)) {
+		t.Fatalf("output = %s", encoded)
+	}
+}
+
 func TestListSendsGroupIDFilter(t *testing.T) {
 	client := clientFunc(func(_ context.Context, r Request) error {
 		if got := r.Query.Get("groupId"); got != "production" {
