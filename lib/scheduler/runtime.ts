@@ -10,6 +10,7 @@ import { createHttpChecker } from "@/lib/checker/checker";
 import {
   evaluateConfigurationAcceptance,
   hashCanonical,
+  validateMonitoringConfig,
   type MonitoringConfig,
 } from "@/lib/config";
 import { db, sql } from "@/lib/db/client";
@@ -86,14 +87,16 @@ async function synchronizeRegistry(config: MonitoringConfig, hash: string, now: 
       }).where(eq(monitorState.monitorId, monitorId));
     };
 
+    const groupNames = new Map(config.groups.map((group) => [group.id, group.name]));
     for (const monitor of config.monitors) {
+      const groupName = monitor.groupId ? groupNames.get(monitor.groupId) ?? null : null;
       const [previousRegistry] = await tx.select().from(monitorRegistry)
         .where(eq(monitorRegistry.id, monitor.id));
       await tx.insert(monitorRegistry).values({
         id: monitor.id,
         name: monitor.name,
         url: monitor.url,
-        groupName: monitor.group,
+        groupName,
         enabled: monitor.enabled,
         configHash: hash,
         firstSeenAt: now,
@@ -104,7 +107,7 @@ async function synchronizeRegistry(config: MonitoringConfig, hash: string, now: 
         set: {
           name: monitor.name,
           url: monitor.url,
-          groupName: monitor.group,
+          groupName,
           enabled: monitor.enabled,
           configHash: hash,
           lastSeenAt: now,
@@ -172,7 +175,7 @@ async function loadAcceptedConfiguration(now: Date): Promise<MonitoringConfig> {
     .where(eq(monitoringConfigSnapshots.status, "accepted"))
     .orderBy(desc(monitoringConfigSnapshots.acceptedAt), desc(monitoringConfigSnapshots.seenAt))
     .limit(1) as AcceptedRow[];
-  const previous = last ? { config: last.configJson as MonitoringConfig, hash: last.configHash } : null;
+  const previous = last ? { config: validateMonitoringConfig(last.configJson), hash: last.configHash } : null;
   const connection = process.env.EDGE_CONFIG;
   const source = await evaluateConfigurationSource({
     readDesired: async () => {
