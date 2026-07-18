@@ -38,12 +38,13 @@ describe("runMonitoringCoordinator", () => {
         return { claimed: 0, sent: 0, failed: 0, dead: 0, lostClaims: 0 };
       },
       runMonitor: vi.fn(),
+      persistMinute: async () => { events.push("persist"); },
       now: () => new Date("2026-07-18T04:00:20Z"),
       nowMs: () => 1_000,
       createId: () => "00000000-0000-4000-8000-000000000001",
     });
     expect(result.status).toBe("completed");
-    expect(events).toEqual(["lease", "start", "config", "reconcile", "deliver", "deliver", "complete", "release"]);
+    expect(events).toEqual(["lease", "start", "config", "reconcile", "deliver", "persist", "deliver", "complete", "release"]);
   });
 
   it("does no run work for a duplicate scheduled minute", async () => {
