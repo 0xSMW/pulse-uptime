@@ -172,6 +172,24 @@ func TestListMachineAutoPaginatesAndHonorsTotalLimit(t *testing.T) {
 	}
 }
 
+func TestListEmptyDataSerializesAsArray(t *testing.T) {
+	client := &fakeClient{do: func(request Request) error {
+		*request.Result.(*ListEnvelope) = ListEnvelope{APIVersion: "v1", Kind: "GroupList"}
+		return nil
+	}}
+	doc, err := List(context.Background(), client, ListOptions{Machine: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"data":[]`) {
+		t.Fatalf("output = %s", encoded)
+	}
+}
+
 func TestListHumanStopsAfterFirstPageAndPrintsHint(t *testing.T) {
 	next := "next"
 	client := &fakeClient{do: func(request Request) error {
