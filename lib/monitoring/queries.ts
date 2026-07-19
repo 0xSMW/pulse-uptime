@@ -47,15 +47,13 @@ export async function listDashboardMonitors() {
   // written before this fix, lets one fully-covered 15m bucket mask an
   // otherwise-uncovered 24h window (young monitors, or a rollup outage gap).
   //
-  // Correct approach: sum the rollups that exist in-window, then scan raw
-  // checks only for the portion strictly after the last rolled-up bucket for
-  // that monitor (the currently-forming bucket plus any gap since the last
-  // compaction ran), falling back to the window start when the monitor has
-  // no rollups yet. This never double-counts, since the raw scan and rollup
-  // sum cover disjoint time ranges. A rollup outage gap in the *middle* of
-  // the window (not at the tail) can still read as uncovered if its raw rows
-  // were already purged by the time compaction catches up — that data is
-  // simply gone and there is no way to recover it here.
+  // Correct approach: sum the rollups that exist in-window, then add every
+  // in-window raw check whose own 15m bucket was NOT rolled up (anti-join on
+  // date_bin). This never double-counts — a raw row is excluded exactly when
+  // the rollup sum already covers its bucket — and it counts retained raw
+  // rows in leading/middle coverage gaps (backfill start, compaction outage),
+  // not just the tail after the last rollup. A gap whose raw rows were
+  // already purged is simply gone and cannot be recovered here.
   const end15m = new Date();
   end15m.setUTCMinutes(Math.floor(end15m.getUTCMinutes() / 15) * 15, 0, 0);
   const start15m = new Date(end15m.getTime() - 86_400_000);
@@ -74,8 +72,7 @@ export async function listDashboardMonitors() {
             / (coalesce(rollup.completed, 0) + coalesce(raw.completed, 0)) end
         from (
           select sum(${metricRollups.completedChecks}) as completed,
-            sum(${metricRollups.successfulChecks}) as successful,
-            max(${metricRollups.bucketStart}) as last_bucket_start
+            sum(${metricRollups.successfulChecks}) as successful
           from ${metricRollups}
           where ${metricRollups.monitorId} = ${monitorRegistry.id}
             and ${metricRollups.resolution} = '15m'
@@ -87,7 +84,13 @@ export async function listDashboardMonitors() {
             count(*) filter (where ${checkResults.successful}) as successful
           from ${checkResults}
           where ${checkResults.monitorId} = ${monitorRegistry.id}
-            and ${checkResults.checkedAt} >= coalesce(rollup.last_bucket_start + interval '15 minutes', ${start15m})
+            and ${checkResults.checkedAt} >= ${start15m}
+            and not exists (
+              select 1 from ${metricRollups} covered
+              where covered.monitor_id = ${monitorRegistry.id}
+                and covered.resolution = '15m'
+                and covered.bucket_start = date_bin('15 minutes', ${checkResults.checkedAt}, timestamptz '2000-01-01')
+            )
         ) raw
       )`,
     })
