@@ -21,37 +21,42 @@ import type { DatabaseHandle } from "@/lib/db/client";
 import { executeIdempotent, type IdempotencyContext } from "@/lib/api/idempotency";
 import { databaseStatusReportsStore, StatusReportError } from "@/lib/api/status-reports";
 
-import { revalidateStatusReportPaths, runStatusReportMutation } from "./status-report-http";
+import { collectStatusReportPaths, runStatusReportMutation } from "./status-report-http";
 
 beforeEach(() => {
   vi.mocked(revalidatePath).mockReset();
   vi.mocked(databaseStatusReportsStore.findMonitors).mockReset().mockResolvedValue([]);
 });
 
-describe("revalidateStatusReportPaths", () => {
-  it("always revalidates the status root and the report permalink", async () => {
-    await revalidateStatusReportPaths({ id: "rep-1", affected: [] });
-    expect(revalidatePath).toHaveBeenCalledWith("/status");
-    expect(revalidatePath).toHaveBeenCalledWith("/status/reports/rep-1");
+describe("collectStatusReportPaths", () => {
+  it("always includes the status root and the report permalink", async () => {
+    const paths = await collectStatusReportPaths({ id: "rep-1", affected: [] });
+    expect(paths).toContain("/status");
+    expect(paths).toContain("/status/reports/rep-1");
   });
 
-  it("revalidates the snapshotted group of newly affected monitors", async () => {
-    await revalidateStatusReportPaths({
+  it("does not revalidate itself: collecting paths never invalidates the cache before commit", async () => {
+    await collectStatusReportPaths({ id: "rep-1", affected: [{ monitorId: "mon-1", groupName: "Core" }] });
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("includes the snapshotted group of newly affected monitors", async () => {
+    const paths = await collectStatusReportPaths({
       id: "rep-1",
       affected: [{ monitorId: "mon-1", groupName: "Core" }],
     });
-    expect(revalidatePath).toHaveBeenCalledWith("/status/core");
+    expect(paths).toContain("/status/core");
   });
 
   it("unions old and new affected monitor ids in the live findMonitors lookup (finding: removed monitors' live groups missed)", async () => {
-    await revalidateStatusReportPaths(
+    await collectStatusReportPaths(
       { id: "rep-1", affected: [{ monitorId: "mon-1", groupName: "Core" }] },
       [{ monitorId: "mon-2", groupName: "Data" }],
     );
     expect(databaseStatusReportsStore.findMonitors).toHaveBeenCalledWith(["mon-1", "mon-2"]);
   });
 
-  it("revalidates a removed monitor's CURRENT live group, not just its stale snapshot", async () => {
+  it("includes a removed monitor's CURRENT live group, not just its stale snapshot", async () => {
     // mon-2 was removed from the affected set (only present in
     // previousAffected) but has since moved from "Data-Old" to "Data-New" in
     // the registry. Both the stale snapshot's page and the live page must
@@ -59,32 +64,32 @@ describe("revalidateStatusReportPaths", () => {
     vi.mocked(databaseStatusReportsStore.findMonitors).mockResolvedValue([
       { id: "mon-2", name: "Database", groupName: "Data-New" },
     ]);
-    await revalidateStatusReportPaths(
+    const paths = await collectStatusReportPaths(
       { id: "rep-1", affected: [] },
       [{ monitorId: "mon-2", groupName: "Data-Old" }],
     );
     expect(databaseStatusReportsStore.findMonitors).toHaveBeenCalledWith(["mon-2"]);
-    expect(revalidatePath).toHaveBeenCalledWith("/status/data-old");
-    expect(revalidatePath).toHaveBeenCalledWith("/status/data-new");
+    expect(paths).toContain("/status/data-old");
+    expect(paths).toContain("/status/data-new");
   });
 
-  it("is best-effort: a findMonitors failure never throws and the snapshot slugs still revalidate", async () => {
+  it("is best-effort: a findMonitors failure never throws and the snapshot slugs are still returned", async () => {
     vi.mocked(databaseStatusReportsStore.findMonitors).mockRejectedValue(new Error("db down"));
-    await expect(revalidateStatusReportPaths({
+    const paths = await collectStatusReportPaths({
       id: "rep-1",
       affected: [{ monitorId: "mon-1", groupName: "Core" }],
-    })).resolves.toBeUndefined();
-    expect(revalidatePath).toHaveBeenCalledWith("/status/core");
+    });
+    expect(paths).toContain("/status/core");
   });
 
   it("never calls findMonitors when no monitor was ever affected", async () => {
-    await revalidateStatusReportPaths({ id: "rep-1", affected: [] });
+    await collectStatusReportPaths({ id: "rep-1", affected: [] });
     expect(databaseStatusReportsStore.findMonitors).not.toHaveBeenCalled();
   });
 
-  it("rides a passed-in store's findMonitors instead of the global pool-bound store (finding: mutation routes hold a pool connection while calling this)", async () => {
+  it("rides a passed-in store's findMonitors instead of the global pool-bound store (finding: mutation routes hold a pool connection while collecting paths)", async () => {
     const txStore = { findMonitors: vi.fn().mockResolvedValue([]) };
-    await revalidateStatusReportPaths(
+    await collectStatusReportPaths(
       { id: "rep-1", affected: [{ monitorId: "mon-1", groupName: "Core" }] },
       [],
       txStore,
@@ -148,6 +153,57 @@ describe("runStatusReportMutation", () => {
       status: 200,
       body: { apiVersion: "v1", kind: "StatusReport", data: { id: "rep-1" }, meta: { requestId: "req-1" } },
     }]);
+  });
+
+  it("flushes work()'s revalidatePaths only after the completion commits, and only for a fresh mutation", async () => {
+    const order: string[] = [];
+    vi.mocked(revalidatePath).mockImplementation((path) => { order.push(`revalidate:${path}:${completions.length}`); });
+
+    await runStatusReportMutation({
+      request: mutationRequest(),
+      context: { principalKey: "human:1", requestId: "req-1" },
+      routeKey: "test",
+      body: {},
+      work: async () => ({
+        status: 200, kind: "StatusReport", data: { id: "rep-1" },
+        revalidatePaths: ["/status", "/status/reports/rep-1"],
+      }),
+    });
+
+    // completions.length is 1 at both calls, proving the completion committed
+    // before either revalidatePath ran, never from the pre-commit snapshot.
+    expect(order).toEqual(["revalidate:/status:1", "revalidate:/status/reports/rep-1:1"]);
+  });
+
+  it("skips revalidation for a replayed response even when work() collected paths (the original run already revalidated)", async () => {
+    vi.mocked(executeIdempotent).mockImplementationOnce(async ({ work }) => {
+      const result = await work({ operationId: "op-1", transaction: async (run) => run(stubTx) });
+      return { ...result, replayed: true };
+    });
+
+    await runStatusReportMutation({
+      request: mutationRequest(),
+      context: { principalKey: "human:1", requestId: "req-1" },
+      routeKey: "test",
+      body: {},
+      work: async () => ({ status: 200, kind: "StatusReport", data: { id: "rep-1" }, revalidatePaths: ["/status"] }),
+    });
+
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("does not revalidate when work() throws a StatusReportError, since nothing changed", async () => {
+    await runStatusReportMutation({
+      request: mutationRequest(),
+      context: { principalKey: "human:1", requestId: "req-1" },
+      routeKey: "test",
+      body: {},
+      work: async () => {
+        throw new StatusReportError("ALREADY_PUBLISHED", "The status report is already published");
+      },
+    });
+
+    expect(revalidatePath).not.toHaveBeenCalled();
   });
 
   it("records a StatusReportError thrown by work() as the operation's own completed response, mapped to its HTTP status", async () => {

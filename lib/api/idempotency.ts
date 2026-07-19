@@ -9,6 +9,16 @@ import { db } from "@/lib/db/client";
 import type { DatabaseHandle } from "@/lib/db/client";
 import { apiIdempotency } from "@/lib/db/schema";
 
+// Records written by this atomic protocol carry this marker. A running record
+// with this marker proves its mutation and completion share one transaction,
+// so a running record past the stale window took no effect and is safe to
+// rerun. Legacy running records default to LEGACY_PROTOCOL because their
+// mutation could have committed before a separate completion write failed, so
+// claimStale refuses to rerun them and they resolve as REQUEST_IN_PROGRESS
+// until they expire and are pruned.
+export const ATOMIC_PROTOCOL = 1;
+export const LEGACY_PROTOCOL = 0;
+
 export type StoredResponse<T = unknown> = { status: number; body: T };
 export type IdempotencyContext = {
   operationId: string;
@@ -28,6 +38,7 @@ export type IdempotencyPersistence = {
   findOwner(principalKey: string, idempotencyKey: string): Promise<IdempotencyRecord | undefined>;
   reclaimExpired(id: string, now: Date, value: typeof apiIdempotency.$inferInsert): Promise<string | null>;
   claimStale(id: string, staleBefore: Date, now: Date, expiresAt: Date): Promise<string | undefined>;
+  lockOwner(id: string, tx: DatabaseHandle): Promise<void>;
   transaction<R>(run: (tx: DatabaseHandle) => Promise<R>): Promise<R>;
   complete(id: string, status: number, body: unknown, completedAt: Date, tx?: DatabaseHandle): Promise<void>;
 };
@@ -87,6 +98,7 @@ export async function executeIdempotent<T>(input: {
     method: input.request.method,
     routeKey: input.routeKey,
     requestHash,
+    protocol: ATOMIC_PROTOCOL,
     state: "running",
     createdAt: now,
     expiresAt,
@@ -106,6 +118,7 @@ export async function executeIdempotent<T>(input: {
         method: input.request.method,
         routeKey: input.routeKey,
         requestHash,
+        protocol: ATOMIC_PROTOCOL,
         responseStatus: null,
         responseBody: null,
         state: "running",
@@ -140,10 +153,14 @@ export async function executeIdempotent<T>(input: {
     }
     // Completion now commits atomically with the mutation, so a running
     // record past the stale window proves the prior attempt never took
-    // effect, as of the read above. The prior attempt can still complete
-    // between that read and this claim, so claimStale re-checks state and
-    // only reclaims a record still running. If it lost that race, the
-    // record is now completed and the client's next retry will replay it.
+    // effect, as of the read above. A live owner holds a row lock on its
+    // record for the life of its mutation, so this claimStale UPDATE blocks
+    // until that owner settles. If the owner committed, the record is now
+    // completed, claimStale matches nothing, and the client's next retry
+    // replays it. If the owner rolled back, the record is still running and
+    // claimStale reclaims it for a safe rerun. A legacy record from before
+    // the atomic protocol carries no such lock and no protocol marker, so
+    // claimStale refuses it and the caller falls back to REQUEST_IN_PROGRESS.
     recordId = await persistence.claimStale(existing.id, staleBefore, now, expiresAt);
     if (!recordId) {
       throw new IdempotencyError("REQUEST_IN_PROGRESS", "A request with this idempotency key is still running");
@@ -160,6 +177,15 @@ export async function executeIdempotent<T>(input: {
       }
       transactionUsed = true;
       return await persistence.transaction(async (tx) => {
+        // Hold a row lock on this operation's own idempotency record for the
+        // whole mutation transaction. A concurrent retry that reaches the
+        // stale window blocks in claimStale until this transaction settles.
+        // On commit the record is completed, so claimStale matches nothing
+        // and the retry replays. On rollback nothing committed and the record
+        // is still running, so the retry reclaims it and reruns safely. This
+        // is what keeps a slow but live owner from being reclaimed and run a
+        // second time concurrently.
+        await persistence.lockOwner(operationId, tx);
         const result = await run(tx);
         // context.transaction is generic in R so any route's work() can use
         // it, but a route only ever instantiates it at its own T (work()
@@ -251,14 +277,28 @@ const databaseIdempotencyPersistence: IdempotencyPersistence = {
     // already-completed record and overwrite its stored response. The
     // state = "running" condition closes that race: if it doesn't match,
     // the caller falls back to REQUEST_IN_PROGRESS and the next retry reads
-    // the completed record and replays it.
+    // the completed record and replays it. A live owner also holds a row
+    // lock on this record, so this UPDATE blocks until that owner commits
+    // (state becomes completed, no match) or rolls back (still running,
+    // match). The protocol = ATOMIC_PROTOCOL condition excludes legacy
+    // records, whose committed mutation could predate a failed completion
+    // write, so they are never rerun and instead resolve as
+    // REQUEST_IN_PROGRESS until they expire and are pruned.
     return (await db.update(apiIdempotency).set({ createdAt: now, expiresAt })
       .where(and(
         eq(apiIdempotency.id, id),
         eq(apiIdempotency.state, "running"),
+        eq(apiIdempotency.protocol, ATOMIC_PROTOCOL),
         lt(apiIdempotency.createdAt, staleBefore),
       ))
       .returning({ id: apiIdempotency.id }))[0]?.id;
+  },
+  async lockOwner(id, tx) {
+    // Take a FOR UPDATE row lock on this operation's own record so a
+    // concurrent stale claim blocks until this transaction commits or rolls
+    // back. The lock lives for the enclosing transaction.
+    await tx.select({ id: apiIdempotency.id }).from(apiIdempotency)
+      .where(eq(apiIdempotency.id, id)).for("update");
   },
   async transaction(run) {
     return await db.transaction(run);

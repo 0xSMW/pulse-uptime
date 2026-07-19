@@ -33,9 +33,11 @@ suite("idempotency PostgreSQL atomicity", () => {
     (await verify.select().from(schema.jobLeases).where(eq(schema.jobLeases.name, name)))[0];
 
   beforeAll(async () => {
-    const source = await readFile(resolve(process.cwd(), "drizzle", "0000_clumsy_lake.sql"), "utf8");
-    for (const statement of source.split("--> statement-breakpoint").map((item) => item.trim()).filter(Boolean)) {
-      await client.unsafe(statement);
+    for (const migration of ["0000_clumsy_lake.sql", "0012_thick_patch.sql"]) {
+      const source = await readFile(resolve(process.cwd(), "drizzle", migration), "utf8");
+      for (const statement of source.split("--> statement-breakpoint").map((item) => item.trim()).filter(Boolean)) {
+        await client.unsafe(statement);
+      }
     }
     // The module under test binds its db client to DATABASE_URL at import
     // time, so the env var must point at the test database before the
@@ -180,5 +182,91 @@ suite("idempotency PostgreSQL atomicity", () => {
     expect(await findIdempotencyRecord(key)).toMatchObject({
       state: "completed", responseStatus: 200, responseBody: { ok: true, value: "original" },
     });
+  });
+
+  it("blocks a stale claim while a live owner holds its record lock and reruns nothing", async () => {
+    const key = "00000000-0000-4000-8000-000000000070";
+    const body = { name: "inflight-lease" };
+    const now = new Date();
+    let release!: () => void;
+    let started!: () => void;
+    const startedPromise = new Promise<void>((resolve) => { started = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+
+    // The owner opens its mutation transaction, takes the record lock, inserts
+    // the lease, then hangs past the stale window the retry will apply.
+    const owner = executeIdempotent({
+      request: request(key), principalKey: "human:1", routeKey: "test", body, now,
+      work: async (context) => context.transaction(async (tx) => {
+        await tx.insert(schema.jobLeases).values(newLease("inflight-lease"));
+        started();
+        await gate;
+        return { status: 201, body: { ok: true, value: "owner" } };
+      }),
+    });
+    await startedPromise;
+
+    // The retry reads the record as running-but-stale and calls claimStale
+    // while the owner is still in flight. Its UPDATE must block on the owner's
+    // FOR UPDATE lock rather than steal the still-running record and run the
+    // mutation a second time.
+    const retryNow = new Date(now.getTime() + 6 * 60_000);
+    const retryWork = vi.fn(async () => ({ status: 200, body: { ok: true, value: "reran" } }));
+    const retry = executeIdempotent({
+      request: request(key), principalKey: "human:1", routeKey: "test", body, now: retryNow, work: retryWork,
+    });
+
+    // Give the retry time to reach claimStale and block, then let the owner commit.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    release();
+
+    const ownerResult = await owner;
+    await expect(retry).rejects.toMatchObject({ code: "REQUEST_IN_PROGRESS" });
+    expect(ownerResult).toMatchObject({ status: 201, body: { ok: true, value: "owner" }, replayed: false });
+    expect(retryWork).not.toHaveBeenCalled();
+    const leases = await verify.select().from(schema.jobLeases).where(eq(schema.jobLeases.name, "inflight-lease"));
+    expect(leases).toHaveLength(1);
+    expect(await findIdempotencyRecord(key)).toMatchObject({
+      state: "completed", responseStatus: 201, responseBody: { ok: true, value: "owner" }, protocol: 1,
+    });
+  });
+
+  it("refuses to reclaim a legacy running record and reports it in progress", async () => {
+    const key = "00000000-0000-4000-8000-000000000080";
+    const body = { name: "legacy-lease" };
+    const staleRequest = request(key);
+    const url = new URL(staleRequest.url);
+    const requestHash = createHash("sha256")
+      .update(`${staleRequest.method}\n${url.pathname}\n${canonicalSerialize(body)}`)
+      .digest("hex");
+    const id = crypto.randomUUID();
+    const createdAt = new Date(Date.now() - 10 * 60_000); // past the 5 minute stale window
+
+    // A record left running by the pre-atomic implementation carries protocol
+    // 0, and its mutation may have committed before a separate completion write
+    // failed. Reclaiming and rerunning it would double apply that mutation.
+    await verify.insert(schema.apiIdempotency).values({
+      id,
+      principalKey: "human:1",
+      idempotencyKey: key,
+      method: staleRequest.method,
+      routeKey: "test",
+      requestHash,
+      protocol: 0,
+      responseStatus: null,
+      responseBody: null,
+      state: "running",
+      createdAt,
+      completedAt: null,
+      expiresAt: new Date(Date.now() + 86_400_000),
+    });
+
+    const work = vi.fn(async () => ({ status: 201, body: { ok: true } }));
+    await expect(executeIdempotent({
+      request: request(key), principalKey: "human:1", routeKey: "test", body, work, now: new Date(),
+    })).rejects.toMatchObject({ code: "REQUEST_IN_PROGRESS" });
+
+    expect(work).not.toHaveBeenCalled();
+    expect(await findIdempotencyRecord(key)).toMatchObject({ state: "running", protocol: 0 });
   });
 });

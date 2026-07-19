@@ -38,7 +38,7 @@ export function storedStatusReportError(error: StatusReportError, requestId: str
   return { status: statusReportErrorStatus(error), body: errorEnvelope(error.code, error.message, requestId, error.details) };
 }
 
-type MutationOutcome<T> = { status: number; kind: string; data: T };
+type MutationOutcome<T> = { status: number; kind: string; data: T; revalidatePaths?: readonly string[] };
 
 /**
  * Runs one idempotent status-report mutation end to end: acquires the
@@ -50,8 +50,10 @@ type MutationOutcome<T> = { status: number; kind: string; data: T };
  * here with a route-specific `work` closure.
  *
  * `work` receives the open transaction handle and returns the eventual
- * `{ status, kind, data }`, or throws StatusReportError. Two invariants this
- * helper owns on every call, so route files don't have to restate them:
+ * `{ status, kind, data }` (plus optional `revalidatePaths` this helper
+ * flushes after commit, see below), or throws StatusReportError. Three
+ * invariants this helper owns on every call, so route files don't have to
+ * restate them:
  *
  * - The mutation and the idempotency completion commit together, in the
  *   SAME transaction (via context.transaction inside executeIdempotent). If
@@ -67,6 +69,16 @@ type MutationOutcome<T> = { status: number; kind: string; data: T };
  *   status-reports store method guards before mutating (returning a
  *   sentinel or throwing before any write), so committing "no mutation, this
  *   response" alongside the error is always correct.
+ * - Cache revalidation runs only AFTER the mutation and the idempotency
+ *   completion commit, and only for a FRESH mutation. `work` computes the
+ *   paths to invalidate (via collectStatusReportPaths, inside the
+ *   transaction so its findMonitors query rides the caller's connection) and
+ *   returns them in `revalidatePaths`. This helper flushes them once
+ *   executeIdempotent resolves. A pre-commit revalidatePath would let a
+ *   concurrent /status visit regenerate from the pre-commit snapshot and
+ *   cache stale report data for the ISR window. A StatusReportError never
+ *   sets revalidatePaths, and a replayed response was already revalidated by
+ *   the original run, so both correctly revalidate nothing.
  */
 export async function runStatusReportMutation<T>(input: {
   request: Request;
@@ -77,6 +89,7 @@ export async function runStatusReportMutation<T>(input: {
 }): Promise<Response> {
   const { request, context, routeKey, body, work } = input;
   try {
+    let revalidatePaths: readonly string[] = [];
     const result = await executeIdempotent({
       request,
       principalKey: context.principalKey,
@@ -85,6 +98,7 @@ export async function runStatusReportMutation<T>(input: {
       work: async (idempotencyContext) => idempotencyContext.transaction(async (tx) => {
         try {
           const outcome = await work(tx, idempotencyContext);
+          revalidatePaths = outcome.revalidatePaths ?? [];
           return { status: outcome.status, body: objectEnvelope(outcome.kind, outcome.data, context.requestId) };
         } catch (error) {
           if (error instanceof StatusReportError) return storedStatusReportError(error, context.requestId);
@@ -92,6 +106,13 @@ export async function runStatusReportMutation<T>(input: {
         }
       }),
     });
+    // Flush revalidation only after the mutation and the idempotency
+    // completion commit, and only for a fresh mutation. A StatusReportError
+    // left revalidatePaths empty, and a replayed response was already
+    // revalidated by the original run, so both revalidate nothing.
+    if (!result.replayed) {
+      for (const path of revalidatePaths) revalidatePath(path);
+    }
     return apiJson(result.body, { status: result.status });
   } catch (error) {
     return statusReportRouteError(error, context.requestId);
@@ -101,10 +122,14 @@ export async function runStatusReportMutation<T>(input: {
 /**
  * Report mutations invalidate the public status page, the report's
  * permalink, and the group pages of the affected monitors so updates appear
- * immediately instead of at the 30 s ISR boundary.
+ * immediately instead of at the 30 s ISR boundary. This collects those paths.
+ * The revalidatePath calls run in runStatusReportMutation AFTER the mutation
+ * and the idempotency completion commit, so a public visit in that window
+ * never regenerates from the pre-commit snapshot and caches it for the ISR
+ * window.
  *
  * Group pages match a report by monitor id OR live group name, so beyond the
- * snapshotted group names we also revalidate the CURRENT registry groups of
+ * snapshotted group names we also collect the CURRENT registry groups of
  * every monitor that is (or was) affected: the union of the post-patch
  * affected set and the caller-supplied pre-patch rows (one findMonitors
  * query, best-effort), so a monitor that was REMOVED from the affected set
@@ -119,16 +144,15 @@ export async function runStatusReportMutation<T>(input: {
  * queuing for a fresh one, which would deadlock the pool once 5 mutations
  * are in flight at once.
  */
-export async function revalidateStatusReportPaths(
+export async function collectStatusReportPaths(
   report: {
     id: string;
     affected: ReadonlyArray<{ monitorId: string; groupName: string | null }>;
   },
   previousAffected: ReadonlyArray<{ monitorId: string; groupName: string | null }> = [],
   store: Pick<StatusReportsStore, "findMonitors"> = databaseStatusReportsStore,
-): Promise<void> {
-  revalidatePath("/status");
-  revalidatePath(`/status/reports/${report.id}`);
+): Promise<string[]> {
+  const paths = ["/status", `/status/reports/${report.id}`];
   const combined = [...report.affected, ...previousAffected];
   const slugs = new Set(combined.map((entry) => statusGroupSlug(entry.groupName ?? "Other")));
   const monitorIds = [...new Set(combined.map((entry) => entry.monitorId))];
@@ -137,11 +161,12 @@ export async function revalidateStatusReportPaths(
       const live = await store.findMonitors(monitorIds);
       for (const monitor of live) slugs.add(statusGroupSlug(monitor.groupName ?? "Other"));
     } catch {
-      // Revalidation is best-effort. The snapshot slugs above still ran and
-      // the 30 s ISR window bounds any staleness.
+      // Path collection is best-effort. The snapshot slugs above are still
+      // returned and the 30 s ISR window bounds any staleness.
     }
   }
   for (const slug of slugs) {
-    if (slug) revalidatePath(`/status/${slug}`);
+    if (slug) paths.push(`/status/${slug}`);
   }
+  return paths;
 }

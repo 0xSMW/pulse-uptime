@@ -1,7 +1,7 @@
 import { apiError, apiJson, listEnvelope } from "@/lib/api/envelopes";
 import { authorize, isApiResponse } from "@/lib/api/middleware";
 import { pageLimit } from "@/lib/api/pagination";
-import { revalidateStatusReportPaths, runStatusReportMutation, statusReportRouteError } from "@/lib/api/status-report-http";
+import { collectStatusReportPaths, runStatusReportMutation, statusReportRouteError } from "@/lib/api/status-report-http";
 import { createDatabaseStatusReportsStore, createStatusReport, listStatusReportSummaries, parseStatusReportListQuery } from "@/lib/api/status-reports";
 
 export async function GET(request: Request) {
@@ -41,8 +41,8 @@ export async function POST(request: Request) {
     work: async (tx, { operationId }) => {
       const store = createDatabaseStatusReportsStore(tx);
       const report = await createStatusReport(body, { reportId: operationId, store });
-      await revalidateStatusReportPaths(report, [], store);
-      return { status: 201, kind: "StatusReport", data: report };
+      const revalidatePaths = await collectStatusReportPaths(report, [], store);
+      return { status: 201, kind: "StatusReport", data: report, revalidatePaths };
     },
   });
 }

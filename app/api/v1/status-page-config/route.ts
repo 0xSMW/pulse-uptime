@@ -91,12 +91,6 @@ export async function PUT(request: Request) {
       work: async ({ transaction }) => transaction(async (tx) => {
         try {
           const { data } = await putStatusPageConfig(body, ifMatch, { handle: tx });
-          // Branding (logo, favicon, custom CSS, announcement banner, nav
-          // links) is rendered by every public status route, including
-          // report permalinks, so a layout-level revalidation is the cleaner
-          // match for Next 15 semantics here than enumerating each surface
-          // the way report mutations do in revalidateStatusReportPaths.
-          revalidatePath("/status", "layout");
           return { status: 200, body: data };
         } catch (error) {
           if (error instanceof StatusPageConfigError) return storedConfigError(error, context.requestId);
@@ -106,6 +100,18 @@ export async function PUT(request: Request) {
     });
     if (result.status !== 200) {
       return apiJson(result.body, { status: result.status });
+    }
+    // Revalidate only after the guarded write and the idempotency completion
+    // commit, so a public status visit in the window never reads the old
+    // config and caches the stale branding for the ISR window while this PUT
+    // is still uncommitted. A replayed key already revalidated on its
+    // original run, so it skips this. Branding (logo, favicon, custom CSS,
+    // announcement banner, nav links) is rendered by every public status
+    // route, including report permalinks, so a layout-level revalidation is
+    // the cleaner match for Next 15 semantics here than enumerating each
+    // surface the way report mutations do in collectStatusReportPaths.
+    if (!result.replayed) {
+      revalidatePath("/status", "layout");
     }
     // The ETag is derived from the persisted version, not stored separately,
     // so a replayed idempotency key still returns a correct header without
