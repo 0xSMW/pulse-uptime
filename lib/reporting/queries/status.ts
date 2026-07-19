@@ -12,10 +12,7 @@ function failureLabel(statusCode: number | null): string {
   return "Availability check failed";
 }
 
-// Groups a flat, monitor-tagged row list by monitor ID in a single pass,
-// preserving each monitor's relative row order — equivalent to calling
-// `rows.filter((row) => row.monitorId === id)` once per monitor, without the
-// O(monitors × rows) rescans.
+// Groups rows by monitor ID while preserving input order.
 export function groupByMonitorId<T extends { monitorId: string }>(rows: T[]): Map<string, T[]> {
   const grouped = new Map<string, T[]>();
   for (const row of rows) {

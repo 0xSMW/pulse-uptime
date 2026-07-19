@@ -1,18 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 /**
- * FILL_SCHEDULER_GAPS_SQL picks, for a scheduled minute, the accepted config
- * snapshot with the greatest accepted_at <= minute (ties broken by seen_at).
- * The original SQL resolved this per-minute via a correlated subquery:
- *   order by accepted_at desc, seen_at desc limit 1
- * The optimized SQL instead precomputes, once, a winner per distinct
- * accepted_at (row_number() partition by accepted_at order by seen_at desc)
- * and its effective range [accepted_at, next distinct accepted_at), then
- * joins each minute against that range.
- *
- * These two selection strategies are modeled here in plain TypeScript and
- * checked for equivalence across boundary-rich synthetic datasets, since no
- * live database is available in this environment to execute the SQL itself.
+ * Ranges based on acceptedAt must select the same snapshot as ordering eligible
+ * snapshots by acceptedAt and seenAt for each minute.
  */
 
 interface Snapshot {

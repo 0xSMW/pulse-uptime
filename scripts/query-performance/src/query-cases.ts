@@ -1,21 +1,6 @@
-// The stable, named inventory of query cases this harness benchmarks.
-//
-// Each case's SQL/param shape is reconstructed from the real production
-// query path it names (file:line-ish description in `source`) using the
-// same drizzle-orm query builders and the same schema — NOT by importing
-// lib/reporting/**, lib/monitoring/**, etc. directly, because several of
-// those modules import "@/lib/db/client", which opens a
-// `postgres(process.env.DATABASE_URL!, ...)` connection as an import-time
-// side effect. This module (and everything under scripts/query-performance)
-// must never construct a connection from ambient env vars — see
-// local-state.ts / db-connection.ts — so it only imports side-effect-free
-// modules (the schema, and the literal SQL string constants in
-// lib/storage/sql.ts and lib/notifications/sql.ts) and re-expresses the rest
-// as equivalent drizzle queries bound to the gated connection.
-//
-// `excludedQueries` documents real query paths that were deliberately left
-// out of the benchmark set, with why — so the inventory reads as complete
-// coverage of the codebase's query surface, not just "the easy half".
+// Defines the benchmark query inventory. Production queries are reconstructed
+// with the shared schema and gated connection. Modules that connect during
+// import are avoided. Excluded paths are documented in `excludedQueries`.
 
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, sql as dsql } from "drizzle-orm";
 
@@ -33,7 +18,7 @@ export interface QueryCase {
   name: string;
   description: string;
   source: string;
-  /** Runs the case body inside a transaction that always rolls back, so cases that mutate data leave the fixture untouched. */
+  /** Runs mutating cases in a transaction that always rolls back. */
   mutating: boolean;
   build: (conn: GatedConnection, ctx: SampleContext) => ResolvedQuery;
 }
@@ -129,14 +114,8 @@ export const queryCases: QueryCase[] = [
       .limit(1)),
   },
   ...(["15m", "hour", "day"] as const).flatMap((resolution) => {
-    // Windows here are the actual SQL scan width `rollupsFor()` issues per
-    // resolution (lib/reporting/queries/monitors.ts:131-134), not the
-    // product-facing display window. For "15m" those differ: getMonitorDetail
-    // fetches a 7-day superset in one query and re-derives the 24h view
-    // in-memory via selectRecentRollupWindow (monitors.ts:148) instead of
-    // issuing a second, narrower 24h query — so the 15m case's benchmarked
-    // window is 7d, matching the real scan size, even though the product
-    // surface it feeds is labeled "24h".
+    // Scan windows match production. The 15m query scans seven days before
+    // deriving the 24h view from those results.
     const windowsByResolution: Record<typeof resolution, { label: string; durationMs: number }> = {
       "15m": { label: "7d", durationMs: 7 * 86_400_000 },
       hour: { label: "30d", durationMs: 30 * 86_400_000 },

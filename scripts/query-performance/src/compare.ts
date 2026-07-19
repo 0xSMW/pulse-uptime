@@ -1,8 +1,5 @@
-// Deterministic comparison between two benchmark artifacts (baseline vs.
-// candidate). Uses the median across repeats — not the mean — so a single GC
-// pause or cold-cache blip in one sample can't flip a verdict. Thresholds are
-// intentionally conservative (percentage AND absolute floor) so trivial
-// sub-millisecond queries don't generate noise-driven regressions.
+// Compare benchmark artifacts using median samples. Percentage regressions
+// must also exceed an absolute threshold.
 
 import type { Artifact } from "./artifact";
 import type { ExplainSample, QueryCaseResult } from "./explain";
@@ -64,17 +61,11 @@ export interface ComparisonReport {
   thresholds: Thresholds;
   cases: CaseComparison[];
   hasRegression: boolean;
-  // A case present in the baseline but absent from the candidate — a query
-  // was removed or renamed without anyone noticing. Always a failure.
+  // True when a baseline case is missing from the candidate.
   hasMissingCases: boolean;
-  // A case whose root row count changed between baseline and candidate —
-  // the candidate may no longer be returning equivalent results. Always a
-  // failure; the caller should look at each case's `rowCountChanged` flag
-  // and verify manually before trusting the new query.
+  // True when a root row count differs between artifacts.
   hasRowCountChanges: boolean;
-  // True only when none of the above are true. Prefer this over
-  // re-deriving the same OR across hasRegression / hasMissingCases /
-  // hasRowCountChanges at call sites.
+  // True when no regression, missing candidate case, or row count change exists.
   passed: boolean;
 }
 
@@ -119,12 +110,7 @@ function compareCase(
   const reasons: string[] = [];
   let regressed = false;
   const absoluteTimeDeltaMs = candidate.executionTimeMs - baseline.executionTimeMs;
-  // Unlike sharedReadBlocks, a zero baseline here is not a realistic case
-  // worth special-casing: Postgres's "Execution Time" in EXPLAIN (ANALYZE)
-  // output is a wall-clock measurement with sub-millisecond floating-point
-  // precision, so a real median across repeats is never exactly 0 — there
-  // is no equivalent "fully warm, zero cost" state for elapsed time the way
-  // there is for shared buffer reads.
+  // A zero baseline time returns zero for another zero and no percentage otherwise.
   if (
     executionTimeDeltaPct !== null &&
     executionTimeDeltaPct > thresholds.timeRegressionPct &&
@@ -136,11 +122,7 @@ function compareCase(
     );
   }
   const absoluteBufferDelta = candidate.sharedReadBlocks - baseline.sharedReadBlocks;
-  // pctDelta(0, N) is null for any N > 0 — a percentage regression is
-  // undefined when the baseline did zero shared reads (fully warm cache).
-  // Without this branch a baseline of 0 and a candidate of hundreds of
-  // blocks would pass silently because bufferReadDeltaPct !== null never
-  // holds. Fall back to an absolute-blocks comparison in that case.
+  // Compare candidate reads to the absolute threshold when baseline reads are zero.
   const zeroBaselineBufferRegression =
     baseline.sharedReadBlocks === 0 && candidate.sharedReadBlocks > thresholds.minAbsoluteBlocks;
   if (
@@ -176,8 +158,7 @@ export function compareArtifacts(
 
   const cases = names.map((name) => compareCase(name, baselineByName.get(name), candidateByName.get(name), thresholds));
   const hasRegression = cases.some((entry) => entry.verdict === "regressed");
-  // Deliberately excludes "missing-in-baseline" (a case newly added in the
-  // candidate) — that's expected growth, not a failure.
+  // Candidate-only cases are allowed.
   const hasMissingCases = cases.some((entry) => entry.verdict === "missing-in-candidate");
   const hasRowCountChanges = cases.some((entry) => entry.rowCountChanged);
   return {

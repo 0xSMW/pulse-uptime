@@ -32,9 +32,7 @@ function fakeConn(): { conn: GatedConnection; log: LogEntry[] } {
     },
   };
 
-  // Mirrors the sql client's dual calling convention used in fixtures.ts:
-  // tagged-template calls for the marker delete/insert, `.unsafe(...)` for
-  // the marker table's create-if-not-exists statement.
+  // Supports tagged SQL calls and unsafe statements used by the fixture helpers.
   const sql = ((strings: TemplateStringsArray) => {
     const text = strings.join("?");
     if (text.includes('delete from "_query_perf_fixture"')) {
@@ -75,14 +73,9 @@ describe("seedFixture marker invalidation sequencing", () => {
 
     expect(deleteMarkerIndex).toBeGreaterThanOrEqual(0);
     expect(insertMarkerIndex).toBeGreaterThanOrEqual(0);
-    // The marker must be gone before resetFixtureData deletes a single
-    // fixture-owned row, and before the first replacement row is written --
-    // otherwise a crash mid-reseed leaves a marker that still claims the old
-    // (now partially-deleted or partially-rewritten) cardinalities are valid.
+    // The marker must be invalidated before fixture data changes.
     expect(deleteMarkerIndex).toBeLessThan(firstResetDeleteIndex);
     expect(deleteMarkerIndex).toBeLessThan(firstInsertIndex);
-    // The marker can only reappear as the very last thing seedFixture does,
-    // once every seed insert above it in the log has already succeeded.
     expect(insertMarkerIndex).toBe(log.length - 1);
   });
 });
@@ -97,7 +90,6 @@ describe("resetFixture marker invalidation sequencing", () => {
 
     expect(deleteMarkerIndex).toBeGreaterThanOrEqual(0);
     expect(deleteMarkerIndex).toBeLessThan(firstResetDeleteIndex);
-    // resetFixture never re-inserts the marker.
     expect(log.some((entry) => entry.type === "insert-marker")).toBe(false);
   });
 });

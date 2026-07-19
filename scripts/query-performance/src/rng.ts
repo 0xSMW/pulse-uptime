@@ -1,6 +1,5 @@
-// Deterministic PRNG so fixture data has stable, reproducible shape (state
-// distributions, latencies, etc.) across reseeds. Not cryptographic — purely
-// for repeatable-looking synthetic data.
+// Deterministic PRNG for reproducible synthetic fixture data.
+// Do not use for cryptographic operations.
 
 export function mulberry32(seed: number): () => number {
   let state = seed >>> 0;

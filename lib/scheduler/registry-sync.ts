@@ -12,11 +12,11 @@ import { targetFor, transitionLifecycle } from "./lifecycle";
 export type DbTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 export type RegistrySyncMode = {
-  // Runtime records configuration/pause/resume exceptions for the notification
-  // pipeline; the API path does not.
+  // Runtime records configuration, pause, and resume notification exceptions.
+  // The API path skips them.
   trackExceptions: boolean;
-  // Runtime asserts that resolving an incident actually affected a row; the
-  // API path tolerates a no-op update.
+  // Runtime requires incident resolution to update one row.
+  // The API path permits a no-op.
   assertIncidentResolution: boolean;
 };
 

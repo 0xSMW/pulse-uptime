@@ -72,16 +72,14 @@ describe("database health repository", () => {
   it("short-circuits on a cold start without querying retention ages", async () => {
     unsafe.mockResolvedValueOnce([]);
     await expect(databaseHealthRepository.readLatest()).resolves.toBeNull();
-    // The snapshot and retention reads are not parallelized: with no snapshot yet,
-    // the retention query must never run as a second, unnecessary round trip.
+    // A missing snapshot skips the retention query.
     expect(unsafe).toHaveBeenCalledTimes(1);
   });
 
   it("rejects an invalid persisted capture timestamp", async () => {
     unsafe.mockResolvedValueOnce([{ ...snapshot, captured_at: "not-a-date" }]);
     await expect(databaseHealthRepository.readLatest()).rejects.toThrow("Invalid database usage snapshot timestamp");
-    // Validation happens before the retention read, so a bad timestamp never
-    // triggers that second, now-wasted round trip.
+    // An invalid timestamp skips the retention query.
     expect(unsafe).toHaveBeenCalledTimes(1);
   });
 

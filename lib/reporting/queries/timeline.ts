@@ -41,11 +41,8 @@ function bucketIndexFor(timestamp: number, startMs: number, width: number, bucke
   return index >= 0 && index < bucketCount ? index : null;
 }
 
-// Math.floor((timestamp - start) / width) only lands on the same bucket as the
-// original per-bucket `timestamp >= bucketStart && timestamp < bucketEnd` filter
-// when width is an integer — non-integer widths accumulate floating-point drift
-// across `startMs + index * width` that the single division doesn't see. Fall
-// back to the exact filter-per-bucket semantics whenever width isn't an integer.
+// Integer widths permit direct bucket indexing. Non-integer widths can accumulate
+// floating-point drift and therefore use exact range filtering.
 function assignToBuckets<T>(rows: T[], bucketCount: number, startMs: number, width: number, timestampOf: (row: T) => number): T[][] {
   if (Number.isInteger(width)) {
     const buckets: T[][] = Array.from({ length: bucketCount }, () => []);

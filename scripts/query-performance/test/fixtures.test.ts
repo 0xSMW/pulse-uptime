@@ -67,9 +67,7 @@ describe("insertMaintenanceAndScheduler", () => {
     const checkBatchInserts = inserts.filter((entry) => entry.table === schema.checkBatches);
     const commitInserts = inserts.filter((entry) => entry.table === schema.atomicMinuteCommits);
 
-    // 60 rows is well under the chunk size, so a correctly batched
-    // implementation issues exactly one insert call per table -- not 60
-    // serial per-minute round trips (the regression this test guards against).
+    // Sixty rows fit in one chunk, so each table requires one insert.
     expect(checkBatchInserts.length).toBe(1);
     expect(commitInserts.length).toBe(1);
   });
@@ -95,8 +93,8 @@ describe("CHUNK_SIZE parameter budget", () => {
   it("keeps a full chunk of the widest fixture row (metric_rollups) under the Postgres per-statement bind-parameter limit", () => {
     const metricRollupColumnCount = Object.keys(getTableColumns(schema.metricRollups)).length;
 
-    // Every other fixture table has fewer columns than metric_rollups, so
-    // clearing this table's bind count with margin clears all of them.
+    // Metric rollups are the widest fixture rows, so their parameter budget
+    // covers every other fixture table.
     const widestOtherTableColumnCount = Math.max(
       ...[
         schema.monitorRegistry,

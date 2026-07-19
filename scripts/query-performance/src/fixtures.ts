@@ -1,10 +1,5 @@
-// Builds and tears down the tagged representative fixture: 100 monitors plus
-// the state/check/rollup/incident/outbox/config/auth/maintenance data that
-// exercises the query inventory in query-cases.ts. Every row this module
-// writes is namespaced under the "qh-" fixture tag (see fixture-constants.ts)
-// so reset() only ever touches fixture-owned data, and verify-state.ts can
-// prove the temp project holds exactly the cardinalities recorded here — no
-// more, no less.
+// Build and reset a tagged 100-monitor fixture for the benchmark inventory.
+// Every inserted row has an ownership predicate for reset and verification.
 
 import { randomUUID, randomBytes } from "node:crypto";
 import { sql as dsql } from "drizzle-orm";
@@ -23,25 +18,19 @@ import {
   type FixtureCardinalities,
 } from "./fixture-constants";
 
-const SEED = 0x51485f31; // 'QH_1' — fixed so fixture shape is reproducible.
+const SEED = 0x51485f31; // Fixed seed for reproducible fixture shape.
 const NOW = new Date();
 
 const CHECK_INTERVAL_MINUTES = 1;
 const CHECK_HISTORY_HOURS = 6;
-// getMonitorDetail's rollupsFor('15m', ...) call scans a 7-day window
-// (query-cases.ts's monitor-detail-rollups-7d case); 8 days gives that
-// production window a full day of margin so the query's end boundary — which
-// tracks the current completed 15m bucket, not the fixture's fixed seed-time
-// bucket — never truncates the 7-day scan against seeded rows.
+// Eight days cover the seven-day production scan with one day of margin.
 const ROLLUP_15M_DAYS = 8;
 const ROLLUP_HOUR_DAYS = 31;
 const ROLLUP_DAY_DAYS = 91;
 const DAILY_ROLLUP_DAYS = 30;
 const SCHEDULER_BATCH_MINUTES = 60;
-// metric_rollups is the widest fixture row at 18 columns, so 2,500 rows per
-// insert binds 45,000 parameters -- comfortably under Postgres's 65,535
-// per-statement limit while keeping insert-call counts low for the wider
-// tables (see fixture-constants.test.ts for the budget assertion).
+// The widest rows bind 18 parameters each. A 2,500-row chunk binds 45,000
+// within Postgres's 65,535 parameter limit.
 export const CHUNK_SIZE = 2_500;
 
 function chunk<T>(items: T[], size: number): T[][] {
@@ -79,7 +68,7 @@ function buildMonitorPlan(): MonitorPlan[] {
   const states: MonitorPlan["state"][] = monitorStateDistribution.flatMap((entry) =>
     Array.from({ length: entry.count }, () => entry.state)
   );
-  // Deterministic shuffle so state assignment doesn't correlate with index order.
+  // Shuffle deterministically to separate state assignment from monitor order.
   for (let index = states.length - 1; index > 0; index -= 1) {
     const swap = Math.floor(rand() * (index + 1));
     [states[index], states[swap]] = [states[swap]!, states[index]!];
@@ -101,16 +90,8 @@ function buildMonitorPlan(): MonitorPlan[] {
 
 async function resetFixtureData(conn: GatedConnection): Promise<void> {
   const { db } = conn;
-  // Deletion order respects FK dependencies (no cascades except
-  // atomic_minute_commits -> check_batches, which we still delete explicitly
-  // for clarity and to keep this correct if that cascade is ever removed).
-  //
-  // exception_payloads rows are exclusively linked from
-  // monitor_exceptions.payload_id (nullable, ON DELETE SET NULL) -- there's
-  // no tag column on the payload row itself, so scope the delete to payloads
-  // still referenced by a fixture-tagged monitor_exceptions row. This must
-  // run before the monitor_exceptions delete two lines down, while that link
-  // still exists to scope on.
+  // Delete child rows before parent rows, including rows covered by cascades.
+  // Delete payloads while tagged exceptions still establish ownership.
   await db.delete(schema.exceptionPayloads).where(
     dsql`${schema.exceptionPayloads.id} in (
       select payload_id from monitor_exceptions
@@ -124,13 +105,8 @@ async function resetFixtureData(conn: GatedConnection): Promise<void> {
   await db.delete(schema.metricRollups).where(dsql`${schema.metricRollups.monitorId} like 'qh-%'`);
   await db.delete(schema.dailyRollups).where(dsql`${schema.dailyRollups.monitorId} like 'qh-%'`);
   await db.delete(schema.monitorState).where(dsql`${schema.monitorState.monitorId} like 'qh-%'`);
-  // check_batches/atomic_minute_commits have no monitor_id column, but
-  // check_batches.monitor_ids is populated exclusively with this fixture's
-  // "qh-" ids (see insertMaintenanceAndScheduler below) -- a real batch would
-  // never contain one, so "at least one qh-tagged id in the array" is an
-  // ownership predicate the seeder guarantees. atomic_minute_commits has no
-  // tag of its own, so it's scoped by joining back to the still-intact
-  // check_batches rows before they're deleted on the next line.
+  // Tagged monitor IDs establish batch ownership. Commit ownership comes from
+  // the associated owned batch, so commits are deleted first.
   await db.delete(schema.atomicMinuteCommits).where(
     dsql`${schema.atomicMinuteCommits.scheduledMinute} in (
       select scheduled_minute from check_batches
@@ -147,15 +123,8 @@ async function resetFixtureData(conn: GatedConnection): Promise<void> {
   await db.delete(schema.configOperations).where(dsql`${schema.configOperations.principalKey} = 'qh-fixture'`);
   await db.delete(schema.cronRuns).where(dsql`${schema.cronRuns.jobName} like 'qh-%'`);
   await db.delete(schema.jobLeases).where(dsql`${schema.jobLeases.name} like 'qh-%'`);
-  // database_usage_snapshots has no monitor/tag column at all -- its PK is
-  // just a captured_at timestamp, so a time-window scope would miss rows
-  // from an earlier seed run's different wall-clock NOW on a plain reset
-  // (no reseed). Instead scope on the exact deterministic signature
-  // insertMaintenanceAndScheduler always writes: governor_mode pinned to
-  // "full", scheduler_coverage pinned to the literal "0.9950", and
-  // storage_bytes on the fixture's fixed arithmetic progression (starts at
-  // 500,000,000, steps by 2,000,000). Real usage snapshots landing on all
-  // three simultaneously is not realistically possible.
+  // Usage snapshot ownership uses its deterministic signature: full mode,
+  // 0.9950 coverage, and storage starting at 500,000,000 in 2,000,000 increments.
   await db.delete(schema.databaseUsageSnapshots).where(
     dsql`${schema.databaseUsageSnapshots.governorMode} = 'full'
       and ${schema.databaseUsageSnapshots.schedulerCoverage} = '0.9950'
@@ -590,9 +559,8 @@ export async function insertMaintenanceAndScheduler(conn: GatedConnection, plan:
       committedAt: new Date(scheduledMinute.getTime() + 3_500),
     });
   }
-  // atomic_minute_commits.scheduled_minute FKs to check_batches, so the batch
-  // rows must land first — but each table still gets its own chunked insert
-  // pass rather than one round trip per minute.
+  // Insert batches before commits to satisfy the `scheduled_minute` foreign key.
+  // Insert each table in chunks.
   for (const rows of chunk(checkBatchRows, CHUNK_SIZE)) await db.insert(schema.checkBatches).values(rows);
   for (const rows of chunk(commitRows, CHUNK_SIZE)) await db.insert(schema.atomicMinuteCommits).values(rows);
   const checkBatchCount = checkBatchRows.length;
@@ -647,9 +615,7 @@ async function insertExceptionsAndAuth(conn: GatedConnection, plan: MonitorPlan[
   }));
   if (exceptionRows.length > 0) await db.insert(schema.monitorExceptions).values(exceptionRows);
 
-  // Auth/CLI fixture principals: digests are random bytes with no
-  // corresponding plaintext anywhere, so these can never authenticate as any
-  // real account even though they satisfy the schema's NOT NULL/UNIQUE shape.
+  // Random digests have no plaintext credential and cannot authenticate.
   const adminIds = [randomUUID(), randomUUID()];
   await db.insert(schema.adminUsers).values(adminIds.map((id, index) => ({
     id,
@@ -784,11 +750,8 @@ create table if not exists "_query_perf_fixture" (
 )
 `;
 
-// Deletes the fixture marker row so a reset/reseed that dies partway through
-// can never be mistaken for a valid, fully-written fixture: both seedFixture
-// and resetFixture call this before touching any fixture-owned table, and
-// seedFixture only re-inserts the marker once every seed write below has
-// succeeded.
+// Remove the marker before reset or seed writes. Restore it only after a
+// complete seed so partial fixtures cannot pass validation.
 export async function deleteFixtureMarker(conn: GatedConnection): Promise<void> {
   await conn.sql`delete from "_query_perf_fixture" where tag = ${"qh-fixture"}`;
 }
@@ -835,12 +798,8 @@ export async function seedFixture(conn: GatedConnection): Promise<FixtureCardina
     api_rate_limit_buckets: 1,
   };
 
-  // conn.sql and conn.db share one underlying postgres.js client, and
-  // drizzle() rewires that client's jsonb serializer to a passthrough (it
-  // pre-stringifies jsonb values itself before binding params). That makes
-  // conn.sql.json(...) -- which relies on the default JSON.stringify
-  // serializer -- hand a raw object to the wire protocol and crash. Stringify
-  // here and cast explicitly instead of relying on that serializer.
+  // Drizzle configures the shared client for pre-serialized JSONB values.
+  // Raw SQL must stringify cardinalities and cast them to JSONB.
   await conn.sql`
     insert into "_query_perf_fixture" (tag, version, cardinalities)
     values (${"qh-fixture"}, ${FIXTURE_VERSION}, ${JSON.stringify(cardinalities)}::jsonb)

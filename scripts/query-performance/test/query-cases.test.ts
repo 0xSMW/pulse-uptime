@@ -1,9 +1,5 @@
-// Fidelity checks for the A10/A11 corrections: source pointers must name the
-// real production module, and the dashboard/monitor-detail cases must
-// reconstruct the same joins and scan windows production actually issues.
-// Builds queries against a lazy, deliberately-unroutable postgres client —
-// `.toSQL()` performs no I/O, matching the zero-network-access convention
-// already used by src/validate.ts.
+// Verify benchmark cases match production sources, joins, and scan windows.
+// Query construction uses an unroutable lazy client without network I/O.
 
 import { describe, expect, it } from "vitest";
 import postgres from "postgres";
@@ -49,15 +45,14 @@ function findCase(name: string) {
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
-// The postgres-js driver serializes bound Date params to ISO strings before
-// they ever reach ResolvedQuery.params, so date-window assertions must parse
-// strings rather than expect Date instances.
+// postgres.js serializes Date parameters before they enter `ResolvedQuery.params`.
+// Window assertions parse the resulting ISO strings.
 function dateParams(params: unknown[]): Date[] {
   return params.filter((param): param is string => typeof param === "string" && ISO_DATE.test(param)).map((param) => new Date(param));
 }
 
-describe("dashboard-monitors-uptime24h / command-palette-monitors source pointers (A10)", () => {
-  it("point at lib/monitoring/queries.ts, not lib/reporting/queries/status.ts", () => {
+describe("dashboard monitor query sources", () => {
+  it("references production monitoring queries", () => {
     expect(findCase("dashboard-monitors-uptime24h").source).toMatch(/^lib\/monitoring\/queries\.ts/);
     expect(findCase("command-palette-monitors").source).toMatch(/^lib\/monitoring\/queries\.ts/);
     expect(findCase("dashboard-monitors-uptime24h").source).not.toContain("lib/reporting/queries/status.ts");
@@ -65,35 +60,33 @@ describe("dashboard-monitors-uptime24h / command-palette-monitors source pointer
   });
 });
 
-describe("dashboard-monitors-uptime24h incidents left join (A10)", () => {
-  it("joins incidents the same way lib/monitoring/queries.ts:listDashboardMonitors does", () => {
+describe("dashboard monitor incident join", () => {
+  it("joins only open incidents by monitor", () => {
     const built = findCase("dashboard-monitors-uptime24h").build(fakeConnection(), FAKE_SAMPLE_CONTEXT);
     expect(built.text).toMatch(/left join "incidents"/i);
-    // The join predicate must match production's open-incident-only condition
-    // (monitor_id = registry.id AND resolved_at IS NULL), not an unconditional join.
     expect(built.text).toMatch(/"incidents"\."resolved_at" is null/i);
   });
 
-  it("still selects the blended rollup+raw uptime24h subquery (unchanged by the join fix)", () => {
+  it("selects blended rollup and raw uptime", () => {
     const built = findCase("dashboard-monitors-uptime24h").build(fakeConnection(), FAKE_SAMPLE_CONTEXT);
     expect(built.text).toMatch(/cross join lateral/i);
   });
 });
 
-describe("monitor-detail rollup window naming (A11)", () => {
-  it("names the 15m-resolution case after its real 7-day scan window, not the 24h product view", () => {
+describe("monitor detail rollup windows", () => {
+  it("names the 15m case for its seven day scan window", () => {
     const names = queryCases.map((entry) => entry.name);
     expect(names).toContain("monitor-detail-rollups-7d");
     expect(names).not.toContain("monitor-detail-rollups-24h");
   });
 
-  it("leaves the hour/day-resolution window names as-is (they already match production)", () => {
+  it("names hour and day cases for production windows", () => {
     const names = queryCases.map((entry) => entry.name);
     expect(names).toContain("monitor-detail-rollups-30d");
     expect(names).toContain("monitor-detail-rollups-90d");
   });
 
-  it("builds the 15m case's query over a 7-day span, matching rollupsFor('15m', end15m, 7 * 86_400_000)", () => {
+  it("scans seven days for 15m rollups", () => {
     const built = findCase("monitor-detail-rollups-7d").build(fakeConnection(), FAKE_SAMPLE_CONTEXT);
     const [start, end] = dateParams(built.params);
     expect(start).toBeDefined();
@@ -101,7 +94,7 @@ describe("monitor-detail rollup window naming (A11)", () => {
     expect(end!.getTime() - start!.getTime()).toBe(7 * 86_400_000);
   });
 
-  it("keeps the 30d/90d cases at their existing window widths", () => {
+  it("scans 30 and 90 days for hour and day rollups", () => {
     const thirtyDay = findCase("monitor-detail-rollups-30d").build(fakeConnection(), FAKE_SAMPLE_CONTEXT);
     const [thirtyStart, thirtyEnd] = dateParams(thirtyDay.params);
     expect(thirtyEnd!.getTime() - thirtyStart!.getTime()).toBe(30 * 86_400_000);
@@ -111,7 +104,7 @@ describe("monitor-detail rollup window naming (A11)", () => {
     expect(ninetyEnd!.getTime() - ninetyStart!.getTime()).toBe(90 * 86_400_000);
   });
 
-  it("points the monitor-detail rollup cases at lib/reporting/queries/monitors.ts", () => {
+  it("references production monitor reporting queries", () => {
     for (const name of ["monitor-detail-rollups-7d", "monitor-detail-rollups-30d", "monitor-detail-rollups-90d"]) {
       expect(findCase(name).source).toMatch(/^lib\/reporting\/queries\/monitors\.ts/);
     }
@@ -119,7 +112,7 @@ describe("monitor-detail rollup window naming (A11)", () => {
 });
 
 describe("query case inventory", () => {
-  it("has no duplicate names after the rename", () => {
+  it("uses unique names", () => {
     const names = queryCases.map((entry) => entry.name);
     expect(new Set(names).size).toBe(names.length);
   });

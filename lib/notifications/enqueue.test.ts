@@ -105,12 +105,12 @@ describe("incident notification enqueue", () => {
     const [text, values] = query.mock.calls[0]!;
     expect(text).toBe(buildEnqueueNotificationSql(4));
     expect(text.match(/on conflict \(idempotency_key\) do nothing/gi)).toHaveLength(1);
-    // each row has 8 distinct placeholders, with the "now" placeholder ($8, $16, ...) reused 3 times.
+    // Each row uses eight values and references its timestamp three times.
     expect(text.match(/\$\d+/g)).toHaveLength(4 * 10);
     expect(values).toHaveLength(4 * 8);
-    // recipient is the 5th column of each 8-column row group.
+    // The fifth value is the recipient.
     expect([values[4], values[12], values[20], values[28]]).toEqual(recipients);
-    // payload is the 7th column of each 8-column row group; each must be a JSON string, not a raw object.
+    // The seventh value is a serialized JSON payload.
     const payloadParams = [values[6], values[14], values[22], values[30]];
     for (const payloadParam of payloadParams) {
       expect(typeof payloadParam).toBe("string");

@@ -21,9 +21,7 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-// Reference implementations: the pre-optimization filter-per-bucket behavior,
-// kept independent of timeline.ts so the equivalence tests below can't be
-// fooled by a shared bug in a shared helper.
+// These independent reference implementations filter rows for each bucket.
 function referenceCheckTimeline(
   rows: CheckAvailability[],
   bucketCount: number,
@@ -268,10 +266,7 @@ describe("buildRollupTimeline", () => {
 });
 
 describe("buildRollupTimeline call-site bucket widths", () => {
-  // The linear bucket-index algorithm assigns each row via
-  // Math.floor((timestamp - start) / width); this is only guaranteed exact
-  // when width is an integer, i.e. durationMs divides evenly by bucketCount.
-  // Every real call site (monitors.ts, status.ts) must hold this invariant.
+  // These cases cover the divisible widths used by current reporting call sites.
   it.each([
     ["monitors 24h", 60, 86_400_000],
     ["monitors 7d", 84, 7 * 86_400_000],
@@ -347,10 +342,7 @@ describe("buildCheckTimeline/buildRollupTimeline equivalence with the reference 
     }));
   }
 
-  // Coprime/irregular (bucketCount, durationMs) pairs guarantee a non-integer
-  // width (durationMs / bucketCount), which is exactly where the linear
-  // bucket-index optimization and the original filter-per-bucket behavior can
-  // diverge under floating-point arithmetic.
+  // Nondivisible cases cover floating-point behavior at bucket boundaries.
   const NON_DIVISIBLE_CASES: Array<[number, number]> = [
     [7, 1_000],
     [3, 100],
@@ -360,8 +352,7 @@ describe("buildCheckTimeline/buildRollupTimeline equivalence with the reference 
     [6, 1],
     [17, 12_345_678],
   ];
-  // Divisible pairs matching real call sites, kept alongside non-divisible
-  // ones so the fast linear-index path stays covered too.
+  // Divisible cases cover direct bucket indexing.
   const DIVISIBLE_CASES: Array<[number, number]> = [
     [60, 86_400_000],
     [84, 7 * 86_400_000],

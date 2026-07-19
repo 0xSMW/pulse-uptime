@@ -1,7 +1,5 @@
-// Executes the full query-case inventory against the pinned temp project and
-// writes a redacted artifact (never a connection string, host, database
-// name, or role — see artifact.ts) to scripts/query-performance/artifacts/,
-// which is gitignored.
+// Runs the query inventory against the pinned temporary project.
+// Writes a redacted artifact to an ignored directory.
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -22,11 +20,7 @@ export interface RunBenchmarkOptions {
   repeatCount: number;
 }
 
-// Pure so it can be unit-tested against fabricated RetainedStateProof shapes
-// without standing up a database connection. runBenchmark refuses to proceed
-// unless this passes -- a benchmark run against unverified, drifted, or
-// partially-reset fixture state produces numbers that look plausible but
-// mean nothing.
+// Rejects benchmark runs when retained state does not match the recorded fixture.
 export function assertBenchmarkableState(proof: RetainedStateProof): void {
   if (proof.fixtureVersion === null) {
     throw new Error("No fixture recorded in this temp project — run seed-fixture before running a benchmark.");
@@ -85,11 +79,7 @@ export async function runBenchmark(options: RunBenchmarkOptions): Promise<{ arti
   return { artifact, artifactPath };
 }
 
-// Number(...) alone accepts 0, negatives, decimals, and coerces empty/
-// whitespace strings to 0 rather than NaN — any of those would silently
-// produce zero-sample runs whose median collapses to 0 in the comparator,
-// making a broken run look impossibly fast. Reject anything that isn't a
-// positive integer before a DB connection is ever opened.
+// Accepts only positive integer sample counts.
 function parsePositiveInt(raw: string | undefined, flagName: string, fallback: number): number {
   if (raw === undefined) return fallback;
   const parsed = Number(raw);

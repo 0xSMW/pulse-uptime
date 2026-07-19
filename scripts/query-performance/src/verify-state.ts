@@ -1,10 +1,5 @@
-// Retained-state verification: proves the pinned temp project (a) really is
-// the project we think it is, (b) holds the tagged fixture at the
-// cardinalities recorded at seed time — not zero, not silently drifted —
-// and (c) every fixture row lives under the "qh-" tag, so a reset can never
-// leave orphaned rows behind. Run after seed-fixture, or any time you want to
-// confirm the temp project's state before trusting a benchmark run against
-// it.
+// Verifies project identity, fixture cardinalities, and tag scope before benchmark
+// results are trusted.
 
 import { withConnection } from "./db-connection";
 import { FIXTURE_VERSION, MONITOR_COUNT } from "./fixture-constants";
@@ -68,11 +63,8 @@ export interface RetainedStateProof {
 
 export async function verifyRetainedState(): Promise<RetainedStateProof> {
   return withConnection(async (conn) => {
-    // conn.sql shares its underlying postgres.js client with conn.db, and
-    // drizzle() rewires that client's timestamptz parser (oid 1184) to a
-    // passthrough so it can apply its own date parsing on the drizzle query
-    // path -- so a raw conn.sql query gets seeded_at back as a wire-format
-    // string, not a parsed Date. Read it as a string and parse it ourselves.
+    // Drizzle installs its timestamp parser on the shared client. Raw timestamps
+    // are read as strings and parsed locally.
     const [marker] = await conn.sql<Array<{ version: number; seeded_at: string; cardinalities: FixtureCardinalities }>>`
       select version, seeded_at, cardinalities from "_query_perf_fixture" where tag = 'qh-fixture'
     `;

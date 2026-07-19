@@ -1,15 +1,8 @@
-// Shared constants describing the tagged fixture. Every identifier the
-// fixture creates is namespaced under "qh-" (or the ".invalid"/".pulse-query-
-// hillclimb.invalid" fixture domains below) so it can be selected, reset, and
-// verified without touching anything else that might exist in the temp
-// project, and so nothing here can ever be mistaken for a real account,
-// domain, or token.
+// Fixture identifiers use the `qh-` namespace and reserved invalid domains.
+// Reset and validation queries remain scoped to synthetic data.
 
 export const FIXTURE_TAG = "qh";
-// Bump whenever a fixtures.ts change alters seeded row shape or cardinality
-// (e.g. v2: ROLLUP_15M_DAYS 2 -> 8 to match production's 7-day monitor-detail
-// rollup window) so a stale, differently-shaped fixture is rejected by
-// run-benchmark's version check instead of silently benchmarked against.
+// Increase when seeded shape or cardinality changes so retained fixtures are rejected.
 export const FIXTURE_VERSION = 2;
 export const MONITOR_COUNT = 100;
 export const FIXTURE_EMAIL_DOMAIN = "qh-fixture.pulse-query-hillclimb.invalid";

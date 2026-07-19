@@ -10,8 +10,7 @@ import { digestBearerToken } from "./tokens";
 
 beforeEach(() => {
   vi.stubEnv("API_TOKEN_HASH_KEY", "test-key-with-at-least-32-characters");
-  // Mirrors production outside a request scope: `after()` throws synchronously,
-  // so resolvePrincipal falls back to awaiting the touch inline.
+  // Outside request scope, `after()` throws and the touch runs inline.
   afterMock.mockReset().mockImplementation(() => {
     throw new Error("`after` was called outside a request scope.");
   });
@@ -111,8 +110,7 @@ describe("principal touch deferral", () => {
       headers: { Authorization: "Bearer pulse_live_secret" },
     }), { store: principalStore, now: () => now });
 
-    // The principal is returned even though the touch promise above never resolved:
-    // resolution did not wait on it, only on `after()` registering the callback.
+    // Principal resolution only registers the deferred touch callback.
     expect(principal).toEqual(apiToken);
     expect(afterMock).toHaveBeenCalledTimes(1);
     expect(touchApiToken).not.toHaveBeenCalled();
@@ -176,7 +174,6 @@ describe("principal touch deferral", () => {
   });
 
   it("falls back to an inline, awaited touch when after() has no request scope", async () => {
-    // Default beforeEach mock: afterMock throws, matching production outside a request.
     const touchApiToken = vi.fn().mockRejectedValue(new Error("connection reset"));
     const apiToken = {
       type: "api_token" as const,
@@ -191,8 +188,6 @@ describe("principal touch deferral", () => {
       headers: { Authorization: "Bearer pulse_live_secret" },
     }), { store: principalStore })).resolves.toEqual(apiToken);
 
-    // The touch already ran and its rejection was already swallowed inline,
-    // with no deferred callback left pending.
     expect(touchApiToken).toHaveBeenCalled();
   });
 });

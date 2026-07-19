@@ -1,9 +1,6 @@
-// The single place every command gets a live database handle from. Every
-// caller goes through `withConnection`, which loads the connection string
-// exclusively from `.query-performance/` (see local-state.ts) and then
-// verifies the live server actually is the pinned temp project before
-// handing back a client. Nothing in this file, or anything downstream of it,
-// reads DATABASE_URL / DATABASE_URL_UNPOOLED or accepts a URL as an argument.
+// Opens connections from pinned local project state. `withConnection` verifies
+// database identity before returning a client. Ambient database URLs and CLI
+// URL arguments are not accepted.
 
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
@@ -39,9 +36,8 @@ async function verifyIdentity(sql: postgres.Sql, project: TempProjectState): Pro
 }
 
 /**
- * Opens a connection to the pinned temp Neon project, verifies its identity,
- * runs `fn`, and always closes the connection afterward — including on
- * throw, so a failed benchmark run never leaks an open connection.
+ * Opens and verifies the pinned temporary Neon project.
+ * Always closes the connection after `fn` completes or throws.
  */
 export async function withConnection<T>(
   fn: (conn: GatedConnection) => Promise<T>,

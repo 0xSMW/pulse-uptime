@@ -21,18 +21,11 @@ describe("storage maintenance SQL", () => {
   });
 
   it("resolves the accepted config per minute from precomputed effective ranges, not a per-minute lateral order-by", () => {
-    // The accepted-config winner for a given minute must come from a single
-    // window-function pass over monitoring_config_snapshots (computed once),
-    // not a per-minute `order by accepted_at desc, seen_at desc limit 1`
-    // correlated subquery, which re-sorts candidates for every scheduled minute.
     expect(FILL_SCHEDULER_GAPS_SQL).not.toMatch(/order by accepted_at desc, seen_at desc limit 1/);
     expect(FILL_SCHEDULER_GAPS_SQL).toContain("partition by accepted_at order by seen_at desc");
     expect(FILL_SCHEDULER_GAPS_SQL).toContain("lead(accepted_at) over (order by accepted_at) next_accepted_at");
-    // Effective range membership must preserve the original inclusive lower /
-    // exclusive upper boundary: accepted_at <= minute < next_accepted_at.
     expect(FILL_SCHEDULER_GAPS_SQL).toContain("where accepted_at <= minute.scheduled_minute");
     expect(FILL_SCHEDULER_GAPS_SQL).toContain("next_accepted_at is null or minute.scheduled_minute < next_accepted_at");
-    // The per-minute lookup source must be the precomputed ranges, not the raw table.
     expect(FILL_SCHEDULER_GAPS_SQL).toContain("cross join lateral (select config_version, config_json from accepted_ranges");
   });
 

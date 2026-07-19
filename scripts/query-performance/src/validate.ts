@@ -1,16 +1,6 @@
-// Static/dry validation: exercises the query-builder logic (drizzle's
-// `.toSQL()`, the raw SQL constants' placeholder shape, the fixture
-// cardinality bookkeeping) without ever opening a socket. `postgres()`
-// clients are lazy — they don't dial anything until a query actually
-// executes — so binding drizzle to a throwaway, deliberately-unroutable
-// connection string and only ever calling `.toSQL()` on it is enough to
-// prove every query case builds valid SQL text with the right parameter
-// count, with zero network I/O.
-//
-// This also greps this tool's own source for `process.env.DATABASE_URL` as a
-// defense-in-depth check: the safety gate design means nothing here should
-// ever reference the app's env vars, and this keeps that invariant checked
-// mechanically instead of by convention alone.
+// Validates query builders, SQL placeholders, and fixture cardinalities without
+// a network connection. The lazy Postgres client only uses `.toSQL()` against
+// an unroutable address. Ambient database environment access is rejected.
 
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
@@ -76,8 +66,7 @@ export function validateInventoryStatically(): ValidationReport {
     if (!excluded.source.trim()) issues.push({ scope: excluded.name, message: "Excluded query is missing a source pointer." });
   }
 
-  // A lazy client bound to an unroutable address: constructing it and
-  // calling toSQL() performs no I/O, so this loop never dials anywhere.
+  // Build SQL through a lazy client bound to an unroutable address.
   const sql = postgres("postgres://validate:validate@0.0.0.0:1/validate-never-connects", { max: 1 });
   const db = drizzle(sql, { schema });
   const fakeConn: GatedConnection = { project: FAKE_PROJECT_STATE, sql, db };
@@ -108,9 +97,7 @@ export function validateInventoryStatically(): ValidationReport {
 
 const FORBIDDEN_PATTERNS = [/process\.env\.DATABASE_URL/, /process\.env\.PGHOST/, /process\.env\.PGPASSWORD/];
 
-// Strips comments before matching so this check flags actual code usage of
-// the forbidden env vars, not prose (like this file's own header comment)
-// explaining why they must never be used.
+// Strip comments so prose does not trigger forbidden environment checks.
 function stripComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 }

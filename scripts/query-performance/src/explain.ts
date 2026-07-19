@@ -1,7 +1,5 @@
-// Runs each query case through EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) with a
-// warmup pass and N measured repeats, inside a transaction that always rolls
-// back — so a `mutating: true` case (e.g. the outbox claim) never leaves the
-// fixture in a different state between repeats or between benchmark runs.
+// Benchmark each query with EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) using
+// configured warmup and measured repeats. Every transaction rolls back.
 
 import type postgres from "postgres";
 
@@ -41,8 +39,7 @@ export interface QueryCaseResult {
   samples: ExplainSample[];
 }
 
-// A sentinel thrown to force sql.begin() to roll back after EXPLAIN ANALYZE
-// has already executed (and measured) the query's real side effects.
+// Force the benchmark transaction to roll back after EXPLAIN ANALYZE completes.
 class IntentionalRollback extends Error {}
 
 interface RawPlanNode {
@@ -74,13 +71,8 @@ function flattenNodes(node: RawPlanNode, out: PlanNodeSummary[] = []): PlanNodeS
   return out;
 }
 
-// conn.db = drizzle(conn.sql, ...) permanently replaces conn.sql's
-// timestamp/timestamptz/json/jsonb serializers with an identity passthrough
-// (drizzle pre-serializes those types itself before handing values to
-// postgres.js). sql.unsafe() here goes around drizzle entirely, so a raw
-// Date param would be hand to the wire protocol unserialized and crash --
-// stringify it ourselves; Postgres coerces the resulting ISO string against
-// whatever timestamp/timestamptz column or comparison it's bound to.
+// Drizzle configures the shared client for pre-serialized values. Raw
+// `sql.unsafe()` calls bypass Drizzle, so Date parameters use ISO strings.
 function serializeParam(value: unknown): unknown {
   return value instanceof Date ? value.toISOString() : value;
 }
@@ -130,11 +122,7 @@ export async function runQueryCase(
   queryCase: QueryCase,
   options: RunOptions,
 ): Promise<QueryCaseResult> {
-  // A benchmark run needs at least one warmup pass to record in
-  // QueryCaseResult.warmup — reject rather than silently produce a result
-  // with no warmup sample. run-benchmark.ts's parseArgs already enforces
-  // this before a DB connection is opened; this is defense in depth for any
-  // other caller.
+  // Require at least one warmup sample for every benchmark result.
   if (options.warmupCount < 1) {
     throw new Error(`warmupCount must be >= 1 (got ${options.warmupCount}).`);
   }

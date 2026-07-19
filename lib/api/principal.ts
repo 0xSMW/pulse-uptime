@@ -212,14 +212,13 @@ export const databasePrincipalStore: PrincipalStore = {
   },
 };
 
-// Off the render/response critical path; the touch is best-effort and its
-// timing has no readers that need it to be settled before the caller proceeds.
+// Touches are best-effort and run outside the response path.
 function deferTouch(touch: () => Promise<void>): Promise<void> {
   try {
     after(() => safeTouch(touch));
     return Promise.resolve();
   } catch {
-    // after() requires a request scope; direct callers (tests) update inline.
+    // after() requires a request scope. Direct callers update inline.
     return safeTouch(touch);
   }
 }

@@ -1,9 +1,5 @@
-// Applies the repository's real drizzle/*.sql migrations against the pinned
-// temp project, in the same order drizzle-kit would. This intentionally does
-// NOT depend on drizzle-kit's own migrator (which requires the
-// DATABASE_URL_UNPOOLED env var per drizzle.config.ts) — it reads the journal
-// and SQL files directly so the connection stays scoped to our local-state
-// safety gate.
+// Apply repository migrations to the pinned temporary project in journal order.
+// Read migration files directly to keep the connection behind the safety gate.
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";

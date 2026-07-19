@@ -65,7 +65,7 @@ describe("default database store operation projection", () => {
     writtenAt: new Date("2026-07-18T00:00:01.000Z"),
     acceptedAt: null,
     failedAt: null,
-    // Fields a full row would carry but that the service never reads back off the row.
+    // A full database row includes fields the service does not return.
     principalKey: "human:admin",
     requestId: "req-1",
     idempotencyKey: "key-1",

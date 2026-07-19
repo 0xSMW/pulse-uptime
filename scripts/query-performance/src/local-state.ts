@@ -1,8 +1,6 @@
-// Local, gitignored state for the query-performance benchmark harness.
-// Everything here lives under `.query-performance/` at the repo root and is
-// never committed (see .gitignore). This module is the ONLY place that reads
-// that directory, so every other module gets its connection through here
-// instead of touching process.env directly.
+// Reads ignored benchmark state from `.query-performance/`. Other benchmark
+// modules receive connection state through this module instead of environment
+// variables.
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -71,10 +69,9 @@ function readConnectionString(): string {
 }
 
 /**
- * Loads the pinned temp-project connection. This is the single sanctioned
- * source of a database URL for every script in this tool — nothing here ever
- * reads DATABASE_URL / DATABASE_URL_UNPOOLED or accepts a URL as a CLI arg,
- * so there is no path from "arbitrary/production URL" to a live connection.
+ * Loads the pinned temporary project connection.
+ * Benchmark scripts must obtain database URLs through this function.
+ * Ambient database URL variables must not be read.
  */
 export function loadTempProjectState(): { project: TempProjectState; connectionString: string } {
   const project = readProjectState();

@@ -37,10 +37,7 @@ function completedRangeEnd(now: Date, resolution: "15m" | "hour" | "day"): Date 
   return end;
 }
 
-// Re-derives a narrower [cutoffMs, endMs) window from a superset of rows that
-// is already known to be sorted ascending by bucketStart and bounded above by
-// endMs — equivalent to a second `gte(bucketStart, cutoff) AND lt(bucketStart, end)`
-// SQL query, without a second round trip.
+// Selects rows in [cutoffMs, endMs) from a wider window.
 export function selectRecentRollupWindow<T extends { bucketStart: Date }>(
   supersetRows: T[],
   cutoffMs: number,
@@ -73,9 +70,8 @@ function p95Latency(rows: Array<{
   return null;
 }
 
-// Cheap identity lookup for the page shell — one indexed query, no rollups.
-// cache(): the page (shell/404 check) and the detail island share one lookup
-// per request.
+// Performs one indexed identity lookup for the page shell without loading rollups.
+// React cache shares the lookup between the page and detail island for each request.
 export const getMonitorIdentity = cache(async (id: string) => {
   const [monitor] = await db
     .select({
@@ -143,8 +139,7 @@ export async function getMonitorDetail(id: string) {
       .limit(1),
   ]);
 
-  // rollups7d is a strict superset of the 24h window (same end, wider start), fetched
-  // ascending — re-derive 24h in memory instead of issuing a second 15m rollup query.
+  // Derive the last 24 hours from the fetched seven days of rollups.
   const rollups24h = selectRecentRollupWindow(rollups7d, end15m.getTime() - 86_400_000, end15m.getTime());
 
   let acceptedConfig = null;

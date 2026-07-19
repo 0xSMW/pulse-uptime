@@ -117,8 +117,7 @@ describe("compareArtifacts", () => {
   });
 
   it("flags a regression when shared buffer reads go from a fully-warm zero baseline to a large candidate value", () => {
-    // pctDelta(0, N) is null, so before the fix the buffer-regression branch
-    // (which required bufferReadDeltaPct !== null) never fired here.
+    // A zero read baseline uses the absolute block threshold.
     const baseline = artifact("baseline", [result("case-a", [sample({ sharedReadBlocks: 0 })])]);
     const candidate = artifact("candidate", [result("case-a", [sample({ sharedReadBlocks: 500 })])]);
     const report = compareArtifacts(baseline, candidate, DEFAULT_THRESHOLDS);
