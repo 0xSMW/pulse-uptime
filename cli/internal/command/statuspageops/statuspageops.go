@@ -154,8 +154,12 @@ func setCommand(d Dependencies) *cobra.Command {
 			"write. Booleans take true/false; give an empty value (field=) to clear an\n" +
 			"optional field. navLinks cannot be edited here — use status-page export,\n" +
 			"edit the file, and status-page apply.",
-		Args:        cobra.MinimumNArgs(1),
-		Annotations: map[string]string{"supportsOutput": "table,json,yaml,tsv", "requiredScope": "config:write"},
+		Args: cobra.MinimumNArgs(1),
+		// set reads the current document (fetchConfig, GET, config:read) to
+		// obtain the ETag before writing (putConfig, PUT, config:write) —
+		// finding: advertising only config:write would fail the GET for a
+		// least-privilege token minted from this manifest.
+		Annotations: map[string]string{"supportsOutput": "table,json,yaml,tsv", "requiredScope": "config:read,config:write"},
 		Example:     "pulsectl status-page set name=\"Acme Status\" historyDays=60 announcementEnabled=true",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			doc, etag, err := fetchConfig(cmd.Context(), d)

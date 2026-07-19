@@ -234,6 +234,35 @@ describe("PUT /api/v1/status-page-config", () => {
     await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
   });
 
+  it("recover refuses a document match whose version could not have been produced by THIS retry's If-Match (finding: a stale-If-Match's document merely happening to equal the current document — e.g. another writer advancing the version further, or converging on the same edit from a different base — must not be treated as this retry's own recovered success)", async () => {
+    const submitted = fullDocument({ name: "Acme Status" });
+    await PUT(putRequest(submitted, { "If-Match": '"5"' }));
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
+    };
+
+    // The document deep-equals what was submitted, but the current version
+    // (7) is not exactly this retry's If-Match (5) + 1 — a write guarded by
+    // If-Match="5" could only ever have produced version 6, so version 7
+    // proves some OTHER write (or writes) landed after the one this retry
+    // could have made. Recovery must be refused even though the body matches.
+    const recoveredData = { ...submitted, updatedAt: "2026-07-18T00:18:20.000Z", version: 7 };
+    vi.mocked(getStatusPageConfig).mockResolvedValue({ data: recoveredData as never, etag: '"7"' });
+    await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
+  });
+
+  it("recover refuses when this retry's own If-Match is not a clean quoted integer (finding: a malformed/weak If-Match can't be proven to have been satisfiable, so it must not manufacture a 200)", async () => {
+    const submitted = fullDocument({ name: "Acme Status" });
+    await PUT(putRequest(submitted, { "If-Match": 'W/"5"' }));
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
+    };
+
+    const recoveredData = { ...submitted, updatedAt: "2026-07-18T00:18:20.000Z", version: 6 };
+    vi.mocked(getStatusPageConfig).mockResolvedValue({ data: recoveredData as never, etag: '"6"' });
+    await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
+  });
+
   it("recover ignores field order, the read-only updatedAt, and the read-only version when comparing documents", async () => {
     const submitted = fullDocument({ name: "Acme Status" });
     await PUT(putRequest(submitted, { "If-Match": '"5"' }));

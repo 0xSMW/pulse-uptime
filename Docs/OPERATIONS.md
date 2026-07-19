@@ -102,5 +102,5 @@ delete from admin_users;
 commit;
 ```
 
-Then open the application URL. With no administrator row, onboarding runs again; the account step is gated by the deployment's `PULSE_BOOTSTRAP_TOKEN`, so only an operator with access to the environment can claim the install. Create the account with the correct email and a new password. Monitors, incidents, configuration, and history are untouched — only the account, its sessions, and onboarding progress are recreated.
+Then open the application URL. With no administrator row, onboarding runs again; account creation (`createOnlyAdmin` in `lib/auth/service.ts`) is gated only by `hasAdmin()` returning false and the readiness checks (Vercel, database, Edge Config, and email) passing — there is no bootstrap-token check anywhere in the onboarding path. In practice this means anyone who can reach the application URL while the administrator row is absent can claim the install, so treat the window between the `delete from admin_users` above and completing account creation as sensitive: run the SQL and immediately create the account, and restrict network/database access during recovery if that window needs to be longer. Create the account with the correct email and a new password. Monitors, incidents, configuration, and history are untouched — only the account, its sessions, and onboarding progress are recreated.
 
