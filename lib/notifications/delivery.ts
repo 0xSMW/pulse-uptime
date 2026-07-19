@@ -103,7 +103,8 @@ export async function deliverPendingNotifications(
         event: "notification.sent",
         notificationId: row.id,
         ...(row.incidentId ? { incidentId: row.incidentId } : {}),
-        monitorId: row.monitorId,
+        ...(row.monitorId ? { monitorId: row.monitorId } : {}),
+        ...(row.dependencyId ? { dependencyId: row.dependencyId } : {}),
         attemptCount: row.attemptCount,
       });
     } catch (error) {
@@ -125,7 +126,8 @@ export async function deliverPendingNotifications(
         event: "notification.failed",
         notificationId: row.id,
         ...(row.incidentId ? { incidentId: row.incidentId } : {}),
-        monitorId: row.monitorId,
+        ...(row.monitorId ? { monitorId: row.monitorId } : {}),
+        ...(row.dependencyId ? { dependencyId: row.dependencyId } : {}),
         attemptCount: row.attemptCount,
         errorCode: failure.code,
       });

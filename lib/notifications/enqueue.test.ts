@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { ENQUEUE_NOTIFICATION_SQL, buildEnqueueNotificationSql, enqueueIncidentNotifications } from "./enqueue";
+import {
+  ENQUEUE_DEPENDENCY_NOTIFICATION_SQL,
+  ENQUEUE_NOTIFICATION_SQL,
+  buildEnqueueDependencyNotificationSql,
+  buildEnqueueNotificationSql,
+  enqueueDependencyNotifications,
+  enqueueIncidentNotifications,
+} from "./enqueue";
 import type { SqlExecutor } from "./sql";
 
 const baseOpenedInput = {
@@ -144,6 +151,107 @@ describe("incident notification enqueue", () => {
     expect(sql).toContain(
       "($1, $2, $3, $4, $5, $6, $7, 'pending', 0, $8, $8, $8),\n" +
       "($9, $10, $11, $12, $13, $14, $15, 'pending', 0, $16, $16, $16)",
+    );
+    expect(sql).toMatch(/on conflict \(idempotency_key\) do nothing/i);
+    expect(sql).toMatch(/returning id/i);
+  });
+});
+
+const baseDependencyInput = {
+  event: "incident" as const,
+  sourceId: "vercel",
+  incidentExternalId: "inc-1",
+  presetId: "vercel_runtime",
+  dependencyId: "dep-1",
+  dependencyName: "Vercel Runtime",
+  provider: "Vercel",
+  incidentTitle: "Elevated function errors",
+  state: "OUTAGE",
+  canonicalUrl: "https://www.vercel-status.com/incidents/inc-1",
+  providerTimestamp: "2026-07-19T12:00:00.000Z",
+};
+
+describe("dependency notification enqueue", () => {
+  it("returns 0 and issues no query when there are no recipients", async () => {
+    const query = vi.fn(async () => []);
+    const inserted = await enqueueDependencyNotifications({ query } as SqlExecutor, {
+      ...baseDependencyInput,
+      recipients: [],
+    });
+    expect(inserted).toBe(0);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it("enqueues a dependency incident with monitor_id and incident_id left null", async () => {
+    const query = vi.fn<(text: string, values: readonly unknown[]) => Promise<{ id: string }[]>>(async () => [{ id: "inserted" }]);
+    const inserted = await enqueueDependencyNotifications({ query } as SqlExecutor, {
+      ...baseDependencyInput,
+      recipients: ["ops@example.com"],
+    }, { now: new Date("2026-07-19T12:00:00Z"), createId: () => "notification-1" });
+
+    expect(inserted).toBe(1);
+    expect(query.mock.calls[0]?.[0]).toBe(ENQUEUE_DEPENDENCY_NOTIFICATION_SQL);
+    expect(ENQUEUE_DEPENDENCY_NOTIFICATION_SQL).toContain("null, null,");
+    const values = query.mock.calls[0]?.[1] as unknown[];
+    expect(values).toEqual([
+      "notification-1",
+      "dep-1",
+      "dependency.incident",
+      "ops@example.com",
+      expect.stringMatching(/^dependency\/vercel\/inc-1\/vercel_runtime\/incident\/[a-f0-9]{64}$/),
+      expect.any(String),
+      new Date("2026-07-19T12:00:00Z"),
+    ]);
+    const payload = JSON.parse(values[5] as string);
+    expect(payload).toStrictEqual({
+      type: "dependency.incident",
+      dependencyName: "Vercel Runtime",
+      provider: "Vercel",
+      incidentTitle: "Elevated function errors",
+      state: "OUTAGE",
+      canonicalUrl: "https://www.vercel-status.com/incidents/inc-1",
+      providerTimestamp: "2026-07-19T12:00:00.000Z",
+    });
+  });
+
+  it("builds a dependency.recovery payload for the recovery event", async () => {
+    const query = vi.fn<(text: string, values: readonly unknown[]) => Promise<{ id: string }[]>>(async () => [{ id: "inserted" }]);
+    await enqueueDependencyNotifications({ query } as SqlExecutor, {
+      ...baseDependencyInput,
+      event: "recovery",
+      recipients: ["ops@example.com"],
+    }, { now: new Date("2026-07-19T12:00:00Z"), createId: () => "notification-1" });
+    const values = query.mock.calls[0]?.[1] as unknown[];
+    expect(values[4]).toMatch(/^dependency\/vercel\/inc-1\/vercel_runtime\/recovery\//);
+    expect(JSON.parse(values[5] as string).type).toBe("dependency.recovery");
+  });
+
+  it("deduplicates normalized duplicate recipients", async () => {
+    const query = vi.fn<(text: string, values: readonly unknown[]) => Promise<{ id: string }[]>>(async () => [{ id: "inserted" }]);
+    const inserted = await enqueueDependencyNotifications({ query } as SqlExecutor, {
+      ...baseDependencyInput,
+      recipients: ["Ops@example.com", " ops@EXAMPLE.com "],
+    }, { now: new Date("2026-07-19T12:00:00Z"), createId: () => "notification-1" });
+    expect(inserted).toBe(1);
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it("relies on the idempotency key constraint to report only newly inserted rows", async () => {
+    const recipients = ["a@example.com", "b@example.com", "c@example.com"];
+    const query = vi.fn(async () => [{ id: "kept-1" }]);
+    const inserted = await enqueueDependencyNotifications({ query } as SqlExecutor, {
+      ...baseDependencyInput,
+      recipients,
+    }, { now: new Date("2026-07-19T12:00:00Z"), createId: () => "generated-id" });
+    expect(inserted).toBe(1);
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it("builds distinct positional placeholders per row with monitor_id and incident_id literals", () => {
+    const sql = buildEnqueueDependencyNotificationSql(2);
+    expect(sql).toContain(
+      "($1, null, null, $2, $3, $4, $5, $6, 'pending', 0, $7, $7, $7),\n" +
+      "($8, null, null, $9, $10, $11, $12, $13, 'pending', 0, $14, $14, $14)",
     );
     expect(sql).toMatch(/on conflict \(idempotency_key\) do nothing/i);
     expect(sql).toMatch(/returning id/i);

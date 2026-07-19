@@ -217,7 +217,10 @@ export const incidents = pgTable("incidents", {
 export const notificationOutbox = pgTable("notification_outbox", {
   id: uuid("id").primaryKey(),
   incidentId: uuid("incident_id").references(() => incidents.id),
-  monitorId: text("monitor_id").notNull().references(() => monitorRegistry.id),
+  monitorId: text("monitor_id").references(() => monitorRegistry.id),
+  // Dependency notifications have no monitor: exactly one of monitorId or
+  // dependencyId is set, enforced by notification_outbox_subject below.
+  dependencyId: text("dependency_id").references(() => dependencies.id),
   eventType: text("event_type").notNull(),
   recipient: text("recipient").notNull(),
   idempotencyKey: text("idempotency_key").notNull().unique(),
@@ -244,6 +247,7 @@ export const notificationOutbox = pgTable("notification_outbox", {
     .where(sql`${table.status} = 'sending'`),
   check("notification_outbox_status", sql`${table.status} in ('pending', 'sending', 'sent', 'failed', 'dead')`),
   check("notification_outbox_attempts_nonnegative", sql`${table.attemptCount} >= 0`),
+  check("notification_outbox_subject", sql`(${table.monitorId} is null) <> (${table.dependencyId} is null)`),
   check(
     "notification_outbox_claim_pair",
     sql`(${table.claimToken} is null) = (${table.claimedAt} is null)`,

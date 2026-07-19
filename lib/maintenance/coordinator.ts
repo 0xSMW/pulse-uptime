@@ -29,6 +29,12 @@ export interface MaintenanceStore {
   retainExceptionPayloads(now: Date, limit: number): Promise<number>;
   /** Orphan images: unattached for 24h, plus a hard cap keeping the newest N. */
   deleteOrphanImages(cutoff: Date, keepNewest: number, limit: number): Promise<number>;
+  /** Fetches every enabled dependency source once (read-only, live) and disables only the presets whose selector ids have drifted. Runs once per maintenance pass, same cadence as the doc's "daily thereafter". */
+  validateDependencyCatalog(now: Date): Promise<{ checkedSources: number; disabledPresets: number }>;
+  /** provider_incident_updates body text older than two years; incident identity and timing outlive this. */
+  retainDependencyIncidentUpdates(cutoff: Date, limit: number): Promise<number>;
+  /** Closed dependency_state_intervals older than two years, compacted to one row per dependency/day/state. */
+  compactDependencyStateIntervals(cutoff: Date, limit: number): Promise<number>;
 }
 
 export type MaintenanceSummary = {
@@ -38,6 +44,7 @@ export type MaintenanceSummary = {
   deleted: number;
   expired: number;
   governorMode: GovernorMode;
+  dependencyCatalog: { checkedSources: number; disabledPresets: number };
 };
 
 export const RETENTION_BATCH_SIZE = 10_000;
@@ -77,9 +84,11 @@ export async function performMaintenance(
   const rollupCutoff = utcDay(now, 365);
   const recentCompactStart = new Date(now.getTime() - 48 * 3_600_000);
   const orphanImageCutoff = new Date(now.getTime() - 24 * 3_600_000);
+  const dependencyRetentionCutoff = new Date(now.getTime() - 730 * 86_400_000);
 
   const staleOutbox = await store.reconcileStaleOutbox(now);
   const staleCronRuns = await store.reconcileStaleCronRuns(now);
+  const dependencyCatalog = await store.validateDependencyCatalog(now);
   let rollups = 0;
   let coverageCursor = await store.schedulerCoverageStart(now);
   while (coverageCursor < now && nowMs() < deadlineAtMs) {
@@ -104,14 +113,16 @@ export async function performMaintenance(
     await drainBatches((limit) => store.retainConfigSnapshots(rejectedCutoff, 50, limit), nowMs, deadlineAtMs) +
     await drainBatches((limit) => store.deleteOldCronRuns(cronCutoff, limit), nowMs, deadlineAtMs) +
     await drainBatches((limit) => store.deleteOldRollups(rollupCutoff, limit), nowMs, deadlineAtMs) +
-    await drainBatches((limit) => store.deleteOrphanImages(orphanImageCutoff, ORPHAN_IMAGE_KEEP_NEWEST, limit), nowMs, deadlineAtMs);
+    await drainBatches((limit) => store.deleteOrphanImages(orphanImageCutoff, ORPHAN_IMAGE_KEEP_NEWEST, limit), nowMs, deadlineAtMs) +
+    await drainBatches((limit) => store.retainDependencyIncidentUpdates(dependencyRetentionCutoff, limit), nowMs, deadlineAtMs) +
+    await drainBatches((limit) => store.compactDependencyStateIntervals(dependencyRetentionCutoff, limit), nowMs, deadlineAtMs);
   const expired =
     await drainBatches((limit) => store.expireConfigApprovals(now, consumedApprovalCutoff, limit), nowMs, deadlineAtMs) +
     await drainBatches((limit) => store.expireApiIdempotency(now, limit), nowMs, deadlineAtMs) +
     await drainBatches((limit) => store.markDeviceAuthorizationsExpired(now, limit), nowMs, deadlineAtMs) +
     await drainBatches((limit) => store.deleteExpiredDeviceAuthorizations(shortCutoff, limit), nowMs, deadlineAtMs) +
     await drainBatches((limit) => store.expireRateLimitBuckets(now, limit), nowMs, deadlineAtMs);
-  return { staleOutbox, staleCronRuns, rollups, deleted, expired, governorMode };
+  return { staleOutbox, staleCronRuns, rollups, deleted, expired, governorMode, dependencyCatalog };
 }
 
 /**

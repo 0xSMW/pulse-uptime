@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogVersion": "2026-07-19.1",
+  "catalogVersion": "2026-07-19.2",
   "sources": [
     {
       "id": "openai",
@@ -207,21 +207,19 @@
       "sourceId": "openai",
       "name": "OpenAI API",
       "category": "ai",
-      "description": "Core OpenAI API surface across Responses, Chat, Realtime, and related endpoints.",
+      "description": "Core OpenAI API surface across Responses, Embeddings, Files, Moderations, Batch, Fine-tuning, Audio, and Image Generation.",
       "selector": {
         "kind": "component_ids",
         "aggregation": "worst_of",
         "ids": [
           "01JP8CD9JR3HR6Y7G4Q75N4DVW",
-          "01JMXBRMFE6N2NNT7DG6XZQ6PW",
-          "01JMXBRMFEQW613TFE89F45035",
           "01JMXBRMFEV0AJ0VVS68N9CD6R",
           "01JMXBRMFESJCBGJR10PDD3WCQ",
           "01JMXBRMFEVZ7E0X9GD9FWR9WX",
           "01JMXBRMFE5ESNNV8JDHVCGSRD",
           "01JMXBRMFEMZK0HPK19RYET250",
           "01JMXBRMFEKVBWKK82B44QFMCE",
-          "01JMXBRMFE4MAP2BHSJNZ787WX"
+          "01JQ7EKW990MSPSWVXC7VPV2ZJ"
         ]
       },
       "scope": null,
@@ -233,11 +231,11 @@
       "sourceId": "openai",
       "name": "ChatGPT",
       "category": "ai",
-      "description": "ChatGPT conversations, login, and file uploads.",
+      "description": "ChatGPT conversations and login.",
       "selector": {
         "kind": "component_ids",
         "aggregation": "worst_of",
-        "ids": ["01JMXBNJXGV1T5GT2M9XA83XNG", "01JMXBNJXG1S2D9V65P1ZZTD94", "01JMXBNJXG1YMQPPCPCQX3MPA2"]
+        "ids": ["01JMXBNJXGV1T5GT2M9XA83XNG", "01JMXBNJXG1S2D9V65P1ZZTD94"]
       },
       "scope": null,
       "sourceScopeNote": null,

@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { DependencyIncidentEmail } from "@/emails/dependency-incident";
+import { DependencyRecoveryEmail } from "@/emails/dependency-recovery";
 import { OutageEmail } from "@/emails/outage";
 import { RecoveryEmail } from "@/emails/recovery";
 import { TestEmail } from "@/emails/test";
@@ -83,6 +85,42 @@ export function createNotificationMessage(
         to: row.recipient,
         subject: "Pulse notification test",
         react: <TestEmail installationName={payload.installationName} />,
+      };
+    }
+    case "dependency.incident": {
+      assertPayloadType(row, "dependency.incident");
+      if (payload.type !== "dependency.incident") throw new InvalidNotificationPayloadError();
+      return {
+        to: row.recipient,
+        subject: `${payload.dependencyName}: provider reported incident`,
+        react: (
+          <DependencyIncidentEmail
+            dependencyName={payload.dependencyName}
+            provider={payload.provider}
+            incidentTitle={payload.incidentTitle}
+            state={payload.state}
+            canonicalUrl={payload.canonicalUrl}
+            providerTimestamp={payload.providerTimestamp}
+          />
+        ),
+      };
+    }
+    case "dependency.recovery": {
+      assertPayloadType(row, "dependency.recovery");
+      if (payload.type !== "dependency.recovery") throw new InvalidNotificationPayloadError();
+      return {
+        to: row.recipient,
+        subject: `${payload.dependencyName}: provider incident resolved`,
+        react: (
+          <DependencyRecoveryEmail
+            dependencyName={payload.dependencyName}
+            provider={payload.provider}
+            incidentTitle={payload.incidentTitle}
+            state={payload.state}
+            canonicalUrl={payload.canonicalUrl}
+            providerTimestamp={payload.providerTimestamp}
+          />
+        ),
       };
     }
     default:

@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
+vi.mock("server-only", () => ({}));
+
 import { createSqlMaintenanceStore } from "./sql";
 
 describe("maintenance SQL store", () => {
@@ -119,6 +121,40 @@ describe("maintenance SQL store", () => {
       expect(sql).toContain(
         "select (select count(*)::int from deleted_batches) + (select count(*)::int from deleted_rollups) as affected",
       );
+    });
+  });
+
+  describe("dependency retention and compaction", () => {
+    it("prunes provider_incident_updates by provider_created_at with the exact retention batch limit", async () => {
+      const query = vi.fn().mockResolvedValue([{ affected: 7 }]);
+      const cutoff = new Date("2024-07-19T00:00:00Z");
+      const result = await createSqlMaintenanceStore({ query }).retainDependencyIncidentUpdates(cutoff, 10_000);
+      expect(result).toBe(7);
+      const [sql, values] = query.mock.calls[0]!;
+      expect(sql).toContain("delete from provider_incident_updates");
+      expect(sql).toContain("provider_created_at < $1");
+      expect(sql).toContain("limit $2");
+      expect(values).toEqual([cutoff, 10_000]);
+    });
+
+    it("compacts closed dependency_state_intervals grouped by dependency, day, and state", async () => {
+      const query = vi.fn().mockResolvedValue([{ affected: 4 }]);
+      const cutoff = new Date("2024-07-19T00:00:00Z");
+      const result = await createSqlMaintenanceStore({ query }).compactDependencyStateIntervals(cutoff, 500);
+      expect(result).toBe(4);
+      const [sql, values] = query.mock.calls[0]!;
+      expect(sql).toContain("ended_at is not null and ended_at < $1");
+      expect(sql).toContain("group by dependency_id, day, state");
+      expect(sql).toContain("having count(*) > 1");
+      expect(sql).toContain("insert into dependency_state_intervals");
+      expect(values).toEqual([cutoff, 500]);
+    });
+
+    it("skips live catalog validation and issues no query when no drizzle instance was provided", async () => {
+      const query = vi.fn().mockResolvedValue([]);
+      const result = await createSqlMaintenanceStore({ query }).validateDependencyCatalog(new Date("2026-07-19T00:00:00Z"));
+      expect(result).toEqual({ checkedSources: 0, disabledPresets: 0 });
+      expect(query).not.toHaveBeenCalled();
     });
   });
 });

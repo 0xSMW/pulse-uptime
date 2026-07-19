@@ -15,6 +15,17 @@ describe("cron route security", () => {
     }), secret)).toBe(false);
   });
 
+  it("requires the same exact bearer secret for the dependency cron route", () => {
+    const secret = "b".repeat(32);
+    expect(isAuthorizedCronRequest(new Request("https://pulse.test/api/cron/check-dependencies", {
+      headers: { authorization: `Bearer ${secret}` },
+    }), secret)).toBe(true);
+    expect(isAuthorizedCronRequest(new Request("https://pulse.test/api/cron/check-dependencies", {
+      headers: { authorization: "Bearer wrong" },
+    }), secret)).toBe(false);
+    expect(isAuthorizedCronRequest(new Request("https://pulse.test/api/cron/check-dependencies"), secret)).toBe(false);
+  });
+
   it("sets explicit no-store response headers", () => {
     expect(CRON_RESPONSE_HEADERS["cache-control"]).toContain("no-store");
   });

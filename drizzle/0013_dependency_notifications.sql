@@ -1,0 +1,4 @@
+ALTER TABLE "notification_outbox" ALTER COLUMN "monitor_id" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "notification_outbox" ADD COLUMN "dependency_id" text;--> statement-breakpoint
+ALTER TABLE "notification_outbox" ADD CONSTRAINT "notification_outbox_dependency_id_dependencies_id_fk" FOREIGN KEY ("dependency_id") REFERENCES "public"."dependencies"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "notification_outbox" ADD CONSTRAINT "notification_outbox_subject" CHECK (("notification_outbox"."monitor_id" is null) <> ("notification_outbox"."dependency_id" is null));
