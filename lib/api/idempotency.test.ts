@@ -38,7 +38,11 @@ class MemoryPersistence implements IdempotencyPersistence {
   }
 
   async claimStale(id: string, staleBefore: Date, now: Date, expiresAt: Date) {
-    if (!this.owner || this.owner.id !== id || this.owner.createdAt >= staleBefore) return undefined;
+    // A completed record must never be reclaimed, mirroring the database
+    // guard: complete() does not touch createdAt, so the age check alone
+    // would still match a record whose owner finished just after it was
+    // read as running.
+    if (!this.owner || this.owner.id !== id || this.owner.state !== "running" || this.owner.createdAt >= staleBefore) return undefined;
     this.owner = { ...this.owner, createdAt: now, expiresAt };
     return id;
   }
@@ -174,6 +178,46 @@ describe("idempotency retention reclamation", () => {
       attempt,
     )).toBeNull();
     expect(attempt).not.toHaveBeenCalled();
+  });
+
+  it("does not reclaim a record that completes between the stale read and the claim", async () => {
+    const now = new Date("2026-07-18T12:00:00.000Z");
+    const persistence = new MemoryPersistence();
+    let release!: () => void;
+    let started!: () => void;
+    const startedPromise = new Promise<void>((resolve) => { started = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+
+    // The original request is slow: it inserts the running record, then
+    // hangs in work() past what a retry will treat as the stale window.
+    const original = executeIdempotent({
+      ...request({ value: "same" }), now, persistence,
+      work: async () => { started(); await gate; return { status: 200, body: { value: "original" } }; },
+    });
+    await startedPromise;
+
+    // The retry reads the record as running-but-stale, but the original
+    // finishes and completes it right after that read, before the retry's
+    // claimStale runs. findOwner is where the fake can observe and react
+    // to that read, so it releases the original there.
+    const originalFindOwner = persistence.findOwner.bind(persistence);
+    let released = false;
+    persistence.findOwner = async (principalKey: string, idempotencyKey: string) => {
+      const record = await originalFindOwner(principalKey, idempotencyKey);
+      if (record && !released) {
+        released = true;
+        release();
+        await original;
+      }
+      return record;
+    };
+
+    const retryNow = new Date(now.getTime() + 6 * 60_000); // past the 5 minute stale window
+    const work = vi.fn(async () => ({ status: 200, body: { value: "reran" } }));
+    await expect(executeIdempotent({ ...request({ value: "same" }), now: retryNow, persistence, work }))
+      .rejects.toMatchObject({ code: "REQUEST_IN_PROGRESS" });
+    expect(work).not.toHaveBeenCalled();
+    expect(persistence.owner).toMatchObject({ state: "completed", responseBody: { value: "original" } });
   });
 
   it("retries insertion when maintenance deletes an expired row before reclaim", async () => {

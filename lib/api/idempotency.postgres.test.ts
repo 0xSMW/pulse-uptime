@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
@@ -8,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
+import { canonicalSerialize } from "@/lib/config/canonical";
 import * as schema from "@/lib/db/schema";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -133,5 +135,50 @@ suite("idempotency PostgreSQL atomicity", () => {
     expect(work).toHaveBeenCalledOnce();
     const leases = await verify.select().from(schema.jobLeases).where(eq(schema.jobLeases.name, "replay-lease"));
     expect(leases).toHaveLength(1);
+  });
+
+  it("replays a completed record past the stale window instead of reclaiming and rerunning it", async () => {
+    const key = "00000000-0000-4000-8000-000000000060";
+    const body = { name: "stale-completed-lease" };
+    const staleRequest = request(key);
+    const url = new URL(staleRequest.url);
+    const requestHash = createHash("sha256")
+      .update(`${staleRequest.method}\n${url.pathname}\n${canonicalSerialize(body)}`)
+      .digest("hex");
+    const id = crypto.randomUUID();
+    const createdAt = new Date(Date.now() - 10 * 60_000); // past the 5 minute stale window
+
+    // Insert as running, the way executeIdempotent's insertRunning would.
+    await verify.insert(schema.apiIdempotency).values({
+      id,
+      principalKey: "human:1",
+      idempotencyKey: key,
+      method: staleRequest.method,
+      routeKey: "test",
+      requestHash,
+      responseStatus: null,
+      responseBody: null,
+      state: "running",
+      createdAt,
+      completedAt: null,
+      expiresAt: new Date(Date.now() + 86_400_000),
+    });
+    // The original request finishes late, past the stale window, the way
+    // persistence.complete() would. createdAt is left untouched, so an age
+    // check alone would still consider this record claimable as stale.
+    await verify.update(schema.apiIdempotency).set({
+      state: "completed", responseStatus: 200, responseBody: { ok: true, value: "original" }, completedAt: new Date(),
+    }).where(eq(schema.apiIdempotency.id, id));
+
+    const work = vi.fn(async () => ({ status: 201, body: { ok: true, value: "reran" } }));
+    const result = await executeIdempotent({
+      request: request(key), principalKey: "human:1", routeKey: "test", body, work, now: new Date(),
+    });
+
+    expect(result).toMatchObject({ status: 200, body: { ok: true, value: "original" }, replayed: true });
+    expect(work).not.toHaveBeenCalled();
+    expect(await findIdempotencyRecord(key)).toMatchObject({
+      state: "completed", responseStatus: 200, responseBody: { ok: true, value: "original" },
+    });
   });
 });
