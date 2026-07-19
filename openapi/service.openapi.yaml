@@ -3025,7 +3025,7 @@
       "MonitorLive": {
         "type": "object",
         "unevaluatedProperties": false,
-        "required": ["state", "enabled", "latestLatencyMs", "lastCheckedAt", "p95LatencyMs", "uptime", "coverage", "rangeUnlocked", "firstRun", "latestIncident", "recentIncidents", "recentChecks", "rollupVersion"],
+        "required": ["state", "enabled", "latestLatencyMs", "lastCheckedAt", "p95LatencyMs", "uptime", "coverage", "rangeUnlocked", "firstRun", "latestIncident", "recentIncidents", "recentChecks", "rollupVersion", "configVersion"],
         "properties": {
           "state": {"type": "string"},
           "enabled": {"type": "boolean", "description": "Whether the monitor is enabled. It tracks the registry row, which flips in step with state, so a pause or resume from another session lands on the next poll."},
@@ -3039,7 +3039,8 @@
           "latestIncident": {"type": ["object", "null"], "description": "Latest incident summary. Withheld as null unless the principal holds incidents:read."},
           "recentIncidents": {"type": "array", "items": {"type": "object"}, "description": "Recent incident summaries. Withheld as an empty array unless the principal holds incidents:read."},
           "recentChecks": {"type": "array", "items": {"type": "object"}},
-          "rollupVersion": {"type": ["string", "null"], "description": "Latest completed rollup bucket start. It advances when a new bucket finalizes."}
+          "rollupVersion": {"type": ["string", "null"], "description": "Latest completed rollup bucket start. It advances when a new bucket finalizes."},
+          "configVersion": {"type": ["string", "null"], "description": "Accepted config snapshot version. It advances when a config edit is accepted, so a client refreshes even when no rollup finalizes."}
         }
       },
       "MonitorLiveEnvelope": {
