@@ -55,6 +55,10 @@ export async function listDashboardMonitors() {
   const end15m = new Date();
   end15m.setUTCMinutes(Math.floor(end15m.getUTCMinutes() / 15) * 15, 0, 0);
   const start15m = new Date(end15m.getTime() - 86_400_000);
+  // Raw sql template params must be bound as ISO strings, never Date objects.
+  // Params in dsql templates bypass drizzle's column mappers, and postgres-js
+  // rejects a raw Date at the wire layer. The server infers timestamptz from
+  // the comparison context.
   const rows = await db
     .select({
       id: monitorRegistry.id,
@@ -74,16 +78,16 @@ export async function listDashboardMonitors() {
           from ${metricRollups}
           where ${metricRollups.monitorId} = ${monitorRegistry.id}
             and ${metricRollups.resolution} = '15m'
-            and ${metricRollups.bucketStart} >= ${start15m}
-            and ${metricRollups.bucketStart} < ${end15m}
+            and ${metricRollups.bucketStart} >= ${start15m.toISOString()}
+            and ${metricRollups.bucketStart} < ${end15m.toISOString()}
         ) rollup
         cross join lateral (
           select count(*) as completed,
             count(*) filter (where ${checkResults.successful}) as successful
           from ${checkResults}
           where ${checkResults.monitorId} = ${monitorRegistry.id}
-            and ${checkResults.scheduledAt} >= ${start15m}
-            and ${checkResults.scheduledAt} < ${end15m}
+            and ${checkResults.scheduledAt} >= ${start15m.toISOString()}
+            and ${checkResults.scheduledAt} < ${end15m.toISOString()}
             and not exists (
               select 1 from ${metricRollups} covered
               where covered.monitor_id = ${monitorRegistry.id}

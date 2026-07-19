@@ -1710,9 +1710,9 @@ export const databaseStatusReportsStore: StatusReportsStore = {
         ...(groupScope ? [groupScope] : []),
       ))
       .orderBy(
-        sql`(${statusReports.endsAt} is not null and ${statusReports.endsAt} <= ${now})`,
-        sql`(${statusReports.startsAt} > ${now})`,
-        sql`(case when ${statusReports.startsAt} > ${now} then ${statusReports.startsAt} end) asc nulls last`,
+        sql`(${statusReports.endsAt} is not null and ${statusReports.endsAt} <= ${now.toISOString()})`,
+        sql`(${statusReports.startsAt} > ${now.toISOString()})`,
+        sql`(case when ${statusReports.startsAt} > ${now.toISOString()} then ${statusReports.startsAt} end) asc nulls last`,
         desc(statusReports.startsAt),
       )
       .limit(100);
