@@ -79,6 +79,21 @@ export function livePollConfigChanged(
   return liveVersion !== null && liveVersion !== snapshotVersion;
 }
 
+// The completed 15-minute window boundary the live poll recomputes h24 and d7
+// against. It advances every 15 minutes even on a paused monitor whose rollup
+// version never moves, so the server-pinned timeline and response chart drift
+// from the live score as old buckets age out of the sliding window. The client
+// holds the snapshot boundary and refreshes once when the poll carries a later
+// one, so the server recomputes the charts against the current window. It moves
+// every 15 minutes, not every poll, so this drives one refresh per boundary.
+// Returns true when the live boundary is present and differs from the snapshot.
+export function livePollWindowAdvanced(
+  snapshotVersion: string | null,
+  liveVersion: string | null,
+): boolean {
+  return liveVersion !== null && liveVersion !== snapshotVersion;
+}
+
 // Compact "Updated Ns ago" label. Seconds up to a minute, then whole minutes.
 export function formatUpdatedAgo(secondsAgo: number): string {
   const clamped = Math.max(0, Math.floor(secondsAgo));

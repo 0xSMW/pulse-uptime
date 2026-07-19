@@ -12,9 +12,10 @@ import {
 import { DEFAULT_MONITOR_VALUES } from "@/lib/config/defaults";
 import { validateMonitoringConfig, type MonitorConfig } from "@/lib/config";
 import { portableQueryValues } from "@/lib/db/query-values";
-import { RECENT_MINUTE_CHECKS_SQL } from "@/lib/storage/sql";
+import { RECENT_MINUTE_CHECKS_SQL, RECENT_MINUTE_CHECK_TAIL_COUNTS_SQL } from "@/lib/storage/sql";
 
 import {
+  firstRunPhase,
   isRangeUnlocked,
   rollupsSinceActivation,
   summarizeCounts,
@@ -28,8 +29,10 @@ import {
   buildRecentIncidents,
   observedWithRawTail,
   rawChecksSinceActivation,
+  rawTailCutoff,
   rollupVersionOf,
   type MonitorLiveData,
+  type RawTailCounts,
 } from "./live-summary";
 import { buildRollupTimeline } from "./timeline";
 
@@ -179,6 +182,40 @@ export async function getRecentRawChecks(monitorId: string, end: Date): Promise<
   }
 }
 
+const EMPTY_TAIL_COUNTS: RawTailCounts = { expected: 0, completed: 0, successful: 0, failed: 0 };
+
+type RawTailCountsDbRow = {
+  expected: number | string;
+  completed: number | string;
+  successful: number | string;
+  failed: number | string;
+};
+
+// Aggregates the uncompacted post-activation tail into observed counts. It scans
+// only [cutoff, end), the minutes no completed rollup covers yet, so the
+// collecting card folds the full tail rather than the newest rows the display
+// query caps at. An empty window or a decode failure degrades to zero counts,
+// so the card falls back to the completed rollups alone.
+export async function getRawTailCounts(monitorId: string, cutoff: Date, end: Date): Promise<RawTailCounts> {
+  if (cutoff.getTime() >= end.getTime()) return EMPTY_TAIL_COUNTS;
+  try {
+    const rows = await sql.unsafe(
+      RECENT_MINUTE_CHECK_TAIL_COUNTS_SQL,
+      portableQueryValues([monitorId, cutoff, end]) as never[],
+    ) as unknown as RawTailCountsDbRow[];
+    const row = rows[0];
+    if (!row) return EMPTY_TAIL_COUNTS;
+    return {
+      expected: Number(row.expected) || 0,
+      completed: Number(row.completed) || 0,
+      successful: Number(row.successful) || 0,
+      failed: Number(row.failed) || 0,
+    };
+  } catch {
+    return EMPTY_TAIL_COUNTS;
+  }
+}
+
 export async function getMonitorDetail(id: string) {
   const monitor = await getMonitorIdentity(id);
   if (!monitor) return null;
@@ -220,9 +257,17 @@ export async function getMonitorDetail(id: string) {
   const activeRollups24h = rollupsSinceActivation(rollups24h, activatedAt);
   const observed24h = summarizeCounts(activeRollups24h);
   // The collecting card counts every post-activation minute, so it folds the
-  // uncompacted raw tail onto the completed rollups. The range cards above keep
-  // the pure rollup counts, since a range score reads only completed buckets.
-  const observedCollecting = observedWithRawTail(activeRollups24h, activeRawChecks);
+  // uncompacted raw tail onto the completed rollups. Only the collecting phase
+  // renders that card, so the tail aggregate runs only then. The window from the
+  // last rollup end to now bounds the scan to the uncompacted tail, and the
+  // aggregate reads the full tail rather than the newest rows the display query
+  // caps at. The range cards above keep the pure rollup counts, since a range
+  // score reads only completed buckets.
+  const tailCutoff = firstRunPhase(activatedAt, now) === "collecting"
+    ? rawTailCutoff(activeRollups24h, activatedAt)
+    : null;
+  const rawTail = tailCutoff ? await getRawTailCounts(id, tailCutoff, now) : EMPTY_TAIL_COUNTS;
+  const observedCollecting = observedWithRawTail(activeRollups24h, rawTail);
   const observed7d = summarizeCounts(rollupsSinceActivation(rollups7d, activatedAt));
   const observed30d = summarizeCounts(rollupsSinceActivation(rollups30d, activatedAt));
   const observed90d = summarizeCounts(rollupsSinceActivation(rollups90d, activatedAt));
@@ -290,6 +335,10 @@ export async function getMonitorDetail(id: string) {
     // acceptedAt is the version the live poll watches to land an out-of-band
     // config edit on a paused monitor whose rollup version never advances.
     configVersion: accepted[0]?.acceptedAt?.toISOString() ?? null,
+    // The completed 15-minute boundary the h24 and d7 scores read against. The
+    // live poll watches it to refresh the timeline and response chart once when
+    // the window slides, even on a paused monitor whose rollup version is fixed.
+    windowVersion: end15m.toISOString(),
     // Timeline bars read the same activation-filtered rollups the uptime
     // figures do, so pre-activation buckets render as no-data rather than red
     // down bars while the header still reads as collecting or setup.
@@ -384,15 +433,24 @@ export async function getMonitorLive(
   const activeRollups24h = rollupsSinceActivation(rollups24h, activatedAt);
   const observed24h = summarizeCounts(activeRollups24h);
   // The collecting card folds the uncompacted raw tail onto the completed
-  // rollups so the live poll matches the detail snapshot. The range cards below
-  // keep the pure rollup counts, since a range score reads only completed
-  // buckets.
-  const observedCollecting = observedWithRawTail(activeRollups24h, activeRawChecks);
+  // rollups so the live poll matches the detail snapshot. Only the collecting
+  // phase renders that card, so the tail aggregate runs only then, bounded to the
+  // window from the last rollup end to now. The range cards below keep the pure
+  // rollup counts, since a range score reads only completed buckets.
+  const tailCutoff = firstRunPhase(activatedAt, now) === "collecting"
+    ? rawTailCutoff(activeRollups24h, activatedAt)
+    : null;
+  const rawTail = tailCutoff ? await getRawTailCounts(id, tailCutoff, now) : EMPTY_TAIL_COUNTS;
+  const observedCollecting = observedWithRawTail(activeRollups24h, rawTail);
   const observed7d = summarizeCounts(rollupsSinceActivation(rollups7d, activatedAt));
   const unlocked24h = isRangeUnlocked("h24", activatedAt, end15m);
   const unlocked7d = isRangeUnlocked("d7", activatedAt, end15m);
 
   return {
+    // The payload names its monitor so the client merges it only under the
+    // matching page. SWR keepPreviousData holds one monitor's payload under the
+    // next monitor's key across a direct navigation.
+    id: monitor.id,
     state: monitor.state ?? "PENDING",
     // enabled tracks the registry row, which registry-sync flips in step with
     // the state field above, so a pause from another session lands here on the
@@ -429,5 +487,9 @@ export async function getMonitorLive(
       : buildRecentChecks(rollupsSinceActivation(rollups24h, activatedAt)),
     rollupVersion: rollupVersionOf(rollups7d),
     configVersion: accepted[0]?.acceptedAt?.toISOString() ?? null,
+    // The completed 15-minute boundary the h24 and d7 scores read against. The
+    // client refreshes once when it advances so the server recomputes the
+    // timeline and chart, even on a paused monitor whose rollup version is fixed.
+    windowVersion: end15m.toISOString(),
   };
 }

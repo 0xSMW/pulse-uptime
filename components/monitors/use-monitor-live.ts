@@ -11,6 +11,7 @@ import {
   livePollIsStale,
   livePollIsTerminal,
   livePollUnlockAdvanced,
+  livePollWindowAdvanced,
 } from "@/lib/reporting/live-poll";
 import type { MonitorPhase } from "@/lib/reporting/queries/first-run";
 import type { MonitorLiveData } from "@/lib/reporting/queries/live-summary";
@@ -55,6 +56,7 @@ export function useMonitorLive(
     state: MonitorState;
     rollupVersion: string | null;
     configVersion: string | null;
+    windowVersion: string;
     rangeUnlocked: { d30: boolean; d90: boolean };
   },
 ): MonitorLiveStatus {
@@ -64,6 +66,7 @@ export function useMonitorLive(
   const [isHidden, setIsHidden] = useState(false);
   const refreshedVersionRef = useRef<string | null>(server.rollupVersion);
   const refreshedConfigRef = useRef<string | null>(server.configVersion);
+  const refreshedWindowRef = useRef<string | null>(server.windowVersion);
   const terminalRef = useRef(false);
   const unlockRefreshedRef = useRef(false);
 
@@ -156,6 +159,26 @@ export function useMonitorLive(
       router.refresh();
     }
   }, [configVersion, router]);
+
+  // The server snapshot moves the completed-window baseline forward after each
+  // refresh.
+  useEffect(() => {
+    refreshedWindowRef.current = server.windowVersion;
+  }, [server.windowVersion]);
+
+  // The completed 15-minute window boundary advances every 15 minutes while the
+  // page holds the timeline and response chart from the server snapshot, so a
+  // paused monitor whose rollup version never moves would show a live score aged
+  // against a window the charts no longer match. One guarded refresh per boundary
+  // has the server recompute both against the current window. The guard clears
+  // once the snapshot catches up.
+  const windowVersion = data?.windowVersion ?? null;
+  useEffect(() => {
+    if (livePollWindowAdvanced(refreshedWindowRef.current, windowVersion)) {
+      refreshedWindowRef.current = windowVersion;
+      router.refresh();
+    }
+  }, [windowVersion, router]);
 
   // A poll can cross the 30 or 90 day activation boundary while the page stays
   // open. The payload flips the unlock flag but carries no d30 or d90 score, so

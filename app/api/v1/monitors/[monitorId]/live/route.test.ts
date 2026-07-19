@@ -27,6 +27,7 @@ function context(scopes: ApiScope[]): ApiContext {
 const params = { params: Promise.resolve({ monitorId: "site-home" }) };
 
 const live = {
+  id: "site-home",
   state: "UP" as const,
   enabled: true,
   latestLatencyMs: 100,
@@ -41,6 +42,7 @@ const live = {
   recentChecks: [],
   rollupVersion: null,
   configVersion: null,
+  windowVersion: "2026-07-19T12:00:00.000Z",
 };
 
 function request() {

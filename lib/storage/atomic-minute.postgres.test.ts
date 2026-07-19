@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import postgres from "postgres";
@@ -25,8 +25,13 @@ suite("atomic minute PostgreSQL transaction", () => {
   };
 
   beforeAll(async () => {
-    for (const migration of ["0000_clumsy_lake.sql", "0001_device_authorization_request_ip.sql", "0002_naive_captain_stacy.sql", "0003_fast_alice.sql"]) {
-      const source = await readFile(resolve(process.cwd(), "drizzle", migration), "utf8");
+    // Apply every migration in order so the write path sees the current schema.
+    // A hardcoded prefix goes stale the moment a later migration adds a column
+    // the persist path writes, such as monitor_state.activated_at.
+    const dir = resolve(process.cwd(), "drizzle");
+    const files = (await readdir(dir)).filter((name) => name.endsWith(".sql")).sort();
+    for (const migration of files) {
+      const source = await readFile(resolve(dir, migration), "utf8");
       for (const statement of source.split("--> statement-breakpoint").map((item) => item.trim()).filter(Boolean)) {
         await client.unsafe(statement);
       }

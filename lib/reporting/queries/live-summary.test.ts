@@ -9,6 +9,7 @@ import {
   observedWithRawTail,
   openingFailure,
   rawChecksSinceActivation,
+  rawTailCutoff,
   rollupVersionOf,
   secondsBetween,
   type LiveIncidentRow,
@@ -151,70 +152,79 @@ describe("rawChecksSinceActivation", () => {
     expect(kept).toEqual([atCutoff, after]);
   });
 
+  it("keeps the activation-minute check when activation stamped a few seconds in", () => {
+    // activated_at is the real completion instant a few seconds past the minute,
+    // while the raw check_at is the minute-aligned scheduled minute. Flooring
+    // activation to its minute keeps the activating success, and a prior-minute
+    // setup failure stays excluded.
+    const activated = new Date("2026-07-19T06:00:05.000Z");
+    const atMinute = check({ checked_at: new Date("2026-07-19T06:00:00.000Z") });
+    const priorMinute = check({ checked_at: new Date("2026-07-19T05:59:00.000Z"), failed: true });
+
+    const kept = rawChecksSinceActivation([priorMinute, atMinute], activated);
+
+    expect(kept).toEqual([atMinute]);
+  });
+
   it("returns an empty array for an unactivated monitor", () => {
     expect(rawChecksSinceActivation([check({})], null)).toEqual([]);
   });
 });
 
+describe("rawTailCutoff", () => {
+  it("is null for an unactivated monitor", () => {
+    expect(rawTailCutoff([], null)).toBeNull();
+  });
+
+  it("floors activation to its minute when no bucket has compacted yet", () => {
+    const activatedAt = new Date("2026-07-19T12:03:05.000Z");
+    expect(rawTailCutoff([], activatedAt)).toEqual(new Date("2026-07-19T12:03:00.000Z"));
+  });
+
+  it("is the newest completed bucket end so a compacted minute never folds twice", () => {
+    const activatedAt = new Date("2026-07-19T06:00:00.000Z");
+    const rollups = [
+      { bucketStart: new Date("2026-07-19T11:30:00.000Z") },
+      { bucketStart: new Date("2026-07-19T11:45:00.000Z") },
+    ];
+    expect(rawTailCutoff(rollups, activatedAt)).toEqual(new Date("2026-07-19T12:00:00.000Z"));
+  });
+});
+
 describe("observedWithRawTail", () => {
   const completedRollup = (overrides: Partial<{
-    bucketStart: Date;
     expectedChecks: number;
     completedChecks: number;
     successfulChecks: number;
     failedChecks: number;
   }>) => ({
-    bucketStart: ago(30 * 60_000),
     expectedChecks: 15,
     completedChecks: 15,
     successfulChecks: 15,
     failedChecks: 0,
     ...overrides,
   });
-  const rawCheck = (overrides: Partial<RawMinuteCheck>): RawMinuteCheck => ({
-    checked_at: ago(60_000),
-    completed: true,
-    failed: false,
-    latency_ms: 90,
-    ...overrides,
-  });
 
-  it("counts raw successes immediately when no rollup has compacted yet", () => {
-    const observed = observedWithRawTail([], [
-      rawCheck({ checked_at: ago(3 * 60_000) }),
-      rawCheck({ checked_at: ago(2 * 60_000) }),
-      rawCheck({ checked_at: ago(60_000) }),
-    ]);
+  it("counts the tail alone when no rollup has compacted yet", () => {
+    const observed = observedWithRawTail([], { expected: 3, completed: 3, successful: 3, failed: 0 });
     expect(observed).toMatchObject({ expected: 3, completed: 3, successful: 3, uptime: 100 });
     expect(observed.coverage).toBe(1);
   });
 
-  it("adds only the tail after the newest completed bucket end, never double counting", () => {
-    // Newest completed bucket starts 30m ago, so it ends 15m ago. A raw minute
-    // inside that compacted bucket is dropped, the two after its end are folded.
-    const rollups = [completedRollup({ bucketStart: ago(30 * 60_000) })];
-    const observed = observedWithRawTail(rollups, [
-      rawCheck({ checked_at: ago(20 * 60_000) }),
-      rawCheck({ checked_at: ago(10 * 60_000) }),
-      rawCheck({ checked_at: ago(5 * 60_000) }),
-    ]);
-    expect(observed).toMatchObject({ expected: 17, completed: 17, successful: 17 });
+  it("sums the completed rollup counts with the uncompacted tail counts", () => {
+    const rollups = [completedRollup({})];
+    const observed = observedWithRawTail(rollups, { expected: 2, completed: 2, successful: 2, failed: 0 });
+    expect(observed).toMatchObject({ expected: 17, completed: 17, successful: 17, uptime: 100 });
   });
 
-  it("does not recount a minute once a rollup covers it", () => {
-    // The same raw minute at 5m ago now falls inside a freshly compacted bucket
-    // that starts 15m ago and ends now, so the tail is empty and the count holds.
-    const rollups = [completedRollup({ bucketStart: ago(15 * 60_000), expectedChecks: 14, completedChecks: 14, successfulChecks: 14 })];
-    const observed = observedWithRawTail(rollups, [rawCheck({ checked_at: ago(5 * 60_000) })]);
+  it("holds the base counts when the tail is empty", () => {
+    const rollups = [completedRollup({ expectedChecks: 14, completedChecks: 14, successfulChecks: 14 })];
+    const observed = observedWithRawTail(rollups, { expected: 0, completed: 0, successful: 0, failed: 0 });
     expect(observed).toMatchObject({ expected: 14, completed: 14, successful: 14 });
   });
 
   it("keeps tail coverage honest for an unknown minute and never exceeds 100 uptime", () => {
-    const observed = observedWithRawTail([], [
-      rawCheck({ checked_at: ago(3 * 60_000) }),
-      rawCheck({ checked_at: ago(2 * 60_000), completed: false }),
-      rawCheck({ checked_at: ago(60_000), completed: true, failed: true }),
-    ]);
+    const observed = observedWithRawTail([], { expected: 3, completed: 2, successful: 1, failed: 1 });
     expect(observed.expected).toBe(3);
     expect(observed.completed).toBe(2);
     expect(observed.successful).toBe(1);

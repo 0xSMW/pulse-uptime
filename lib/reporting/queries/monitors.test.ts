@@ -195,7 +195,10 @@ describe("recent checks activation cutoff", () => {
   };
 
   it("excludes a pre-activation failed minute from the raw recent-checks path", async () => {
-    sqlMock.unsafe.mockResolvedValue([PRE_FAILED_RAW, POST_HEALTHY_RAW]);
+    // The first unsafe call is the recent-checks fetch. The tail-count aggregate
+    // that follows falls back to the empty default, so recentChecks is asserted
+    // independent of the fold.
+    sqlMock.unsafe.mockResolvedValueOnce([PRE_FAILED_RAW, POST_HEALTHY_RAW]);
     dbMock.select
       .mockReturnValueOnce(selectChain([identity({})])) // identity
       .mockReturnValueOnce(selectChain([POST_ACTIVATION_ROLLUP])) // rollups 15m
@@ -247,7 +250,9 @@ describe("recent checks activation cutoff", () => {
   });
 
   it("keeps the live poll consistent, dropping a pre-activation raw minute", async () => {
-    sqlMock.unsafe.mockResolvedValue([PRE_FAILED_RAW, POST_HEALTHY_RAW]);
+    // The tail-count aggregate after the recent-checks fetch falls back to the
+    // empty default.
+    sqlMock.unsafe.mockResolvedValueOnce([PRE_FAILED_RAW, POST_HEALTHY_RAW]);
     dbMock.select
       .mockReturnValueOnce(selectChain([identity({})])) // identity
       .mockReturnValueOnce(selectChain([POST_ACTIVATION_ROLLUP])) // rollups 15m

@@ -12,6 +12,7 @@ import {
   livePollIsStale,
   livePollIsTerminal,
   livePollUnlockAdvanced,
+  livePollWindowAdvanced,
 } from "./live-poll";
 
 describe("livePollIntervalMs", () => {
@@ -129,6 +130,24 @@ describe("livePollConfigChanged", () => {
 
   it("does not refresh when the poll carries no config version yet", () => {
     expect(livePollConfigChanged("2026-07-19T00:00:00.000Z", null)).toBe(false);
+  });
+});
+
+describe("livePollWindowAdvanced", () => {
+  it("refreshes once when the completed window boundary slides forward", () => {
+    expect(
+      livePollWindowAdvanced("2026-07-19T12:00:00.000Z", "2026-07-19T12:15:00.000Z"),
+    ).toBe(true);
+  });
+
+  it("holds steady while the boundary matches the snapshot, so it does not refresh every poll", () => {
+    expect(
+      livePollWindowAdvanced("2026-07-19T12:00:00.000Z", "2026-07-19T12:00:00.000Z"),
+    ).toBe(false);
+  });
+
+  it("does not refresh when the poll carries no window boundary yet", () => {
+    expect(livePollWindowAdvanced("2026-07-19T12:00:00.000Z", null)).toBe(false);
   });
 });
 

@@ -16,6 +16,7 @@ import {
 
 const DAY_MS = 86_400_000;
 const FIFTEEN_MINUTE_MS = 900_000;
+const MINUTE_MS = 60_000;
 
 export function secondsBetween(start: Date, end: Date): number {
   return Math.max(0, Math.floor((end.getTime() - start.getTime()) / 1_000));
@@ -86,6 +87,10 @@ export type LiveRange = "h24" | "d7";
 // The changing subset of a monitor page. The live poll returns exactly these
 // fields so the client can merge them over the server snapshot in place.
 export type MonitorLiveData = {
+  // The monitor this payload describes. SWR keepPreviousData holds one monitor's
+  // payload under the next monitor's key across a direct navigation, so the merge
+  // applies the live fields only when this id matches the page's monitor.
+  id: string;
   state: MonitorState;
   enabled: boolean;
   latestLatencyMs: number | null;
@@ -104,6 +109,11 @@ export type MonitorLiveData = {
   // freshness signal for a paused monitor whose rollup version never moves, so a
   // name, url, threshold, or recipient change lands on the open page.
   configVersion: string | null;
+  // The completed 15-minute window boundary the h24 and d7 scores read against.
+  // It advances every 15 minutes even on a paused monitor whose rollup version
+  // never moves, so the client refreshes once when it advances to recompute the
+  // timeline and response chart the server pins to the page-load window.
+  windowVersion: string;
 };
 
 // Identifies the last completed rollup bucket. It advances only when a new
@@ -146,16 +156,21 @@ export type RawMinuteCheck = {
   latency_ms: number | null;
 };
 
-// Keeps only raw minute checks recorded at or after activation, the same cutoff
-// rollupsSinceActivation applies to buckets. An unactivated monitor has no
-// post-activation checks, so its recent-checks list is empty, matching how
-// incidents and uptime exclude setup-phase data.
+// Keeps only raw minute checks recorded at or after activation. A raw row's
+// checked_at is its scheduled minute, minute-aligned, while activated_at is the
+// real completion instant a few seconds into that minute, so the cutoff floors
+// activation to its minute before comparing. Without the floor the activating
+// check at 12:03:00 sorts before an activated_at of 12:03:05 and drops, hiding
+// the activating success until the next scheduled run. A setup failure lands in
+// an earlier minute, strictly less than the activation minute, so it stays
+// excluded. An unactivated monitor has no post-activation checks, so its list is
+// empty, matching how incidents and uptime exclude setup-phase data.
 export function rawChecksSinceActivation(
   checks: RawMinuteCheck[],
   activatedAt: Date | null,
 ): RawMinuteCheck[] {
   if (activatedAt === null) return [];
-  const cutoff = activatedAt.getTime();
+  const cutoff = Math.floor(activatedAt.getTime() / MINUTE_MS) * MINUTE_MS;
   return checks.filter((check) => check.checked_at.getTime() >= cutoff);
 }
 
@@ -183,42 +198,56 @@ export function buildRecentChecks(rollups24h: LiveRollupRow[]): LiveRecentCheck[
   }));
 }
 
-// Folds the uncompacted post-activation raw minutes into the collecting-card
+// Aggregated counts for the uncompacted post-activation raw tail, summed over
+// the check source between rawTailCutoff and now. Each minute is one expected
+// check, so completed, successful, and failed read the per-minute flags.
+export type RawTailCounts = {
+  expected: number;
+  completed: number;
+  successful: number;
+  failed: number;
+};
+
+// The instant the uncompacted tail begins, where the completed rollups end. With
+// completed post-activation buckets, ordered oldest first, the cutoff is the
+// newest bucket end, so no minute a rollup already counts is folded twice. With
+// none yet the cutoff floors activation to its minute, matching
+// rawChecksSinceActivation, so the whole tail counts and the activating check
+// whose completion instant trails its scheduled minute still joins in. An
+// unactivated monitor has no tail.
+export function rawTailCutoff(
+  completedRollups: Array<{ bucketStart: Date }>,
+  activatedAt: Date | null,
+): Date | null {
+  if (activatedAt === null) return null;
+  const last = completedRollups.at(-1);
+  if (last) return new Date(last.bucketStart.getTime() + FIFTEEN_MINUTE_MS);
+  return new Date(Math.floor(activatedAt.getTime() / MINUTE_MS) * MINUTE_MS);
+}
+
+// Folds the uncompacted post-activation raw tail counts onto the collecting-card
 // observed counts. The base counts come from completed rollup buckets since
-// activation, ordered oldest first. Only raw checks at or after the newest
-// completed bucket end join in, the minutes no rollup covers yet, so no minute
-// is counted twice. Each raw row is one expected check, so expected counts
-// every tail row while completed, successful, and failed read its flags. An
-// unknown tail minute lowers coverage without touching uptime, and completed
+// activation. The tail counts cover the minutes no rollup covers yet, aggregated
+// over the same source from rawTailCutoff, so the fold reads the full tail rather
+// than the newest rows a display limit caps at and no minute is counted twice.
+// An unknown tail minute lowers coverage without touching uptime, and completed
 // never exceeds expected nor successful completed, so uptime stays at or below
 // 100. With no completed buckets yet the whole tail counts, so the first
 // successes show the moment they land instead of waiting for the first bucket.
 export function observedWithRawTail(
   completedRollups: Array<{
-    bucketStart: Date;
     expectedChecks: number;
     completedChecks: number;
     successfulChecks: number;
     failedChecks: number;
   }>,
-  rawTail: RawMinuteCheck[],
+  tail: RawTailCounts,
 ): ObservedCounts {
   const base = summarizeCounts(completedRollups);
-  const lastBucketEnd = completedRollups.length === 0
-    ? null
-    : completedRollups[completedRollups.length - 1]!.bucketStart.getTime() + FIFTEEN_MINUTE_MS;
-  let expected = base.expected;
-  let completed = base.completed;
-  let successful = base.successful;
-  let failed = base.failed;
-  for (const check of rawTail) {
-    if (lastBucketEnd !== null && check.checked_at.getTime() < lastBucketEnd) continue;
-    expected += 1;
-    if (!check.completed) continue;
-    completed += 1;
-    if (check.failed) failed += 1;
-    else successful += 1;
-  }
+  const expected = base.expected + tail.expected;
+  const completed = base.completed + tail.completed;
+  const successful = base.successful + tail.successful;
+  const failed = base.failed + tail.failed;
   return {
     expected,
     completed,

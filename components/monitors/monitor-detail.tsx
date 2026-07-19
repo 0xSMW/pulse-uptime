@@ -102,6 +102,7 @@ export type MonitorDetailData = {
   }>;
   rollupVersion: string | null;
   configVersion: string | null;
+  windowVersion: string;
 };
 
 const availabilityRanges: Array<{ key: AvailabilityRange; label: string }> = [
@@ -312,6 +313,7 @@ export function MonitorDetail({ monitor: snapshot }: { monitor: MonitorDetailDat
     state: snapshot.state,
     rollupVersion: snapshot.rollupVersion,
     configVersion: snapshot.configVersion,
+    windowVersion: snapshot.windowVersion,
     rangeUnlocked: snapshot.rangeUnlocked,
   });
   // Merge the polled fields over the snapshot in place. Charts, timeline
@@ -321,7 +323,11 @@ export function MonitorDetail({ monitor: snapshot }: { monitor: MonitorDetailDat
   // The d30 and d90 unlock flags also stay on the snapshot, so a live flag never
   // unlocks a long range whose score did not arrive. The hook refreshes once
   // when the poll crosses that boundary so the server fills both in together.
-  const monitor: MonitorDetailData = live.data
+  // The merge applies only when the payload names this monitor. SWR
+  // keepPreviousData holds the prior monitor's payload under the new key across a
+  // direct navigation, so a mismatched id falls back to the server snapshot
+  // rather than painting the prior monitor's state over this one.
+  const monitor: MonitorDetailData = live.data && live.data.id === snapshot.id
     ? {
         ...snapshot,
         ...live.data,

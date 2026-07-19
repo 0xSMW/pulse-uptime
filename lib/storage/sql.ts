@@ -283,4 +283,33 @@ order by bits.scheduled_minute desc
 limit $4
 `;
 
+// Aggregated per-check counts for a single monitor over [start, end), read
+// straight from check_batches. The collecting card folds the uncompacted
+// post-activation tail onto the completed rollups, and the tail can exceed the
+// display query's row cap, so this counts every due minute in the window rather
+// than the newest rows. The window is bounded to the tail past the last rollup,
+// so it never scans the full raw retention. It always returns one row, zeros
+// when no minute is due.
+export const RECENT_MINUTE_CHECK_TAIL_COUNTS_SQL = `
+with positioned as (
+  select array_position(batch.monitor_ids, $1::text) position,
+    batch.expected_bitmap, batch.completed_bitmap, batch.failure_bitmap
+  from check_batches batch
+  where batch.scheduled_minute >= $2 and batch.scheduled_minute < $3
+), bits as (
+  select
+    ((get_byte(positioned.expected_bitmap, ((positioned.position - 1) / 8)::integer) >> (((positioned.position - 1) % 8)::integer)) & 1) expected,
+    ((get_byte(positioned.completed_bitmap, ((positioned.position - 1) / 8)::integer) >> (((positioned.position - 1) % 8)::integer)) & 1) completed,
+    ((get_byte(positioned.failure_bitmap, ((positioned.position - 1) / 8)::integer) >> (((positioned.position - 1) % 8)::integer)) & 1) failed
+  from positioned
+  where positioned.position is not null
+)
+select
+  count(*) filter (where bits.expected = 1)::integer expected,
+  count(*) filter (where bits.expected = 1 and bits.completed = 1)::integer completed,
+  count(*) filter (where bits.expected = 1 and bits.completed = 1 and bits.failed = 0)::integer successful,
+  count(*) filter (where bits.expected = 1 and bits.completed = 1 and bits.failed = 1)::integer failed
+from bits
+`;
+
 export type UsageModeRow = { governor_mode: GovernorMode };
