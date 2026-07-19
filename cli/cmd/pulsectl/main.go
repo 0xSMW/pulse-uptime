@@ -29,7 +29,8 @@ func main() {
 	}()
 	stdinTTY := isTerminal(os.Stdin)
 	stdoutTTY := isTerminal(os.Stdout)
-	app := command.New(command.Options{In: os.Stdin, Out: os.Stdout, Err: os.Stderr, StdinTTY: stdinTTY, StdoutTTY: stdoutTTY})
+	stderrTTY := isTerminal(os.Stderr)
+	app := command.New(command.Options{In: os.Stdin, Out: os.Stdout, Err: os.Stderr, StdinTTY: stdinTTY, StdoutTTY: stdoutTTY, StderrTTY: stderrTTY})
 	code := app.ExecuteContext(ctx, os.Args[1:])
 	if interrupted := signalExit.Load(); interrupted != 0 {
 		code = int(interrupted)
