@@ -251,6 +251,77 @@ describe("getPublicStatus", () => {
       "inc-6", "inc-8", "inc-9", "inc-10", "inc-11", "inc-12", "inc-13", "inc-14",
     ]);
   });
+
+  it("overfetches current (active) incidents so promoted-fold filtering can't drop otherwise-active incidents off the page (finding: LIMIT 100 applied before promoted exclusion)", async () => {
+    vi.mocked(getStatusPageConfig).mockResolvedValue(resolvedConfig());
+    const monitorRow = { id: "mon-1", name: "API", groupName: "Core", state: "DOWN" };
+
+    // 110 simultaneously active (unresolved) incidents, newest first (as the
+    // query's ORDER BY returns them): the newest 100 (inc-0..inc-99) are each
+    // promoted into an ongoing published report; the oldest 10 (inc-100..
+    // inc-109) are genuinely active and were never promoted. Under the old
+    // "LIMIT 100 before promoted exclusion" bug, the query would fetch ONLY
+    // inc-0..inc-99 — exactly the promoted set — so excludePromotedIncidents
+    // would remove all 100 fetched rows and currentIncidents would render
+    // EMPTY, even though 10 genuinely active, unpromoted incidents exist.
+    const base = new Date("2026-07-18T12:00:00.000Z").getTime();
+    const currentRows = Array.from({ length: 110 }, (_, index) => ({
+      id: `inc-${index}`,
+      monitorName: "API",
+      openedAt: new Date(base - index * 3_600_000),
+      openingStatusCode: 503,
+    }));
+
+    const currentLimitSpy = vi.fn(() => Promise.resolve(currentRows));
+    const currentChain = {
+      from: () => currentChain,
+      innerJoin: () => currentChain,
+      where: () => currentChain,
+      orderBy: () => currentChain,
+      limit: currentLimitSpy,
+    };
+    dbMock.select
+      .mockReturnValueOnce(selectChain([monitorRow])) // monitors
+      .mockReturnValueOnce(selectChain([])) // rollups
+      .mockReturnValueOnce(currentChain) // current (unresolved) incidents
+      .mockReturnValueOnce(selectChain([])); // recent (resolved) incidents
+
+    function promotedReportFor(incidentId: string) {
+      return {
+        id: `report-${incidentId}`,
+        type: "incident" as const,
+        title: "API outage",
+        startsAt: new Date(base).toISOString(),
+        endsAt: null,
+        publishedAt: new Date(base).toISOString(),
+        resolvedAt: null,
+        originIncidentId: incidentId,
+        currentStatus: "investigating" as const,
+        phase: "ongoing" as const,
+        latestUpdate: null,
+        affected: [{ monitorId: "mon-1", monitorName: "API", groupName: "Core", impact: "down" as const }],
+      };
+    }
+    vi.mocked(getPublicReports).mockResolvedValue({
+      ongoing: Array.from({ length: 100 }, (_, index) => promotedReportFor(`inc-${index}`)),
+      upcoming: [],
+      windowEnded: [],
+      resolved: [],
+    });
+
+    const data = await getPublicStatus();
+
+    // The overfetch is what makes the correct behavior possible.
+    expect(currentLimitSpy).toHaveBeenCalledWith(500);
+    // The 100 newest (promoted) incidents fold into their ongoing reports;
+    // the 10 oldest, unpromoted incidents still surface as currentIncidents
+    // — none of them silently dropped by a query LIMIT sized too small to
+    // survive exclusion.
+    expect(data!.currentIncidents).toHaveLength(10);
+    expect(data!.currentIncidents.map((incident) => incident.id)).toEqual(
+      Array.from({ length: 10 }, (_, index) => `inc-${100 + index}`),
+    );
+  });
 });
 
 describe("getPublicReportDetail", () => {

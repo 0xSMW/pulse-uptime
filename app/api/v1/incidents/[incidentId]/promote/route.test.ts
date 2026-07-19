@@ -19,7 +19,8 @@ vi.mock("@/lib/api/status-reports", async (importOriginal) => ({
   promoteIncident: vi.fn(),
 }));
 
-import { apiError } from "@/lib/api/envelopes";
+import { apiError, errorEnvelope } from "@/lib/api/envelopes";
+import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, type ApiContext } from "@/lib/api/middleware";
 import {
   promoteIncident,
@@ -90,5 +91,17 @@ describe("POST /api/v1/incidents/{incidentId}/promote", () => {
     const response = await POST(request(), params);
     expect(response.status).toBe(404);
     expect((await response.json()).error.code).toBe("INCIDENT_NOT_FOUND");
+  });
+
+  it("maps INCIDENT_NOT_FOUND inside work() itself, not thrown past executeIdempotent (finding: a thrown 404 left the idempotency record stuck 'running' — with no recover callback here, every retry within the 5-minute stale window got REQUEST_IN_PROGRESS instead of a clean, replayable 404)", async () => {
+    vi.mocked(promoteIncident).mockRejectedValue(new StatusReportError("INCIDENT_NOT_FOUND", "missing"));
+    await POST(request(), params);
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      work: (context: { operationId: string }) => Promise<{ status: number; body: unknown }>;
+    };
+    await expect(options.work({ operationId: "op-1" })).resolves.toEqual({
+      status: 404,
+      body: errorEnvelope("INCIDENT_NOT_FOUND", "missing", context.requestId, {}),
+    });
   });
 });

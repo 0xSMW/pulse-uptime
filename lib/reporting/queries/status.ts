@@ -48,6 +48,26 @@ import { buildRollupTimeline, statusGroupSlug, summarizeRollupCoverage } from ".
 const RECENT_INCIDENTS_FETCH_LIMIT = 60;
 const RECENT_INCIDENTS_DISPLAY_LIMIT = 10;
 
+/**
+ * Current (ongoing) active-incident overfetch (finding: excludePromotedIncidents
+ * runs AFTER this query, so a query LIMIT sized to the eventual display count
+ * — here, there IS no display cap; every unpromoted active incident is shown
+ * — could truncate BEFORE exclusion. With >100 simultaneously active
+ * incidents whose newest are promoted into ongoing reports, a bare LIMIT 100
+ * would fill entirely with rows that then get excluded, dropping older
+ * still-active unpromoted incidents from the page even though they qualify).
+ * Unlike the resolved-history overfetch above, currentIncidents has no
+ * trailing `.slice()` — everything this query returns (after exclusion) is
+ * displayed — so the fix is simply a generous query LIMIT, not an
+ * overfetch-then-slice pair. 500 is far beyond any realistic simultaneous
+ * active-incident count while staying bounded; the tradeoff is the same
+ * pathological case as the resolved-history fetch: if active-incident volume
+ * (promoted + unpromoted) ever exceeds this bound, the oldest active
+ * incidents past it would still be dropped, but that requires an outage of a
+ * scale this dashboard isn't designed to display anyway.
+ */
+const CURRENT_INCIDENTS_FETCH_LIMIT = 500;
+
 function failureLabel(statusCode: number | null): string {
   if (statusCode !== null) return `HTTP ${statusCode}`;
   // Checker codes can include infrastructure detail. Public pages use a stable,
@@ -193,7 +213,7 @@ async function loadPublicStatus(group?: string) {
       .innerJoin(monitorRegistry, eq(monitorRegistry.id, incidents.monitorId))
       .where(and(inArray(incidents.monitorId, ids), isNull(incidents.resolvedAt)))
       .orderBy(desc(incidents.openedAt))
-      .limit(100),
+      .limit(CURRENT_INCIDENTS_FETCH_LIMIT),
     db.select({
       id: incidents.id,
       monitorName: monitorRegistry.name,

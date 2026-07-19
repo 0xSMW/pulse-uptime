@@ -98,6 +98,28 @@ describe("statusReportPatchAlreadyApplied (finding: an INVALID patch retry was r
   it("still returns true for a genuinely already-applied, schema-valid patch", () => {
     expect(statusReportPatchAlreadyApplied(current, { title: "API outage" })).toBe(true);
   });
+
+  it("recovers a padded title against the schema-trimmed stored value (finding: comparing the raw body missed patchSchema's titleSchema.trim())", () => {
+    // updateStatusReport parses the patch through patchSchema before
+    // persisting, so `{ title: " API outage " }` is stored as "API outage".
+    // A stale post-commit retry replaying the SAME raw, padded body must
+    // still recover — comparing the raw field against the trimmed current
+    // title would spuriously return false and rerun work().
+    expect(statusReportPatchAlreadyApplied(current, { title: " API outage " })).toBe(true);
+  });
+
+  it("does not recover a genuinely different (non-whitespace) title", () => {
+    expect(statusReportPatchAlreadyApplied(current, { title: "Different outage" })).toBe(false);
+  });
+
+  it("recovers a padded affected monitorId against the schema-trimmed stored value", () => {
+    // affectedEntrySchema trims monitorId the same way titleSchema trims
+    // title; a stale retry's raw, padded monitorId must still match the
+    // current (already-trimmed) affected set.
+    expect(
+      statusReportPatchAlreadyApplied(current, { affected: [{ monitorId: " api-prod ", impact: "down" }] }),
+    ).toBe(true);
+  });
 });
 
 /** Minimal in-memory IdempotencyPersistence, mirroring lib/api/idempotency.test.ts. */
@@ -182,6 +204,36 @@ describe("storedStatusReportError + executeIdempotent (finding: publish/report-d
     expect(work).toHaveBeenCalledOnce();
     expect(second).toMatchObject({ status: 200, body: { ok: true }, replayed: true });
   });
+
+  it("mirrors POST /api/v1/incidents/{id}/promote: promoting an unknown incident records a 404 and a retry replays it, instead of leaving the record stuck 'running' with no recover callback to fall back on", async () => {
+    const persistence = new MemoryPersistence();
+    const work = vi.fn(async () => {
+      try {
+        throw new StatusReportError("INCIDENT_NOT_FOUND", "Incident was not found");
+      } catch (error) {
+        if (error instanceof StatusReportError) return storedStatusReportError(error, "req-1");
+        throw error;
+      }
+    });
+
+    const first = await executeIdempotent({
+      request: idempotentRequest(), principalKey: "human:1", routeKey: "test-promote", body: {}, persistence, work,
+    });
+    expect(first).toMatchObject({ status: 404, replayed: false });
+    expect(first.body).toEqual(errorEnvelope("INCIDENT_NOT_FOUND", "Incident was not found", "req-1", {}));
+
+    // Retry with the same key: replays the recorded 404 verbatim via the
+    // ordinary completed-record path. Before the fix, promote's work() threw
+    // this past executeIdempotent, leaving the record "running" — a retry
+    // within the 5-minute stale window would have hit REQUEST_IN_PROGRESS
+    // (there's no recover callback for promote to fall back on) instead of
+    // this clean, replayed 404.
+    const second = await executeIdempotent({
+      request: idempotentRequest(), principalKey: "human:1", routeKey: "test-promote", body: {}, persistence, work,
+    });
+    expect(work).toHaveBeenCalledOnce();
+    expect(second).toEqual({ ...first, replayed: true });
+  });
 });
 
 describe("statusReportPatchAlreadyApplied + executeIdempotent: a stale retry of an INVALID patch reproduces the genuine 400, never a false 200", () => {
@@ -244,5 +296,32 @@ describe("statusReportPatchAlreadyApplied + executeIdempotent: a stale retry of 
 
   it("stale retry of {foo:1} (unsupported key) replays a genuine 400", async () => {
     await staleRetryReproducesGenuine400({ foo: 1 });
+  });
+
+  it("stale retry of a padded title recovers a 200 without rerunning work() (finding: comparing the raw body missed patchSchema's trim, so a genuinely-applied padded-title patch replay spuriously reran work() and re-snapshotted affected monitors a second time)", async () => {
+    const persistence = new MemoryPersistence();
+    const firstNow = new Date("2026-07-18T12:00:00.000Z");
+    const staleNow = new Date(firstNow.getTime() + 6 * 60_000); // past the 5-minute stale threshold
+    const body = { title: " API outage " };
+
+    // First attempt: the patch DID commit (title persisted trimmed as
+    // "API outage"), but the response never made it back — simulated here as
+    // a thrown error after the record was inserted, same as the other tests
+    // in this file — leaving the record stuck "running".
+    await expect(executeIdempotent({
+      request: patchRequest(body), principalKey: "human:1", routeKey: "test-patch", body, persistence, now: firstNow,
+      work: async () => { throw new Error("simulated crash after commit"); },
+    })).rejects.toThrow("simulated crash after commit");
+    expect(persistence.owner?.state).toBe("running");
+
+    const work = vi.fn(invalidPatchWork);
+    const retried = await executeIdempotent({
+      request: patchRequest(body), principalKey: "human:1", routeKey: "test-patch", body, persistence, now: staleNow,
+      recover: async () => (statusReportPatchAlreadyApplied(CURRENT, body) ? { status: 200, body: { ok: true } } : null),
+      work,
+    });
+
+    expect(retried).toMatchObject({ status: 200, body: { ok: true }, replayed: true });
+    expect(work).not.toHaveBeenCalled();
   });
 });

@@ -344,6 +344,27 @@ const patchSchema = z
   .strict()
   .refine((value) => Object.keys(value).length > 0, { message: "Provide at least one field to update" });
 
+export type StatusReportPatchInput = z.infer<typeof patchSchema>;
+
+/**
+ * Parses `body` against the SAME patchSchema updateStatusReport uses,
+ * returning the normalized result (title trimmed, affected.monitorId
+ * trimmed, timestamps coerced to Date) or null if invalid.
+ *
+ * Exported so idempotency recovery (statusReportPatchAlreadyApplied in
+ * lib/api/status-report-http.ts) can compare the caller's patch against the
+ * CURRENT report using the same normalized values the real patch persists
+ * (finding: comparing raw, un-parsed request fields missed that title —
+ * and affected.monitorId — are trimmed by this schema; a stale retry of
+ * `{ title: " API outage " }` against a stored, trimmed "API outage" then
+ * spuriously failed recovery and re-ran the patch, re-snapshotting affected
+ * monitors a second time / risking a false 412 on other callers).
+ */
+export function parseStatusReportPatch(body: unknown): StatusReportPatchInput | null {
+  const result = patchSchema.safeParse(body);
+  return result.success ? result.data : null;
+}
+
 /**
  * Whether `body` would satisfy patchSchema (finding: statusReportPatchAlreadyApplied
  * in lib/api/status-report-http.ts otherwise falls through to `true` for an
@@ -353,7 +374,7 @@ const patchSchema = z
  * idempotency-recovery gate without duplicating patchSchema's shape.
  */
 export function isValidStatusReportPatch(body: unknown): boolean {
-  return patchSchema.safeParse(body).success;
+  return parseStatusReportPatch(body) !== null;
 }
 
 const updateCreateSchema = z
@@ -845,6 +866,19 @@ export async function recoverEditedReportUpdate(
   return persistResolutionAndSerialize(store, report, now);
 }
 
+/**
+ * Unlike statusReportPatchAlreadyApplied, this compares the RAW body fields
+ * (not a schema-parsed result) — audited and confirmed safe: of the three
+ * comparable fields, `status` is an enum with no coercion, `markdown` is
+ * validated but never trimmed/transformed by updateEditSchema (only its
+ * *trimmed length* is checked; the persisted value is the raw string), and
+ * `publishedAt` is parsed inline via Date.parse right below rather than
+ * relying on the schema's Date transform. No field this function compares is
+ * normalized by updateEditSchema in a way the raw-body comparison would miss,
+ * so the title/affected.monitorId trim bug fixed in
+ * statusReportPatchAlreadyApplied (lib/api/status-report-http.ts) does not
+ * apply here.
+ */
 function reportUpdatePatchAlreadyApplied(
   current: Pick<StatusReportUpdateRow, "status" | "markdown" | "publishedAt">,
   body: unknown,

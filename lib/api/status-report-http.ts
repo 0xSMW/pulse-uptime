@@ -7,7 +7,7 @@ import { statusGroupSlug } from "@/lib/reporting/queries/timeline";
 import { apiError, errorEnvelope } from "./envelopes";
 import type { StoredResponse } from "./idempotency";
 import { routeError } from "./route";
-import { databaseStatusReportsStore, isValidStatusReportPatch, StatusReportError } from "./status-reports";
+import { databaseStatusReportsStore, parseStatusReportPatch, StatusReportError } from "./status-reports";
 
 function statusReportErrorStatus(error: StatusReportError): number {
   return error.code === "VALIDATION_ERROR" || error.code === "INVALID_CURSOR"
@@ -63,21 +63,23 @@ export function statusReportPatchAlreadyApplied(
   },
   body: unknown,
 ): boolean {
-  // Gate on the SAME schema the real patch would have to pass (finding: an
-  // INVALID patch — `{}`, or a body with only unsupported keys — otherwise
-  // falls through to `true` since no recognized field mismatches, turning a
-  // stale retry's genuine VALIDATION_ERROR into a false recovered 200).
-  if (!isValidStatusReportPatch(body)) return false;
-  if (body === null || typeof body !== "object") return false;
-  const patch = body as Record<string, unknown>;
+  // Parse through the SAME patchSchema updateStatusReport uses (finding: an
+  // INVALID patch — `{}`, or a body with only unsupported keys — must return
+  // false rather than falling through to `true` since no recognized field
+  // mismatches, which would turn a stale retry's genuine VALIDATION_ERROR
+  // into a false recovered 200). Comparing the PARSED patch below (not the
+  // raw body) also matters for fields the schema normalizes: title is
+  // trimmed, and affected[].monitorId is trimmed — comparing raw request
+  // fields against the trimmed values persisted by the original write missed
+  // this, so a stale retry of e.g. `{ title: " API outage " }` against a
+  // stored, trimmed "API outage" spuriously failed recovery.
+  const patch = parseStatusReportPatch(body);
+  if (!patch) return false;
   if ("title" in patch && patch.title !== current.title) return false;
   if ("startsAt" in patch && !sameInstant(patch.startsAt, current.startsAt)) return false;
   if ("endsAt" in patch && !sameInstant(patch.endsAt, current.endsAt)) return false;
-  if ("affected" in patch) {
-    if (!Array.isArray(patch.affected)) return false;
-    const requested = new Set(
-      patch.affected.map((entry) => `${(entry as { monitorId: string }).monitorId}:${(entry as { impact: string }).impact}`),
-    );
+  if ("affected" in patch && patch.affected) {
+    const requested = new Set(patch.affected.map((entry) => `${entry.monitorId}:${entry.impact}`));
     const actual = new Set(current.affected.map((entry) => `${entry.monitorId}:${entry.impact}`));
     if (requested.size !== actual.size) return false;
     for (const key of requested) if (!actual.has(key)) return false;
@@ -85,11 +87,11 @@ export function statusReportPatchAlreadyApplied(
   return true;
 }
 
-function sameInstant(value: unknown, current: string | null): boolean {
+/** `value` is patchSchema's already-parsed Date (or null/undefined when the caller omitted the field). */
+function sameInstant(value: Date | null | undefined, current: string | null): boolean {
+  if (value === undefined) return true;
   if (value === null) return current === null;
-  if (typeof value !== "string" || current === null) return false;
-  const parsed = Date.parse(value);
-  return !Number.isNaN(parsed) && parsed === Date.parse(current);
+  return current !== null && value.getTime() === Date.parse(current);
 }
 
 /**
