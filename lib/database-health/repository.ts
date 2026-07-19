@@ -120,7 +120,7 @@ async function readLatest(): Promise<DatabaseHealthMeasurement | null> {
   const retention = await sql.unsafe(RETENTION_AGES_SQL) as unknown as RetentionRow[];
   const rawCategories = categoryRecord(snapshot.category_bytes);
   const allowedCategories = new Set<DatabaseHealthCategoryKey>([
-    "recentCheckBatches", "rollups", "exceptions", "incidents", "coreData", "operations", "indexes", "other",
+    "recentCheckBatches", "rollups", "exceptions", "incidents", "coreData", "operations", "content", "indexes", "other",
   ]);
   const categoryBytes = Object.fromEntries(Object.entries(rawCategories)
     .filter(([key]) => key !== "other" && allowedCategories.has(key as DatabaseHealthCategoryKey))

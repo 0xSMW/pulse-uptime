@@ -6,7 +6,7 @@ import { getCurrentSession } from "@/lib/auth/session";
 import { db } from "@/lib/db/client";
 import { apiTokens, cliInstallations, cliSessions } from "@/lib/db/schema";
 
-import { ADMINISTRATOR_SCOPES, normalizeScopes, type ApiScope } from "./scopes";
+import { ADMINISTRATOR_SCOPES, normalizeScopes, resolveScopeProfile, type ApiScope } from "./scopes";
 import { digestBearerToken, parseBearerAuthorization } from "./tokens";
 
 export type HumanPrincipal = {
@@ -122,6 +122,7 @@ export const databasePrincipalStore: PrincipalStore = {
         id: cliSessions.id,
         email: cliSessions.userEmail,
         scopes: cliSessions.scopes,
+        scopeProfile: cliSessions.scopeProfile,
         expiresAt: cliSessions.expiresAt,
         installationId: cliInstallations.id,
         displayName: cliInstallations.displayName,
@@ -149,7 +150,9 @@ export const databasePrincipalStore: PrincipalStore = {
           type: "cli_session",
           id: row.id,
           email: row.email,
-          scopes: normalizeScopes(row.scopes),
+          // Auth-time profile resolution: a stored scope profile wins over the
+          // literal mint-time snapshot so existing sessions gain new scopes.
+          scopes: resolveScopeProfile(row.scopeProfile) ?? normalizeScopes(row.scopes),
           expiresAt: row.expiresAt,
           installation: {
             id: row.installationId,

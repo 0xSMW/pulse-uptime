@@ -217,7 +217,7 @@ func (c *Client) DoRaw(ctx context.Context, request Request) (*Response, error) 
 	if method == "" {
 		method = http.MethodGet
 	}
-	if method != http.MethodGet && method != http.MethodPost && method != http.MethodPatch && method != http.MethodDelete {
+	if method != http.MethodGet && method != http.MethodPost && method != http.MethodPut && method != http.MethodPatch && method != http.MethodDelete {
 		return nil, &Error{Code: "INVALID_REQUEST", Message: "unsupported request method"}
 	}
 
@@ -387,7 +387,7 @@ func canRetry(method, idempotencyKey string, status int) bool {
 }
 
 func isMutation(method string) bool {
-	return method == http.MethodPost || method == http.MethodPatch || method == http.MethodDelete
+	return method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch || method == http.MethodDelete
 }
 
 func parseRetryAfter(value string, now time.Time) time.Duration {

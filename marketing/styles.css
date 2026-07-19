@@ -1566,6 +1566,8 @@ h1 {
 }
 
 .architecture-principles > div + div { border-left: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
+.architecture-principles > div:nth-child(3n + 1) { border-left: 0; }
+.architecture-principles > div:nth-child(n + 4) { border-top: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
 .architecture-principles span { color: var(--fg-faint); font-size: 11px; letter-spacing: 0.12em; }
 .architecture-principles strong { display: block; margin-top: 20px; font-weight: 500; }
 .architecture-principles p { margin-top: 7px; color: var(--fg-muted); }

@@ -94,6 +94,20 @@ const RETAIN_EXCEPTIONS_SQL = `with doomed as (select id from monitor_exceptions
 delete from monitor_exceptions using doomed where monitor_exceptions.id = doomed.id returning monitor_exceptions.id`;
 const RETAIN_PAYLOADS_SQL = `with doomed as (select id from exception_payloads where expires_at < $1 order by expires_at limit $2)
 delete from exception_payloads using doomed where exception_payloads.id = doomed.id returning exception_payloads.id`;
+const DELETE_ORPHAN_IMAGES_SQL = `with referenced as (
+  select logo_light_image_id id from status_page_config where logo_light_image_id is not null
+  union select logo_dark_image_id from status_page_config where logo_dark_image_id is not null
+  union select favicon_image_id from status_page_config where favicon_image_id is not null
+  union select avatar_image_id from admin_users where avatar_image_id is not null
+), unreferenced as (
+  select images.id, images.created_at,
+    row_number() over (order by images.created_at desc, images.id desc) position
+  from images where not exists (select 1 from referenced where referenced.id = images.id)
+), doomed as (
+  select id from unreferenced where created_at < $1 or position > $2
+  order by created_at, id limit $3
+)
+delete from images using doomed where images.id = doomed.id returning images.id`;
 
 export function createSqlMaintenanceStore(db: QueryExecutor): MaintenanceStore {
   return {
@@ -153,5 +167,8 @@ export function createSqlMaintenanceStore(db: QueryExecutor): MaintenanceStore {
     async retainUsageSnapshots(now, limit) { return count(await db.query(RETAIN_USAGE_SQL, [now, limit])); },
     async retainExceptions(now, limit) { return count(await db.query(RETAIN_EXCEPTIONS_SQL, [now, limit])); },
     async retainExceptionPayloads(now, limit) { return count(await db.query(RETAIN_PAYLOADS_SQL, [now, limit])); },
+    async deleteOrphanImages(cutoff, keepNewest, limit) {
+      return count(await db.query(DELETE_ORPHAN_IMAGES_SQL, [cutoff, keepNewest, limit]));
+    },
   };
 }

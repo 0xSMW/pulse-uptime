@@ -26,6 +26,19 @@ describe("maintenance SQL store", () => {
     expect(query.mock.calls[0]?.[0]).toContain("latest_point");
   });
 
+  it("sweeps orphan images with an age cutoff and a newest-N hard cap", async () => {
+    const query = vi.fn().mockResolvedValue([]);
+    const cutoff = new Date("2026-07-17T12:00:00Z");
+    await createSqlMaintenanceStore({ query }).deleteOrphanImages(cutoff, 20, 10_000);
+    const [text, values] = query.mock.calls[0]!;
+    expect(text).toContain("logo_light_image_id");
+    expect(text).toContain("avatar_image_id from admin_users");
+    expect(text).toContain("row_number() over (order by images.created_at desc");
+    expect(text).toContain("created_at < $1 or position > $2");
+    expect(text).toContain("limit $3");
+    expect(values).toEqual([cutoff, 20, 10_000]);
+  });
+
   it("bounds adaptive cleanup while preserving incident detail windows", async () => {
     const query = vi.fn().mockResolvedValue([]);
     await createSqlMaintenanceStore({ query }).enforceTelemetryRetention(

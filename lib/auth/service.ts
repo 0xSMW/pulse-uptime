@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq, gt, isNull, sql as drizzleSql } from "drizzle-orm";
+import { and, eq, gt, isNull, lt, or, sql as drizzleSql } from "drizzle-orm";
 import { after } from "next/server";
 
 import { db } from "@/lib/db/client";
@@ -23,6 +23,7 @@ export type HumanSession = {
   sessionId: string;
   userId: string;
   email: string;
+  timezone: string | null;
   expiresAt: Date;
   onboardingCompletedAt: Date | null;
 };
@@ -182,7 +183,7 @@ const databaseAdminCreationStore: AdminCreationStore = {
 
 const LOGIN_LIMIT = 5;
 const LOGIN_WINDOW_SECONDS = 15 * 60;
-const LOGIN_RATE_LIMIT_POLICY: RateLimitPolicy = {
+export const LOGIN_RATE_LIMIT_POLICY: RateLimitPolicy = {
   routeKey: "human-login",
   limit: LOGIN_LIMIT,
   windowSeconds: LOGIN_WINDOW_SECONDS,
@@ -200,6 +201,8 @@ export interface LoginStore {
     userId: string;
     currentSessionId?: string | null;
     sessionDigest: Buffer;
+    userAgent: string | null;
+    ipAddress: string | null;
     now: Date;
     expiresAt: Date;
   }): Promise<void>;
@@ -222,8 +225,28 @@ export function loginRateLimitKey(
   return `login-${kind}:${digest(`human-login:${kind}:${value}`).toString("hex")}`;
 }
 
+/** First forwarded hop only. Proxies append, so later entries are spoofable. */
+export function firstForwardedIp(forwardedFor: string | null): string | null {
+  return forwardedFor?.split(",")[0]?.trim() || null;
+}
+
+/**
+ * Client IP for stored session rows and rate-limit keys: x-real-ip is set by
+ * the fronting platform and cannot be influenced by the caller, so it wins.
+ * The first x-forwarded-for hop is the fallback.
+ */
+export function clientIpFromHeaders(headers: { get(name: string): string | null }): string | null {
+  return headers.get("x-real-ip")?.trim() || firstForwardedIp(headers.get("x-forwarded-for"));
+}
+
 export async function login(
-  input: { email: string; password: string; ip: string; currentSessionId?: string | null },
+  input: {
+    email: string;
+    password: string;
+    ip: string;
+    userAgent?: string | null;
+    currentSessionId?: string | null;
+  },
   dependencies: LoginDependencies = {},
 ) {
   const email = normalizeEmail(input.email);
@@ -265,6 +288,8 @@ export async function login(
     userId: user.id,
     currentSessionId: input.currentSessionId,
     sessionDigest: token.digest,
+    userAgent: input.userAgent?.trim().slice(0, 512) || null,
+    ipAddress: input.ip === "unknown" ? null : input.ip,
     now,
     expiresAt,
   });
@@ -287,6 +312,7 @@ const databaseLoginStore: LoginStore = {
       }
       await tx.insert(humanSessions).values({
         id: crypto.randomUUID(), userId: input.userId, tokenDigest: input.sessionDigest,
+        userAgent: input.userAgent, ipAddress: input.ipAddress,
         createdAt: input.now, expiresAt: input.expiresAt,
       });
     });
@@ -301,7 +327,15 @@ export async function revokeSession(sessionId: string) {
   await db.update(humanSessions).set({ revokedAt: new Date() }).where(eq(humanSessions.id, sessionId));
 }
 
-const SESSION_TOUCH_INTERVAL_MS = 5 * 60_000;
+export const LAST_SEEN_REFRESH_SECONDS = 60;
+
+/**
+ * lastSeenAt is load-bearing for the Security page but written from every
+ * authenticated request, so refresh it at most once per minute per session.
+ */
+export function shouldRefreshLastSeen(lastSeenAt: Date | null, now: Date): boolean {
+  return lastSeenAt === null || now.getTime() - lastSeenAt.getTime() > LAST_SEEN_REFRESH_SECONDS * 1_000;
+}
 
 export async function findSessionByDigest(digest: Buffer, now = new Date()): Promise<HumanSession | null> {
   const [row] = await db
@@ -309,6 +343,7 @@ export async function findSessionByDigest(digest: Buffer, now = new Date()): Pro
       sessionId: humanSessions.id,
       userId: adminUsers.id,
       email: adminUsers.email,
+      timezone: adminUsers.timezone,
       expiresAt: humanSessions.expiresAt,
       onboardingCompletedAt: adminUsers.onboardingCompletedAt,
       lastSeenAt: humanSessions.lastSeenAt,
@@ -319,11 +354,22 @@ export async function findSessionByDigest(digest: Buffer, now = new Date()): Pro
     .limit(1);
   if (!row) return null;
   const { lastSeenAt, ...session } = row;
-  if (!lastSeenAt || now.getTime() - lastSeenAt.getTime() >= SESSION_TOUCH_INTERVAL_MS) {
+  // The app-level check is only a fast path to skip the write entirely. The
+  // staleness predicate rides in the UPDATE's WHERE clause so concurrent
+  // bursts collapse under the row lock instead of each re-writing lastSeenAt.
+  if (shouldRefreshLastSeen(lastSeenAt, now)) {
+    const cutoff = new Date(now.getTime() - LAST_SEEN_REFRESH_SECONDS * 1_000);
     const touch = () =>
-      db.update(humanSessions).set({ lastSeenAt: now }).where(eq(humanSessions.id, row.sessionId));
+      db
+        .update(humanSessions)
+        .set({ lastSeenAt: now })
+        .where(and(
+          eq(humanSessions.id, row.sessionId),
+          or(isNull(humanSessions.lastSeenAt), lt(humanSessions.lastSeenAt, cutoff)),
+        ));
     try {
-      // Off the render critical path; lastSeenAt has no readers that need it fresh.
+      // Off the render critical path. The Security page tolerates a refresh
+      // that lands after the response, only the minute-level bound matters.
       after(touch);
     } catch {
       // after() requires a request scope; direct callers (tests) update inline.

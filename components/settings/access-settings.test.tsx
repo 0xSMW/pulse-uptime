@@ -10,7 +10,7 @@ vi.mock("next/navigation", () => ({
 
 const data: AccessSettingsData = {
   tokens: [
-    { id: "tok-1", name: "CI deploys", kind: "agent", detail: null, prefix: "pulse_live_a1b2", scopes: ["monitors:read", "config:write"], expiresAt: "2026-10-16T00:00:00.000Z", lastUsedAt: null },
+    { id: "tok-1", name: "CI deploys", kind: "agent", detail: null, prefix: "pulse_live_a1b2", scopes: ["monitors:read", "config:write", "reports:write"], expiresAt: "2026-10-16T00:00:00.000Z", lastUsedAt: null },
     { id: "cli-1", name: "Stephen's MacBook", kind: "cli", detail: "darwin/arm64", prefix: "pulse_cli_z9y8", scopes: ["monitors:read"], expiresAt: "2026-08-16T00:00:00.000Z", lastUsedAt: null },
   ],
   origin: "https://pulse.example.com",
@@ -26,6 +26,7 @@ describe("AccessSettings", () => {
     expect(html).toContain("Linked session");
     expect(html).toContain("pulse_live_a1b2····");
     expect(html).toContain("config:write");
+    expect(html).toContain("reports:write");
     expect(html).toContain("Oct 16, 2026");
   });
 

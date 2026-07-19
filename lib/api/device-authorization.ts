@@ -6,7 +6,7 @@ import { db } from "@/lib/db/client";
 import { apiIdempotency, apiTokens, cliInstallations, cliSessions, deviceAuthorizations } from "@/lib/db/schema";
 
 import type { HumanPrincipal } from "./principal";
-import { ADMINISTRATOR_SCOPES } from "./scopes";
+import { ADMINISTRATOR_SCOPES, resolveScopeProfile } from "./scopes";
 import {
   CLI_SESSION_PREFIX,
   createBearerToken,
@@ -219,13 +219,14 @@ export async function pollDeviceAuthorization(
       const [existingSession] = await tx.select({
         expiresAt: cliSessions.expiresAt,
         scopes: cliSessions.scopes,
+        scopeProfile: cliSessions.scopeProfile,
       }).from(cliSessions).where(eq(cliSessions.tokenDigest, sessionCredential.digest)).limit(1);
       if (existingSession) {
         return { session: {
           token: sessionCredential.raw,
           tokenType: "Bearer" as const,
           expiresAt: existingSession.expiresAt,
-          scopes: existingSession.scopes,
+          scopes: resolveScopeProfile(existingSession.scopeProfile) ?? existingSession.scopes,
         } };
       }
     }
@@ -265,6 +266,7 @@ export async function pollDeviceAuthorization(
       tokenDigest: token.digest,
       userEmail: installation.userEmail,
       scopes: [...ADMINISTRATOR_SCOPES],
+      scopeProfile: "administrator",
       createdAt: now,
       expiresAt,
     });

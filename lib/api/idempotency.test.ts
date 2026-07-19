@@ -206,3 +206,58 @@ describe("idempotency retention reclamation", () => {
     expect(insertCount).toBe(2);
   });
 });
+
+/**
+ * executeIdempotent fingerprints ONLY the `body` value a caller passes in
+ * (folded into requestHash together with method/path/query). A route with an
+ * additional precondition beyond the request document (e.g. status-page-config
+ * PUT's If-Match) must fold that
+ * precondition into `body` itself, or a client that reuses the same
+ * Idempotency-Key with the SAME document but a FRESH precondition (re-read
+ * after a 412, then resubmitted under the same key) would hash identically
+ * to the first attempt and replay its stale stored response instead of being
+ * evaluated fresh. These tests exercise executeIdempotent directly with a
+ * `body` shaped exactly like that route's `{ ifMatch, document }` composite.
+ */
+describe("idempotency fingerprint covers whatever the caller passes as `body`, including a folded-in precondition", () => {
+  function preconditionedRequest(ifMatch: string, document: unknown) {
+    return {
+      request: new Request("https://pulse.example/api/v1/status-page-config", {
+        method: "PUT",
+        headers: { "Idempotency-Key": key },
+      }),
+      principalKey: "human:1",
+      routeKey: "/api/v1/status-page-config",
+      body: { ifMatch, document },
+    };
+  }
+
+  it("replays the stored response for a transport-level retry that resends the SAME key, If-Match, and document", async () => {
+    const now = new Date("2026-07-18T12:00:00.000Z");
+    const persistence = new MemoryPersistence();
+    const work = vi.fn(async () => ({ status: 200, body: { version: 6 } }));
+
+    const first = await executeIdempotent({ ...preconditionedRequest('"5"', { name: "Acme Status" }), now, persistence, work });
+    expect(first).toMatchObject({ status: 200, body: { version: 6 }, replayed: false });
+
+    const retry = await executeIdempotent({ ...preconditionedRequest('"5"', { name: "Acme Status" }), now, persistence, work });
+    expect(retry).toMatchObject({ status: 200, body: { version: 6 }, replayed: true });
+    expect(work).toHaveBeenCalledOnce();
+  });
+
+  it("throws IDEMPOTENCY_KEY_REUSED for the SAME document resubmitted under the SAME key with a FRESH If-Match, instead of replaying the first attempt's response", async () => {
+    const now = new Date("2026-07-18T12:00:00.000Z");
+    const persistence = new MemoryPersistence();
+    const work = vi.fn(async () => ({ status: 200, body: { version: 6 } }));
+
+    await executeIdempotent({ ...preconditionedRequest('"5"', { name: "Acme Status" }), now, persistence, work });
+
+    await expect(executeIdempotent({
+      ...preconditionedRequest('"6"', { name: "Acme Status" }), now, persistence, work,
+    })).rejects.toMatchObject({ code: "IDEMPOTENCY_KEY_REUSED" });
+    // The second call never reached work() again. It was rejected before
+    // that point, which is the whole point: it must not silently replay OR
+    // silently rerun, only surface the explicit "mint a new key" signal.
+    expect(work).toHaveBeenCalledOnce();
+  });
+});

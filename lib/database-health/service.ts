@@ -23,6 +23,7 @@ const CATEGORY_LABELS: Record<DatabaseHealthCategoryKey, string> = {
   incidents: "Incidents",
   coreData: "Core data",
   operations: "Operations",
+  content: "Images & reports",
   indexes: "Indexes",
   other: "Other",
 };

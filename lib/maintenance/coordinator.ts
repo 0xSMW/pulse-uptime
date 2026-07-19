@@ -27,6 +27,8 @@ export interface MaintenanceStore {
   retainUsageSnapshots(now: Date, limit: number): Promise<number>;
   retainExceptions(now: Date, limit: number): Promise<number>;
   retainExceptionPayloads(now: Date, limit: number): Promise<number>;
+  /** Orphan images: unattached for 24h, plus a hard cap keeping the newest N. */
+  deleteOrphanImages(cutoff: Date, keepNewest: number, limit: number): Promise<number>;
 }
 
 export type MaintenanceSummary = {
@@ -40,6 +42,7 @@ export type MaintenanceSummary = {
 
 export const RETENTION_BATCH_SIZE = 10_000;
 export const MAINTENANCE_WORK_BUDGET_MS = 45_000;
+export const ORPHAN_IMAGE_KEEP_NEWEST = 20;
 export const SWEEP_WORK_BUDGET_MS = 20_000;
 
 export type SweepSummary = { expired: number };
@@ -73,6 +76,7 @@ export async function performMaintenance(
   const rejectedCutoff = new Date(now.getTime() - 30 * 86_400_000);
   const rollupCutoff = utcDay(now, 365);
   const recentCompactStart = new Date(now.getTime() - 48 * 3_600_000);
+  const orphanImageCutoff = new Date(now.getTime() - 24 * 3_600_000);
 
   const staleOutbox = await store.reconcileStaleOutbox(now);
   const staleCronRuns = await store.reconcileStaleCronRuns(now);
@@ -99,7 +103,8 @@ export async function performMaintenance(
     await drainBatches((limit) => store.deleteSentNotifications(sentCutoff, limit), nowMs, deadlineAtMs) +
     await drainBatches((limit) => store.retainConfigSnapshots(rejectedCutoff, 50, limit), nowMs, deadlineAtMs) +
     await drainBatches((limit) => store.deleteOldCronRuns(cronCutoff, limit), nowMs, deadlineAtMs) +
-    await drainBatches((limit) => store.deleteOldRollups(rollupCutoff, limit), nowMs, deadlineAtMs);
+    await drainBatches((limit) => store.deleteOldRollups(rollupCutoff, limit), nowMs, deadlineAtMs) +
+    await drainBatches((limit) => store.deleteOrphanImages(orphanImageCutoff, ORPHAN_IMAGE_KEEP_NEWEST, limit), nowMs, deadlineAtMs);
   const expired =
     await drainBatches((limit) => store.expireConfigApprovals(now, consumedApprovalCutoff, limit), nowMs, deadlineAtMs) +
     await drainBatches((limit) => store.expireApiIdempotency(now, limit), nowMs, deadlineAtMs) +

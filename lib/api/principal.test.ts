@@ -26,12 +26,15 @@ describe("principal resolution", () => {
         sessionId: "ses_human",
         userId: "usr_1",
         email: "admin@example.com",
+        timezone: null,
         expiresAt: new Date("2026-08-01T00:00:00Z"),
         onboardingCompletedAt: new Date("2026-07-18T00:00:00Z"),
       }),
     });
     expect(principal).toMatchObject({ type: "human", id: "usr_1" });
-    expect(principal?.scopes).toHaveLength(8);
+    expect(principal?.scopes).toHaveLength(10);
+    expect(principal?.scopes).toContain("reports:read");
+    expect(principal?.scopes).toContain("reports:write");
   });
 
   it("verifies an API token by digest and performs a bounded touch", async () => {

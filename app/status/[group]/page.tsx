@@ -1,15 +1,26 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { StatusPageContent } from "@/components/status-page/status-page-content";
-import { StatusUnavailable } from "@/components/status-page/status-unavailable";
-import { getPublicStatus, StatusDataUnavailableError } from "@/lib/reporting/queries/status";
+import {
+  getPublicStatus,
+  getStatusFaviconDataUri,
+  getStatusPageDisplayConfig,
+} from "@/lib/reporting/queries/status";
 
 export const revalidate = 30;
 
-export const metadata = {
-  title: "Group Status",
-  robots: { index: true, follow: true },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const [config, favicon] = await Promise.all([
+    getStatusPageDisplayConfig(),
+    getStatusFaviconDataUri(),
+  ]);
+  return {
+    title: { absolute: config.name },
+    robots: { index: true, follow: true },
+    ...(favicon ? { icons: { icon: favicon } } : {}),
+  };
+}
 
 type GroupPageProps = {
   params: Promise<{ group: string }>;
@@ -17,14 +28,7 @@ type GroupPageProps = {
 
 export default async function PublicGroupStatusPage({ params }: GroupPageProps) {
   const { group } = await params;
-
-  let data;
-  try {
-    data = await getPublicStatus(group);
-  } catch (error) {
-    if (error instanceof StatusDataUnavailableError) return <StatusUnavailable />;
-    throw error;
-  }
+  const data = await getPublicStatus(group);
 
   if (!data) notFound();
 

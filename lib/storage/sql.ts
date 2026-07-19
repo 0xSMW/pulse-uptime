@@ -188,6 +188,7 @@ with relations as (
       'incidents', coalesce(sum(table_bytes) filter (where relname in ('incidents','incident_events')), 0),
       'coreData', coalesce(sum(table_bytes) filter (where relname in ('monitor_registry','monitor_state','monitoring_config_snapshots','admin_users')), 0),
       'operations', coalesce(sum(table_bytes) filter (where relname in ('cron_runs','notification_outbox','atomic_minute_commits')), 0),
+      'content', coalesce(sum(total_bytes - index_bytes) filter (where relname in ('images','status_page_config','status_reports','status_report_updates','status_report_affected')), 0),
       'indexes', coalesce(sum(index_bytes), 0)
     ) category_bytes
   from relations

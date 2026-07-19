@@ -1,0 +1,1 @@
+ALTER TABLE "admin_users" ADD CONSTRAINT "admin_users_avatar_image_id_images_id_fk" FOREIGN KEY ("avatar_image_id") REFERENCES "public"."images"("id") ON DELETE no action ON UPDATE no action;

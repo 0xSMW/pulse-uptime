@@ -20,6 +20,8 @@ import (
 	"github.com/0xSMW/pulse-uptime/cli/internal/command/groupops"
 	"github.com/0xSMW/pulse-uptime/cli/internal/command/monitorops"
 	"github.com/0xSMW/pulse-uptime/cli/internal/command/readops"
+	"github.com/0xSMW/pulse-uptime/cli/internal/command/reportops"
+	"github.com/0xSMW/pulse-uptime/cli/internal/command/statuspageops"
 	"github.com/0xSMW/pulse-uptime/cli/internal/config"
 	"github.com/0xSMW/pulse-uptime/cli/internal/output"
 	"github.com/spf13/cobra"
@@ -28,6 +30,12 @@ import (
 )
 
 const authRequired = "authentication required. Set PULSECTL_TOKEN to a scoped token"
+
+// stdinPayloadFlags names every flag that reads the shared stdin when set to
+// "-". Any command that reads a payload from stdin must carry the
+// supportsStdin annotation and take the payload through one of these flags so
+// the root --token-stdin conflict guard covers it.
+var stdinPayloadFlags = []string{"file", "message-file"}
 
 type Options struct {
 	In          io.Reader
@@ -152,9 +160,14 @@ func (a *App) newRoot() *cobra.Command {
 			return a.rootHelp(cmd.OutOrStdout())
 		},
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			if a.tokenStdin && strings.HasPrefix(cmd.CommandPath(), "pulsectl config ") {
-				if flag := cmd.Flags().Lookup("file"); flag != nil && flag.Value.String() == "-" {
-					return cliError(ExitInvalidInput, "STDIN_CONFLICT", "--token-stdin cannot be combined with --file -")
+			if !a.tokenStdin || cmd.Annotations["supportsStdin"] != "true" {
+				return nil
+			}
+			// The token and the payload share one stdin reader, so a single
+			// invocation cannot read both from it.
+			for _, name := range stdinPayloadFlags {
+				if flag := cmd.Flags().Lookup(name); flag != nil && flag.Value.String() == "-" {
+					return cliError(ExitInvalidInput, "STDIN_CONFLICT", fmt.Sprintf("--token-stdin cannot be combined with --%s -", name))
 				}
 			}
 			return nil
@@ -178,7 +191,11 @@ func (a *App) newRoot() *cobra.Command {
 	root.AddCommand(adminops.NewTokenCommand(a.adminDependencies()))
 	root.AddCommand(monitorops.NewGroup(a.monitorDependencies()))
 	root.AddCommand(groupops.NewGroup(a.groupDependencies()))
-	root.AddCommand(readops.NewIncidentGroup(a.readDependencies()))
+	incidents := readops.NewIncidentGroup(a.readDependencies())
+	incidents.AddCommand(reportops.NewPromoteCommand(a.reportDependencies()))
+	root.AddCommand(incidents)
+	root.AddCommand(reportops.NewGroup(a.reportDependencies()))
+	root.AddCommand(statuspageops.NewGroup(a.statusPageDependencies()))
 	root.AddCommand(configops.NewCommand(a.configDependencies()))
 	root.AddCommand(adminops.NewNotificationCommand(a.adminDependencies()))
 	root.AddCommand(readops.NewStatusCommand(a.readDependencies()))
@@ -277,7 +294,7 @@ func (a *App) renderMe(format string, envelope meEnvelope) error {
 }
 
 func fullAccess(scopes []string) bool {
-	want := []string{"config:read", "config:write", "incidents:read", "monitors:read", "monitors:write", "notifications:test", "status:read", "tokens:manage"}
+	want := []string{"config:read", "config:write", "incidents:read", "monitors:read", "monitors:write", "notifications:test", "reports:read", "reports:write", "status:read", "tokens:manage"}
 	return len(scopes) == len(want) && strings.Join(scopes, "\x00") == strings.Join(want, "\x00")
 }
 
@@ -492,7 +509,7 @@ func buildManifest(root, target *cobra.Command) manifest {
 
 func commandIsMutation(path []string) bool {
 	joined := strings.Join(path, " ")
-	for _, prefix := range []string{"monitor create", "monitor update", "monitor pause", "monitor resume", "monitor delete", "monitor test", "group create", "group rename", "group delete", "config validate", "config plan", "config apply", "notification test", "token create", "token revoke", "auth logout", "auth login"} {
+	for _, prefix := range []string{"monitor create", "monitor update", "monitor pause", "monitor resume", "monitor delete", "monitor test", "group create", "group rename", "group delete", "config validate", "config plan", "config apply", "notification test", "token create", "token revoke", "auth logout", "auth login", "report create", "report update", "report post", "report edit-update", "report delete", "report resolve", "report publish", "incident promote", "status-page set", "status-page apply"} {
 		if joined == prefix {
 			return true
 		}

@@ -33,6 +33,15 @@ export async function executeIdempotent<T>(input: {
   request: Request;
   principalKey: string;
   routeKey: string;
+  /**
+   * Fingerprinted together with method/path/query into requestHash (below).
+   * This is the ONLY input the "same key, different request" check sees.
+   * Pass more than the parsed request body when the route has additional
+   * preconditions that must invalidate a replay when they change (e.g. an
+   * If-Match value): fold them in here (see the status-page-config PUT
+   * route), not just the document itself, or a key reused with the same
+   * document but a fresh precondition will replay the stale response.
+   */
   body: unknown;
   retentionSeconds?: number;
   now?: Date;
