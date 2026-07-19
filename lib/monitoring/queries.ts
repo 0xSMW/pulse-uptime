@@ -41,6 +41,10 @@ export async function listDashboardMonitors() {
   // is an anti-join: only raw checks whose own 15m bucket lacks a rollup
   // row are counted, so gaps are covered by raw data, never double-counted.
   // A gap whose raw rows were already purged cannot be recovered here.
+  // Both sides are clamped to [start15m, end15m), the most recent completed
+  // 24h of quarter-hour buckets, so the card always covers exactly 24 hours
+  // and agrees with the detail page's completed rollup window. Checks in the
+  // current partial bucket are excluded until their bucket closes.
   // The window filter and bucket comparison below use check_results.scheduled_at
   // (not checked_at): metric_rollups buckets are date_bin'd from check_batches
   // .scheduled_minute (see COMPACT_15_MINUTE_SQL), and check_results.scheduled_at
@@ -79,6 +83,7 @@ export async function listDashboardMonitors() {
           from ${checkResults}
           where ${checkResults.monitorId} = ${monitorRegistry.id}
             and ${checkResults.scheduledAt} >= ${start15m}
+            and ${checkResults.scheduledAt} < ${end15m}
             and not exists (
               select 1 from ${metricRollups} covered
               where covered.monitor_id = ${monitorRegistry.id}
