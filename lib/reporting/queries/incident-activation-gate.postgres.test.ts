@@ -87,6 +87,28 @@ suite("incident activation gate", () => {
       ${100}, ${100}, ${[0, 0, 0, 0, 0, 0, 0, 0]}, ${1}, ${false}, ${now}
     )`;
 
+    // mon-old is a long-lived healthy monitor whose true first success predates
+    // raw check_results retention. Only a newer raw success survives, while an
+    // older successful rollup bucket still records the real start. Activation must
+    // anchor at the earliest evidence (the old rollup) rather than the newest
+    // retained raw check, so d30 and d90 stay unlocked and old history stays real.
+    const oldFirstBucket = new Date("2026-05-01T00:00:00.000Z");
+    const retainedRawSuccess = new Date("2026-07-19T00:00:00.000Z");
+    await client`insert into monitor_registry (id, name, url, enabled, config_hash, first_seen_at, last_seen_at)
+      values (${"mon-old"}, ${"Old"}, ${"https://example.test"}, true, ${"hash"}, ${now}, ${now})`;
+    await client`insert into monitor_state (monitor_id, state, activated_at, first_success_at, last_success_at, updated_at)
+      values (${"mon-old"}, ${"UP"}, ${null}, ${null}, ${retainedRawSuccess}, ${now})`;
+    await client`insert into check_results (monitor_id, run_id, scheduled_at, checked_at, successful, status_code, latency_ms, created_at)
+      values (${"mon-old"}, ${"22222222-2222-4222-8222-000000000001"}, ${retainedRawSuccess}, ${retainedRawSuccess}, ${true}, ${200}, ${100}, ${now})`;
+    await client`insert into metric_rollups (
+      monitor_id, resolution, bucket_start, expected_checks, completed_checks, successful_checks,
+      failed_checks, unknown_checks, downtime_seconds, unknown_seconds, latency_count, latency_sum_ms,
+      latency_min_ms, latency_max_ms, latency_histogram, histogram_version, has_incident, compacted_at
+    ) values (
+      ${"mon-old"}, ${"day"}, ${oldFirstBucket}, ${1}, ${1}, ${1}, ${0}, ${0}, ${0}, ${0}, ${1}, ${100},
+      ${100}, ${100}, ${[0, 0, 0, 0, 0, 0, 0, 0]}, ${1}, ${false}, ${now}
+    )`;
+
     // Re-run the data backfill from migration 0013 against the seeded pre-state.
     // The migrations already ran against empty tables in beforeAll, so the UPDATE
     // statements are replayed to exercise the success, active-incident, and clamp
@@ -188,5 +210,14 @@ suite("incident activation gate", () => {
 
     const promoted = await promoteIncident(INC_RECOVER);
     expect(promoted.report.originIncidentId).toBe(INC_RECOVER);
+  });
+
+  it("anchors activation at the earliest evidence when a first success predates raw retention", async () => {
+    const [state] = await client<{ activatedAt: Date }[]>`
+      select activated_at as "activatedAt" from monitor_state where monitor_id = ${"mon-old"}`;
+    // The old successful day rollup ends 2026-05-02, well before the only retained
+    // raw success on 2026-07-19, so LEAST anchors activation at the old start
+    // rather than the newest retained check.
+    expect(state.activatedAt.getTime()).toBe(new Date("2026-05-02T00:00:00.000Z").getTime());
   });
 });

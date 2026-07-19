@@ -440,7 +440,7 @@ export function MonitorDetail({ monitor: snapshot }: { monitor: MonitorDetailDat
           </span>
           <p className="mt-1.5 text-[var(--fg-muted)]">
             {monitor.firstRun.setupError
-              ? `The last check failed with ${monitor.firstRun.setupError}. Setup failures are warnings, not incidents. Fix the endpoint and run a test, or edit the configuration.`
+              ? `The last check failed with ${monitor.firstRun.setupError}. Setup failures are warnings, not incidents. Fix the endpoint or edit the configuration, then run a test to confirm it is reachable. Monitoring begins at the next scheduled check that succeeds.`
               : "Monitoring officially begins after the first successful check. No incidents or downtime are recorded during setup."}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
