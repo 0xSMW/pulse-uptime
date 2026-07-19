@@ -11,7 +11,6 @@ import { cn } from "@/lib/utils";
 const links = [
   { href: "/", label: "Overview", match: (path: string) => path === "/" || path.startsWith("/monitors/") },
   { href: "/incidents", label: "Incidents", match: (path: string) => path.startsWith("/incidents") },
-  { href: "/settings", label: "Settings", match: (path: string) => path.startsWith("/settings") },
   { href: "/status", label: "Status Page", match: () => false, external: true },
 ] as const;
 
