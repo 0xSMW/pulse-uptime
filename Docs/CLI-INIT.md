@@ -221,6 +221,12 @@ pulsectl
   incident get
   incident promote
 
+  dependency catalog
+  dependency list
+  dependency get
+  dependency add
+  dependency remove
+
   report list
   report get
   report create
@@ -494,6 +500,8 @@ tokens:manage
 status:read
 reports:read
 reports:write
+dependencies:read
+dependencies:write
 ```
 
 The page groups these into plain-language permissions, displays the exact account and installation, and requires an explicit **Authorize** action. **Cancel** denies the request. Approval stores a named scope profile (`administrator`) on the session, not a scope snapshot. The profile resolves to the live scope list at auth time, so scopes introduced in later releases apply to existing sessions automatically without reauthorization. Manually minted API tokens are different: they keep the exact scope snapshot granted at mint time.
@@ -541,6 +549,8 @@ tokens:manage
 status:read
 reports:read
 reports:write
+dependencies:read
+dependencies:write
 ```
 
 ## Service API
@@ -580,6 +590,13 @@ POST   /api/v1/monitors/{monitorId}/test
 GET    /api/v1/incidents
 GET    /api/v1/incidents/{incidentId}
 GET    /api/v1/status
+
+GET    /api/v1/dependency-catalog
+GET    /api/v1/dependencies
+POST   /api/v1/dependencies
+GET    /api/v1/dependencies/{dependencyId}
+DELETE /api/v1/dependencies/{dependencyId}
+POST   /api/v1/dependencies/{dependencyId}/refresh
 
 GET    /api/v1/config
 GET    /api/v1/config/schema

@@ -21,6 +21,7 @@ import (
 	"github.com/0xSMW/pulse-uptime/cli/internal/buildinfo"
 	"github.com/0xSMW/pulse-uptime/cli/internal/command/adminops"
 	"github.com/0xSMW/pulse-uptime/cli/internal/command/configops"
+	"github.com/0xSMW/pulse-uptime/cli/internal/command/dependencyops"
 	"github.com/0xSMW/pulse-uptime/cli/internal/command/groupops"
 	"github.com/0xSMW/pulse-uptime/cli/internal/command/monitorops"
 	"github.com/0xSMW/pulse-uptime/cli/internal/command/readops"
@@ -471,6 +472,17 @@ func (t reportAdapter) Do(ctx context.Context, request reportops.Request) error 
 	return requestErr
 }
 
+type dependencyAdapter struct{ app *App }
+
+func (t dependencyAdapter) Do(ctx context.Context, request dependencyops.Request) error {
+	_, client, err := t.app.authenticatedClient()
+	if err != nil {
+		return err
+	}
+	_, requestErr := client.DoJSON(ctx, api.Request{Method: request.Method, Path: request.Path, Query: request.Query, Body: request.Body, IdempotencyKey: request.IdempotencyKey}, request.Result)
+	return requestErr
+}
+
 type readAdapter struct{ app *App }
 
 func (t readAdapter) Do(ctx context.Context, request readops.Request) error {
@@ -595,6 +607,10 @@ func (a *App) groupDependencies() groupops.Dependencies {
 
 func (a *App) readDependencies() readops.Dependencies {
 	return readops.Dependencies{Client: readAdapter{a}, Out: a.opts.Out, Err: a.opts.Err, Format: func() string { return a.outputFor(defaultOutput(a.opts.StdoutTTY, "table", "json")) }, MapError: mapAPIOrCLIError}
+}
+
+func (a *App) dependencyDependencies() dependencyops.Dependencies {
+	return dependencyops.Dependencies{Client: dependencyAdapter{a}, In: a.opts.In, Out: a.opts.Out, Err: a.opts.Err, Format: func() string { return a.outputFor(defaultOutput(a.opts.StdoutTTY, "table", "json")) }, StdinTTY: a.opts.StdinTTY, NewID: randomUUID, MapError: mapAPIOrCLIError}
 }
 
 func (a *App) reportDependencies() reportops.Dependencies {
