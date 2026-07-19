@@ -1,0 +1,10 @@
+{
+  "page": { "id": "tymt9n04zgry", "name": "Claude", "url": "https://status.anthropic.com", "time_zone": "Etc/UTC", "updated_at": "2026-07-19T14:43:58.560Z" },
+  "status": { "indicator": "none", "description": "All Systems Operational" },
+  "components": [
+    { "id": "rwppv331jlwc", "name": "claude.ai", "status": "operational" }
+  ],
+  "incidents": [],
+  "scheduled_maintenances": [],
+  "unexpected_top_level_field": "a real Statuspage document never has this key"
+}

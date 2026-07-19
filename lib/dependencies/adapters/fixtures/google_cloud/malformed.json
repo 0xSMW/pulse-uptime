@@ -1,0 +1,3 @@
+{
+  "not_an_array": "Google's incidents.json is documented as a top-level JSON array, not an object"
+}

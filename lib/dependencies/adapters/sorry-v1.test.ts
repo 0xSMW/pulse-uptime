@@ -1,0 +1,229 @@
+import { describe, expect, it } from "vitest";
+
+import { loadCatalogManifest } from "../manifest";
+
+import componentsDegraded from "./fixtures/postmark/components-degraded.json";
+import componentsMaintenance from "./fixtures/postmark/components-maintenance.json";
+import componentsMissingComponent from "./fixtures/postmark/components-missing-component.json";
+import componentsOperational from "./fixtures/postmark/components-operational.json";
+import componentsPage1 from "./fixtures/postmark/components-page1.json";
+import componentsPage2 from "./fixtures/postmark/components-page2.json";
+import malformedComponents from "./fixtures/postmark/malformed-components.json";
+import noticeDetail503440 from "./fixtures/postmark/notice-detail-503440.json";
+import noticeDetail503441 from "./fixtures/postmark/notice-detail-503441.json";
+import noticesEmpty from "./fixtures/postmark/notices-empty.json";
+import noticesListOne from "./fixtures/postmark/notices-list-one.json";
+import noticesPage1 from "./fixtures/postmark/notices-page1.json";
+import noticesPage2 from "./fixtures/postmark/notices-page2.json";
+import type { AdapterDocument } from "./index";
+import { AdapterParseError } from "./shared";
+import { sorryV1Adapter } from "./sorry-v1";
+
+const manifest = loadCatalogManifest();
+const postmarkSource = manifest.sources.find((source) => source.id === "postmark")!;
+const emailDeliveryPreset = manifest.presets.find((preset) => preset.id === "postmark_email_delivery")!;
+
+const componentsUrl = postmarkSource.config.componentsUrl as string;
+const noticesBaseUrl = postmarkSource.incidentsUrl!;
+const notice503440Url = (postmarkSource.config.noticeDetailUrlTemplate as string).replace("{id}", "503440");
+const notice503441Url = (postmarkSource.config.noticeDetailUrlTemplate as string).replace("{id}", "503441");
+
+function doc(kind: AdapterDocument["kind"], url: string, json: unknown): AdapterDocument {
+  return { kind, url, json };
+}
+
+describe("sorryV1Adapter.requests: first round", () => {
+  it("asks for the components page and the present-unplanned notices list, with the filter query params applied", () => {
+    const requests = sorryV1Adapter.requests(postmarkSource);
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toEqual({ kind: "current", url: componentsUrl, optional: false });
+    const incidentsRequest = requests[1];
+    expect(incidentsRequest.kind).toBe("incidents");
+    expect(incidentsRequest.url).toContain("filter%5Btimeline_state_eq%5D=present");
+    expect(incidentsRequest.url).toContain("filter%5Btype_eq%5D=unplanned");
+  });
+});
+
+describe("sorryV1Adapter.requests: pagination follow-up", () => {
+  it("asks for the next components page when meta.next_page is present", () => {
+    const fetchedSoFar: AdapterDocument[] = [
+      doc("current", componentsUrl, componentsPage1),
+      doc("incidents", `${noticesBaseUrl}?filter%5Btimeline_state_eq%5D=present&filter%5Btype_eq%5D=unplanned`, noticesEmpty),
+    ];
+    const requests = sorryV1Adapter.requests(postmarkSource, fetchedSoFar);
+    expect(requests).toEqual([{ kind: "current", url: new URL("/api/v1/components?page=2", componentsUrl).toString(), optional: false }]);
+  });
+
+  it("asks for a notice detail document for every present unplanned notice in the list", () => {
+    const listUrl = `${noticesBaseUrl}?filter%5Btimeline_state_eq%5D=present&filter%5Btype_eq%5D=unplanned`;
+    const fetchedSoFar: AdapterDocument[] = [
+      doc("current", componentsUrl, componentsOperational),
+      doc("incidents", listUrl, noticesListOne),
+    ];
+    const requests = sorryV1Adapter.requests(postmarkSource, fetchedSoFar);
+    expect(requests).toEqual([{ kind: "incidents", url: notice503440Url, optional: false }]);
+  });
+
+  it("follows a paginated notices list across pages, requesting each page's own notice detail", () => {
+    const listPage1Url = `${noticesBaseUrl}?filter%5Btimeline_state_eq%5D=present&filter%5Btype_eq%5D=unplanned`;
+    const afterPage1: AdapterDocument[] = [
+      doc("current", componentsUrl, componentsOperational),
+      doc("incidents", listPage1Url, noticesPage1),
+    ];
+    const afterPage1Requests = sorryV1Adapter.requests(postmarkSource, afterPage1);
+    const page2Url = new URL("/api/v1/notices?page=2", noticesBaseUrl).toString();
+    expect(afterPage1Requests).toEqual(
+      expect.arrayContaining([{ kind: "incidents", url: page2Url, optional: false }, { kind: "incidents", url: notice503440Url, optional: false }]),
+    );
+
+    const afterPage2: AdapterDocument[] = [...afterPage1, doc("incidents", page2Url, noticesPage2), doc("incidents", notice503440Url, noticeDetail503440)];
+    const afterPage2Requests = sorryV1Adapter.requests(postmarkSource, afterPage2);
+    expect(afterPage2Requests).toEqual([{ kind: "incidents", url: notice503441Url, optional: false }]);
+  });
+
+  it("requests nothing further once every page and every notice detail has been fetched", () => {
+    const listUrl = `${noticesBaseUrl}?filter%5Btimeline_state_eq%5D=present&filter%5Btype_eq%5D=unplanned`;
+    const fetchedSoFar: AdapterDocument[] = [
+      doc("current", componentsUrl, componentsOperational),
+      doc("incidents", listUrl, noticesListOne),
+      doc("incidents", notice503440Url, noticeDetail503440),
+    ];
+    expect(sorryV1Adapter.requests(postmarkSource, fetchedSoFar)).toEqual([]);
+  });
+});
+
+describe("sorryV1Adapter.normalize: pagination handling", () => {
+  it("merges components across multiple fetched pages", () => {
+    const snapshot = sorryV1Adapter.normalize({
+      source: postmarkSource,
+      documents: [doc("current", componentsUrl, componentsPage1), doc("current", `${componentsUrl}?page=2`, componentsPage2), doc("incidents", noticesBaseUrl, noticesEmpty)],
+      observedAt: "2026-07-19T12:00:00.000Z",
+    });
+    expect(Object.keys(snapshot.components)).toHaveLength(19);
+    expect(snapshot.components["87154"]).toMatchObject({ state: "OPERATIONAL" });
+    expect(snapshot.components["87151"]).toMatchObject({ state: "OPERATIONAL" });
+  });
+});
+
+describe("sorryV1Adapter.normalize: component selection against the catalog", () => {
+  it("selects the postmark_email_delivery preset's components by their real numeric ids", () => {
+    expect(emailDeliveryPreset.selector).toMatchObject({ kind: "component_ids", ids: ["87154", "87151"] });
+    const snapshot = sorryV1Adapter.normalize({
+      source: postmarkSource,
+      documents: [doc("current", componentsUrl, componentsDegraded), doc("incidents", noticesBaseUrl, noticesEmpty)],
+      observedAt: "2026-07-19T12:00:00.000Z",
+    });
+    expect(snapshot.components["87154"]).toMatchObject({ state: "DEGRADED" });
+    expect(snapshot.components["87151"]).toMatchObject({ state: "OPERATIONAL" });
+  });
+});
+
+describe("sorryV1Adapter.normalize: component status mapping", () => {
+  it("maps operational, degraded, and under_maintenance", () => {
+    const empty = doc("incidents", noticesBaseUrl, noticesEmpty);
+    expect(sorryV1Adapter.normalize({ source: postmarkSource, documents: [doc("current", componentsUrl, componentsOperational), empty], observedAt: "2026-07-19T12:00:00.000Z" }).components["87154"].state).toBe("OPERATIONAL");
+    expect(sorryV1Adapter.normalize({ source: postmarkSource, documents: [doc("current", componentsUrl, componentsDegraded), empty], observedAt: "2026-07-19T12:00:00.000Z" }).components["87154"].state).toBe("DEGRADED");
+    expect(sorryV1Adapter.normalize({ source: postmarkSource, documents: [doc("current", componentsUrl, componentsMaintenance), empty], observedAt: "2026-07-19T12:00:00.000Z" }).components["87151"].state).toBe("MAINTENANCE");
+  });
+});
+
+describe("sorryV1Adapter.normalize: notices", () => {
+  it("builds a full incident from the notice list plus its detail document, with impacted components and updates", () => {
+    const snapshot = sorryV1Adapter.normalize({
+      source: postmarkSource,
+      documents: [doc("current", componentsUrl, componentsOperational), doc("incidents", noticesBaseUrl, noticesListOne), doc("incidents", notice503440Url, noticeDetail503440)],
+      observedAt: "2026-07-07T02:00:00.000Z",
+    });
+    expect(snapshot.incidents).toHaveLength(1);
+    const [incident] = snapshot.incidents;
+    expect(incident.externalId).toBe("503440");
+    expect(incident.state).toBe("resolved");
+    expect(incident.componentIds).toEqual(["93625"]);
+    expect(incident.updates.map((update) => update.state)).toEqual(["investigating", "investigating", "recovering", "resolved"]);
+  });
+
+  it("strips HTML from update content", () => {
+    const snapshot = sorryV1Adapter.normalize({
+      source: postmarkSource,
+      documents: [doc("current", componentsUrl, componentsOperational), doc("incidents", noticesBaseUrl, noticesListOne), doc("incidents", notice503440Url, noticeDetail503440)],
+      observedAt: "2026-07-07T02:00:00.000Z",
+    });
+    const firstUpdate = snapshot.incidents[0].updates[0];
+    expect(firstUpdate.bodyText).toBe("We are investigating an issue causing inbound webhook delays.");
+  });
+
+  it("maps recovering as an active-recovery state and resolved as terminal", () => {
+    const snapshot = sorryV1Adapter.normalize({
+      source: postmarkSource,
+      documents: [doc("current", componentsUrl, componentsOperational), doc("incidents", noticesBaseUrl, noticesListOne), doc("incidents", notice503440Url, noticeDetail503440)],
+      observedAt: "2026-07-07T02:00:00.000Z",
+    });
+    const states = snapshot.incidents[0].updates.map((update) => update.state);
+    expect(states).toContain("recovering");
+    expect(states.at(-1)).toBe("resolved");
+  });
+
+  it("normalizing the same documents twice yields identical incident and update external ids", () => {
+    const documents = [doc("current", componentsUrl, componentsOperational), doc("incidents", noticesBaseUrl, noticesListOne), doc("incidents", notice503440Url, noticeDetail503440)];
+    const first = sorryV1Adapter.normalize({ source: postmarkSource, documents, observedAt: "2026-07-07T02:00:00.000Z" });
+    const second = sorryV1Adapter.normalize({ source: postmarkSource, documents, observedAt: "2026-07-07T02:05:00.000Z" });
+    expect(first.incidents.map((incident) => incident.externalId)).toEqual(second.incidents.map((incident) => incident.externalId));
+    expect(first.incidents[0].updates.map((update) => update.externalId)).toEqual(second.incidents[0].updates.map((update) => update.externalId));
+  });
+
+  it("assembles incidents across a paginated notice list, each with its own detail document", () => {
+    const snapshot = sorryV1Adapter.normalize({
+      source: postmarkSource,
+      documents: [
+        doc("current", componentsUrl, componentsOperational),
+        doc("incidents", noticesBaseUrl, noticesPage1),
+        doc("incidents", new URL("/api/v1/notices?page=2", noticesBaseUrl).toString(), noticesPage2),
+        doc("incidents", notice503440Url, noticeDetail503440),
+        doc("incidents", notice503441Url, noticeDetail503441),
+      ],
+      observedAt: "2026-07-19T11:00:00.000Z",
+    });
+    expect(snapshot.incidents.map((incident) => incident.externalId).sort()).toEqual(["503440", "503441"]);
+  });
+
+  it("never populates maintenances, the unplanned-notice filter excludes planned maintenance notices", () => {
+    const snapshot = sorryV1Adapter.normalize({
+      source: postmarkSource,
+      documents: [doc("current", componentsUrl, componentsOperational), doc("incidents", noticesBaseUrl, noticesEmpty)],
+      observedAt: "2026-07-19T12:00:00.000Z",
+    });
+    expect(snapshot.maintenances).toEqual([]);
+  });
+});
+
+describe("sorryV1Adapter.normalize: failure handling", () => {
+  it("throws AdapterParseError on an unrecognized top-level shape", () => {
+    expect(() =>
+      sorryV1Adapter.normalize({ source: postmarkSource, documents: [doc("current", componentsUrl, malformedComponents), doc("incidents", noticesBaseUrl, noticesEmpty)], observedAt: "2026-07-19T12:00:00.000Z" }),
+    ).toThrow(AdapterParseError);
+  });
+
+  it("throws MISSING_DOCUMENT when a present unplanned notice has no detail document fetched", () => {
+    try {
+      sorryV1Adapter.normalize({
+        source: postmarkSource,
+        documents: [doc("current", componentsUrl, componentsOperational), doc("incidents", noticesBaseUrl, noticesListOne)],
+        observedAt: "2026-07-19T12:00:00.000Z",
+      });
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(AdapterParseError);
+      expect((error as AdapterParseError).code).toBe("MISSING_DOCUMENT");
+    }
+  });
+
+  it("does not throw when a catalog component id has been removed from the feed", () => {
+    const snapshot = sorryV1Adapter.normalize({
+      source: postmarkSource,
+      documents: [doc("current", componentsUrl, componentsMissingComponent), doc("incidents", noticesBaseUrl, noticesEmpty)],
+      observedAt: "2026-07-19T12:00:00.000Z",
+    });
+    expect(snapshot.components["87154"]).toBeUndefined();
+    expect(snapshot.components["87151"]).toBeUndefined();
+  });
+});
