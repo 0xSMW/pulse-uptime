@@ -9,8 +9,11 @@ import {
 
 describe("report formatting", () => {
   it("formats uptime for tables and details", () => {
-    expect(formatUptimeTable(100)).toBe("100.00%");
+    expect(formatUptimeTable(100)).toBe("100%");
+    expect(formatUptimeTable(99.5)).toBe("99.5%");
+    expect(formatUptimeDetail(100)).toBe("100%");
     expect(formatUptimeDetail(99.93064)).toBe("99.9306%");
+    expect(formatUptimeDetail(99.99)).toBe("99.99%");
     expect(formatUptimeDetail(98.123)).toBe("98.12%");
     expect(formatUptimeTable(null)).toBe("—");
   });

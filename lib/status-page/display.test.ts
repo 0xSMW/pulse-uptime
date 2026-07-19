@@ -85,14 +85,16 @@ describe("timestamp formatting", () => {
 });
 
 describe("formatUptimePercent", () => {
-  it("applies the configured decimal places", () => {
+  it("applies the configured decimal places as a maximum, trimming trailing zeros", () => {
     expect(formatUptimePercent(99.98765, 0)).toBe("100%");
     expect(formatUptimePercent(99.98765, 2)).toBe("99.99%");
     expect(formatUptimePercent(99.98765, 3)).toBe("99.988%");
+    expect(formatUptimePercent(100, 2)).toBe("100%");
+    expect(formatUptimePercent(99.9, 3)).toBe("99.9%");
   });
 
   it("clamps out-of-range decimals and keeps the null placeholder", () => {
-    expect(formatUptimePercent(99.5, 7)).toBe("99.500%");
+    expect(formatUptimePercent(99.5, 7)).toBe("99.5%");
     expect(formatUptimePercent(99.5, -1)).toBe("100%");
     expect(formatUptimePercent(null, 2)).toBe("—");
   });

@@ -1,10 +1,17 @@
+// Decimal places on uptime figures are a maximum, never padding. Trailing
+// zeros carry no information and read as noise, so 100 renders as "100%"
+// and 99.9900 as "99.99%", while 99.9306 keeps its full precision.
+export function trimTrailingZeros(fixed: string): string {
+  return fixed.includes(".") ? fixed.replace(/0+$/, "").replace(/\.$/, "") : fixed;
+}
+
 export function formatUptimeTable(value: number | null): string {
-  return value === null ? "—" : `${value.toFixed(2)}%`;
+  return value === null ? "—" : `${trimTrailingZeros(value.toFixed(2))}%`;
 }
 
 export function formatUptimeDetail(value: number | null): string {
   if (value === null) return "—";
-  return `${value > 99 ? value.toFixed(4) : value.toFixed(2)}%`;
+  return `${trimTrailingZeros(value.toFixed(value > 99 ? 4 : 2))}%`;
 }
 
 export function formatLatency(value: number | null): string {

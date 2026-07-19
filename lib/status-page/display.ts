@@ -1,5 +1,7 @@
 import type { TimelineBucket } from "@/components/monitors/timeline-bar";
 
+import { trimTrailingZeros } from "@/lib/reporting/format";
+
 import { STATUS_PAGE_NAME_FALLBACK, type StatusPageConfigDocument } from "./schema";
 
 /**
@@ -96,11 +98,11 @@ export function formatStatusClock(value: string, timeZone: string): string {
   });
 }
 
-/** Uptime percentage honoring the configured decimal places (0-3). */
+/** Uptime percentage honoring the configured decimal places (0-3) as a maximum, trailing zeros trimmed. */
 export function formatUptimePercent(value: number | null, decimals: number): string {
   if (value === null) return "—";
   const places = Math.min(3, Math.max(0, Math.trunc(decimals)));
-  return `${value.toFixed(places)}%`;
+  return `${trimTrailingZeros(value.toFixed(places))}%`;
 }
 
 /**
