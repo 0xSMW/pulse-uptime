@@ -90,14 +90,16 @@ describe("dashboard uptime window fixture anchor", () => {
     const ctx: SampleContext = { ...FAKE_SAMPLE_CONTEXT, now: fixtureNow };
     const built = findCase("dashboard-monitors-uptime24h").build(fakeConnection(), ctx);
 
-    // The query binds start, end, then start again for raw coverage.
+    // The query binds start and end for rollups, then start and end again
+    // for the raw side, which is clamped to the same completed window.
     const expectedStartIso = "2024-06-14T12:30:00.000Z";
     const expectedEndIso = "2024-06-15T12:30:00.000Z";
-    expect(built.params).toHaveLength(3);
+    expect(built.params).toHaveLength(4);
     expect(built.params.every((param) => param instanceof Date)).toBe(true);
     expect((built.params[0] as Date).toISOString()).toBe(expectedStartIso);
     expect((built.params[1] as Date).toISOString()).toBe(expectedEndIso);
     expect((built.params[2] as Date).toISOString()).toBe(expectedStartIso);
+    expect((built.params[3] as Date).toISOString()).toBe(expectedEndIso);
   });
 });
 

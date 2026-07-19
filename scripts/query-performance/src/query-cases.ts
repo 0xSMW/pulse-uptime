@@ -38,7 +38,7 @@ export const queryCases: QueryCase[] = [
   {
     name: "dashboard-monitors-uptime24h",
     description: "Dashboard monitor list with the rollup+raw-check blended 24h uptime subquery and the active-incident left join production performs alongside it.",
-    source: "lib/monitoring/queries.ts:35-117 (listDashboardMonitors)",
+    source: "lib/monitoring/queries.ts:35-119 (listDashboardMonitors)",
     mutating: false,
     build: (conn, ctx) => {
       // Use fixture time so plans read seeded rollups.
@@ -71,12 +71,13 @@ export const queryCases: QueryCase[] = [
               count(*) filter (where ${schema.checkResults.successful}) as successful
             from ${schema.checkResults}
             where ${schema.checkResults.monitorId} = ${schema.monitorRegistry.id}
-              and ${schema.checkResults.checkedAt} >= ${start15m}
+              and ${schema.checkResults.scheduledAt} >= ${start15m}
+              and ${schema.checkResults.scheduledAt} < ${end15m}
               and not exists (
                 select 1 from ${schema.metricRollups} covered
                 where covered.monitor_id = ${schema.monitorRegistry.id}
                   and covered.resolution = '15m'
-                  and covered.bucket_start = date_bin('15 minutes', ${schema.checkResults.checkedAt}, timestamptz '2000-01-01')
+                  and covered.bucket_start = date_bin('15 minutes', ${schema.checkResults.scheduledAt}, timestamptz '2000-01-01')
               )
           ) raw
         )`,
