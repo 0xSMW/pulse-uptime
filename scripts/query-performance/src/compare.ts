@@ -69,7 +69,12 @@ export interface ComparisonReport {
   hasFixtureMismatch: boolean;
   // Human-readable reasons for any fixture metadata mismatch.
   fixtureMismatchReasons: string[];
-  // True when no regression, missing candidate case, row count change, or fixture mismatch exists.
+  // True when project, region, or run configuration differs between artifacts.
+  hasMetadataMismatch: boolean;
+  // Human-readable per-field reasons for any run metadata mismatch.
+  metadataMismatchReasons: string[];
+  // True when no regression, missing candidate case, row count change,
+  // fixture mismatch, or run metadata mismatch exists.
   passed: boolean;
 }
 
@@ -118,6 +123,41 @@ function compareFixtureMetadata(
   return {
     hasFixtureMismatch: reasons.length > 0,
     fixtureMismatchReasons: reasons,
+  };
+}
+
+// Reject comparisons across different projects, regions, or run configurations.
+// Timings from mismatched environments or sample counts are not comparable.
+function compareRunMetadata(
+  baseline: Artifact,
+  candidate: Artifact,
+): { hasMetadataMismatch: boolean; metadataMismatchReasons: string[] } {
+  const reasons: string[] = [];
+
+  if (baseline.projectId !== candidate.projectId) {
+    reasons.push(
+      `Project ID differs (baseline ${baseline.projectId} -> candidate ${candidate.projectId}).`,
+    );
+  }
+  if (baseline.regionId !== candidate.regionId) {
+    reasons.push(
+      `Region ID differs (baseline ${baseline.regionId} -> candidate ${candidate.regionId}).`,
+    );
+  }
+  if (baseline.run.warmupCount !== candidate.run.warmupCount) {
+    reasons.push(
+      `Run warmup count differs (baseline ${baseline.run.warmupCount} -> candidate ${candidate.run.warmupCount}).`,
+    );
+  }
+  if (baseline.run.repeatCount !== candidate.run.repeatCount) {
+    reasons.push(
+      `Run repeat count differs (baseline ${baseline.run.repeatCount} -> candidate ${candidate.run.repeatCount}).`,
+    );
+  }
+
+  return {
+    hasMetadataMismatch: reasons.length > 0,
+    metadataMismatchReasons: reasons,
   };
 }
 
@@ -203,6 +243,7 @@ export function compareArtifacts(
     baseline.fixture,
     candidate.fixture,
   );
+  const { hasMetadataMismatch, metadataMismatchReasons } = compareRunMetadata(baseline, candidate);
 
   const baselineByName = new Map(baseline.results.map((result) => [result.name, result]));
   const candidateByName = new Map(candidate.results.map((result) => [result.name, result]));
@@ -224,6 +265,13 @@ export function compareArtifacts(
     hasRowCountChanges,
     hasFixtureMismatch,
     fixtureMismatchReasons,
-    passed: !hasRegression && !hasMissingCases && !hasRowCountChanges && !hasFixtureMismatch,
+    hasMetadataMismatch,
+    metadataMismatchReasons,
+    passed:
+      !hasRegression &&
+      !hasMissingCases &&
+      !hasRowCountChanges &&
+      !hasFixtureMismatch &&
+      !hasMetadataMismatch,
   };
 }

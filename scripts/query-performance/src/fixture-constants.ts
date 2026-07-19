@@ -3,7 +3,7 @@
 
 export const FIXTURE_TAG = "qh";
 // Increase when seeded shape or cardinality changes so retained fixtures are rejected.
-export const FIXTURE_VERSION = 3;
+export const FIXTURE_VERSION = 4;
 export const MONITOR_COUNT = 100;
 export const FIXTURE_EMAIL_DOMAIN = "qh-fixture.pulse-query-hillclimb.invalid";
 export const FIXTURE_URL_DOMAIN = "example.invalid";

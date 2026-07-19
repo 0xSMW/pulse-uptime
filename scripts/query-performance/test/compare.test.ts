@@ -263,6 +263,58 @@ describe("compareArtifacts", () => {
     ).toBe(true);
   });
 
+  it("fails when artifacts come from different projects even if all cases pass", () => {
+    const baseline = artifact("baseline", [result("case-a", [sample()])]);
+    const candidate = { ...artifact("candidate", [result("case-a", [sample()])]), projectId: "other-project" };
+    const report = compareArtifacts(baseline, candidate);
+    expect(report.hasMetadataMismatch).toBe(true);
+    expect(report.hasRegression).toBe(false);
+    expect(report.passed).toBe(false);
+    expect(
+      report.metadataMismatchReasons.some((reason) =>
+        reason.includes("Project ID differs") && reason.includes("test-project") && reason.includes("other-project"),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails when artifacts come from different regions", () => {
+    const baseline = artifact("baseline", [result("case-a", [sample()])]);
+    const candidate = { ...artifact("candidate", [result("case-a", [sample()])]), regionId: "other-region" };
+    const report = compareArtifacts(baseline, candidate);
+    expect(report.hasMetadataMismatch).toBe(true);
+    expect(report.passed).toBe(false);
+    expect(report.metadataMismatchReasons.some((reason) => reason.includes("Region ID differs"))).toBe(true);
+  });
+
+  it("fails when run warmup counts differ", () => {
+    const baseline = artifact("baseline", [result("case-a", [sample()])]);
+    const candidate = artifact("candidate", [result("case-a", [sample()])]);
+    candidate.run = { ...candidate.run, warmupCount: candidate.run.warmupCount + 1 };
+    const report = compareArtifacts(baseline, candidate);
+    expect(report.hasMetadataMismatch).toBe(true);
+    expect(report.passed).toBe(false);
+    expect(report.metadataMismatchReasons.some((reason) => reason.includes("Run warmup count differs"))).toBe(true);
+  });
+
+  it("fails when run repeat counts differ", () => {
+    const baseline = artifact("baseline", [result("case-a", [sample()])]);
+    const candidate = artifact("candidate", [result("case-a", [sample()])]);
+    candidate.run = { ...candidate.run, repeatCount: candidate.run.repeatCount + 5 };
+    const report = compareArtifacts(baseline, candidate);
+    expect(report.hasMetadataMismatch).toBe(true);
+    expect(report.passed).toBe(false);
+    expect(report.metadataMismatchReasons.some((reason) => reason.includes("Run repeat count differs"))).toBe(true);
+  });
+
+  it("passes run metadata checks when project, region, and run config match", () => {
+    const baseline = artifact("baseline", [result("case-a", [sample()])]);
+    const candidate = artifact("candidate", [result("case-a", [sample()])]);
+    const report = compareArtifacts(baseline, candidate);
+    expect(report.hasMetadataMismatch).toBe(false);
+    expect(report.metadataMismatchReasons).toEqual([]);
+    expect(report.passed).toBe(true);
+  });
+
   it("passes fixture checks when version and cardinalities match", () => {
     const fixture: Artifact["fixture"] = {
       version: 2,

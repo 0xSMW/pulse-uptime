@@ -33,6 +33,13 @@ async function main() {
     }
     process.exitCode = 1;
   }
+  if (report.hasMetadataMismatch) {
+    console.error("[compare-artifacts] run metadata mismatch between baseline and candidate:");
+    for (const reason of report.metadataMismatchReasons) {
+      console.error(`  - ${reason}`);
+    }
+    process.exitCode = 1;
+  }
   if (report.hasRegression) {
     console.error("[compare-artifacts] regression(s) detected — see reasons above.");
     process.exitCode = 1;
@@ -46,7 +53,7 @@ async function main() {
     process.exitCode = 1;
   }
   if (report.passed) {
-    console.error("[compare-artifacts] no regressions, missing cases, row-count changes, or fixture mismatches detected.");
+    console.error("[compare-artifacts] no regressions, missing cases, row-count changes, or metadata mismatches detected.");
   }
 }
 

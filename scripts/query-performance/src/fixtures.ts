@@ -5,6 +5,7 @@ import { randomUUID, randomBytes } from "node:crypto";
 import { sql as dsql } from "drizzle-orm";
 
 import { hashMonitoringConfig } from "../../../lib/config/canonical";
+import { incidentNotificationKey } from "../../../lib/notifications/idempotency";
 import { DEFAULT_MONITOR_SETTINGS } from "../../../lib/config/defaults";
 import type { MonitoringConfig } from "../../../lib/config/schema";
 import { validateMonitoringConfig } from "../../../lib/config/validation";
@@ -23,7 +24,11 @@ import {
 } from "./fixture-constants";
 
 const SEED = 0x51485f31; // Fixed seed for reproducible fixture shape.
-const NOW = new Date();
+// Single fixture clock for every seeded row and for the marker seeded_at value.
+// Benchmark windows anchor to the marker, so the marker must record this clock
+// rather than a database timestamp taken after inserts finish.
+export const FIXTURE_CLOCK = new Date();
+const NOW = FIXTURE_CLOCK;
 
 const CHECK_INTERVAL_MINUTES = 1;
 const CHECK_HISTORY_HOURS = 6;
@@ -71,7 +76,7 @@ interface MonitorPlan {
   state: (typeof schema.monitorStates)[number];
 }
 
-function buildMonitorPlan(): MonitorPlan[] {
+export function buildMonitorPlan(): MonitorPlan[] {
   const rand = mulberry32(SEED);
   const states: MonitorPlan["state"][] = monitorStateDistribution.flatMap((entry) =>
     Array.from({ length: entry.count }, () => entry.state)
@@ -90,7 +95,9 @@ function buildMonitorPlan(): MonitorPlan[] {
       name: `Fixture Monitor ${index}`,
       url: `https://${id}.${FIXTURE_URL_DOMAIN}/health`,
       groupName: hasGroup ? pick(rand, GROUP_NAMES) : null,
-      enabled: states[zeroBased] !== "ARCHIVED",
+      // Production reaches PAUSED and ARCHIVED through enabled=false, so both
+      // states are seeded disabled in the registry and the accepted config.
+      enabled: states[zeroBased] !== "ARCHIVED" && states[zeroBased] !== "PAUSED",
       state: states[zeroBased]!,
     };
   });
@@ -203,7 +210,22 @@ interface IncidentPlan { id: string; monitorId: string; openedAt: Date; resolved
 export type OutboxIncidentSeed = Pick<IncidentPlan, "id" | "monitorId" | "openedAt" | "resolvedAt">;
 export type NotificationOutboxFixtureRow = typeof schema.notificationOutbox.$inferInsert;
 
-// Build outbox rows for seeding and offline tests.
+// Production configs allow up to twenty recipients per monitor.
+export const MAX_FIXTURE_RECIPIENTS = 20;
+
+// Recipient fan-out is a pure function of incident position so seeding stays
+// deterministic. Every tenth incident carries the maximum fan-out, every third
+// carries a moderate fan-out, and the rest keep a single recipient.
+export function fixtureRecipientsForIncident(position: number): string[] {
+  const count = position % 10 === 0 ? MAX_FIXTURE_RECIPIENTS : position % 3 === 0 ? 5 : 1;
+  return Array.from({ length: count }, (_, index) =>
+    index === 0 ? `oncall@${FIXTURE_EMAIL_DOMAIN}` : `oncall-${index}@${FIXTURE_EMAIL_DOMAIN}`,
+  );
+}
+
+// Build outbox rows for seeding and offline tests. Production writes one row
+// per normalized recipient, so each incident event fans out across the
+// incident's recipient list with production idempotency keys.
 export function buildNotificationOutboxRows(
   incidents: readonly OutboxIncidentSeed[],
   options: {
@@ -218,35 +240,40 @@ export function buildNotificationOutboxRows(
   const { now, rand } = options;
   const outboxRows: NotificationOutboxFixtureRow[] = [];
 
-  for (const incident of incidents) {
-    const events: { type: string; at: Date }[] = [{ type: "incident.opened", at: incident.openedAt }];
-    if (incident.resolvedAt) events.push({ type: "incident.resolved", at: incident.resolvedAt });
+  incidents.forEach((incident, position) => {
+    const recipients = fixtureRecipientsForIncident(position);
+    const events: { type: string; kind: "opened" | "resolved"; at: Date }[] = [
+      { type: "incident.opened", kind: "opened", at: incident.openedAt },
+    ];
+    if (incident.resolvedAt) events.push({ type: "incident.resolved", kind: "resolved", at: incident.resolvedAt });
     for (const event of events) {
-      const statusRoll = rand();
-      // Assign sending status after building the random status mix.
-      const status = statusRoll < 0.7 ? "sent" : statusRoll < 0.85 ? "pending" : statusRoll < 0.95 ? "failed" : "dead";
-      outboxRows.push({
-        id: createId(),
-        incidentId: incident.id,
-        monitorId: incident.monitorId,
-        eventType: event.type,
-        recipient: `oncall@${FIXTURE_EMAIL_DOMAIN}`,
-        idempotencyKey: `${incident.id}:${event.type}`,
-        payload: { fixture: true, eventType: event.type },
-        status,
-        attemptCount: status === "sent" ? 1 : intBetween(rand, 0, 3),
-        // Keep retryable rows due at the fixture clock.
-        nextAttemptAt: status === "pending" || status === "failed" ? now : event.at,
-        claimToken: null,
-        claimedAt: null,
-        providerMessageId: status === "sent" ? `qh-fixture-msg-${createId()}` : null,
-        lastError: status === "failed" || status === "dead" ? "qh-fixture synthetic delivery failure" : null,
-        sentAt: status === "sent" ? event.at : null,
-        createdAt: event.at,
-        updatedAt: event.at,
-      });
+      for (const recipient of recipients) {
+        const statusRoll = rand();
+        // Assign sending status after building the random status mix.
+        const status = statusRoll < 0.7 ? "sent" : statusRoll < 0.85 ? "pending" : statusRoll < 0.95 ? "failed" : "dead";
+        outboxRows.push({
+          id: createId(),
+          incidentId: incident.id,
+          monitorId: incident.monitorId,
+          eventType: event.type,
+          recipient,
+          idempotencyKey: incidentNotificationKey(incident.id, event.kind, recipient),
+          payload: { fixture: true, eventType: event.type },
+          status,
+          attemptCount: status === "sent" ? 1 : intBetween(rand, 0, 3),
+          // Keep retryable rows due at the fixture clock.
+          nextAttemptAt: status === "pending" || status === "failed" ? now : event.at,
+          claimToken: null,
+          claimedAt: null,
+          providerMessageId: status === "sent" ? `qh-fixture-msg-${createId()}` : null,
+          lastError: status === "failed" || status === "dead" ? "qh-fixture synthetic delivery failure" : null,
+          sentAt: status === "sent" ? event.at : null,
+          createdAt: event.at,
+          updatedAt: event.at,
+        });
+      }
     }
-  }
+  });
 
   // Convert a sent row to preserve retryable and terminal coverage.
   if (outboxRows.length > 0) {
@@ -864,11 +891,14 @@ export async function seedFixture(conn: GatedConnection): Promise<FixtureCardina
 
   // Drizzle configures the shared client for pre-serialized JSONB values.
   // Raw SQL must stringify cardinalities and cast them to JSONB.
+  // The marker records the fixture clock, not now(), so benchmark windows
+  // anchor to the same instant the seeded rows end at even when seeding
+  // crosses a rollup bucket boundary.
   await conn.sql`
-    insert into "_query_perf_fixture" (tag, version, cardinalities)
-    values (${"qh-fixture"}, ${FIXTURE_VERSION}, ${JSON.stringify(cardinalities)}::jsonb)
+    insert into "_query_perf_fixture" (tag, version, seeded_at, cardinalities)
+    values (${"qh-fixture"}, ${FIXTURE_VERSION}, ${FIXTURE_CLOCK}, ${JSON.stringify(cardinalities)}::jsonb)
     on conflict (tag) do update set
-      version = excluded.version, seeded_at = now(), cardinalities = excluded.cardinalities
+      version = excluded.version, seeded_at = excluded.seeded_at, cardinalities = excluded.cardinalities
   `;
 
   return cardinalities;

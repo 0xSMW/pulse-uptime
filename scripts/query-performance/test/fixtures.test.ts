@@ -3,17 +3,28 @@ import { getTableColumns } from "drizzle-orm";
 
 import { hashMonitoringConfig } from "../../../lib/config/canonical";
 import { validateMonitoringConfig } from "../../../lib/config/validation";
+import { incidentNotificationKey } from "../../../lib/notifications/idempotency";
 import * as schema from "../../../lib/db/schema";
 import {
   CHUNK_SIZE,
+  MAX_FIXTURE_RECIPIENTS,
   STALE_CLAIM_CUTOFF_MS,
   STALE_SENDING_CLAIM_AGE_MS,
   buildAcceptedFixtureConfig,
+  buildMonitorPlan,
   buildNotificationOutboxRows,
+  fixtureRecipientsForIncident,
   insertMaintenanceAndScheduler,
 } from "../src/fixtures";
 import type { GatedConnection } from "../src/db-connection";
-import { FIXTURE_EMAIL_DOMAIN, FIXTURE_URL_DOMAIN, GROUP_NAMES, MONITOR_COUNT, monitorId } from "../src/fixture-constants";
+import {
+  FIXTURE_EMAIL_DOMAIN,
+  FIXTURE_URL_DOMAIN,
+  GROUP_NAMES,
+  MONITOR_COUNT,
+  monitorId,
+  monitorStateDistribution,
+} from "../src/fixture-constants";
 import { mulberry32 } from "../src/rng";
 
 const POSTGRES_MAX_BIND_PARAMETERS = 65_535;
@@ -91,6 +102,15 @@ describe("buildNotificationOutboxRows", () => {
     ];
   }
 
+  // One row per event per recipient, with fan-out keyed by incident position.
+  function expectedRowCount(incidents: ReturnType<typeof sampleIncidents>): number {
+    return incidents.reduce(
+      (sum, incident, position) =>
+        sum + (1 + (incident.resolvedAt ? 1 : 0)) * fixtureRecipientsForIncident(position).length,
+      0,
+    );
+  }
+
   it("always seeds at least one stale sending row with a valid claim pair", () => {
     const claimToken = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
     const rows = buildNotificationOutboxRows(sampleIncidents(), {
@@ -116,12 +136,13 @@ describe("buildNotificationOutboxRows", () => {
   });
 
   it("pairs claim fields and keeps non-sending statuses claim-free", () => {
-    const rows = buildNotificationOutboxRows(sampleIncidents(), {
+    const incidents = sampleIncidents();
+    const rows = buildNotificationOutboxRows(incidents, {
       now,
       rand: mulberry32(0x51485f33),
     });
 
-    expect(rows.length).toBe(8);
+    expect(rows.length).toBe(expectedRowCount(incidents));
     for (const row of rows) {
       const claimNull = row.claimToken == null;
       const claimedAtNull = row.claimedAt == null;
@@ -139,17 +160,50 @@ describe("buildNotificationOutboxRows", () => {
     expect(statuses.has("sent") || statuses.has("pending") || statuses.has("failed") || statuses.has("dead")).toBe(true);
   });
 
-  it("preserves one-event-per-incident cardinality after the stale sending assignment", () => {
+  it("preserves one-row-per-event-per-recipient cardinality after the stale sending assignment", () => {
     const incidents = sampleIncidents();
-    const expectedEvents = incidents.reduce(
-      (sum, incident) => sum + 1 + (incident.resolvedAt ? 1 : 0),
-      0,
-    );
     const rows = buildNotificationOutboxRows(incidents, {
       now,
       rand: mulberry32(7),
     });
-    expect(rows).toHaveLength(expectedEvents);
+    expect(rows).toHaveLength(expectedRowCount(incidents));
+  });
+
+  it("fans events out across deterministic recipients with production idempotency keys", () => {
+    const incidents = sampleIncidents();
+    const rows = buildNotificationOutboxRows(incidents, {
+      now,
+      rand: mulberry32(0x51485f33),
+    });
+
+    // The first incident carries the production maximum of 20 recipients.
+    const maxFanOut = rows.filter(
+      (row) => row.incidentId === incidents[0]!.id && row.eventType === "incident.opened",
+    );
+    expect(maxFanOut).toHaveLength(MAX_FIXTURE_RECIPIENTS);
+    expect(new Set(maxFanOut.map((row) => row.recipient)).size).toBe(MAX_FIXTURE_RECIPIENTS);
+
+    // At least part of the fixture keeps a single recipient per event.
+    const singleFanOut = rows.filter((row) => row.incidentId === incidents[1]!.id);
+    expect(singleFanOut).toHaveLength(1);
+
+    // Every idempotency key follows the production per-recipient format.
+    for (const row of rows) {
+      const kind = row.eventType === "incident.opened" ? "opened" : "resolved";
+      expect(row.idempotencyKey).toBe(incidentNotificationKey(row.incidentId!, kind, row.recipient));
+    }
+    expect(new Set(rows.map((row) => row.idempotencyKey)).size).toBe(rows.length);
+  });
+
+  it("derives recipient fan-out purely from incident position", () => {
+    expect(fixtureRecipientsForIncident(0)).toHaveLength(MAX_FIXTURE_RECIPIENTS);
+    expect(fixtureRecipientsForIncident(3)).toHaveLength(5);
+    expect(fixtureRecipientsForIncident(1)).toHaveLength(1);
+    // Recipients are stable across calls, so reseeding produces identical rows.
+    expect(fixtureRecipientsForIncident(10)).toEqual(fixtureRecipientsForIncident(10));
+    for (const recipient of fixtureRecipientsForIncident(0)) {
+      expect(recipient.endsWith(`@${FIXTURE_EMAIL_DOMAIN}`)).toBe(true);
+    }
   });
 
   it("makes every pending and failed row due at the fixture clock", () => {
@@ -231,6 +285,36 @@ describe("buildAcceptedFixtureConfig", () => {
     const { config, configHash } = buildAcceptedFixtureConfig(plan);
     expect(validateMonitoringConfig(config).monitors).toHaveLength(MONITOR_COUNT);
     expect(configHash).toBe(hashMonitoringConfig(config));
+  });
+});
+
+describe("buildMonitorPlan", () => {
+  it("seeds paused and archived monitors disabled and every other state enabled", () => {
+    const plan = buildMonitorPlan();
+    expect(plan).toHaveLength(MONITOR_COUNT);
+
+    for (const monitor of plan) {
+      const shouldBeDisabled = monitor.state === "PAUSED" || monitor.state === "ARCHIVED";
+      expect(monitor.enabled).toBe(!shouldBeDisabled);
+    }
+
+    const expectedDisabled = monitorStateDistribution
+      .filter((entry) => entry.state === "PAUSED" || entry.state === "ARCHIVED")
+      .reduce((sum, entry) => sum + entry.count, 0);
+    expect(plan.filter((monitor) => !monitor.enabled)).toHaveLength(expectedDisabled);
+  });
+
+  it("propagates disabled paused monitors into the accepted fixture config", () => {
+    const plan = buildMonitorPlan();
+    const { config } = buildAcceptedFixtureConfig(plan);
+    const enabledById = new Map(config.monitors.map((monitor) => [monitor.id, monitor.enabled]));
+
+    for (const monitor of plan) {
+      expect(enabledById.get(monitor.id)).toBe(monitor.enabled);
+      if (monitor.state === "PAUSED" || monitor.state === "ARCHIVED") {
+        expect(enabledById.get(monitor.id)).toBe(false);
+      }
+    }
   });
 });
 
