@@ -26,6 +26,7 @@ import {
   buildRecentChecks,
   buildRecentChecksFromRaw,
   buildRecentIncidents,
+  observedWithRawTail,
   rawChecksSinceActivation,
   rollupVersionOf,
   type MonitorLiveData,
@@ -216,7 +217,12 @@ export async function getMonitorDetail(id: string) {
   const rollups24h = selectRecentRollupWindow(rollups7d, end15m.getTime() - 86_400_000, end15m.getTime());
   const activeRawChecks = rawChecksSinceActivation(recentRawChecks, activatedAt);
 
-  const observed24h = summarizeCounts(rollupsSinceActivation(rollups24h, activatedAt));
+  const activeRollups24h = rollupsSinceActivation(rollups24h, activatedAt);
+  const observed24h = summarizeCounts(activeRollups24h);
+  // The collecting card counts every post-activation minute, so it folds the
+  // uncompacted raw tail onto the completed rollups. The range cards above keep
+  // the pure rollup counts, since a range score reads only completed buckets.
+  const observedCollecting = observedWithRawTail(activeRollups24h, activeRawChecks);
   const observed7d = summarizeCounts(rollupsSinceActivation(rollups7d, activatedAt));
   const observed30d = summarizeCounts(rollupsSinceActivation(rollups30d, activatedAt));
   const observed90d = summarizeCounts(rollupsSinceActivation(rollups90d, activatedAt));
@@ -278,7 +284,7 @@ export async function getMonitorDetail(id: string) {
       d30: isRangeUnlocked("d30", activatedAt, endHour),
       d90: isRangeUnlocked("d90", activatedAt, endDay),
     } satisfies Record<AvailabilityRange, boolean>,
-    firstRun: buildFirstRun(monitor, observed24h, now),
+    firstRun: buildFirstRun(monitor, observedCollecting, now),
     rollupVersion: rollupVersionOf(rollups7d),
     // The accepted snapshot governs every field the config drives above, so its
     // acceptedAt is the version the live poll watches to land an out-of-band
@@ -375,7 +381,13 @@ export async function getMonitorLive(
 
   const rollups24h = selectRecentRollupWindow(rollups7d, end15m.getTime() - 86_400_000, end15m.getTime());
   const activeRawChecks = rawChecksSinceActivation(recentRawChecks, activatedAt);
-  const observed24h = summarizeCounts(rollupsSinceActivation(rollups24h, activatedAt));
+  const activeRollups24h = rollupsSinceActivation(rollups24h, activatedAt);
+  const observed24h = summarizeCounts(activeRollups24h);
+  // The collecting card folds the uncompacted raw tail onto the completed
+  // rollups so the live poll matches the detail snapshot. The range cards below
+  // keep the pure rollup counts, since a range score reads only completed
+  // buckets.
+  const observedCollecting = observedWithRawTail(activeRollups24h, activeRawChecks);
   const observed7d = summarizeCounts(rollupsSinceActivation(rollups7d, activatedAt));
   const unlocked24h = isRangeUnlocked("h24", activatedAt, end15m);
   const unlocked7d = isRangeUnlocked("d7", activatedAt, end15m);
@@ -406,7 +418,7 @@ export async function getMonitorLive(
       d30: isRangeUnlocked("d30", activatedAt, endHour),
       d90: isRangeUnlocked("d90", activatedAt, endDay),
     },
-    firstRun: buildFirstRun(monitor, observed24h, now),
+    firstRun: buildFirstRun(monitor, observedCollecting, now),
     latestIncident: buildLatestIncident(recentIncidents, now),
     recentIncidents: buildRecentIncidents(recentIncidents, now),
     // Recent Checks hide pre-activation setup minutes the same way uptime,

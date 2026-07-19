@@ -6,6 +6,7 @@ import {
   buildLatestIncident,
   buildRecentChecks,
   buildRecentIncidents,
+  observedWithRawTail,
   openingFailure,
   rawChecksSinceActivation,
   rollupVersionOf,
@@ -152,6 +153,74 @@ describe("rawChecksSinceActivation", () => {
 
   it("returns an empty array for an unactivated monitor", () => {
     expect(rawChecksSinceActivation([check({})], null)).toEqual([]);
+  });
+});
+
+describe("observedWithRawTail", () => {
+  const completedRollup = (overrides: Partial<{
+    bucketStart: Date;
+    expectedChecks: number;
+    completedChecks: number;
+    successfulChecks: number;
+    failedChecks: number;
+  }>) => ({
+    bucketStart: ago(30 * 60_000),
+    expectedChecks: 15,
+    completedChecks: 15,
+    successfulChecks: 15,
+    failedChecks: 0,
+    ...overrides,
+  });
+  const rawCheck = (overrides: Partial<RawMinuteCheck>): RawMinuteCheck => ({
+    checked_at: ago(60_000),
+    completed: true,
+    failed: false,
+    latency_ms: 90,
+    ...overrides,
+  });
+
+  it("counts raw successes immediately when no rollup has compacted yet", () => {
+    const observed = observedWithRawTail([], [
+      rawCheck({ checked_at: ago(3 * 60_000) }),
+      rawCheck({ checked_at: ago(2 * 60_000) }),
+      rawCheck({ checked_at: ago(60_000) }),
+    ]);
+    expect(observed).toMatchObject({ expected: 3, completed: 3, successful: 3, uptime: 100 });
+    expect(observed.coverage).toBe(1);
+  });
+
+  it("adds only the tail after the newest completed bucket end, never double counting", () => {
+    // Newest completed bucket starts 30m ago, so it ends 15m ago. A raw minute
+    // inside that compacted bucket is dropped, the two after its end are folded.
+    const rollups = [completedRollup({ bucketStart: ago(30 * 60_000) })];
+    const observed = observedWithRawTail(rollups, [
+      rawCheck({ checked_at: ago(20 * 60_000) }),
+      rawCheck({ checked_at: ago(10 * 60_000) }),
+      rawCheck({ checked_at: ago(5 * 60_000) }),
+    ]);
+    expect(observed).toMatchObject({ expected: 17, completed: 17, successful: 17 });
+  });
+
+  it("does not recount a minute once a rollup covers it", () => {
+    // The same raw minute at 5m ago now falls inside a freshly compacted bucket
+    // that starts 15m ago and ends now, so the tail is empty and the count holds.
+    const rollups = [completedRollup({ bucketStart: ago(15 * 60_000), expectedChecks: 14, completedChecks: 14, successfulChecks: 14 })];
+    const observed = observedWithRawTail(rollups, [rawCheck({ checked_at: ago(5 * 60_000) })]);
+    expect(observed).toMatchObject({ expected: 14, completed: 14, successful: 14 });
+  });
+
+  it("keeps tail coverage honest for an unknown minute and never exceeds 100 uptime", () => {
+    const observed = observedWithRawTail([], [
+      rawCheck({ checked_at: ago(3 * 60_000) }),
+      rawCheck({ checked_at: ago(2 * 60_000), completed: false }),
+      rawCheck({ checked_at: ago(60_000), completed: true, failed: true }),
+    ]);
+    expect(observed.expected).toBe(3);
+    expect(observed.completed).toBe(2);
+    expect(observed.successful).toBe(1);
+    expect(observed.failed).toBe(1);
+    expect(observed.uptime).toBe(50);
+    expect(observed.coverage).toBeCloseTo(2 / 3);
   });
 });
 

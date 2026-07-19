@@ -8,12 +8,14 @@ import type { MonitorState } from "@/components/monitors/status-dot";
 import {
   firstRunPhase,
   observedMs,
+  summarizeCounts,
   type AvailabilityRange,
   type MonitorPhase,
   type ObservedCounts,
 } from "./first-run";
 
 const DAY_MS = 86_400_000;
+const FIFTEEN_MINUTE_MS = 900_000;
 
 export function secondsBetween(start: Date, end: Date): number {
   return Math.max(0, Math.floor((end.getTime() - start.getTime()) / 1_000));
@@ -179,6 +181,52 @@ export function buildRecentChecks(rollups24h: LiveRollupRow[]): LiveRecentCheck[
     resultLabel: rollup.unknownChecks > 0 ? "Unknown coverage" : rollup.failedChecks > 0 ? "Failed checks" : "Healthy rollup",
     latencyMs: rollup.latencyCount === 0 ? null : Math.round(Number(rollup.latencySumMs) / rollup.latencyCount),
   }));
+}
+
+// Folds the uncompacted post-activation raw minutes into the collecting-card
+// observed counts. The base counts come from completed rollup buckets since
+// activation, ordered oldest first. Only raw checks at or after the newest
+// completed bucket end join in, the minutes no rollup covers yet, so no minute
+// is counted twice. Each raw row is one expected check, so expected counts
+// every tail row while completed, successful, and failed read its flags. An
+// unknown tail minute lowers coverage without touching uptime, and completed
+// never exceeds expected nor successful completed, so uptime stays at or below
+// 100. With no completed buckets yet the whole tail counts, so the first
+// successes show the moment they land instead of waiting for the first bucket.
+export function observedWithRawTail(
+  completedRollups: Array<{
+    bucketStart: Date;
+    expectedChecks: number;
+    completedChecks: number;
+    successfulChecks: number;
+    failedChecks: number;
+  }>,
+  rawTail: RawMinuteCheck[],
+): ObservedCounts {
+  const base = summarizeCounts(completedRollups);
+  const lastBucketEnd = completedRollups.length === 0
+    ? null
+    : completedRollups[completedRollups.length - 1]!.bucketStart.getTime() + FIFTEEN_MINUTE_MS;
+  let expected = base.expected;
+  let completed = base.completed;
+  let successful = base.successful;
+  let failed = base.failed;
+  for (const check of rawTail) {
+    if (lastBucketEnd !== null && check.checked_at.getTime() < lastBucketEnd) continue;
+    expected += 1;
+    if (!check.completed) continue;
+    completed += 1;
+    if (check.failed) failed += 1;
+    else successful += 1;
+  }
+  return {
+    expected,
+    completed,
+    successful,
+    failed,
+    uptime: completed === 0 ? null : 100 * successful / completed,
+    coverage: expected === 0 ? null : completed / expected,
+  };
 }
 
 export type LiveMonitorIdentity = {
