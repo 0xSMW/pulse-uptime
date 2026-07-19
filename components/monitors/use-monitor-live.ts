@@ -6,6 +6,7 @@ import useSWR from "swr";
 
 import {
   livePollBackoffMs,
+  livePollConfigChanged,
   livePollIntervalMs,
   livePollIsStale,
   livePollIsTerminal,
@@ -53,6 +54,7 @@ export function useMonitorLive(
     phase: MonitorPhase;
     state: MonitorState;
     rollupVersion: string | null;
+    configVersion: string | null;
     rangeUnlocked: { d30: boolean; d90: boolean };
   },
 ): MonitorLiveStatus {
@@ -61,6 +63,7 @@ export function useMonitorLive(
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [isHidden, setIsHidden] = useState(false);
   const refreshedVersionRef = useRef<string | null>(server.rollupVersion);
+  const refreshedConfigRef = useRef<string | null>(server.configVersion);
   const terminalRef = useRef(false);
   const unlockRefreshedRef = useRef(false);
 
@@ -134,6 +137,25 @@ export function useMonitorLive(
       router.refresh();
     }
   }, [data?.rollupVersion, router]);
+
+  // The config version moves the baseline forward after each config refresh.
+  useEffect(() => {
+    refreshedConfigRef.current = server.configVersion;
+  }, [server.configVersion]);
+
+  // A config edit from another session advances the accepted snapshot while the
+  // page holds its config fields from the server snapshot. One guarded refresh
+  // pulls the new name, url, thresholds, or recipients so the detail view and
+  // the edit sheet never submit from a stale config, including on a paused
+  // monitor whose rollup version never advances. The guard clears once the
+  // snapshot catches up.
+  const configVersion = data?.configVersion ?? null;
+  useEffect(() => {
+    if (livePollConfigChanged(refreshedConfigRef.current, configVersion)) {
+      refreshedConfigRef.current = configVersion;
+      router.refresh();
+    }
+  }, [configVersion, router]);
 
   // A poll can cross the 30 or 90 day activation boundary while the page stays
   // open. The payload flips the unlock flag but carries no d30 or d90 score, so

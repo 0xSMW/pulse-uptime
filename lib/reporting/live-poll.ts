@@ -66,6 +66,19 @@ export function livePollUnlockAdvanced(
   return (live.d30 && !snapshot.d30) || (live.d90 && !snapshot.d90);
 }
 
+// A config edit from any session accepts a new snapshot, advancing its
+// acceptedAt. The live poll carries that version while the page holds the config
+// fields from the server snapshot. A paused monitor produces no new rollup, so
+// this is the only signal that lands an out-of-band name, url, threshold, or
+// recipient edit on the open page. Returns true when the live version is present
+// and differs from the snapshot, so the client refreshes once to pull the edit.
+export function livePollConfigChanged(
+  snapshotVersion: string | null,
+  liveVersion: string | null,
+): boolean {
+  return liveVersion !== null && liveVersion !== snapshotVersion;
+}
+
 // Compact "Updated Ns ago" label. Seconds up to a minute, then whole minutes.
 export function formatUpdatedAgo(secondsAgo: number): string {
   const clamped = Math.max(0, Math.floor(secondsAgo));

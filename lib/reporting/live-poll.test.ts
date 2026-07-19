@@ -7,6 +7,7 @@ import {
   LIVE_POLL_ATTENTIVE_MS,
   LIVE_POLL_STEADY_MS,
   livePollBackoffMs,
+  livePollConfigChanged,
   livePollIntervalMs,
   livePollIsStale,
   livePollIsTerminal,
@@ -105,6 +106,29 @@ describe("livePollUnlockAdvanced", () => {
     expect(
       livePollUnlockAdvanced({ d30: true, d90: true }, { d30: false, d90: false }),
     ).toBe(false);
+  });
+});
+
+describe("livePollConfigChanged", () => {
+  it("refreshes once when a config edit advances the accepted snapshot", () => {
+    expect(
+      livePollConfigChanged("2026-07-19T00:00:00.000Z", "2026-07-19T00:05:00.000Z"),
+    ).toBe(true);
+  });
+
+  it("lands the first accepted config on a page opened before any snapshot existed", () => {
+    expect(livePollConfigChanged(null, "2026-07-19T00:00:00.000Z")).toBe(true);
+  });
+
+  it("holds steady while the version matches the snapshot", () => {
+    expect(
+      livePollConfigChanged("2026-07-19T00:00:00.000Z", "2026-07-19T00:00:00.000Z"),
+    ).toBe(false);
+    expect(livePollConfigChanged(null, null)).toBe(false);
+  });
+
+  it("does not refresh when the poll carries no config version yet", () => {
+    expect(livePollConfigChanged("2026-07-19T00:00:00.000Z", null)).toBe(false);
   });
 });
 

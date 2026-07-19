@@ -101,6 +101,7 @@ export type MonitorDetailData = {
     latencyMs: number | null;
   }>;
   rollupVersion: string | null;
+  configVersion: string | null;
 };
 
 const availabilityRanges: Array<{ key: AvailabilityRange; label: string }> = [
@@ -309,6 +310,7 @@ export function MonitorDetail({ monitor: snapshot }: { monitor: MonitorDetailDat
     phase: snapshot.firstRun.phase,
     state: snapshot.state,
     rollupVersion: snapshot.rollupVersion,
+    configVersion: snapshot.configVersion,
     rangeUnlocked: snapshot.rangeUnlocked,
   });
   // Merge the polled fields over the snapshot in place. Charts, timeline

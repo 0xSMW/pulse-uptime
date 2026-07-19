@@ -40,6 +40,7 @@ const live = {
   recentIncidents: [],
   recentChecks: [],
   rollupVersion: null,
+  configVersion: null,
 };
 
 function request() {

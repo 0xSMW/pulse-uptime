@@ -98,7 +98,8 @@ describe("getMonitorLive p95 and incidents", () => {
     dbMock.select
       .mockReturnValueOnce(selectChain([identity({})])) // getMonitorIdentity
       .mockReturnValueOnce(selectChain([PRE_ACTIVATION_ROLLUP, POST_ACTIVATION_ROLLUP])) // rollups 15m
-      .mockReturnValueOnce(selectChain([])); // incidents
+      .mockReturnValueOnce(selectChain([])) // incidents
+      .mockReturnValueOnce(selectChain([{ acceptedAt: null }])); // accepted config version
 
     const live = await getMonitorLive("site-home");
 
@@ -110,14 +111,16 @@ describe("getMonitorLive p95 and incidents", () => {
   it("surfaces no incidents and issues no incident query when the monitor never activated", async () => {
     dbMock.select
       .mockReturnValueOnce(selectChain([identity({ activatedAt: null, state: "PENDING" })])) // identity
-      .mockReturnValueOnce(selectChain([])); // rollups 15m
+      .mockReturnValueOnce(selectChain([])) // rollups 15m
+      .mockReturnValueOnce(selectChain([{ acceptedAt: null }])); // accepted config version
 
     const live = await getMonitorLive("site-home");
 
     expect(live!.latestIncident).toBeNull();
     expect(live!.recentIncidents).toEqual([]);
-    // Only identity and rollups were queried, never the incidents table.
-    expect(dbMock.select).toHaveBeenCalledTimes(2);
+    // Only identity, rollups, and the config version were queried, never the
+    // incidents table (an activated monitor would add a fourth select).
+    expect(dbMock.select).toHaveBeenCalledTimes(3);
   });
 
   it("keeps a genuine ongoing incident that opened at or after activation", async () => {
@@ -131,7 +134,8 @@ describe("getMonitorLive p95 and incidents", () => {
     dbMock.select
       .mockReturnValueOnce(selectChain([identity({ state: "DOWN" })])) // identity
       .mockReturnValueOnce(selectChain([POST_ACTIVATION_ROLLUP])) // rollups 15m
-      .mockReturnValueOnce(selectChain([ongoing])); // incidents
+      .mockReturnValueOnce(selectChain([ongoing])) // incidents
+      .mockReturnValueOnce(selectChain([{ acceptedAt: null }])); // accepted config version
 
     const live = await getMonitorLive("site-home");
 

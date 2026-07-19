@@ -97,6 +97,11 @@ export type MonitorLiveData = {
   recentIncidents: LiveRecentIncident[];
   recentChecks: LiveRecentCheck[];
   rollupVersion: string | null;
+  // Accepted-snapshot acceptedAt, the config version governing this monitor. It
+  // advances whenever an edit from any session accepts a new snapshot, the only
+  // freshness signal for a paused monitor whose rollup version never moves, so a
+  // name, url, threshold, or recipient change lands on the open page.
+  configVersion: string | null;
 };
 
 // Identifies the last completed rollup bucket. It advances only when a new

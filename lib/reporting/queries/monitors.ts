@@ -200,7 +200,10 @@ export async function getMonitorDetail(id: string) {
           .where(and(eq(incidents.monitorId, id), gte(incidents.openedAt, activatedAt)))
           .orderBy(desc(incidents.openedAt))
           .limit(5),
-    db.select({ configJson: monitoringConfigSnapshots.configJson })
+    db.select({
+      configJson: monitoringConfigSnapshots.configJson,
+      acceptedAt: monitoringConfigSnapshots.acceptedAt,
+    })
       .from(monitoringConfigSnapshots)
       .where(eq(monitoringConfigSnapshots.status, "accepted"))
       .orderBy(desc(monitoringConfigSnapshots.acceptedAt))
@@ -275,6 +278,10 @@ export async function getMonitorDetail(id: string) {
     } satisfies Record<AvailabilityRange, boolean>,
     firstRun: buildFirstRun(monitor, observed24h, now),
     rollupVersion: rollupVersionOf(rollups7d),
+    // The accepted snapshot governs every field the config drives above, so its
+    // acceptedAt is the version the live poll watches to land an out-of-band
+    // config edit on a paused monitor whose rollup version never advances.
+    configVersion: accepted[0]?.acceptedAt?.toISOString() ?? null,
     // Timeline bars read the same activation-filtered rollups the uptime
     // figures do, so pre-activation buckets render as no-data rather than red
     // down bars while the header still reads as collecting or setup.
@@ -339,7 +346,7 @@ export async function getMonitorLive(
   const end15m = completedRangeEnd(now, "15m");
   const endHour = completedRangeEnd(now, "hour");
   const endDay = completedRangeEnd(now, "day");
-  const [rollups7d, recentIncidents, recentRawChecks] = await Promise.all([
+  const [rollups7d, recentIncidents, recentRawChecks, accepted] = await Promise.all([
     fetchRollups(id, "15m", end15m, 7 * 86_400_000),
     includeIncidents && activatedAt !== null
       ? db.select().from(incidents)
@@ -348,6 +355,15 @@ export async function getMonitorLive(
           .limit(5)
       : Promise.resolve([]),
     getRecentRawChecks(id, now),
+    // Config version only. This one-column single-row read rides the accepted
+    // snapshot index and skips the configJson decode the detail query runs, so
+    // the poll stays lean while still carrying the signal that lands an
+    // out-of-band config edit on a paused monitor.
+    db.select({ acceptedAt: monitoringConfigSnapshots.acceptedAt })
+      .from(monitoringConfigSnapshots)
+      .where(eq(monitoringConfigSnapshots.status, "accepted"))
+      .orderBy(desc(monitoringConfigSnapshots.acceptedAt))
+      .limit(1),
   ]);
 
   const rollups24h = selectRecentRollupWindow(rollups7d, end15m.getTime() - 86_400_000, end15m.getTime());
@@ -389,5 +405,6 @@ export async function getMonitorLive(
       ? buildRecentChecksFromRaw(recentRawChecks)
       : buildRecentChecks(rollups24h),
     rollupVersion: rollupVersionOf(rollups7d),
+    configVersion: accepted[0]?.acceptedAt?.toISOString() ?? null,
   };
 }
