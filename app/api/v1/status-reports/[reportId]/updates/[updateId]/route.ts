@@ -20,8 +20,9 @@ export async function PATCH(request: Request, { params }: Params) {
     routeKey: `/api/v1/status-reports/${reportId}/updates/${updateId}`,
     body,
     work: async (tx) => {
-      const report = await editReportUpdate(reportId, updateId, body, { store: createDatabaseStatusReportsStore(tx) });
-      await revalidateStatusReportPaths(report);
+      const store = createDatabaseStatusReportsStore(tx);
+      const report = await editReportUpdate(reportId, updateId, body, { store });
+      await revalidateStatusReportPaths(report, [], store);
       return { status: 200, kind: "StatusReport", data: report };
     },
   });
@@ -37,8 +38,9 @@ export async function DELETE(request: Request, { params }: Params) {
     routeKey: `/api/v1/status-reports/${reportId}/updates/${updateId}`,
     body: {},
     work: async (tx) => {
-      const report = await deleteReportUpdate(reportId, updateId, { store: createDatabaseStatusReportsStore(tx) });
-      await revalidateStatusReportPaths(report);
+      const store = createDatabaseStatusReportsStore(tx);
+      const report = await deleteReportUpdate(reportId, updateId, { store });
+      await revalidateStatusReportPaths(report, [], store);
       return { status: 200, kind: "StatusReport", data: report };
     },
   });

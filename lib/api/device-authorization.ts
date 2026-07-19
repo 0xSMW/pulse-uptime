@@ -194,22 +194,29 @@ export async function startDeviceAuthorization(input: {
     const deviceCode = input.deviceCredential ?? createDeviceCode();
     const userCode = input.userCode ?? generateUserCode();
     try {
-      await handle.insert(deviceAuthorizations).values({
-        id: crypto.randomUUID(),
-        deviceCodeDigest: deviceCode.digest,
-        userCode,
-        scopeProfile: "administrator",
-        clientName: "pulsectl",
-        installationKey: input.installationKey,
-        installationName: input.installationName,
-        platform: input.platform,
-        architecture: input.architecture,
-        clientVersion: input.clientVersion,
-        requestIp: input.requestIp,
-        state: "pending",
-        createdAt: now,
-        expiresAt: new Date(now.getTime() + DEVICE_TTL_MS),
-        pollingIntervalSeconds: INITIAL_POLL_SECONDS,
+      // A caught unique violation must burn only a savepoint, not the
+      // enclosing transaction: `handle` may already be the caller's outer
+      // transaction, and Postgres aborts that whole transaction on error, so
+      // every insert attempt below runs inside its own savepoint and only
+      // that savepoint rolls back, leaving `handle` clean for the next retry.
+      await handle.transaction(async (attemptHandle) => {
+        await attemptHandle.insert(deviceAuthorizations).values({
+          id: crypto.randomUUID(),
+          deviceCodeDigest: deviceCode.digest,
+          userCode,
+          scopeProfile: "administrator",
+          clientName: "pulsectl",
+          installationKey: input.installationKey,
+          installationName: input.installationName,
+          platform: input.platform,
+          architecture: input.architecture,
+          clientVersion: input.clientVersion,
+          requestIp: input.requestIp,
+          state: "pending",
+          createdAt: now,
+          expiresAt: new Date(now.getTime() + DEVICE_TTL_MS),
+          pollingIntervalSeconds: INITIAL_POLL_SECONDS,
+        });
       });
       return { deviceCode: deviceCode.raw, userCode, expiresIn: 600, interval: INITIAL_POLL_SECONDS };
     } catch (error) {

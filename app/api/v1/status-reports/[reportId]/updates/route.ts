@@ -18,11 +18,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ rep
     routeKey: `/api/v1/status-reports/${reportId}/updates`,
     body,
     work: async (tx, { operationId }) => {
-      const report = await addReportUpdate(reportId, body, {
-        updateId: operationId,
-        store: createDatabaseStatusReportsStore(tx),
-      });
-      await revalidateStatusReportPaths(report);
+      const store = createDatabaseStatusReportsStore(tx);
+      const report = await addReportUpdate(reportId, body, { updateId: operationId, store });
+      await revalidateStatusReportPaths(report, [], store);
       return { status: 201, kind: "StatusReport", data: report };
     },
   });

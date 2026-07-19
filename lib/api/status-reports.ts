@@ -1328,12 +1328,26 @@ export function createDatabaseStatusReportsStore(handle: DatabaseHandle): Status
 
     async editUpdate({ reportId, updateId, patch, now }) {
       if (!isUuid(reportId) || !isUuid(updateId)) return null;
-      const [row] = await handle
-        .update(statusReportUpdates)
-        .set({ ...patch, updatedAt: now })
-        .where(and(eq(statusReportUpdates.id, updateId), eq(statusReportUpdates.reportId, reportId)))
-        .returning(updateSelection);
-      return row ?? null;
+      // Row-locked transaction: `SELECT ... FOR UPDATE` on the report first,
+      // mirroring deleteUpdate/recomputeResolution, so every mutation that
+      // touches a report's updates takes the report lock in the SAME order.
+      // Without this, a concurrent report DELETE (which locks the report row
+      // then cascades to update rows) could lock in the opposite order and
+      // deadlock against this UPDATE plus recomputeResolution's later lock.
+      return handle.transaction(async (tx) => {
+        const [locked] = await tx
+          .select({ id: statusReports.id })
+          .from(statusReports)
+          .where(eq(statusReports.id, reportId))
+          .for("update");
+        if (!locked) return null;
+        const [row] = await tx
+          .update(statusReportUpdates)
+          .set({ ...patch, updatedAt: now })
+          .where(and(eq(statusReportUpdates.id, updateId), eq(statusReportUpdates.reportId, reportId)))
+          .returning(updateSelection);
+        return row ?? null;
+      });
     },
 
     async deleteUpdate({ reportId, updateId }) {

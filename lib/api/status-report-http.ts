@@ -8,7 +8,7 @@ import { statusGroupSlug } from "@/lib/reporting/queries/timeline";
 import { apiError, apiJson, errorEnvelope, objectEnvelope } from "./envelopes";
 import { executeIdempotent, type StoredResponse } from "./idempotency";
 import { routeError } from "./route";
-import { databaseStatusReportsStore, StatusReportError } from "./status-reports";
+import { databaseStatusReportsStore, StatusReportError, type StatusReportsStore } from "./status-reports";
 
 function statusReportErrorStatus(error: StatusReportError): number {
   return error.code === "VALIDATION_ERROR" || error.code === "INVALID_CURSOR"
@@ -110,6 +110,14 @@ export async function runStatusReportMutation<T>(input: {
  * query, best-effort), so a monitor that was REMOVED from the affected set
  * but has since moved groups still gets its current group page refreshed,
  * not just the page its stale snapshot pointed at.
+ *
+ * Every mutation route calls this from inside runStatusReportMutation's
+ * transaction, which is already holding one of the global pool's 5
+ * connections. `store` must therefore default only for non-transactional
+ * callers (tests); every in-transaction call site passes its own
+ * tx-bound store so findMonitors rides the caller's connection instead of
+ * queuing for a fresh one, which would deadlock the pool once 5 mutations
+ * are in flight at once.
  */
 export async function revalidateStatusReportPaths(
   report: {
@@ -117,6 +125,7 @@ export async function revalidateStatusReportPaths(
     affected: ReadonlyArray<{ monitorId: string; groupName: string | null }>;
   },
   previousAffected: ReadonlyArray<{ monitorId: string; groupName: string | null }> = [],
+  store: Pick<StatusReportsStore, "findMonitors"> = databaseStatusReportsStore,
 ): Promise<void> {
   revalidatePath("/status");
   revalidatePath(`/status/reports/${report.id}`);
@@ -125,7 +134,7 @@ export async function revalidateStatusReportPaths(
   const monitorIds = [...new Set(combined.map((entry) => entry.monitorId))];
   if (monitorIds.length > 0) {
     try {
-      const live = await databaseStatusReportsStore.findMonitors(monitorIds);
+      const live = await store.findMonitors(monitorIds);
       for (const monitor of live) slugs.add(statusGroupSlug(monitor.groupName ?? "Other"));
     } catch {
       // Revalidation is best-effort. The snapshot slugs above still ran and
