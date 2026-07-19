@@ -32,6 +32,10 @@ suite("incident activation gate", () => {
   // mon-setup never activated.
   const INC_SETUP_RESOLVED = "11111111-1111-4111-8111-000000000004";
   const INC_SETUP_LIVE = "11111111-1111-4111-8111-000000000005"; // ongoing, but setup noise
+  // mon-recover never succeeded before its outage, is recovering with an active
+  // incident during the backfill, so its earliest success postdates the incident.
+  const INC_RECOVER = "11111111-1111-4111-8111-000000000006"; // ongoing, first successes postdate it
+  const RECOVER_OPENED = new Date("2026-07-14T00:00:00.000Z");
 
   async function seed(): Promise<void> {
     const now = new Date("2026-07-20T00:00:00.000Z");
@@ -58,6 +62,38 @@ suite("incident activation gate", () => {
           ${incident.id}, ${incident.monitor}, ${incident.opened}, ${incident.opened},
           ${incident.resolved}, ${incident.resolved}, ${503}, ${now}, ${now}
         )`;
+    }
+
+    // mon-recover reproduces the recovery race. It never succeeded before the
+    // outage, so activated_at is null at backfill time, active_incident_id points
+    // at an ongoing incident opened before any success, and its recorded first and
+    // last success plus its only successful rollup bucket all postdate that open.
+    const recoverSuccess = new Date("2026-07-15T00:00:00.000Z");
+    await client`insert into monitor_registry (id, name, url, enabled, config_hash, first_seen_at, last_seen_at)
+      values (${"mon-recover"}, ${"Recover"}, ${"https://example.test"}, true, ${"hash"}, ${now}, ${now})`;
+    await client`insert into monitor_state (monitor_id, state, activated_at, active_incident_id, first_failure_at, first_success_at, last_success_at, consecutive_successes, updated_at)
+      values (
+        ${"mon-recover"}, ${"VERIFYING_UP"}, ${null}, ${INC_RECOVER}, ${RECOVER_OPENED},
+        ${recoverSuccess}, ${recoverSuccess}, ${1}, ${now}
+      )`;
+    await client`insert into incidents (id, monitor_id, opened_at, first_failure_at, first_success_at, resolved_at, opening_status_code, created_at, updated_at)
+      values (${INC_RECOVER}, ${"mon-recover"}, ${RECOVER_OPENED}, ${RECOVER_OPENED}, ${null}, ${null}, ${503}, ${now}, ${now})`;
+    await client`insert into metric_rollups (
+      monitor_id, resolution, bucket_start, expected_checks, completed_checks, successful_checks,
+      failed_checks, unknown_checks, downtime_seconds, unknown_seconds, latency_count, latency_sum_ms,
+      latency_min_ms, latency_max_ms, latency_histogram, histogram_version, has_incident, compacted_at
+    ) values (
+      ${"mon-recover"}, ${"15m"}, ${recoverSuccess}, ${1}, ${1}, ${1}, ${0}, ${0}, ${0}, ${0}, ${1}, ${100},
+      ${100}, ${100}, ${[0, 0, 0, 0, 0, 0, 0, 0]}, ${1}, ${false}, ${now}
+    )`;
+
+    // Re-run the data backfill from migration 0013 against the seeded pre-state.
+    // The migrations already ran against empty tables in beforeAll, so the UPDATE
+    // statements are replayed to exercise the success, active-incident, and clamp
+    // passes on mon-recover. The DDL ALTER is skipped, the column already exists.
+    const backfill = await readFile(resolve(process.cwd(), "drizzle", "0013_worried_hairball.sql"), "utf8");
+    for (const statement of backfill.split("--> statement-breakpoint").map((item) => item.trim()).filter(Boolean)) {
+      if (!statement.toUpperCase().includes("ADD COLUMN")) await client.unsafe(statement);
     }
   }
 
@@ -104,7 +140,7 @@ suite("incident activation gate", () => {
 
   it("keeps only genuine ongoing incidents in the command palette", async () => {
     const ids = (await listCommandPaletteIncidents()).map((row) => row.id);
-    expect(ids).toEqual([INC_LIVE]);
+    expect(ids).toEqual([INC_RECOVER, INC_LIVE]);
   });
 
   it("resolves a pre-activation incident detail as not found and a post-activation one as present", async () => {
@@ -134,5 +170,23 @@ suite("incident activation gate", () => {
 
     const promoted = await promoteIncident(INC_LIVE);
     expect(promoted.report.originIncidentId).toBe(INC_LIVE);
+  });
+
+  it("clamps activated_at to the ongoing incident open so a recovery-race outage stays visible", async () => {
+    const [state] = await client<{ activatedAt: Date }[]>`
+      select activated_at as "activatedAt" from monitor_state where monitor_id = ${"mon-recover"}`;
+    // The success pass set activated_at to the recovery time after the incident
+    // open, then the clamp pulled it back to at or before the incident open.
+    expect(state.activatedAt.getTime()).toBeLessThanOrEqual(RECOVER_OPENED.getTime());
+
+    const listIds = (await listIncidents("all")).map((row) => row.id);
+    expect(listIds).toContain(INC_RECOVER);
+    const paletteIds = (await listCommandPaletteIncidents()).map((row) => row.id);
+    expect(paletteIds).toContain(INC_RECOVER);
+    expect((await getIncidentDetail(INC_RECOVER))?.id).toBe(INC_RECOVER);
+    expect((await operationalService.getIncident(INC_RECOVER))?.id).toBe(INC_RECOVER);
+
+    const promoted = await promoteIncident(INC_RECOVER);
+    expect(promoted.report.originIncidentId).toBe(INC_RECOVER);
   });
 });
