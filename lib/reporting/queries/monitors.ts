@@ -1,7 +1,7 @@
 import { and, desc, eq, gte, isNull, lt } from "drizzle-orm";
 import { cache } from "react";
 
-import { db } from "@/lib/db/client";
+import { db, sql } from "@/lib/db/client";
 import {
   incidents,
   metricRollups,
@@ -11,6 +11,8 @@ import {
 } from "@/lib/db/schema";
 import { DEFAULT_MONITOR_VALUES } from "@/lib/config/defaults";
 import { validateMonitoringConfig, type MonitorConfig } from "@/lib/config";
+import { portableQueryValues } from "@/lib/db/query-values";
+import { RECENT_MINUTE_CHECKS_SQL } from "@/lib/storage/sql";
 
 import { buildRollupTimeline, summarizeRollupCoverage } from "./timeline";
 
@@ -93,6 +95,43 @@ export const getMonitorIdentity = cache(async (id: string) => {
 
 export type MonitorIdentity = NonNullable<Awaited<ReturnType<typeof getMonitorIdentity>>>;
 
+type RecentMinuteCheckRow = {
+  checked_at: Date;
+  completed: boolean;
+  failed: boolean;
+  latency_ms: number | null;
+};
+
+type RecentMinuteCheckDbRow = Omit<RecentMinuteCheckRow, "checked_at"> & { checked_at: Date | string };
+
+const RECENT_MINUTE_CHECK_LOOKBACK_MS = 48 * 3_600_000;
+const RECENT_MINUTE_CHECK_LIMIT = 20;
+
+// db wraps this module's sql client in drizzle(), which reconfigures the
+// client's own type parsers, so raw sql.unsafe queries on that same client
+// return timestamptz columns as strings rather than Date instances.
+function toDate(value: Date | string): Date {
+  return Object.prototype.toString.call(value) === "[object Date]" ? value as Date : new Date(value);
+}
+
+// Reads raw per-check results straight from check_batches, on the monitor's
+// own cadence. Raw minutes retain 12-48h depending on governor mode, 0 in
+// essential mode, so callers fall back to rollup-derived rows on an empty
+// result. A query or decode failure degrades the same way, an empty array,
+// instead of failing a page that never used to touch check_batches.
+export async function getRecentRawChecks(monitorId: string, end: Date): Promise<RecentMinuteCheckRow[]> {
+  const start = new Date(end.getTime() - RECENT_MINUTE_CHECK_LOOKBACK_MS);
+  try {
+    const rows = await sql.unsafe(
+      RECENT_MINUTE_CHECKS_SQL,
+      portableQueryValues([monitorId, start, end, RECENT_MINUTE_CHECK_LIMIT]) as never[],
+    ) as unknown as RecentMinuteCheckDbRow[];
+    return rows.map((row) => ({ ...row, checked_at: toDate(row.checked_at) }));
+  } catch {
+    return [];
+  }
+}
+
 export async function getMonitorDetail(id: string) {
   const monitor = await getMonitorIdentity(id);
   if (!monitor) return null;
@@ -124,7 +163,7 @@ export async function getMonitorDetail(id: string) {
       lt(metricRollups.bucketStart, end),
     ))
     .orderBy(metricRollups.bucketStart);
-  const [rollups7d, rollups30d, rollups90d, recentIncidents, accepted] = await Promise.all([
+  const [rollups7d, rollups30d, rollups90d, recentIncidents, accepted, recentRawChecks] = await Promise.all([
     rollupsFor("15m", end15m, 7 * 86_400_000),
     rollupsFor("hour", endHour, 30 * 86_400_000),
     rollupsFor("day", endDay, 90 * 86_400_000),
@@ -137,6 +176,7 @@ export async function getMonitorDetail(id: string) {
       .where(eq(monitoringConfigSnapshots.status, "accepted"))
       .orderBy(desc(monitoringConfigSnapshots.acceptedAt))
       .limit(1),
+    getRecentRawChecks(id, now),
   ]);
 
   // Derive the last 24 hours from the fetched seven days of rollups.
@@ -224,13 +264,22 @@ export async function getMonitorDetail(id: string) {
       openingFailure: openingFailure(recentIncidents[0].openingErrorCode, recentIncidents[0].openingStatusCode),
     } : null,
     recentIncidents: mappedIncidents,
-    recentChecks: rollups24h.slice(-20).toReversed().map((rollup) => ({
-      id: `15m:${rollup.bucketStart.toISOString()}`,
-      checkedAt: rollup.bucketStart.toISOString(),
-      successful: rollup.failedChecks === 0 && rollup.completedChecks === rollup.expectedChecks,
-      statusCode: null,
-      resultLabel: rollup.unknownChecks > 0 ? "Unknown coverage" : rollup.failedChecks > 0 ? "Failed checks" : "Healthy rollup",
-      latencyMs: rollup.latencyCount === 0 ? null : Math.round(Number(rollup.latencySumMs) / rollup.latencyCount),
-    })),
+    recentChecks: recentRawChecks.length > 0
+      ? recentRawChecks.map((check) => ({
+        id: `minute:${check.checked_at.toISOString()}`,
+        checkedAt: check.checked_at.toISOString(),
+        successful: check.completed && !check.failed,
+        statusCode: null,
+        resultLabel: check.completed ? (check.failed ? "Failed" : "Passed") : "No response recorded",
+        latencyMs: check.latency_ms,
+      }))
+      : rollups24h.slice(-20).toReversed().map((rollup) => ({
+        id: `15m:${rollup.bucketStart.toISOString()}`,
+        checkedAt: rollup.bucketStart.toISOString(),
+        successful: rollup.failedChecks === 0 && rollup.completedChecks === rollup.expectedChecks,
+        statusCode: null,
+        resultLabel: rollup.unknownChecks > 0 ? "Unknown coverage" : rollup.failedChecks > 0 ? "Failed checks" : "Healthy rollup",
+        latencyMs: rollup.latencyCount === 0 ? null : Math.round(Number(rollup.latencySumMs) / rollup.latencyCount),
+      })),
   };
 }
