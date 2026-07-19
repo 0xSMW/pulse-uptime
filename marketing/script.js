@@ -1691,6 +1691,17 @@ Docs     <span class="dv-num">UP</span>  58ms
     watcher.observe(perfCards);
   }
 
+  $$(".principles article").forEach((article) => {
+    const mark = $(".principle-mark", article);
+    if (!mark) return;
+    article.addEventListener("click", () => {
+      if (prefersReducedMotion()) return;
+      mark.classList.remove("ping");
+      void mark.offsetWidth;
+      mark.classList.add("ping");
+    });
+  });
+
   const deployCommand = $("#deploy-command");
   if (deployCommand) {
     let deployPrompt = $("#deploy-prompt-fallback")?.textContent.trim() || null;

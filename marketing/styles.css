@@ -4,17 +4,16 @@
 [data-theme="dark"] {
   color-scheme: dark;
   --bg: #000;
-  --surface: #0b0b0b;
-  --surface-raised: #111;
   --hover: #ffffff12;
   --border: #ffffff17;
   --border-strong: #ffffff24;
   --border-hover: #ffffff3d;
   --fg: #ededed;
   --fg-muted: #a0a0a0;
-  --fg-faint: #6f6f6f;
+  --fg-faint: #8f8f8f;
   --chip-bg: #ffffff12;
-  --code-bg: #ffffff0d;
+  --code-bg: #ffffff12;
+  --code-border: #ffffff17;
   --focus: #47a8ff;
   --up: #00ac3a;
   --up-text: #00ca50;
@@ -25,27 +24,38 @@
   --down: #f13242;
   --down-text: #ff565f;
   --down-bg: #330a11;
+  --down-border: #e2162a;
+  --error-solid: #e2162a;
   --neutral-state: #878787;
-  --primary-bg: #ededed;
-  --primary-fg: #171717;
-  --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 20px 60px rgb(0 0 0 / 28%);
+  --primary: var(--fg);
+  --primary-fg: var(--bg);
+  --card-shadow: 0 1px 2px rgb(0 0 0 / 16%);
+  --popover-shadow: 0 1px 1px rgb(0 0 0 / 2%),
+    0 4px 8px -4px rgb(0 0 0 / 4%),
+    0 16px 24px -8px rgb(0 0 0 / 6%);
+  --modal-shadow: 0 1px 1px rgb(0 0 0 / 2%),
+    0 8px 16px -4px rgb(0 0 0 / 4%),
+    0 24px 32px -8px rgb(0 0 0 / 6%);
+
+  /* marketing-scope tokens, not part of the app set */
+  --surface: #0b0b0b;
+  --surface-raised: #111;
   --fade: linear-gradient(to bottom, transparent, #000);
 }
 
 [data-theme="light"] {
   color-scheme: light;
   --bg: #fff;
-  --surface: #fafafa;
-  --surface-raised: #fff;
   --hover: #0000000d;
   --border: #ebebeb;
-  --border-strong: #e1e1e1;
+  --border-strong: #eaeaea;
   --border-hover: #c9c9c9;
   --fg: #171717;
   --fg-muted: #4d4d4d;
   --fg-faint: #8f8f8f;
   --chip-bg: #f2f2f2;
   --code-bg: #fafafa;
+  --code-border: #eaeaea;
   --focus: #006bff;
   --up: #28a948;
   --up-text: #107d32;
@@ -55,11 +65,15 @@
   --verifying-bg: #fff6de;
   --down: #fc0035;
   --down-text: #d8001b;
-  --down-bg: #ffeef0;
+  --down-bg: #ffeeef;
+  --down-border: #ffd7d6;
+  --error-solid: #ea001d;
   --neutral-state: #a8a8a8;
-  --primary-bg: #171717;
-  --primary-fg: #fff;
-  --shadow: 0 2px 2px rgb(0 0 0 / 4%), 0 24px 60px rgb(0 0 0 / 6%);
+  --card-shadow: 0 2px 2px rgb(0 0 0 / 4%);
+
+  /* marketing-scope tokens, not part of the app set */
+  --surface: #fafafa;
+  --surface-raised: #fff;
   --fade: linear-gradient(to bottom, transparent, #fff);
 }
 
@@ -139,7 +153,7 @@ button {
   left: 12px;
   padding: 8px 12px;
   border-radius: 6px;
-  background: var(--primary-bg);
+  background: var(--primary);
   color: var(--primary-fg);
   opacity: 0;
   pointer-events: none;
@@ -171,7 +185,7 @@ button {
   position: sticky;
   z-index: 100;
   top: 0;
-  background: color-mix(in srgb, var(--bg) 84%, transparent);
+  background: color-mix(in srgb, var(--bg) 95%, transparent);
   -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
 }
@@ -212,12 +226,19 @@ button {
 .status-dot {
   position: relative;
   display: inline-block;
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
   flex: 0 0 auto;
   border-radius: 999px;
   background: var(--neutral-state);
   color: var(--neutral-state);
+}
+
+.status-dot.md,
+.brand .status-dot,
+.mini-brand .status-dot {
+  width: 10px;
+  height: 10px;
 }
 
 .status-dot.up,
@@ -303,12 +324,16 @@ button {
 }
 
 .button.primary {
-  background: var(--primary-bg);
+  background: var(--primary);
   color: var(--primary-fg);
 }
 
 .button.primary:hover {
-  opacity: 0.88;
+  opacity: 0.9;
+}
+
+.button.primary:active:not(:disabled) {
+  opacity: 0.8;
 }
 
 .button.secondary {
@@ -336,7 +361,15 @@ button {
 
 .button:disabled {
   cursor: not-allowed;
-  opacity: 0.4;
+  border-color: transparent;
+  background: var(--chip-bg);
+  color: var(--fg-faint);
+  opacity: 1;
+}
+
+.monitor-sheet .button,
+.dialog-card .button {
+  padding: 0 10px;
 }
 
 .icon-button {
@@ -456,7 +489,7 @@ h1 {
   border: 1px solid var(--border-strong);
   border-radius: 12px;
   background: var(--bg);
-  box-shadow: var(--shadow);
+  box-shadow: var(--card-shadow);
 }
 
 .hero-dashboard {
@@ -571,29 +604,29 @@ h1 {
 }
 
 .monitor-table th {
-  height: 42px;
+  height: 40px;
   padding: 0 14px;
-  border-bottom: 1px solid var(--border-strong);
-  color: var(--fg-faint);
-  font-size: 11px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   text-align: left;
   text-transform: uppercase;
 }
 
 .monitor-table th:first-child,
 .monitor-table td:first-child {
-  padding-left: 22px;
+  padding-left: 24px;
 }
 
 .monitor-table th:last-child,
 .monitor-table td:last-child {
-  padding-right: 22px;
+  padding-right: 24px;
 }
 
 .monitor-table td {
-  height: 66px;
+  height: 60px;
   padding: 0 14px;
   border-bottom: 1px solid var(--border);
   font-size: 13px;
@@ -707,6 +740,7 @@ h1 {
   place-items: center;
   margin: 84px auto 0;
   color: var(--border-hover);
+  transition: color 300ms ease;
 }
 
 .concentric i {
@@ -828,7 +862,7 @@ h1 {
   border: 1px solid var(--border-strong);
   border-radius: 12px;
   background: var(--bg);
-  box-shadow: var(--shadow);
+  box-shadow: var(--card-shadow);
 }
 
 .sheet-step {
@@ -1120,7 +1154,7 @@ h1 {
   min-height: 300px;
   padding: 24px;
   background: var(--surface-raised);
-  box-shadow: var(--shadow);
+  box-shadow: var(--card-shadow);
 }
 
 .status-preview-head {
@@ -1168,7 +1202,7 @@ h1 {
   border: 1px solid var(--border-strong);
   border-radius: 12px;
   background: var(--bg);
-  box-shadow: var(--shadow);
+  box-shadow: var(--popover-shadow);
 }
 
 .email-meta {
@@ -1609,7 +1643,7 @@ h1 {
   border: 1px solid var(--border-strong);
   border-radius: 12px;
   background: var(--bg);
-  box-shadow: var(--shadow);
+  box-shadow: var(--modal-shadow);
 }
 
 .dialog-actions {
@@ -1632,7 +1666,7 @@ h1 {
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   background: var(--surface-raised);
-  box-shadow: var(--shadow);
+  box-shadow: var(--popover-shadow);
   color: var(--fg);
   font-size: 12px;
   opacity: 0;
@@ -1688,7 +1722,7 @@ h1 {
     padding: 6px 14px 16px;
     border-bottom: 1px solid var(--border);
     background: var(--bg);
-    box-shadow: var(--shadow);
+    box-shadow: var(--popover-shadow);
     font-size: 15px;
   }
   .nav-links.open {
@@ -1703,7 +1737,7 @@ h1 {
     margin-top: 10px;
     padding: 0 16px;
   }
-  .nav-links .menu-cta:hover { background: var(--primary-bg); }
+  .nav-links .menu-cta:hover { background: var(--primary); }
   .menu-toggle { display: inline-flex; }
   .hero { min-height: 770px; padding-top: 56px; }
   h1 { font-size: clamp(52px, 17vw, 82px); }
@@ -1888,7 +1922,7 @@ h1 {
 .js article[data-reveal] .concentric i {
   opacity: 0;
   scale: 0.55;
-  transition: opacity 700ms ease, scale 900ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  transition: opacity 700ms ease, scale 900ms cubic-bezier(0.2, 0.7, 0.2, 1), background 300ms ease;
 }
 
 .js article[data-reveal].is-visible .concentric i {
@@ -2046,7 +2080,7 @@ tr.row-enter {
   border: 1px solid var(--border-strong);
   border-radius: 12px;
   background: var(--bg);
-  box-shadow: var(--shadow);
+  box-shadow: var(--modal-shadow);
   transform-origin: top left;
   will-change: transform;
 }
@@ -2147,7 +2181,7 @@ tr.row-enter {
   border: 1px solid var(--border-strong);
   border-radius: 12px;
   background: var(--bg);
-  box-shadow: var(--shadow);
+  box-shadow: var(--modal-shadow);
 }
 
 .palette-input-row {
@@ -3112,7 +3146,7 @@ html,
   z-index: 2;
   width: 72%;
   background: var(--bg);
-  box-shadow: var(--shadow);
+  box-shadow: var(--popover-shadow);
 }
 
 .dep-catalog {
@@ -3298,7 +3332,7 @@ html,
   border: 1px solid var(--border-strong);
   border-radius: 12px;
   background: var(--bg);
-  box-shadow: var(--shadow);
+  box-shadow: var(--card-shadow);
 }
 
 .security-body {
@@ -3826,3 +3860,74 @@ html,
 @media (max-width: 760px) {
   .perf-cards { margin-top: 44px; }
 }
+
+/* ---- Principle figure micro-interactions ---- */
+
+.js .principles article:hover .principle-mark {
+  color: var(--fg-faint);
+}
+
+.js .principles article:hover .concentric i:nth-child(1) {
+  scale: 0.97;
+}
+
+.js .principles article:hover .concentric i:nth-child(3) {
+  scale: 1.1;
+  background: var(--chip-bg);
+}
+
+.js .principles article:hover .nodes i:nth-child(1) {
+  translate: 0 4px;
+}
+
+.js .principles article:hover .nodes i:nth-child(2) {
+  translate: 4px -4px;
+}
+
+.js .principles article:hover .nodes i:nth-child(3) {
+  translate: -4px -4px;
+}
+
+.js .principles article:hover .signal i {
+  scale: 1 1.04;
+}
+
+.js .principles article:hover .signal i:nth-child(3) {
+  scale: 1 1.12;
+}
+
+@keyframes mark-ring-ping {
+  40% { scale: 1.08; }
+}
+
+@keyframes mark-node-hop {
+  40% { translate: 0 -6px; }
+}
+
+@keyframes mark-bar-beat {
+  35% { scale: 1 0.72; }
+  70% { scale: 1 1.1; }
+}
+
+.principle-mark.ping.concentric i {
+  animation: mark-ring-ping 700ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.principle-mark.ping.concentric i:nth-child(2) { animation-delay: 90ms; }
+.principle-mark.ping.concentric i:nth-child(1) { animation-delay: 180ms; }
+
+.principle-mark.ping.nodes i {
+  animation: mark-node-hop 500ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.principle-mark.ping.nodes i:nth-child(2) { animation-delay: 70ms; }
+.principle-mark.ping.nodes i:nth-child(3) { animation-delay: 140ms; }
+
+.principle-mark.ping.signal i {
+  animation: mark-bar-beat 600ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.principle-mark.ping.signal i:nth-child(2) { animation-delay: 60ms; }
+.principle-mark.ping.signal i:nth-child(3) { animation-delay: 120ms; }
+.principle-mark.ping.signal i:nth-child(4) { animation-delay: 180ms; }
+.principle-mark.ping.signal i:nth-child(5) { animation-delay: 240ms; }
