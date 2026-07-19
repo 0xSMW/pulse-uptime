@@ -27,12 +27,10 @@ func run(t *testing.T, d Dependencies, args ...string) error {
 	return cmd.Execute()
 }
 
-// TestReportGroupScopes audits every report subcommand's advertised scope
-// against what it actually calls (finding: resolve GETs the report — reports:read
-// — before POSTing its closing update — reports:write — but only advertised
-// reports:write). list/get are pure reads; create/update/post/edit-update/
-// delete/publish never GET before mutating, so reports:write alone is correct
-// for them.
+// TestReportGroupScopes checks every subcommand's advertised scope against
+// what it calls. resolve GETs (reports:read) before POSTing its closing
+// update (reports:write), so it needs both. list/get are pure reads; the
+// rest never read before mutating, so reports:write alone is correct.
 func TestReportGroupScopes(t *testing.T) {
 	cmd := NewGroup(Dependencies{})
 	want := map[string]string{

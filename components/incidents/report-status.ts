@@ -2,7 +2,7 @@ import type { MonitorState } from "@/components/monitors/status-dot";
 
 /**
  * Client-safe status-report types and helpers. The shapes mirror the JSON
- * serialization of lib/api/status-reports (StatusReportData) — that module is
+ * serialization of lib/api/status-reports (StatusReportData); that module is
  * server-only, so client components use these structural twins instead.
  */
 
@@ -55,7 +55,7 @@ export type ReportData = {
 };
 
 /**
- * Row shape for the reports list — mirrors the lean serialization of
+ * Row shape for the reports list: mirrors the lean serialization of
  * listStatusReportSummaries (counts + latest update, never markdown).
  */
 export type ReportListRowData = {
@@ -124,8 +124,8 @@ type RankedUpdate = {
 /**
  * Descending mirror of the server's contract total order for updates:
  * (publishedAt, createdAt, id). Only when createdAt is absent on either side
- * (older payloads) does the original newest-first array order — which the
- * server produced in that exact total order — stand in for the tiebreak.
+ * (older payloads) does the original newest-first array order stand in for
+ * the tiebreak, since the server produced it in that same total order.
  */
 function compareNewestFirst(left: RankedUpdate, right: RankedUpdate): number {
   if (left.publishedAt !== right.publishedAt) return right.publishedAt - left.publishedAt;
@@ -155,7 +155,7 @@ function toCandidates(updatesNewestFirst: readonly ReportUpdateData[], edit?: Up
  * Recomputes the report's current status after applying a pending edit to one
  * update, using the contract total order (publishedAt, createdAt, id). Edits
  * never change createdAt, so the loaded value (when present) keeps the client
- * derivation identical to the server's — including minute-precision ties.
+ * derivation identical to the server's, including minute-precision ties.
  */
 export function currentStatusAfterEdit(
   updatesNewestFirst: readonly ReportUpdateData[],
@@ -168,8 +168,8 @@ export function currentStatusAfterEdit(
 export type StateFlipDirection = "to_ongoing" | "to_resolved";
 
 /**
- * §3.1 state-change warning: detects whether editing an update's publishedAt
- * or status flips the report between Ongoing and Resolved.
+ * Detects whether editing an update's publishedAt or status flips the report
+ * between Ongoing and Resolved.
  */
 export function stateFlipDirection(
   updatesNewestFirst: readonly ReportUpdateData[],
@@ -184,9 +184,9 @@ export function stateFlipDirection(
 }
 
 /**
- * §3.1 state-change warning for deletions: detects whether removing an update
- * flips the report between Ongoing and Resolved. Returns null for the last
- * remaining update — the server refuses that deletion outright (LAST_UPDATE).
+ * Detects whether removing an update flips the report between Ongoing and
+ * Resolved. Returns null for the last remaining update; the server refuses
+ * that deletion outright (LAST_UPDATE).
  */
 export function stateFlipAfterRemoval(
   updatesNewestFirst: readonly ReportUpdateData[],
@@ -243,8 +243,8 @@ export function fromDatetimeLocal(value: string): string | null {
 export const BEFORE_START_COPY = "This update is dated before the report's start time";
 
 /**
- * §3.1 non-blocking warning: true when both datetime-local values parse and
- * the update's published time falls before the report's start time.
+ * Non-blocking warning: true when both datetime-local values parse and the
+ * update's published time falls before the report's start time.
  */
 export function isBeforeStart(publishedAtLocal: string, startsAtLocal: string): boolean {
   const publishedAt = fromDatetimeLocal(publishedAtLocal);

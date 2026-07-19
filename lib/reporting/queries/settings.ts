@@ -113,13 +113,10 @@ export async function getSecuritySettings(userId: string, currentSessionId: stri
     .limit(100);
 
   // The 100-row cap ranks by recency, so a session that's still current but
-  // was created long ago could rank past the cutoff and be dropped entirely
-  // (finding: the page then shows no "current session" row at all, even
-  // though the caller is using that very session right now). Rather than
-  // trust recency alone to carry it, fetch the current session directly by
-  // id whenever the capped batch didn't already include it, and prepend it —
-  // still subject to the same active-session bounds, so a revoked or expired
-  // "current" session is intentionally not force-included.
+  // was created long ago can rank past the cutoff, and the page must never
+  // omit the current session while it's in use. Rather than trust recency,
+  // fetch it directly by id when the capped batch missed it, and prepend it
+  // (still bound by the same active-session filter).
   let allRows = rows;
   if (!rows.some((row) => row.id === currentSessionId)) {
     const currentRows = await db.select(sessionColumns).from(humanSessions)

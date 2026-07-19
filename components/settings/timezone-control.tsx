@@ -33,7 +33,7 @@ function optionsIncluding(value: string) {
 }
 
 /**
- * The account time zone control — the single writer. Committing a value here
+ * The account time zone control: the single writer. Committing a value here
  * saves it to the account and clears any this-device override. A separate,
  * explicitly labeled affordance creates a device override.
  */

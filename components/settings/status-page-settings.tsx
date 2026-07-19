@@ -65,7 +65,7 @@ export function toDocument(draft: StatusPageConfigDocument): StatusPageConfigDoc
 }
 
 /**
- * Three-way merge for 412 recovery (§2.2): fields the local draft changed
+ * Three-way merge for 412 recovery: fields the local draft changed
  * relative to its base win over the refreshed server document; everything else
  * takes the server value. Local edits are never dropped.
  */
@@ -242,7 +242,7 @@ function ImageUploadZone({
   label: string;
   kind: "logo-light" | "logo-dark" | "favicon";
   imageId: string | null;
-  /** The id in the last-saved document — distinguishes persisted from pending. */
+  /** The id in the last-saved document, used to distinguish persisted from pending. */
   savedImageId: string | null;
   onChange: (imageId: string | null) => void;
   hint: string;
@@ -407,7 +407,7 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
   const [etag, setEtag] = useState(data.etag);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
-  // Link-row validation only surfaces on a save attempt (§finding 6), so a
+  // Link-row validation only surfaces on a save attempt, so a
   // just-added empty row never fires an instant alert.
   const [navLinksError, setNavLinksError] = useState("");
   const statusRef = useRef<HTMLParagraphElement>(null);

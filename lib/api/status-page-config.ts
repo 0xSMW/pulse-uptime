@@ -13,22 +13,22 @@ import {
 
 /**
  * Store-injection service for the dedicated single-row status page
- * configuration (§2.1). Writes are optimistic-concurrency guarded: every PUT
+ * configuration. Writes are optimistic-concurrency guarded: every PUT
  * carries the ETag captured on read, derived from a monotonic `version`
- * counter (NOT updatedAt — finding: two writes landing in the same
- * millisecond used to produce identical updatedAt-derived ETags, so a client
- * holding the pre-write If-Match could pass the precondition after another
- * save and clobber it). `version` increments by exactly 1 on every successful
- * write, and the conditional UPDATE compares If-Match against the CURRENT
- * version — so a stale If-Match still 412s even within the same millisecond.
+ * counter, never from updatedAt. Two writes landing in the same millisecond
+ * must still produce distinct ETags, or a client holding the pre-write
+ * If-Match could pass the precondition after another save and clobber it.
+ * `version` increments by exactly 1 on every successful write, and the
+ * conditional UPDATE compares If-Match against the CURRENT version, so a
+ * stale If-Match still 412s even within the same millisecond.
  *
  * Name seeding mechanic: the migration seeds row 1 with name NULL and
  * updatedAt NULL (version 0). The read path coalesces NULL name to
- * NEXT_PUBLIC_STATUS_PAGE_NAME (trimmed) and then the historical runtime
- * literal "System Status", and never persists the coalesced value — the first
+ * NEXT_PUBLIC_STATUS_PAGE_NAME (trimmed) and then falls back to the runtime
+ * literal "System Status", and never persists the coalesced value. The first
  * successful PUT is the first write, so env-configured deployments keep their
  * title with no magic markers. Version 0 (the seed/unwritten state) still
- * produces the historical "0" ETag.
+ * produces the "0" ETag.
  */
 
 export type StatusPageConfigData = StatusPageConfigDocument & { updatedAt: string | null; version: number };
@@ -209,10 +209,10 @@ export const databaseStatusPageConfigStore: StatusPageConfigStore = {
     };
   },
   // The conditional UPDATE compares against the CURRENT version (not
-  // updatedAt), incrementing it in the same statement — so a stale If-Match
+  // updatedAt), incrementing it in the same statement, so a stale If-Match
   // still fails even when two writes land in the same millisecond. The seed
   // row's version defaults to 0, so no separate "never written" branch is
-  // needed the way the old updatedAt-IS-NULL special case required.
+  // needed: version 0 is a normal, comparable value.
   async write({ document, expectedVersion, now }) {
     const rows = await db
       .update(statusPageConfig)

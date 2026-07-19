@@ -3,6 +3,8 @@
 import Link from "next/link";
 import * as React from "react";
 
+import { useNavigationGuard } from "@/components/navigation/use-navigation-guard";
+
 export const DISCARD_PROMPT = "Discard unsaved changes?";
 
 type SettingsDirtyContextValue = {
@@ -31,24 +33,30 @@ export function SettingsDirtyProvider({ children }: { children: React.ReactNode 
 
   const dirty = dirtyKeys.size > 0;
 
-  // Hard navigations (reload, close tab, external links) bypass client-side
-  // routing entirely, so the browser's native prompt is the only guard.
-  React.useEffect(() => {
-    if (!dirty) return;
-    function onBeforeUnload(event: BeforeUnloadEvent) {
-      event.preventDefault();
-      event.returnValue = "";
-    }
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [dirty]);
+  // Guards every way a user can leave while dirty: hard navigations
+  // (beforeunload), browser Back/Forward (same-document history
+  // navigation), and any link click in the document, including sidebar
+  // items, "Back to app", and TopNav/logo alike. See useNavigationGuard for
+  // the techniques and their limits. The dialog it returns must be rendered
+  // for the modal to appear.
+  const guardDialog = useNavigationGuard(dirty, {
+    title: "Discard unsaved changes?",
+    description: DISCARD_PROMPT,
+    confirmLabel: "Discard",
+    cancelLabel: "Keep Editing",
+  });
 
   const value = React.useMemo(
     () => ({ dirty, markDirty }),
     [dirty, markDirty],
   );
 
-  return <SettingsDirtyContext.Provider value={value}>{children}</SettingsDirtyContext.Provider>;
+  return (
+    <SettingsDirtyContext.Provider value={value}>
+      {children}
+      {guardDialog}
+    </SettingsDirtyContext.Provider>
+  );
 }
 
 /** Null outside the settings shell so shared components stay reusable. */
@@ -57,28 +65,16 @@ export function useSettingsDirty(): SettingsDirtyContextValue | null {
 }
 
 /**
- * A link that consults the settings dirty state and confirms before
- * navigating away from unsaved changes. Renders a plain next/link outside
- * the settings shell.
+ * A next/link. The unsaved-changes confirm is provided globally by
+ * SettingsDirtyProvider's useNavigationGuard (a document-wide click
+ * listener), so this component must not add its own confirm here, since
+ * that would double-confirm alongside the global one. Kept as a named
+ * export, rather than inlining next/link at call sites, so existing usages
+ * don't need to change if a link-specific behavior is needed here again
+ * later.
  */
-export function GuardedLink({
-  onClick,
-  ...props
-}: React.ComponentProps<typeof Link>) {
-  const context = useSettingsDirty();
-  const dirty = context?.dirty ?? false;
-  return (
-    <Link
-      {...props}
-      onClick={(event) => {
-        if (dirty && !window.confirm(DISCARD_PROMPT)) {
-          event.preventDefault();
-          return;
-        }
-        onClick?.(event);
-      }}
-    />
-  );
+export function GuardedLink(props: React.ComponentProps<typeof Link>) {
+  return <Link {...props} />;
 }
 
 /** Registers a form's dirty state with the settings shell while mounted. */

@@ -5,8 +5,6 @@ import { usePathname } from "next/navigation";
 
 import { cn } from "@/lib/utils";
 
-import { confirmDiscardUnsaved } from "./report-editor-dirty";
-
 const tabs = [
   {
     label: "Reports",
@@ -20,6 +18,12 @@ const tabs = [
   },
 ] as const;
 
+/**
+ * Section tabs. When a ReportEditor is mounted on the page and dirty, its
+ * navigation guard (a document-wide click listener) already confirms
+ * before these links navigate away, so no separate check is needed here
+ * (that would double-confirm). See useNavigationGuard.
+ */
 export function IncidentsTabs({ className }: { className?: string }) {
   const pathname = usePathname() ?? "/incidents";
   return (
@@ -30,10 +34,6 @@ export function IncidentsTabs({ className }: { className?: string }) {
           <Link
             key={tab.href}
             href={tab.href}
-            onClick={(event) => {
-              // The report editor tracks unsaved work in a module-level flag.
-              if (!confirmDiscardUnsaved()) event.preventDefault();
-            }}
             aria-current={active ? "page" : undefined}
             className={cn(
               "-mb-px border-b-2 pb-2.5 text-[13px] font-medium",

@@ -33,7 +33,7 @@ function escapeHtml(text: string): string {
 /**
  * Validates a link destination (already HTML-escaped). Browsers strip ASCII
  * whitespace and control characters before parsing the scheme, so we do the
- * same before checking it — "java\nscript:" cannot sneak through. Returns the
+ * same before checking it: "java\nscript:" cannot sneak through. Returns the
  * compacted URL when the scheme is allowed, or null to render as plain text.
  */
 function sanitizeUrl(escapedUrl: string): string | null {

@@ -465,10 +465,10 @@ export const statusPageConfig = pgTable("status_page_config", {
   minIncidentSeconds: integer("min_incident_seconds").notNull().default(0),
   timezone: text("timezone"),
   updatedAt: timestamptz("updated_at"),
-  // Monotonic optimistic-concurrency counter (finding: the ETag used to be
-  // derived from updatedAt.getTime() alone, so two writes landing in the same
-  // millisecond produced identical ETags and a stale If-Match could pass).
-  // Incremented on every write; the ETag is derived from this instead.
+  // Monotonic optimistic-concurrency counter; incremented on every write. The
+  // ETag derives from this, not from updatedAt.getTime(), so two writes
+  // landing in the same millisecond still produce distinct ETags and a stale
+  // If-Match can never pass.
   version: integer("version").notNull().default(0),
 }, (table) => [
   check("status_page_config_single_row", sql`${table.id} = 1`),
@@ -701,8 +701,8 @@ export const statusReportUpdates = pgTable("status_report_updates", {
   createdAt: timestamptz("created_at").notNull(),
   updatedAt: timestamptz("updated_at").notNull(),
 }, (table) => [
-  // Covers the contract total order (publishedAt, createdAt, id) so the
-  // DISTINCT ON latest-update queries resolve ties without a sort node.
+  // Covers the total order (publishedAt, createdAt, id) so the DISTINCT ON
+  // latest-update queries resolve ties without a sort node.
   index("status_report_updates_latest").on(
     table.reportId,
     table.publishedAt.desc(),

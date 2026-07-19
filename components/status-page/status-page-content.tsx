@@ -170,7 +170,7 @@ function AffectedChips({ report }: { report: PublicReportEntry }) {
   );
 }
 
-/** Ongoing authored reports, between the overall banner and the auto-incident cards (§3.6). */
+/** Ongoing authored reports, between the overall banner and the auto-incident cards. */
 function OngoingReports({ data, zone }: { data: PublicStatusData; zone: TimezoneDisplay }) {
   if (data.reports.ongoing.length === 0) return null;
   const now = new Date(data.lastUpdatedAt);
@@ -225,20 +225,19 @@ function OngoingReports({ data, zone }: { data: PublicStatusData; zone: Timezone
 }
 
 /**
- * Published upcoming/ended-window reports: upcoming first, then demoted ended
- * windows (§3.6). Almost always maintenance, but an incident-type report can
- * also be published with a future startsAt (finding: future-dated incidents
- * belong here, not in the ongoing section) — the heading and per-row label
- * generalize when that happens instead of calling every row "maintenance".
+ * Published upcoming/ended-window reports: upcoming first, then demoted
+ * windows (demoted after their window ends). Almost always maintenance, but
+ * a future-dated incident report can land here too, so the heading and
+ * per-row label generalize instead of always saying "maintenance".
  */
 function MaintenanceSchedule({ data, zone }: { data: PublicStatusData; zone: TimezoneDisplay }) {
   const { upcoming, windowEnded } = data.reports;
   if (upcoming.length === 0 && windowEnded.length === 0) return null;
   const allMaintenance = [...upcoming, ...windowEnded].every((report) => report.type === "maintenance");
   const heading = allMaintenance ? "Scheduled Maintenance" : "Scheduled Reports";
-  // Each timestamp gets its OWN offset label (finding: a single page-level
-  // offset reused across rows is wrong for rows on the other side of a DST
-  // boundary) — startsAt and endsAt can even differ from each other when a
+  // Each timestamp gets its OWN offset label: a single page-level offset
+  // reused across rows would be wrong for rows on the other side of a DST
+  // boundary; startsAt and endsAt can even differ from each other when a
   // long window straddles the transition.
   const window = (report: PublicReportEntry) => (
     <>
@@ -294,18 +293,11 @@ type RecentHistoryEntry =
   | { kind: "incident"; resolvedMs: number; incident: PublicStatusData["recentIncidents"][number] };
 
 /**
- * One chronological "Recent Incidents" feed (§3.6): resolved authored reports
- * and un-folded machine incidents interleave by RESOLVED time, newest first,
- * instead of rendering as two separately sorted blocks.
- *
- * Sorted by resolved time, not start time (finding: getPublicReports caps
- * data.reports.resolved to the PUBLIC_RESOLVED_LIMIT most-recently-RESOLVED
- * rows — same for data.recentIncidents' query-level ORDER BY resolvedAt DESC
- * — so re-sorting the survivors by start time here could put a report that
- * started recently but resolved a while ago ahead of reports the cap already
- * dropped for resolving later, making the displayed order inconsistent with
- * what the cap actually kept). Sorting by resolved time here matches the cap
- * exactly: the feed is genuinely most-recently-resolved-first.
+ * One chronological "Recent Incidents" feed: resolved authored reports and
+ * machine incidents interleave by RESOLVED time, newest first. Sorted by
+ * resolved time (not start time) because both source lists are already
+ * capped by resolved-time ordering; re-sorting by start time would drop
+ * entries inconsistently.
  */
 function mergeRecentHistory(data: PublicStatusData): RecentHistoryEntry[] {
   return [
@@ -340,8 +332,8 @@ function StatusCard({ data, groupView }: { data: PublicStatusData; groupView: bo
     );
   }
 
-  // "— see report" annotations supplement the machine state dot while a
-  // report is ongoing; the dot itself always shows the machine state (§3.6).
+  // The "see report" annotation supplements the machine state dot while a
+  // report is ongoing; the dot itself always shows the machine state.
   const annotations = monitorReportAnnotations(data.reports.ongoing);
 
   return (
@@ -424,8 +416,8 @@ export function StatusPageContent({
   );
 
   // Database unreachable or not yet migrated: render just the page shell
-  // (name, logo) plus a neutral notice — no monitor sections, no report
-  // sections, and no outage-tinted banner (§ build on Preview with no
+  // (name, logo) plus a neutral notice, no monitor sections, no report
+  // sections, and no outage-tinted banner (covers a build on Preview with no
   // DATABASE_URL, or a runtime DB outage).
   if (data.unavailable) {
     return (
@@ -544,8 +536,8 @@ export function StatusPageContent({
           <ul className="divide-y divide-[var(--border)]" role="list">
             {/* Authored resolved reports (snapshotted names) and the machine
                 incidents not folded into a report, merged into one list sorted
-                by resolved time descending — matching the resolved-history
-                cap's own ordering (§3.6). */}
+                by resolved time descending, matching the resolved-history
+                cap's own ordering. */}
             {mergeRecentHistory(data).map((entry) =>
               entry.kind === "report" ? (
                 <li

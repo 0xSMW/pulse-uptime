@@ -19,8 +19,8 @@ const presentation: Record<
     className:
       "border-[color-mix(in_srgb,var(--verifying)_40%,transparent)] bg-[var(--verifying-bg)]",
   },
-  // Report-driven tier (§3.6): an ongoing degraded-impact report yields this
-  // even when every machine state is UP.
+  // Report-driven tier: an ongoing degraded-impact report yields this even
+  // when every machine state is UP.
   degraded: {
     label: "Degraded Performance",
     monitorState: "VERIFYING_DOWN",

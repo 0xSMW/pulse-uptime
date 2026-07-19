@@ -79,9 +79,9 @@ describe("POST /api/v1/status-reports/{reportId}/updates", () => {
     const payload = await response.json();
     expect(payload.kind).toBe("StatusReport");
     expect(payload.data.currentStatus).toBe("resolved");
-    // The update id is pinned to the idempotency operationId (finding: a retry
-    // after a stale-record reclaim must recover instead of inserting a
-    // second update with a fresh random id).
+    // The update id is pinned to the idempotency operationId, so a retry
+    // after a stale-record reclaim recovers instead of inserting a second
+    // update.
     expect(addReportUpdate).toHaveBeenCalledWith("rep-1", { status: "resolved", markdown: "Fixed." }, { updateId: "op-1" });
     expect(revalidatePath).toHaveBeenCalledWith("/status");
     expect(revalidatePath).toHaveBeenCalledWith("/status/reports/rep-1");
@@ -122,6 +122,20 @@ describe("POST /api/v1/status-reports/{reportId}/updates", () => {
     // retry (rerunAfterRecoveryMiss: false) instead of re-running work().
     vi.mocked(recoverAddedReportUpdate).mockResolvedValue(null);
     await expect(options.recover({ operationId: "op-100" })).resolves.toBeNull();
+  });
+
+  it("revalidates ISR pages on a recovered replay too (finding: a crash between the insert committing and revalidation running left ISR pages stale until the 30s refresh, since the recover path returned without ever calling revalidateStatusReportPaths)", async () => {
+    await POST(request({ status: "resolved", markdown: "Fixed." }), params);
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
+    };
+
+    vi.mocked(revalidatePath).mockClear();
+    vi.mocked(recoverAddedReportUpdate).mockResolvedValue(report);
+    await options.recover({ operationId: "op-99" });
+    expect(revalidatePath).toHaveBeenCalledWith("/status");
+    expect(revalidatePath).toHaveBeenCalledWith("/status/reports/rep-1");
+    expect(revalidatePath).toHaveBeenCalledWith("/status/core");
   });
 
   it("maps REPORT_NOT_FOUND/VALIDATION_ERROR inside work() itself, not thrown past executeIdempotent (finding: consistency with the delete/publish routes)", async () => {

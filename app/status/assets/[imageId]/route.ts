@@ -14,7 +14,7 @@ const PUBLIC_CACHE_CONTROL = "public, max-age=31536000, s-maxage=31536000, immut
 export async function GET(_request: Request, { params }: { params: Promise<{ imageId: string }> }) {
   const { imageId } = await params;
   // Route handlers don't run at build time, so this never affects the
-  // no-DATABASE_URL Preview build — but a runtime DB outage should return a
+  // no-DATABASE_URL Preview build, but a runtime DB outage should return a
   // plain, retryable 503 instead of an uncaught 500.
   let image: Awaited<ReturnType<typeof getImage>>;
   try {

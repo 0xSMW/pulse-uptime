@@ -99,7 +99,7 @@ describe("PATCH /api/v1/status-reports/{reportId}/updates/{updateId}", () => {
     };
 
     // Recovery hit: a prior attempt already committed the edit before
-    // crashing — the retry must surface that state as success instead of
+    // crashing, so the retry must surface that state as success instead of
     // rerunning editReportUpdate (and its resolution recompute) again.
     vi.mocked(recoverEditedReportUpdate).mockResolvedValue(report);
     await expect(options.recover({ operationId: "op-1" })).resolves.toEqual({
@@ -109,9 +109,22 @@ describe("PATCH /api/v1/status-reports/{reportId}/updates/{updateId}", () => {
     expect(recoverEditedReportUpdate).toHaveBeenCalledWith("rep-1", "upd-1", body);
 
     // Recovery miss: the current state genuinely differs (crash before the
-    // edit committed) — fall through so work() actually applies it.
+    // edit committed); fall through so work() actually applies it.
     vi.mocked(recoverEditedReportUpdate).mockResolvedValue(null);
     await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
+  });
+
+  it("revalidates ISR pages on a recovered replay too (finding: a crash between the edit committing and revalidation running left ISR pages stale until the 30s refresh, since the recover path returned without ever calling revalidateStatusReportPaths)", async () => {
+    await PATCH(request("PATCH", { status: "monitoring" }), params);
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
+    };
+
+    vi.mocked(revalidatePath).mockClear();
+    vi.mocked(recoverEditedReportUpdate).mockResolvedValue(report);
+    await options.recover({ operationId: "op-1" });
+    expect(revalidatePath).toHaveBeenCalledWith("/status");
+    expect(revalidatePath).toHaveBeenCalledWith("/status/reports/rep-1");
   });
 
   it("maps UPDATE_NOT_FOUND/VALIDATION_ERROR inside work() itself (finding: a thrown error left the idempotency record stuck 'running' until a stale reclaim's recover callback — which can fall through to true for an invalid patch body — replayed a false 200 instead of the genuine error)", async () => {
@@ -175,8 +188,8 @@ describe("DELETE /api/v1/status-reports/{reportId}/updates/{updateId}", () => {
       recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
     };
 
-    // Recovery hit: the update is gone but the report survives — a prior
-    // attempt committed the delete before crashing — so the retry recovers
+    // Recovery hit: the update is gone but the report survives: a prior
+    // attempt committed the delete before crashing, so the retry recovers
     // with the recomputed+serialized current state.
     vi.mocked(recoverDeletedReportUpdate).mockResolvedValue(report);
     await expect(options.recover({ operationId: "op-1" })).resolves.toEqual({
@@ -186,10 +199,23 @@ describe("DELETE /api/v1/status-reports/{reportId}/updates/{updateId}", () => {
     expect(recoverDeletedReportUpdate).toHaveBeenCalledWith("rep-1", "upd-1");
 
     // Recovery miss: the update still exists (genuine crash before the
-    // delete committed), or the report itself is gone — fall through so
+    // delete committed), or the report itself is gone; fall through so
     // work() reruns and records the genuine outcome.
     vi.mocked(recoverDeletedReportUpdate).mockResolvedValue(null);
     await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
+  });
+
+  it("revalidates ISR pages on a recovered replay too (finding: a crash between the delete committing and revalidation running left ISR pages stale until the 30s refresh, since the recover path returned without ever calling revalidateStatusReportPaths)", async () => {
+    await DELETE(request("DELETE"), params);
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
+    };
+
+    vi.mocked(revalidatePath).mockClear();
+    vi.mocked(recoverDeletedReportUpdate).mockResolvedValue(report);
+    await options.recover({ operationId: "op-1" });
+    expect(revalidatePath).toHaveBeenCalledWith("/status");
+    expect(revalidatePath).toHaveBeenCalledWith("/status/reports/rep-1");
   });
 
   it("refuses rather than reruns on a recovery miss", async () => {

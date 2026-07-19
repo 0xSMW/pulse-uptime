@@ -608,7 +608,7 @@ func mapReportError(err error) error {
 	mapped := mapAPIOrCLIError(err)
 	var ce *commandError
 	if errors.As(mapped, &ce) && ce.Code == "SCOPE_DENIED" {
-		return &commandError{Exit: ce.Exit, Code: ce.Code, Message: ce.Message + " (token lacks reports:* — create a new token or re-run pulsectl login)", Details: ce.Details, RequestID: ce.RequestID}
+		return &commandError{Exit: ce.Exit, Code: ce.Code, Message: ce.Message + " (token lacks reports:*; create a new token or re-run pulsectl login)", Details: ce.Details, RequestID: ce.RequestID}
 	}
 	return mapped
 }

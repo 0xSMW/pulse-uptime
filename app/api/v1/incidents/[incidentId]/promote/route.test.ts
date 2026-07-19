@@ -20,6 +20,8 @@ vi.mock("@/lib/api/status-reports", async (importOriginal) => ({
   recoverPromotedReport: vi.fn(),
 }));
 
+import { revalidatePath } from "next/cache";
+
 import { apiError, errorEnvelope, objectEnvelope } from "@/lib/api/envelopes";
 import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, type ApiContext } from "@/lib/api/middleware";
@@ -116,11 +118,9 @@ describe("POST /api/v1/incidents/{incidentId}/promote", () => {
     };
 
     // Recovery hit, matching id: the recovered report's id equals THIS
-    // retry's operationId — promoteIncident pinned the new report's id to
+    // retry's operationId, since promoteIncident pinned the new report's id to
     // the operationId, so this exact crashed attempt is the one that
-    // inserted it. Replays as 201, not 200 (finding: the recover callback
-    // used to hard-code 200 here, misreporting a genuine creation as an
-    // already-existing conflict).
+    // inserted it, so this replays as 201 rather than 200.
     vi.mocked(recoverPromotedReport).mockResolvedValue({ ...draft, id: "op-1" });
     await expect(options.recover({ operationId: "op-1" })).resolves.toEqual({
       status: 201,
@@ -129,7 +129,7 @@ describe("POST /api/v1/incidents/{incidentId}/promote", () => {
     expect(recoverPromotedReport).toHaveBeenCalledWith("inc-1");
 
     // Recovery hit, non-matching id: some other operation created the
-    // report — a concurrent promote that won the originIncidentId race, or
+    // report: a concurrent promote that won the originIncidentId race, or
     // one that already completed before this key was ever used. Replays as
     // 200, created:false semantics.
     vi.mocked(recoverPromotedReport).mockResolvedValue(draft);
@@ -139,10 +139,22 @@ describe("POST /api/v1/incidents/{incidentId}/promote", () => {
     });
 
     // Recovery miss: no report exists yet for this incident (genuine crash
-    // before the create committed) — fall through so work() reruns to
+    // before the create committed); fall through so work() reruns to
     // create it.
     vi.mocked(recoverPromotedReport).mockResolvedValue(null);
     await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
+  });
+
+  it("never revalidates on a recovered replay — promotion only ever produces a DRAFT report, invisible on every public route (finding: unlike the other mutation routes in this family, recover here must NOT call revalidateStatusReportPaths, matching work()'s own behavior)", async () => {
+    await POST(request(), params);
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
+    };
+
+    vi.mocked(revalidatePath).mockClear();
+    vi.mocked(recoverPromotedReport).mockResolvedValue({ ...draft, id: "op-1" });
+    await options.recover({ operationId: "op-1" });
+    expect(revalidatePath).not.toHaveBeenCalled();
   });
 
   it("refuses rather than reruns on a recovery miss", async () => {

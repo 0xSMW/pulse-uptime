@@ -4,7 +4,7 @@ import { authorize, isApiResponse } from "@/lib/api/middleware";
 
 /**
  * Authenticated image bytes for dashboard rendering (avatar and branding
- * previews). Session-only — bearer tokens have no use for pixels, and avatars
+ * previews). Session-only: bearer tokens have no use for pixels, and avatars
  * must never be served from the public asset route.
  */
 export async function GET(request: Request, { params }: { params: Promise<{ imageId: string }> }) {

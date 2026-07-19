@@ -15,7 +15,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 
-import { DISCARD_PROMPT, useSettingsDirty } from "@/components/settings/settings-dirty";
+import { useSettingsDirty } from "@/components/settings/settings-dirty";
 import { cn } from "@/lib/utils";
 
 export const SETTINGS_RETURN_KEY = "pulse:settings-return";
@@ -92,9 +92,9 @@ export function SettingsSidebar() {
     if (!dirty) setEscFeedback("");
   }
 
-  function confirmNavigation(event: React.MouseEvent<HTMLAnchorElement>) {
-    if (dirty && !window.confirm(DISCARD_PROMPT)) event.preventDefault();
-  }
+  // Sidebar links carry no dirty-check of their own: navigation confirms are
+  // provided globally by SettingsDirtyProvider's guard (a document-wide click
+  // listener), which covers these links plus TopNav/logo from one place.
 
   return (
     <aside
@@ -110,7 +110,6 @@ export function SettingsSidebar() {
       <div className="px-4 pt-4 max-md:pb-2 md:pb-4">
         <Link
           href={returnPath}
-          onClick={confirmNavigation}
           className="inline-flex h-8 items-center gap-2 rounded-[6px] px-2 text-[13px] font-medium text-[var(--fg-muted)] hover:bg-[var(--hover)] hover:text-[var(--fg)]"
         >
           <ArrowLeft className="size-4" aria-hidden />
@@ -134,7 +133,6 @@ export function SettingsSidebar() {
                     <li key={item.href}>
                       <Link
                         href={item.href}
-                        onClick={confirmNavigation}
                         aria-current={active ? "page" : undefined}
                         className={cn(
                           "flex h-8 items-center gap-2 rounded-[6px] px-3 text-[13px] whitespace-nowrap text-[var(--fg-muted)] hover:bg-[var(--hover)] hover:text-[var(--fg)]",

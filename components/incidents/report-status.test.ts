@@ -53,7 +53,7 @@ describe("currentStatusAfterEdit", () => {
   it("breaks publishedAt ties by createdAt, matching the server total order", () => {
     // Resolved update A was created first; update B was created later but
     // backdated. Editing B's publishedAt to equal A's (minute precision) must
-    // hand the tie to B — the server orders by (publishedAt, createdAt, id).
+    // hand the tie to B; the server orders by (publishedAt, createdAt, id).
     const withCreated: ReportUpdateData[] = [
       { id: "a", status: "resolved", markdown: "Fixed.", publishedAt: "2026-07-18T12:00:00.000Z", createdAt: "2026-07-18T12:00:10.000Z" },
       { id: "b", status: "monitoring", markdown: "Watching.", publishedAt: "2026-07-18T10:00:00.000Z", createdAt: "2026-07-18T12:30:00.000Z" },
@@ -98,8 +98,8 @@ describe("stateFlipDirection", () => {
   });
 
   it("fires for a minute-precision tie that the server resolves by createdAt", () => {
-    // Exact §3.1 scenario: editing update B's publishedAt to equal resolved
-    // update A's, where B was created later — the server flips to Ongoing.
+    // Editing update B's publishedAt to equal resolved update A's, where B
+    // was created later; the server flips to Ongoing.
     const withCreated: ReportUpdateData[] = [
       { id: "a", status: "resolved", markdown: "Fixed.", publishedAt: "2026-07-18T12:00:00.000Z", createdAt: "2026-07-18T12:00:10.000Z" },
       { id: "b", status: "monitoring", markdown: "Watching.", publishedAt: "2026-07-18T10:00:00.000Z", createdAt: "2026-07-18T12:30:00.000Z" },

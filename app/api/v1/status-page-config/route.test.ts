@@ -41,8 +41,8 @@ const context: ApiContext = {
 
 const data = { name: "Acme Status", historyDays: 90, updatedAt: "2026-07-18T00:00:00.000Z", version: 5 };
 // Distinct post-write version so the ETag the route derives from it (via
-// etagFor, which now reads data.version rather than data.updatedAt) differs
-// from the pre-write ETag above.
+// etagFor, which reads data.version, not data.updatedAt) differs from the
+// pre-write ETag above.
 const updatedData = { name: "Acme Status", historyDays: 90, updatedAt: "2026-07-18T00:18:20.000Z", version: 6 };
 
 function getRequest() {
@@ -138,6 +138,24 @@ describe("PUT /api/v1/status-page-config", () => {
     expect(putStatusPageConfig).not.toHaveBeenCalled();
   });
 
+  it("folds If-Match into the idempotency fingerprint, not just the document (finding: executeIdempotent hashes only the `body` value it's given, together with method/path/query — a key reused with the SAME document but a FRESH If-Match, e.g. re-read after a 412 and resubmitted under the same key, must hash differently so it surfaces IDEMPOTENCY_KEY_REUSED instead of replaying the first attempt's stored response)", async () => {
+    await PUT(putRequest({ name: "Acme Status" }, { "If-Match": '"5"' }));
+    const firstBody = (vi.mocked(executeIdempotent).mock.calls[0][0] as { body: unknown }).body;
+    expect(firstBody).toEqual({ ifMatch: '"5"', document: { name: "Acme Status" } });
+
+    vi.mocked(executeIdempotent).mockClear();
+    await PUT(putRequest({ name: "Acme Status" }, { "If-Match": '"6"' }));
+    const secondBody = (vi.mocked(executeIdempotent).mock.calls[0][0] as { body: unknown }).body;
+    expect(secondBody).toEqual({ ifMatch: '"6"', document: { name: "Acme Status" } });
+
+    // Same document, different If-Match: the two fingerprints must differ.
+    expect(secondBody).not.toEqual(firstBody);
+
+    // work() and recover() must still see the RAW body/If-Match, unaffected
+    // by the composite fingerprint value.
+    expect(putStatusPageConfig).toHaveBeenCalledWith({ name: "Acme Status" }, '"6"');
+  });
+
   it("threads the body and If-Match into the service and returns the ETag derived from the new version", async () => {
     const response = await PUT(putRequest({ name: "Acme Status" }, { "If-Match": '"5"' }));
     expect(response.status).toBe(200);
@@ -217,7 +235,7 @@ describe("PUT /api/v1/status-page-config", () => {
     // Recovery hit: the CURRENT document (version bumped to 6 by the
     // committed write) already deep-equals what was submitted, even though
     // this retry's own If-Match ("5") is now stale against the current ETag
-    // ("6") — a prior attempt committed the write before crashing — so the
+    // ("6"); a prior attempt committed the write before crashing, so the
     // retry recovers with the current state (and its advanced ETag) instead
     // of rerunning putStatusPageConfig and 412ing against its own write.
     const recoveredData = { ...submitted, updatedAt: "2026-07-18T00:18:20.000Z", version: 6 };
@@ -225,7 +243,7 @@ describe("PUT /api/v1/status-page-config", () => {
     await expect(options.recover({ operationId: "op-1" })).resolves.toEqual({ status: 200, body: recoveredData });
 
     // Recovery miss: the current document genuinely differs (the crash hit
-    // before the write committed, or something else changed it since) — fall
+    // before the write committed, or something else changed it since); fall
     // through so work() reruns the real If-Match-guarded write.
     vi.mocked(getStatusPageConfig).mockResolvedValue({
       data: { ...submitted, name: "Something Else", updatedAt: "2026-07-18T00:00:00.000Z", version: 5 } as never,
@@ -242,7 +260,7 @@ describe("PUT /api/v1/status-page-config", () => {
     };
 
     // The document deep-equals what was submitted, but the current version
-    // (7) is not exactly this retry's If-Match (5) + 1 — a write guarded by
+    // (7) is not exactly this retry's If-Match (5) + 1: a write guarded by
     // If-Match="5" could only ever have produced version 6, so version 7
     // proves some OTHER write (or writes) landed after the one this retry
     // could have made. Recovery must be refused even though the body matches.
@@ -271,7 +289,7 @@ describe("PUT /api/v1/status-page-config", () => {
     };
 
     // Reordered keys, a different updatedAt, and an advanced version must
-    // still compare equal — those are exactly the fields a committed write
+    // still compare equal: those are exactly the fields a committed write
     // changes, and none of them was part of what the caller submitted.
     const reordered = Object.fromEntries(Object.entries(submitted).reverse());
     vi.mocked(getStatusPageConfig).mockResolvedValue({
@@ -283,7 +301,7 @@ describe("PUT /api/v1/status-page-config", () => {
 
   it("recover still recognizes a semantically-equal-but-syntactically-different submitted body (finding: normalization drift check — the schema's only normalization, trim(), is idempotent and applied identically to both the originally-persisted document and this retry's reparse, so a body differing only in incidental whitespace must still compare equal)", async () => {
     // Extra leading/trailing whitespace in `name` that parseStatusPageConfigDocument's
-    // trim() will normalize away — the stored document (itself normalized at
+    // trim() will normalize away; the stored document (itself normalized at
     // write time) never has this whitespace, so a byte-for-byte body compare
     // would spuriously diverge; the schema-level parse must not.
     const submitted = fullDocument({ name: "  Acme Status  " });

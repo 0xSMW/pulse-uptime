@@ -2,7 +2,7 @@
  * Neutral (not-outage) card shown on the public status surfaces when the
  * database is unreachable or not yet migrated. Deliberately uses the same
  * "informational" tint as the maintenance tier rather than the red outage
- * styling — a status page being unable to reach its own database is not
+ * styling: a status page being unable to reach its own database is not
  * itself an outage of the monitored services.
  */
 export function StatusUnavailableNotice() {

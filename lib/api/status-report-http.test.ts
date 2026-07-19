@@ -103,7 +103,7 @@ describe("statusReportPatchAlreadyApplied (finding: an INVALID patch retry was r
     // updateStatusReport parses the patch through patchSchema before
     // persisting, so `{ title: " API outage " }` is stored as "API outage".
     // A stale post-commit retry replaying the SAME raw, padded body must
-    // still recover — comparing the raw field against the trimmed current
+    // still recover: comparing the raw field against the trimmed current
     // title would spuriously return false and rerun work().
     expect(statusReportPatchAlreadyApplied(current, { title: " API outage " })).toBe(true);
   });
@@ -180,7 +180,7 @@ describe("storedStatusReportError + executeIdempotent (finding: publish/report-d
     expect(first.body).toEqual(errorEnvelope("ALREADY_PUBLISHED", "The status report is already published", "req-1", {}));
 
     // Retry with the SAME idempotency key: replays the recorded 409 verbatim
-    // via the ordinary completed-record path — work() never runs again, so
+    // via the ordinary completed-record path; work() never runs again, so
     // there's no recover callback in the loop to manufacture a false success.
     const second = await executeIdempotent({
       request: idempotentRequest(), principalKey: "human:1", routeKey: "test", body: {}, persistence, work,
@@ -223,11 +223,10 @@ describe("storedStatusReportError + executeIdempotent (finding: publish/report-d
     expect(first.body).toEqual(errorEnvelope("INCIDENT_NOT_FOUND", "Incident was not found", "req-1", {}));
 
     // Retry with the same key: replays the recorded 404 verbatim via the
-    // ordinary completed-record path. Before the fix, promote's work() threw
-    // this past executeIdempotent, leaving the record "running" — a retry
-    // within the 5-minute stale window would have hit REQUEST_IN_PROGRESS
-    // (there's no recover callback for promote to fall back on) instead of
-    // this clean, replayed 404.
+    // ordinary completed-record path. Without catching this inside work(),
+    // the record would stay "running" and a retry within the 5-minute stale
+    // window would hit REQUEST_IN_PROGRESS (there's no recover callback for
+    // promote to fall back on) instead of this clean, replayed 404.
     const second = await executeIdempotent({
       request: idempotentRequest(), principalKey: "human:1", routeKey: "test-promote", body: {}, persistence, work,
     });
@@ -252,7 +251,7 @@ describe("statusReportPatchAlreadyApplied + executeIdempotent: a stale retry of 
     });
   }
 
-  /** Mirrors the FIXED route's work(): an invalid patch throws VALIDATION_ERROR, caught and recorded via storedStatusReportError instead of thrown past executeIdempotent. */
+  /** Mirrors the route's work(): an invalid patch throws VALIDATION_ERROR, caught and recorded via storedStatusReportError instead of thrown past executeIdempotent. */
   const invalidPatchWork = async () => {
     try {
       throw new StatusReportError("VALIDATION_ERROR", "Provide at least one field to update");
@@ -267,7 +266,7 @@ describe("statusReportPatchAlreadyApplied + executeIdempotent: a stale retry of 
     const firstNow = new Date("2026-07-18T12:00:00.000Z");
     const staleNow = new Date(firstNow.getTime() + 6 * 60_000); // past the 5-minute stale threshold
 
-    // First attempt: simulate a genuine crash mid-request — work() never
+    // First attempt: simulate a genuine crash mid-request: work() never
     // returns, so complete() never persists a response, leaving the record
     // stuck "running" with the real computed request hash.
     await expect(executeIdempotent({
@@ -279,7 +278,7 @@ describe("statusReportPatchAlreadyApplied + executeIdempotent: a stale retry of 
     // Stale retry, same Idempotency-Key + body, 6+ minutes later: recover()
     // must see the patch fails patchSchema and return null instead of
     // falling through to `true` (no recognized field mismatched a body with
-    // no recognized fields at all) — so work() reruns and reproduces the
+    // no recognized fields at all), so work() reruns and reproduces the
     // real 400, rather than a recover callback manufacturing a false 200.
     const retried = await executeIdempotent({
       request: patchRequest(body), principalKey: "human:1", routeKey: "test-patch", body, persistence, now: staleNow,
@@ -305,9 +304,9 @@ describe("statusReportPatchAlreadyApplied + executeIdempotent: a stale retry of 
     const body = { title: " API outage " };
 
     // First attempt: the patch DID commit (title persisted trimmed as
-    // "API outage"), but the response never made it back — simulated here as
+    // "API outage"), but the response never made it back (simulated here as
     // a thrown error after the record was inserted, same as the other tests
-    // in this file — leaving the record stuck "running".
+    // in this file), leaving the record stuck "running".
     await expect(executeIdempotent({
       request: patchRequest(body), principalKey: "human:1", routeKey: "test-patch", body, persistence, now: firstNow,
       work: async () => { throw new Error("simulated crash after commit"); },

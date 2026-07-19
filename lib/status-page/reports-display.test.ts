@@ -196,7 +196,6 @@ describe("publicReportPhase", () => {
     startsAt: "2026-07-18T10:00:00.000Z",
     endsAt: null as string | null,
     resolvedAt: null as string | null,
-    currentStatus: "in_progress" as const,
   };
 
   it("resolved wins over everything", () => {
@@ -210,12 +209,12 @@ describe("publicReportPhase", () => {
   it("classifies a started-but-still-scheduled maintenance window as ongoing, matching the SQL active-bucket ranking (finding: classification vs SQL cap mismatch)", () => {
     // base.startsAt is already in the past relative to `now`: the window has
     // started even though the operator never posted an in_progress update.
-    expect(publicReportPhase({ ...base, currentStatus: "scheduled" }, now)).toBe("ongoing");
+    expect(publicReportPhase(base, now)).toBe("ongoing");
   });
 
   it("still classifies a future-scheduled window as upcoming (startsAt has not arrived yet)", () => {
     expect(
-      publicReportPhase({ ...base, currentStatus: "scheduled", startsAt: "2026-07-19T10:00:00.000Z" }, now),
+      publicReportPhase({ ...base, startsAt: "2026-07-19T10:00:00.000Z" }, now),
     ).toBe("upcoming");
   });
 
@@ -231,7 +230,7 @@ describe("publicReportPhase", () => {
   it("treats unresolved incident reports as ongoing regardless of window", () => {
     expect(
       publicReportPhase(
-        { ...base, type: "incident", currentStatus: "monitoring", endsAt: "2026-07-18T11:00:00.000Z" },
+        { ...base, type: "incident", endsAt: "2026-07-18T11:00:00.000Z" },
         now,
       ),
     ).toBe("ongoing");
@@ -240,7 +239,7 @@ describe("publicReportPhase", () => {
   it("classifies a future-dated incident report as upcoming, not ongoing (finding: future incidents leaked into the ongoing banner)", () => {
     expect(
       publicReportPhase(
-        { ...base, type: "incident", currentStatus: "investigating", startsAt: "2026-07-19T10:00:00.000Z" },
+        { ...base, type: "incident", startsAt: "2026-07-19T10:00:00.000Z" },
         now,
       ),
     ).toBe("upcoming");

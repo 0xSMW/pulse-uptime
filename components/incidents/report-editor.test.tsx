@@ -11,16 +11,33 @@ vi.mock("next/navigation", () => ({
 // jsdom has no layout engine, so Radix Select's scroll-into-view and pointer
 // capture calls are unimplemented; stub them so opening a Select in tests
 // doesn't throw.
+//
+// jsdom also does not implement HTMLDialogElement.showModal()/close() (both
+// are undefined, not even throwing stubs); the discard-changes ConfirmDialog
+// needs those, so polyfill the minimal behavior it depends on: toggling the
+// `open` attribute/property, which jsdom's generic boolean-attribute
+// reflection already handles once set.
 beforeEach(() => {
   Element.prototype.scrollIntoView ??= () => {};
   Element.prototype.hasPointerCapture ??= () => false;
   Element.prototype.setPointerCapture ??= () => {};
   Element.prototype.releasePointerCapture ??= () => {};
+  HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+    this.setAttribute("open", "");
+  };
+  HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
+    this.removeAttribute("open");
+    this.dispatchEvent(new Event("close"));
+  };
 });
+
+function isDialogOpen(): boolean {
+  return document.querySelector("dialog")?.open ?? false;
+}
 
 import { TimezoneProvider } from "@/components/dashboard/timezone-provider";
 import { ReportEditor, type ReportEditorMonitor } from "./report-editor";
-import { isReportEditorDirty, setReportEditorDirty } from "./report-editor-dirty";
+import { isReportEditorDirty, setReportEditorDirty, UNSAVED_CHANGES_MESSAGE } from "./report-editor-dirty";
 import type { ReportData } from "./report-status";
 
 afterEach(() => {
@@ -273,8 +290,8 @@ describe("ReportEditor edit mode", () => {
     renderEditor(report);
     const row = screen.getByText("Watching recovery.").closest("li")!;
     fireEvent.click(within(row).getByRole("button", { name: "Edit" }));
-    // Moves publishedAt later but still well before u2 (resolved) — no state
-    // flip, so no confirmation gate to click through first.
+    // Moves publishedAt later but still well before u2 (resolved), so no
+    // state flip and no confirmation gate to click through first.
     fireEvent.change(screen.getByLabelText("Published at", { selector: "#edit-published-u1" }), {
       target: { value: "2026-07-18T11:00" },
     });
@@ -467,5 +484,85 @@ describe("ReportEditor unsaved-changes protection", () => {
     const removeSpy = vi.spyOn(window, "removeEventListener");
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: report.title } });
     expect(removeSpy).toHaveBeenCalledWith("beforeunload", expect.any(Function));
+  });
+
+  it("re-pushes the sentinel and opens the discard dialog on browser Back/Forward (popstate) while dirty", () => {
+    renderEditor(report);
+    const pushStateSpy = vi.spyOn(window.history, "pushState");
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Retitled report" } });
+    const pushesBeforePop = pushStateSpy.mock.calls.length;
+    fireEvent(window, new PopStateEvent("popstate"));
+    // Sentinel restored before the dialog is shown, not after a confirm/cancel.
+    expect(pushStateSpy.mock.calls.length).toBe(pushesBeforePop + 1);
+    expect(isDialogOpen()).toBe(true);
+    expect(screen.getByRole("heading", { name: "Discard unsaved changes?" })).toBeDefined();
+    expect(screen.getByText(UNSAVED_CHANGES_MESSAGE)).toBeDefined();
+  });
+
+  it("does not open the discard dialog on popstate once the form is clean again", () => {
+    renderEditor(report);
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Retitled report" } });
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: report.title } });
+    fireEvent(window, new PopStateEvent("popstate"));
+    expect(isDialogOpen()).toBe(false);
+  });
+
+  it("opens the discard dialog exactly once on a click for a link outside the editor (e.g. TopNav) while dirty", () => {
+    // The editor's guard is a document-wide click listener (via
+    // useNavigationGuard), so it also covers links it did not render itself:
+    // simulate a TopNav-style link elsewhere in the document and confirm it
+    // is caught, and caught only once (no double-prompt).
+    renderEditor(report);
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Retitled report" } });
+    const topNavLink = document.createElement("a");
+    topNavLink.href = "/settings";
+    topNavLink.textContent = "Settings";
+    document.body.appendChild(topNavLink);
+    const click = fireEvent(topNavLink, new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }));
+    expect(click).toBe(false);
+    expect(document.querySelectorAll("dialog[open]")).toHaveLength(1);
+    topNavLink.remove();
+  });
+
+  it("navigates through the router after confirming Discard on a link click", () => {
+    renderEditor(report);
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Retitled report" } });
+    const topNavLink = document.createElement("a");
+    topNavLink.href = "/settings";
+    document.body.appendChild(topNavLink);
+    fireEvent(topNavLink, new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+
+    expect(navigation.push).toHaveBeenCalledWith("/settings");
+    expect(isDialogOpen()).toBe(false);
+    topNavLink.remove();
+  });
+
+  it("keeps editing (no navigation) when Keep Editing is clicked", () => {
+    renderEditor(report);
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Retitled report" } });
+    const topNavLink = document.createElement("a");
+    topNavLink.href = "/settings";
+    document.body.appendChild(topNavLink);
+    fireEvent(topNavLink, new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Keep Editing" }));
+
+    expect(navigation.push).not.toHaveBeenCalled();
+    expect(isDialogOpen()).toBe(false);
+    topNavLink.remove();
+  });
+
+  it("completes the exit with history.go(-2) after confirming Discard on popstate", () => {
+    renderEditor(report);
+    const goSpy = vi.spyOn(window.history, "go").mockImplementation(() => {});
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Retitled report" } });
+    fireEvent(window, new PopStateEvent("popstate"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+
+    expect(goSpy).toHaveBeenCalledWith(-2);
+    expect(isDialogOpen()).toBe(false);
   });
 });

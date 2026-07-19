@@ -155,6 +155,20 @@ describe("POST /api/v1/status-reports", () => {
     await expect(options.recover({ operationId: "op-100" })).resolves.toBeNull();
   });
 
+  it("revalidates ISR pages on a recovered replay too (finding: a crash between the insert committing and revalidation running left ISR pages stale until the 30s refresh, since the recover path returned without ever calling revalidateStatusReportPaths)", async () => {
+    await POST(postRequest({ type: "incident" }));
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
+    };
+
+    vi.mocked(revalidatePath).mockClear();
+    vi.mocked(recoverCreatedStatusReport).mockResolvedValue(report);
+    await options.recover({ operationId: "op-99" });
+    expect(revalidatePath).toHaveBeenCalledWith("/status");
+    expect(revalidatePath).toHaveBeenCalledWith("/status/reports/rep-1");
+    expect(revalidatePath).toHaveBeenCalledWith("/status/core");
+  });
+
   it("maps validation failures to 400 VALIDATION_ERROR", async () => {
     vi.mocked(createStatusReport).mockRejectedValue(new StatusReportError("VALIDATION_ERROR", "Title is required"));
     const response = await POST(postRequest({}));

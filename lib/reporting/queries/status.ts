@@ -32,33 +32,33 @@ import type { StatusPageConfigDocument } from "@/lib/status-page/schema";
 import { buildRollupTimeline, statusGroupSlug, summarizeRollupCoverage } from "./timeline";
 
 /**
- * Recent resolved-incidents history is overfetched by this bounded multiple
- * rather than the eventual display count (10, RECENT_INCIDENTS_DISPLAY_LIMIT
- * below): both the minIncidentSeconds duration filter and the promoted-origin
- * exclusion run AFTER this query returns (finding: applying a LIMIT 10 before
- * either filter could empty an otherwise-populated history down to a
- * handful of short/promoted rows). The promoted-origin id set can't be
- * folded into this query's SQL because it's only known once getPublicReports
- * resolves — which this query runs IN PARALLEL WITH via the outer
- * Promise.all, not before — so SQL-side exclusion would require serializing
- * the two fan-outs. 60 is generous headroom for any realistic mix of
- * short-duration/promoted incidents while staying far short of an unbounded
- * scan.
+ * Overfetch multiple for resolved-incident history, not the eventual display
+ * count (10, RECENT_INCIDENTS_DISPLAY_LIMIT below): the minIncidentSeconds
+ * duration filter and the promoted-origin exclusion both run after this
+ * query returns, so the LIMIT must clear both filters, not just size to the
+ * display count, or a LIMIT 10 applied first could empty an otherwise
+ * populated history down to a handful of short/promoted rows. The
+ * promoted-origin id set can't be folded into this query's SQL because it's
+ * only known once getPublicReports resolves, and that call runs in parallel
+ * with this one via the outer Promise.all, not before it, so SQL-side
+ * exclusion would require serializing the two fan-outs. 60 gives headroom
+ * for any realistic mix of short-duration/promoted incidents while staying
+ * far short of an unbounded scan.
  */
 const RECENT_INCIDENTS_FETCH_LIMIT = 60;
 const RECENT_INCIDENTS_DISPLAY_LIMIT = 10;
 
 /**
- * Current (ongoing) active-incident overfetch (finding: excludePromotedIncidents
- * runs AFTER this query, so a query LIMIT sized to the eventual display count
- * — here, there IS no display cap; every unpromoted active incident is shown
- * — could truncate BEFORE exclusion. With >100 simultaneously active
- * incidents whose newest are promoted into ongoing reports, a bare LIMIT 100
- * would fill entirely with rows that then get excluded, dropping older
- * still-active unpromoted incidents from the page even though they qualify).
- * Unlike the resolved-history overfetch above, currentIncidents has no
- * trailing `.slice()` — everything this query returns (after exclusion) is
- * displayed — so the fix is simply a generous query LIMIT, not an
+ * Current (ongoing) active-incident overfetch: excludePromotedIncidents runs
+ * after this query, so the LIMIT must clear that exclusion too, not just
+ * size to the eventual display count; here there is no display cap, every
+ * unpromoted active incident is shown. With more than 100 simultaneously
+ * active incidents whose newest are promoted into ongoing reports, a bare
+ * LIMIT 100 would fill entirely with rows that then get excluded, dropping
+ * older still-active unpromoted incidents from the page even though they
+ * qualify. Unlike the resolved-history overfetch above, currentIncidents has
+ * no trailing `.slice()`; every row this query returns after exclusion is
+ * displayed, so the fix is simply a generous query LIMIT, not an
  * overfetch-then-slice pair. 500 is far beyond any realistic simultaneous
  * active-incident count while staying bounded; the tradeoff is the same
  * pathological case as the resolved-history fetch: if active-incident volume
@@ -79,10 +79,10 @@ function failureLabel(statusCode: number | null): string {
  * The status page configuration, request-deduped so the layout (theme,
  * customCss/customHead, analytics), the pages, and generateMetadata share one
  * single-row SELECT per revalidation. A missing row (migrations not run yet)
- * degrades to the historical defaults instead of failing the public page — and
- * so does an unreachable database (§ build on Preview with no DATABASE_URL,
- * or a runtime DB outage): both are infra-class conditions the public page
- * must survive, never app bugs to surface.
+ * degrades to the historical defaults instead of failing the public page,
+ * and so does an unreachable database (for example, building on Preview
+ * with no DATABASE_URL, or a runtime DB outage): both are infra-class
+ * conditions the public page must survive, never app bugs to surface.
  */
 export const getStatusPageDisplayConfig = cache(
   async (): Promise<StatusPageConfigDocument> => {
@@ -101,7 +101,7 @@ export const getStatusPageDisplayConfig = cache(
   },
 );
 
-/** Favicon inlined as a data: URI in the ISR'd head (§2.3); null when unset or the database is unavailable. */
+/** Favicon inlined as a data: URI in the ISR'd head; null when unset or the database is unavailable. */
 export const getStatusFaviconDataUri = cache(async (): Promise<string | null> => {
   const config = await getStatusPageDisplayConfig();
   if (!config.faviconImageId) return null;
@@ -117,8 +117,8 @@ export const getStatusFaviconDataUri = cache(async (): Promise<string | null> =>
 
 /**
  * Degraded payload for when the database is unreachable or not yet migrated
- * (§ build on Preview with no DATABASE_URL, or a runtime DB outage): the
- * public page must render a neutral "temporarily unavailable" shell instead
+ * (for example, building on Preview with no DATABASE_URL, or a runtime DB
+ * outage): the public page must render a neutral "temporarily unavailable" shell instead
  * of throwing (an uptime status page should degrade, not 500, during its own
  * DB outage). `config` falls back to the historical defaults since the real
  * document can't be read either.
@@ -155,7 +155,7 @@ async function loadPublicStatus(group?: string) {
   const now = new Date();
   const completedDay = new Date(now);
   completedDay.setUTCHours(0, 0, 0, 0);
-  // historyDays drives the fetch window, not just the display (§2.3).
+  // historyDays drives the fetch window, not just the display.
   const earliest = historyWindowStart(config.historyDays, completedDay);
   const monitors = await db.select({
     id: monitorRegistry.id,
@@ -173,7 +173,7 @@ async function loadPublicStatus(group?: string) {
 
   const ids = visible.map((monitor) => monitor.id);
   // Group pages scope query 1 of getPublicReports to this group's monitors so
-  // the resolved-history LIMIT is applied AFTER group filtering — otherwise a
+  // the resolved-history LIMIT is applied after group filtering; otherwise a
   // global top-10 resolved list can starve a group's history even though
   // older relevant resolved reports exist. The root page (no `group`) stays
   // unfiltered. filterReportsForGroup below still runs as a defense-in-depth
@@ -182,7 +182,7 @@ async function loadPublicStatus(group?: string) {
     ? { monitorIds: ids, groupNames: [...new Set(visible.map((monitor) => monitor.groupName ?? "Other"))] }
     : undefined;
   // One parallel fan-out per revalidation: the three monitor-scoped queries
-  // plus the batched public-reports read (itself exactly 3 queries, §3.2).
+  // plus the batched public-reports read (itself exactly 3 queries).
   const [publicReports, [rollups, current, recent]] = await Promise.all([
     getPublicReports(undefined, publicReportsFilter),
     ids.length === 0 ? Promise.resolve<[never[], never[], never[]]>([[], [], []]) : Promise.all([
@@ -227,7 +227,7 @@ async function loadPublicStatus(group?: string) {
     ]),
   ]);
 
-  // Group filtering (§3.6): a report appears on /status/[group] iff it affects
+  // Group filtering: a report appears on /status/[group] iff it affects
   // a monitor in that group, matched by monitor id or snapshotted group name.
   const reports: PublicReports = group
     ? {
@@ -241,7 +241,7 @@ async function loadPublicStatus(group?: string) {
   // ongoing published report was promoted from it. History folding drops
   // machine incidents represented by ANY published report entry. Both sets use
   // the GROUP-FILTERED report lists: on a group page an incident is only
-  // folded when its promoted report actually renders on that page — otherwise
+  // folded when its promoted report actually renders on that page; otherwise
   // suppressing it would hide an active outage (or its history) entirely.
   const ongoingPromoted = promotedIncidentIds(reports.ongoing);
   const historyPromoted = promotedIncidentIds([
@@ -279,7 +279,7 @@ async function loadPublicStatus(group?: string) {
     }));
   const states = visible.map((monitor) => monitor.state ?? "PENDING");
   // Machine states derive the classic tiers; published ongoing reports add the
-  // degraded/maintenance/outage tiers. The reddest wins (§3.6).
+  // degraded/maintenance/outage tiers. The reddest wins.
   const overallState = deriveOverallState(states, reports.ongoing);
   return {
     pageName: config.name,
@@ -311,7 +311,7 @@ async function loadPublicStatus(group?: string) {
       cause: failureLabel(incident.openingStatusCode),
     })),
     groups,
-    // The floor only applies to this resolved-history list — never to ongoing
+    // The floor only applies to this resolved-history list, never to ongoing
     // incidents (the banner would contradict itself) and never to timelines.
     // Both filters run over the RECENT_INCIDENTS_FETCH_LIMIT-row overfetch
     // (see the query above) before the final slice down to the display
@@ -342,7 +342,7 @@ export const getPublicStatus = cache(async (group?: string) => {
 });
 
 /**
- * Single published report for the permalink page (§3.6). Drafts and unknown
+ * Single published report for the permalink page. Drafts and unknown
  * ids resolve to null → notFound(). Request-deduped so page + generateMetadata
  * share the read within one revalidation.
  *

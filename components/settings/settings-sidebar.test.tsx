@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const push = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -17,11 +17,30 @@ function DirtyProbe() {
   return null;
 }
 
+// jsdom does not implement HTMLDialogElement.showModal()/close() (both are
+// undefined, not even throwing stubs) — polyfill the minimal behavior the
+// discard-changes ConfirmDialog depends on: toggling the `open`
+// attribute/property, which jsdom's generic boolean-attribute reflection
+// already handles once set.
+beforeEach(() => {
+  HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+    this.setAttribute("open", "");
+  };
+  HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
+    this.removeAttribute("open");
+    this.dispatchEvent(new Event("close"));
+  };
+});
+
 afterEach(() => {
   cleanup();
   push.mockClear();
   vi.restoreAllMocks();
 });
+
+function isDialogOpen(): boolean {
+  return document.querySelector("dialog")?.open ?? false;
+}
 
 describe("SettingsSidebar", () => {
   it("offers a way back to the app and links every section", () => {
@@ -74,28 +93,33 @@ describe("SettingsSidebar", () => {
     expect(screen.getByText("Unsaved changes — save or discard before leaving")).toBeDefined();
   });
 
-  it("confirms before sidebar navigation discards dirty state", () => {
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+  it("opens the discard dialog before sidebar navigation while dirty", () => {
     render(
       <SettingsDirtyProvider>
         <DirtyProbe />
         <SettingsSidebar />
       </SettingsDirtyProvider>,
     );
-    fireEvent.click(screen.getByRole("link", { name: "Monitors" }));
-    expect(confirmSpy).toHaveBeenCalledWith("Discard unsaved changes?");
+    const click = fireEvent.click(screen.getByRole("link", { name: "Monitors" }));
+    expect(click).toBe(false);
+    expect(isDialogOpen()).toBe(true);
+    expect(screen.getByRole("heading", { name: "Discard unsaved changes?" })).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Keep Editing" }));
+    expect(isDialogOpen()).toBe(false);
+
     fireEvent.click(screen.getByRole("link", { name: "Back to app" }));
-    expect(confirmSpy).toHaveBeenCalledTimes(2);
+    expect(isDialogOpen()).toBe(true);
+    expect(document.querySelectorAll("dialog[open]")).toHaveLength(1);
   });
 
-  it("does not confirm navigation when nothing is dirty", () => {
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+  it("does not open the discard dialog when nothing is dirty", () => {
     render(
       <SettingsDirtyProvider>
         <SettingsSidebar />
       </SettingsDirtyProvider>,
     );
     fireEvent.click(screen.getByRole("link", { name: "Monitors" }));
-    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(isDialogOpen()).toBe(false);
   });
 });

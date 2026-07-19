@@ -4,8 +4,8 @@ import { revalidatePath } from "next/cache";
 
 import { statusGroupSlug } from "@/lib/reporting/queries/timeline";
 
-import { apiError, errorEnvelope } from "./envelopes";
-import type { StoredResponse } from "./idempotency";
+import { apiError, apiJson, errorEnvelope, objectEnvelope } from "./envelopes";
+import { executeIdempotent, type IdempotencyContext, type StoredResponse } from "./idempotency";
 import { routeError } from "./route";
 import { databaseStatusReportsStore, parseStatusReportPatch, StatusReportError } from "./status-reports";
 
@@ -26,30 +26,91 @@ export function statusReportRouteError(error: unknown, requestId: string): Respo
 }
 
 /**
- * Maps a StatusReportError to a StoredResponse (finding: publish's
- * ALREADY_PUBLISHED 409, and the REPORT_NOT_FOUND/UPDATE_NOT_FOUND/
- * LAST_UPDATE 404s/409 the report- and update-delete routes can throw, are
- * deterministic outcomes of CURRENT state — not proof this operation ever
- * ran. Letting them throw past executeIdempotent left the idempotency record
- * stuck "running" until a stale reclaim's recover callback saw the exact
- * state the failure described — already published, already gone — and
- * replayed it as a false 200. Callers should catch StatusReportError INSIDE
- * their idempotent work() and return this mapping instead of rethrowing, so
- * executeIdempotent records the genuine 409/404 as the operation's own
- * response: a retry with the same key then replays it verbatim via the
- * ordinary completed-record path, with no recover callback needed.
+ * Maps a StatusReportError to a StoredResponse. Domain errors that are
+ * deterministic outcomes of CURRENT state (publish's ALREADY_PUBLISHED, the
+ * REPORT_NOT_FOUND/UPDATE_NOT_FOUND/LAST_UPDATE the report- and
+ * update-mutation routes can throw) are never proof an operation didn't run,
+ * so they must be recorded as the idempotent operation's own response; see
+ * runStatusReportMutation's doc comment for why.
  */
 export function storedStatusReportError(error: StatusReportError, requestId: string): StoredResponse {
   return { status: statusReportErrorStatus(error), body: errorEnvelope(error.code, error.message, requestId, error.details) };
 }
 
+type MutationOutcome<T> = { status: number; kind: string; data: T };
+
 /**
- * Idempotency recovery check for PATCH /status-reports/{id} (finding: a
- * committed patch + crash makes the retry rerun updateStatusReport and
- * re-snapshot renamed/moved monitors a second time). True when the CURRENT
- * report already reflects everything the caller asked to change:
+ * Runs one idempotent status-report mutation end to end: acquires or replays
+ * the idempotency record, wraps the domain result in the standard object
+ * envelope, and maps everything onto an HTTP Response. Every mutation route
+ * in the status-reports/incidents-promote family is authorize() → parse
+ * params/body → one call here with route-specific `recover`/`work` closures.
+ *
+ * `work` returns the eventual `{ status, kind, data }` or throws
+ * StatusReportError; `recover` returns the same shape for an already-applied
+ * operation, or null to fall through to `work`. Two invariants this helper
+ * owns on every call, so route files don't have to restate them:
+ *
+ * - A StatusReportError thrown by `work` is caught HERE and recorded as the
+ *   operation's own completed response (via storedStatusReportError), never
+ *   rethrown past executeIdempotent. A deterministic domain error (bad
+ *   input, not-found, a conflict like ALREADY_PUBLISHED) is not evidence the
+ *   operation never ran: letting it throw would leave the idempotency
+ *   record stuck "running" until a stale reclaim, whose `recover` can't tell
+ *   "never ran" from "failed this way" and would either force every retry
+ *   into a REQUEST_IN_PROGRESS 409 or misread the failure's own state as a
+ *   false recovered success.
+ * - `rerunAfterRecoveryMiss` is always false. A recovery miss means either
+ *   the operation never committed (safe to rerun) or a different, newer
+ *   write changed the state since (rerunning would clobber it), which are
+ *   indistinguishable from here, so a miss always surfaces "cannot recover
+ *   safely, retry with a new idempotency key" instead of guessing.
+ */
+export async function runStatusReportMutation<T>(input: {
+  request: Request;
+  context: { principalKey: string; requestId: string };
+  routeKey: string;
+  body: unknown;
+  recover?: (context: IdempotencyContext) => Promise<MutationOutcome<T> | null>;
+  work: (context: IdempotencyContext) => Promise<MutationOutcome<T>>;
+}): Promise<Response> {
+  const { request, context, routeKey, body, recover, work } = input;
+  try {
+    const result = await executeIdempotent({
+      request,
+      principalKey: context.principalKey,
+      routeKey,
+      body,
+      recover: recover
+        ? async (idempotencyContext) => {
+            const outcome = await recover(idempotencyContext);
+            return outcome
+              ? { status: outcome.status, body: objectEnvelope(outcome.kind, outcome.data, context.requestId) }
+              : null;
+          }
+        : undefined,
+      rerunAfterRecoveryMiss: false,
+      work: async (idempotencyContext) => {
+        try {
+          const outcome = await work(idempotencyContext);
+          return { status: outcome.status, body: objectEnvelope(outcome.kind, outcome.data, context.requestId) };
+        } catch (error) {
+          if (error instanceof StatusReportError) return storedStatusReportError(error, context.requestId);
+          throw error;
+        }
+      },
+    });
+    return apiJson(result.body, { status: result.status });
+  } catch (error) {
+    return statusReportRouteError(error, context.requestId);
+  }
+}
+
+/**
+ * Idempotency recovery check for PATCH /status-reports/{id}. True when the
+ * CURRENT report already reflects everything the caller asked to change:
  * title/startsAt/endsAt equal wherever the caller sent them (compared as
- * instants, tolerant of formatting), and affected — if sent — equal as a set
+ * instants, tolerant of formatting), and affected (if sent) equal as a set
  * of monitorId:impact pairs (order-independent, full-replacement semantics).
  * Fields the caller didn't send are never compared, since the patch never
  * touched them.
@@ -63,16 +124,14 @@ export function statusReportPatchAlreadyApplied(
   },
   body: unknown,
 ): boolean {
-  // Parse through the SAME patchSchema updateStatusReport uses (finding: an
-  // INVALID patch — `{}`, or a body with only unsupported keys — must return
-  // false rather than falling through to `true` since no recognized field
-  // mismatches, which would turn a stale retry's genuine VALIDATION_ERROR
-  // into a false recovered 200). Comparing the PARSED patch below (not the
-  // raw body) also matters for fields the schema normalizes: title is
-  // trimmed, and affected[].monitorId is trimmed — comparing raw request
-  // fields against the trimmed values persisted by the original write missed
-  // this, so a stale retry of e.g. `{ title: " API outage " }` against a
-  // stored, trimmed "API outage" spuriously failed recovery.
+  // Parsed through the SAME patchSchema updateStatusReport uses: an INVALID
+  // patch (`{}`, or a body with only unsupported keys) must return false
+  // rather than falling through to `true` for "no recognized field
+  // mismatches", which would recover a stale retry's genuine VALIDATION_ERROR
+  // as a false 200. Comparing the PARSED patch (not the raw body) also
+  // matters for fields the schema normalizes: title and affected[].monitorId
+  // are trimmed, so this must compare against the same trimmed values the
+  // real write persists.
   const patch = parseStatusReportPatch(body);
   if (!patch) return false;
   if ("title" in patch && patch.title !== current.title) return false;
@@ -95,15 +154,15 @@ function sameInstant(value: Date | null | undefined, current: string | null): bo
 }
 
 /**
- * §3.2: report mutations invalidate the public status page, the report's
+ * Report mutations invalidate the public status page, the report's
  * permalink, and the group pages of the affected monitors so updates appear
  * immediately instead of at the 30 s ISR boundary.
  *
  * Group pages match a report by monitor id OR live group name, so beyond the
  * snapshotted group names we also revalidate the CURRENT registry groups of
- * every monitor that is (or was) affected — the union of the post-patch
+ * every monitor that is (or was) affected: the union of the post-patch
  * affected set and the caller-supplied pre-patch rows (one findMonitors
- * query, best-effort) — so a monitor that was REMOVED from the affected set
+ * query, best-effort), so a monitor that was REMOVED from the affected set
  * but has since moved groups still gets its current group page refreshed,
  * not just the page its stale snapshot pointed at.
  */

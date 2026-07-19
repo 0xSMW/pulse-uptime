@@ -59,8 +59,8 @@ function memoryStore(monitors: Array<{ id: string; name: string; groupName: stri
   // Per-report async lock mirroring the DB's `SELECT ... FOR UPDATE`
   // transaction in recomputeResolution: calls for the SAME reportId are
   // chained so the next one's read only starts after the prior one's write
-  // has settled (finding: a lagging recompute must never clobber a newer,
-  // correct write with a stale value).
+  // has settled, so a lagging recompute never clobbers a newer, correct
+  // write with a stale value.
   const reportLocks = new Map<string, Promise<unknown>>();
   function withReportLock<T>(reportId: string, fn: () => Promise<T>): Promise<T> {
     const prior = reportLocks.get(reportId) ?? Promise.resolve();
@@ -149,7 +149,7 @@ function memoryStore(monitors: Array<{ id: string; name: string; groupName: stri
     },
     async insertReportUpdate({ reportId, update }) {
       // Mirrors the DB's locked contract: re-check existence, then insert,
-      // as one atomic step — a report deleted between an earlier
+      // as one atomic step: a report deleted between an earlier
       // (unlocked) existence check and this call is caught here rather
       // than corrupting an FK relationship the way an unguarded insert
       // would.
@@ -223,13 +223,11 @@ function memoryStore(monitors: Array<{ id: string; name: string; groupName: stri
       }
       // Mirrors ORDER BY (ended, future, CASE WHEN future THEN starts_at END
       // ASC NULLS LAST, starts_at desc): truly active rows (started, not
-      // ended) sort first — most-recently-started first — then
+      // ended) sort first, most-recently-started first, then
       // future-scheduled rows sorted NEAREST-first, then ended-but-uncompleted
-      // windows last — so the 100 cap can never let future maintenance OR a
+      // windows last, so the 100 cap can never let future maintenance OR a
       // stale ended window crowd out an active report, and among future rows
-      // never drops the SOONEST upcoming ones in favor of the farthest
-      // (finding: a shared DESC tiebreak kept the farthest-future rows and
-      // dropped the nearest upcoming ones).
+      // never drops the SOONEST upcoming ones in favor of the farthest.
       const unresolved = rows
         .filter((row) => row.resolvedAt === null)
         .sort((left, right) => {
@@ -276,9 +274,8 @@ function sequentialIds(prefix: string) {
 /**
  * UUID-shaped sequential ids for tests that round-trip an id through a list
  * cursor: parseStatusReportListQuery validates the decoded cursor id against
- * the UUID pattern (finding: a non-UUID cursor id must 400 as INVALID_CURSOR
- * rather than reach Postgres), so fixtures feeding a real cursor need
- * genuinely UUID-shaped ids.
+ * the UUID pattern, so fixtures feeding a real cursor need genuinely
+ * UUID-shaped ids.
  */
 function sequentialUuids() {
   let counter = 0;
@@ -515,7 +512,7 @@ describe("report update lifecycle", () => {
     const report = await addReportUpdate(created.id, { status: "monitoring", markdown: "Watching." }, deps);
     const [first, second] = report.updates.map((update) => update.id);
 
-    // Fired concurrently (not sequentially, unlike the test above) — the
+    // Fired concurrently (not sequentially, unlike the test above); the
     // guarded contract must still hold: exactly one "deleted", exactly one
     // "last_update", and the report never ends up with zero updates. A
     // non-locking count-subquery implementation could let both observe
@@ -604,7 +601,7 @@ describe("report update lifecycle", () => {
       }, deps),
     ]);
 
-    // Both responses — and the persisted row — must agree on the FINAL
+    // Both responses, and the persisted row, must agree on the FINAL
     // state: three updates total, resolvedAt reflecting the resolved one.
     expect(reportFromA.updates).toHaveLength(3);
     expect(reportFromB.updates).toHaveLength(3);
@@ -699,7 +696,7 @@ describe("updateStatusReport", () => {
     await expect(updateStatusReport(created.id, { endsAt: null }, deps))
       .resolves.toMatchObject({ endsAt: null });
 
-    // A maintenance report is unaffected — it may still set endsAt.
+    // A maintenance report is unaffected; it may still set endsAt.
     const maintenance = await createStatusReport({
       ...validCreate, type: "maintenance", affected: [],
       startsAt: "2026-07-19T00:00:00.000Z",
@@ -778,7 +775,12 @@ describe("deleteStatusReport", () => {
 describe("recoverDeletedStatusReport (finding: DELETE /status-reports/{id} shipped with no recover callback, so a committed-then-crashed delete replayed a false REPORT_NOT_FOUND 404 instead of its own success)", () => {
   it("recovers (true) when the report is gone (a prior attempt committed the delete before crashing)", async () => {
     const store = memoryStore();
-    const deps = dependencies(store);
+    // A genuinely-existing report always has a UUID-shaped id in production
+    // (the store's own isUuid guard rejects anything else), so this fixture
+    // must be UUID-shaped too, unlike the file's default sequential ids;
+    // otherwise the malformed-id short-circuit added below would swallow
+    // this case for the wrong reason.
+    const deps = { store, newId: sequentialUuids(), now: () => NOW };
     const created = await createStatusReport(validCreate, deps);
     await deleteStatusReport(created.id, deps);
     await expect(recoverDeletedStatusReport(created.id, deps)).resolves.toBe(true);
@@ -786,14 +788,19 @@ describe("recoverDeletedStatusReport (finding: DELETE /status-reports/{id} shipp
 
   it("returns false when the report still exists (genuine crash before the delete committed)", async () => {
     const store = memoryStore();
-    const deps = dependencies(store);
+    const deps = { store, newId: sequentialUuids(), now: () => NOW };
     const created = await createStatusReport(validCreate, deps);
     await expect(recoverDeletedStatusReport(created.id, deps)).resolves.toBe(false);
   });
 
-  it("recovers (true) for a report id that never existed (indistinguishable, and safe, per the guarded-delete invariant)", async () => {
+  it("recovers (true) for a WELL-FORMED report id that never existed — accepted residual: indistinguishable from 'this recovery's own crashed delete already removed it' without a tombstone, and safe per DELETE's idempotent target-state semantics (RFC 9110 §9.3.5)", async () => {
     const store = memoryStore();
-    await expect(recoverDeletedStatusReport("missing", dependencies(store))).resolves.toBe(true);
+    await expect(recoverDeletedStatusReport("00000000-0000-4000-8000-000000000404", dependencies(store))).resolves.toBe(true);
+  });
+
+  it("returns false (does NOT recover) for a MALFORMED report id (finding: a malformed id can never have existed, so a genuine first-attempt crash against it is a real 404 — treating store.getReport's null return the same as 'already deleted' would replay a false 200 instead of letting work() record that real REPORT_NOT_FOUND)", async () => {
+    const store = memoryStore();
+    await expect(recoverDeletedStatusReport("not-a-uuid", dependencies(store))).resolves.toBe(false);
   });
 });
 
@@ -1141,7 +1148,11 @@ describe("idempotent-edit recovery (finding: PATCH /updates/{updateId} was the o
 describe("recoverDeletedReportUpdate (finding: DELETE /updates/{updateId} shipped with no recover callback, so a committed-then-crashed delete replayed a false UPDATE_NOT_FOUND 404 instead of its own success)", () => {
   it("recovers by recomputing+serializing current state when the update is gone but the report still exists", async () => {
     const store = memoryStore();
-    const deps = dependencies(store);
+    // UUID-shaped ids, matching production (the store's own isUuid guard
+    // rejects anything else), unlike the file's default sequential ids,
+    // which would otherwise trip the malformed-id short-circuit added below
+    // for the wrong reason.
+    const deps = { store, newId: sequentialUuids(), now: () => NOW };
     const created = await createStatusReport(validCreate, deps);
     const second = await addReportUpdate(created.id, { status: "monitoring", markdown: "Watching." }, deps);
     const updateId = second.updates.find((update) => update.status === "monitoring")!.id;
@@ -1155,7 +1166,7 @@ describe("recoverDeletedReportUpdate (finding: DELETE /updates/{updateId} shippe
 
   it("returns null when the update still exists (genuine crash before the delete committed)", async () => {
     const store = memoryStore();
-    const deps = dependencies(store);
+    const deps = { store, newId: sequentialUuids(), now: () => NOW };
     const created = await createStatusReport(validCreate, deps);
     await addReportUpdate(created.id, { status: "monitoring", markdown: "Watching." }, deps);
     const updateId = created.updates[0].id;
@@ -1167,13 +1178,20 @@ describe("recoverDeletedReportUpdate (finding: DELETE /updates/{updateId} shippe
     await expect(recoverDeletedReportUpdate("missing-report", "missing-update", dependencies(store))).resolves.toBeNull();
   });
 
-  it("recovers (success) for an update id that never existed on a report that still does — indistinguishable from, and safe per the same guarded-delete invariant as, recoverDeletedStatusReport's 'gone is gone' semantics", async () => {
+  it("recovers (success) for a WELL-FORMED update id that never existed on a report that still does — accepted residual: indistinguishable from, and safe per the same guarded-delete/DELETE-is-idempotent invariant as, recoverDeletedStatusReport's 'gone is gone' semantics", async () => {
     const store = memoryStore();
-    const deps = dependencies(store);
+    const deps = { store, newId: sequentialUuids(), now: () => NOW };
     const created = await createStatusReport(validCreate, deps);
-    const recovered = await recoverDeletedReportUpdate(created.id, "missing-update", deps);
+    const recovered = await recoverDeletedReportUpdate(created.id, "00000000-0000-4000-8000-000000000404", deps);
     expect(recovered?.id).toBe(created.id);
     expect(recovered?.updates).toEqual(created.updates);
+  });
+
+  it("returns null (does NOT recover) for a MALFORMED update id on a report that still exists (finding: a malformed id can never have existed, so a genuine first-attempt crash against it is a real 404 — treating store.getUpdate's null return the same as 'already deleted' would replay a false 200 instead of letting work() record that real UPDATE_NOT_FOUND)", async () => {
+    const store = memoryStore();
+    const deps = { store, newId: sequentialUuids(), now: () => NOW };
+    const created = await createStatusReport(validCreate, deps);
+    await expect(recoverDeletedReportUpdate(created.id, "not-a-uuid", deps)).resolves.toBeNull();
   });
 });
 
@@ -1235,8 +1253,7 @@ describe("getPublicReports", () => {
       endsAt: null,
       resolvedAt: null,
     };
-    expect(classifyPublicReport(report, "scheduled", NOW)).toBe("ongoing");
-    expect(classifyPublicReport(report, "in_progress", NOW)).toBe("ongoing");
+    expect(classifyPublicReport(report, NOW)).toBe("ongoing");
   });
 
   it("still classifies a future-scheduled window as upcoming (startsAt has not arrived yet)", () => {
@@ -1246,7 +1263,7 @@ describe("getPublicReports", () => {
       endsAt: null,
       resolvedAt: null,
     };
-    expect(classifyPublicReport(report, "scheduled", NOW)).toBe("upcoming");
+    expect(classifyPublicReport(report, NOW)).toBe("upcoming");
   });
 
   it("classifies a future-dated incident report as upcoming, not ongoing (finding: future incidents leaked into the ongoing banner)", () => {
@@ -1256,10 +1273,10 @@ describe("getPublicReports", () => {
       endsAt: null,
       resolvedAt: null,
     };
-    expect(classifyPublicReport(futureIncident, "investigating", NOW)).toBe("upcoming");
+    expect(classifyPublicReport(futureIncident, NOW)).toBe("upcoming");
     // A past-starting incident is unaffected and still classifies as ongoing.
     const pastIncident = { ...futureIncident, startsAt: new Date("2026-07-18T00:00:00.000Z") };
-    expect(classifyPublicReport(pastIncident, "investigating", NOW)).toBe("ongoing");
+    expect(classifyPublicReport(pastIncident, NOW)).toBe("ongoing");
   });
 
   it("returns resolved reports with resolution recency ordering", async () => {
@@ -1303,8 +1320,8 @@ describe("getPublicReports", () => {
       startsAt: "2026-07-18T11:00:00.000Z", endsAt: "2026-07-18T15:00:00.000Z",
       update: { status: "in_progress", markdown: "Underway." },
     }, deps);
-    // 150 future rows, one minute apart, in ascending startsAt order — only
-    // 99 of them fit in the unresolved cap alongside the 1 active row.
+    // 150 future rows, one minute apart, in ascending startsAt order; only
+    // 99 fit in the unresolved cap alongside the 1 active row.
     const base = new Date("2027-01-01T00:00:00.000Z").getTime();
     const future: Awaited<ReturnType<typeof createStatusReport>>[] = [];
     for (let index = 0; index < 150; index += 1) {
@@ -1341,8 +1358,8 @@ describe("getPublicReports", () => {
     const store = memoryStore();
     const deps = dependencies(store);
     // Started well before the 100 stale windows below, but genuinely still
-    // active (no endsAt) — must not be pushed off the 100-row cap by rows
-    // that merely started more recently.
+    // active (no endsAt): must not be pushed off the cap by
+    // more-recently-started rows.
     const active = await createStatusReport({
       ...validCreate, title: "Active incident",
       startsAt: "2026-07-10T00:00:00.000Z",

@@ -151,12 +151,9 @@ describe("putStatusPageConfig", () => {
     expect(result.data.version).toBe(CURRENT_VERSION + 1);
   });
 
-  // finding: the ETag used to be derived from updatedAt.getTime() alone, so
-  // two writes landing in the same millisecond produced identical ETags and a
-  // client holding the pre-write If-Match could pass the precondition after
-  // another save and clobber it (lost update). The version counter advances
-  // by exactly 1 per write regardless of wall-clock time, so same-instant
-  // writes always get distinct ETags.
+  // The ETag derives from a version counter, not updatedAt.getTime(), so it
+  // advances by exactly 1 per write regardless of wall-clock time and
+  // same-millisecond writes still get distinct ETags.
   it("advances the ETag on every write even when two writes land in the same millisecond", async () => {
     let version = CURRENT_VERSION;
     const store = fakeStore({

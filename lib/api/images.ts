@@ -6,7 +6,7 @@ import { db } from "@/lib/db/client";
 import { imageKinds, images } from "@/lib/db/schema";
 
 /**
- * Postgres-backed image storage (§2.4). Rows are small (32–512 KB caps) and
+ * Postgres-backed image storage. Rows are small (32–512 KB caps) and
  * ids rotate on re-upload, which is what makes the public asset route's
  * immutable caching safe.
  */

@@ -120,8 +120,8 @@ describe("POST /api/v1/status-reports/{reportId}/publish", () => {
     };
 
     // Recovery hit: recoverPublishedStatusReport finds the report already
-    // published — a prior attempt committed the publish before crashing —
-    // so the retry recovers with that state instead of rerunning
+    // published: a prior attempt committed the publish before crashing, so
+    // the retry recovers with that state instead of rerunning
     // publishStatusReport (and observing a false ALREADY_PUBLISHED).
     vi.mocked(recoverPublishedStatusReport).mockResolvedValue(report);
     await expect(options.recover({ operationId: "op-1" })).resolves.toEqual({
@@ -131,10 +131,23 @@ describe("POST /api/v1/status-reports/{reportId}/publish", () => {
     expect(recoverPublishedStatusReport).toHaveBeenCalledWith("rep-1");
 
     // Recovery miss: still a draft (crash before the publish committed), or
-    // an unknown report — fall through so work() reruns and records the
+    // an unknown report; fall through so work() reruns and records the
     // genuine outcome.
     vi.mocked(recoverPublishedStatusReport).mockResolvedValue(null);
     await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
+  });
+
+  it("revalidates the public pages on a recovered replay too (finding: a crash between the publish committing and revalidation running left the report invisible on ISR pages until the 30s refresh, since the recover path returned without ever calling revalidateStatusReportPaths)", async () => {
+    await POST(request(), params);
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
+    };
+
+    vi.mocked(revalidatePath).mockClear();
+    vi.mocked(recoverPublishedStatusReport).mockResolvedValue(report);
+    await options.recover({ operationId: "op-1" });
+    expect(revalidatePath).toHaveBeenCalledWith("/status");
+    expect(revalidatePath).toHaveBeenCalledWith("/status/reports/rep-1");
   });
 
   it("refuses rather than reruns on a recovery miss (finding: rerunAfterRecoveryMiss defaulting to rerun risks re-running work() against ambiguous state)", async () => {

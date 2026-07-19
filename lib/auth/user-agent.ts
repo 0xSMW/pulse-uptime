@@ -1,6 +1,6 @@
 /**
  * Dependency-free user-agent display parser for the Security page's session
- * list. Family + major version only — no device fingerprinting, no data files.
+ * list. Family and major version only; no device fingerprinting, no data files.
  */
 
 export type ParsedUserAgent = {
@@ -20,7 +20,7 @@ function parseBrowser(userAgent: string): string {
   const pulsectl = /\bpulsectl\/(\d[\w.-]*)/.exec(userAgent);
   if (pulsectl) return withMajor("pulsectl", pulsectl[1]);
 
-  // Order matters: Edge and Opera embed Chrome/…, and Chrome embeds Safari/….
+  // Order matters: Edge and Opera embed Chrome/..., and Chrome embeds Safari/....
   const edge = /\bEdg(?:e|A|iOS)?\/(\d[\d.]*)/.exec(userAgent);
   if (edge) return withMajor("Edge", edge[1]);
 

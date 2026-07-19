@@ -3,7 +3,7 @@ import type { TimelineBucket } from "@/components/monitors/timeline-bar";
 import { STATUS_PAGE_NAME_FALLBACK, type StatusPageConfigDocument } from "./schema";
 
 /**
- * Pure display helpers for status page personalization (§2.3). No server-only
+ * Pure display helpers for status page personalization. No server-only
  * marker: these are deterministic functions shared by the public page RSCs and
  * unit tests.
  */
@@ -60,12 +60,12 @@ export function timezoneDisplay(timezone: string | null, at: Date = new Date()):
 }
 
 /**
- * Per-timestamp offset suffix (finding: a page-level TimezoneDisplay computed
- * once — e.g. at lastUpdatedAt — and reused for every rendered row gives rows
- * on the other side of a DST boundary the correct wall-clock time but the
- * WRONG offset label. Callers rendering a specific row's own instant should
- * call this instead of reusing a single page-level `.short`. UTC (the
- * default) never observes DST, so its behavior is unchanged either way.
+ * Per-timestamp offset suffix. A page-level TimezoneDisplay computed once
+ * (e.g. at lastUpdatedAt) and reused for every rendered row gives rows on the
+ * other side of a DST boundary the correct wall-clock time but the WRONG
+ * offset label, so callers rendering a specific row's own instant must call
+ * this instead of reusing a single page-level `.short`. UTC (the default)
+ * never observes DST, so its behavior is unchanged either way.
  */
 export function timezoneOffsetLabel(timezone: string | null, at: Date): string {
   return timezoneDisplay(timezone, at).short;
@@ -96,7 +96,7 @@ export function formatStatusClock(value: string, timeZone: string): string {
   });
 }
 
-/** Uptime percentage honoring the configured decimal places (0–3). */
+/** Uptime percentage honoring the configured decimal places (0-3). */
 export function formatUptimePercent(value: number | null, decimals: number): string {
   if (value === null) return "—";
   const places = Math.min(3, Math.max(0, Math.trunc(decimals)));
@@ -105,7 +105,7 @@ export function formatUptimePercent(value: number | null, decimals: number): str
 
 /**
  * Hides resolved blips shorter than the configured floor from the incident
- * history list. Ongoing incidents and timelines are never filtered (§2.3).
+ * history list. Ongoing incidents and timelines are never filtered.
  */
 export function filterShortResolvedIncidents<T extends { durationSeconds: number }>(
   incidents: readonly T[],
@@ -131,7 +131,7 @@ export function historyWindowStart(historyDays: number, completedDay: Date): Dat
   return new Date(completedDay.getTime() - historyDays * 86_400_000);
 }
 
-/** data: URI for the ISR'd favicon — the asset never becomes a request. */
+/** data: URI for the ISR'd favicon; the asset never becomes a request. */
 export function imageDataUri(mimeType: string, bytes: Uint8Array): string {
   return `data:${mimeType};base64,${Buffer.from(bytes).toString("base64")}`;
 }

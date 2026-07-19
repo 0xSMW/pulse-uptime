@@ -19,7 +19,7 @@ import {
 import { decodeCursor, encodeCursor } from "./pagination";
 
 /**
- * Status reports service (§3.1/§3.2). Store-injected like lib/api/account.ts:
+ * Status reports service. Store-injected like lib/api/account.ts:
  * routes call the exported functions with the default database store; tests
  * inject an in-memory store and exercise the normative rules directly.
  *
@@ -108,7 +108,7 @@ export type StatusReportData = {
 };
 
 /**
- * List-shaped row (§3.1 list path): everything a report list needs without the
+ * List-shaped row: everything a report list needs without the
  * markdown bodies or the full update timeline. `getStatusReport` keeps the
  * detailed shape.
  */
@@ -194,12 +194,11 @@ export interface StatusReportsStore {
   /**
    * Row-locked insert for addReportUpdate: locks the report (`FOR UPDATE`,
    * mirroring deleteUpdate/recomputeResolution) and re-verifies it still
-   * exists INSIDE the same transaction as the insert, closing the race where
-   * a concurrent DELETE commits between an earlier existence check and this
-   * insert (finding: an unguarded insert let that race surface as a raw
-   * report_id foreign-key-violation 500 instead of REPORT_NOT_FOUND). Returns
-   * the locked report row, or null if it no longer exists — in which case
-   * nothing is inserted.
+   * exists INSIDE the same transaction as the insert, closing the race
+   * where a concurrent DELETE commits between an earlier existence check and
+   * this insert, which must surface as REPORT_NOT_FOUND, never a raw
+   * report_id foreign-key violation. Returns the locked report row, or null
+   * if it no longer exists, in which case nothing is inserted.
    */
   insertReportUpdate(input: { reportId: string; update: StatusReportUpdateRow }): Promise<StatusReportRow | null>;
   editUpdate(input: {
@@ -217,22 +216,20 @@ export interface StatusReportsStore {
    */
   deleteUpdate(input: { reportId: string; updateId: string }): Promise<"deleted" | "last_update" | "missing">;
   /**
-   * Direct point lookup by (reportId, updateId) — unlike getReportDetails,
-   * never capped, so recovery can find a backdated update whose publishedAt
-   * sorts behind PER_REPORT_UPDATE_LIMIT newer rows (finding: a scan capped
-   * at 500 detail rows could miss it and spuriously rerun/duplicate).
+   * Point lookup, never capped: recovery must find a backdated update even
+   * when 500+ newer rows exist, unlike getReportDetails's capped scan.
    */
   getUpdate(reportId: string, updateId: string): Promise<StatusReportUpdateRow | null>;
   /**
    * Recomputes and persists the report's resolvedAt from the FULL current
    * update set, inside a `SELECT ... FOR UPDATE`-locked transaction on the
-   * report row (mirrors deleteUpdate's guard) — so concurrent mutations
-   * against the SAME report serialize their recompute+write instead of a
-   * lagging recompute clobbering a newer, correct write with a stale value
-   * (finding: a list-then-derive-then-write outside any lock can race).
-   * Returns the updates read inside the lock (so the caller serializes the
-   * response from the same consistent snapshot) and the resolvedAt
-   * persisted; null if the report no longer exists.
+   * report row (mirrors deleteUpdate's guard): concurrent mutations against
+   * the SAME report must serialize their recompute+write, never race as a
+   * list-then-derive-then-write outside any lock, where a lagging recompute
+   * could clobber a newer, correct write with a stale value. Returns the
+   * updates read inside the lock (so the caller serializes the response from
+   * the same consistent snapshot) and the resolvedAt persisted; null if the
+   * report no longer exists.
    */
   recomputeResolution(input: {
     reportId: string;
@@ -360,28 +357,14 @@ export type StatusReportPatchInput = z.infer<typeof patchSchema>;
  *
  * Exported so idempotency recovery (statusReportPatchAlreadyApplied in
  * lib/api/status-report-http.ts) can compare the caller's patch against the
- * CURRENT report using the same normalized values the real patch persists
- * (finding: comparing raw, un-parsed request fields missed that title —
- * and affected.monitorId — are trimmed by this schema; a stale retry of
- * `{ title: " API outage " }` against a stored, trimmed "API outage" then
- * spuriously failed recovery and re-ran the patch, re-snapshotting affected
- * monitors a second time / risking a false 412 on other callers).
+ * CURRENT report using the same normalized values the real patch persists:
+ * comparing raw, un-parsed request fields would miss that title and
+ * affected.monitorId are trimmed by this schema, and so would spuriously
+ * fail recovery for a request whose raw field still carries whitespace.
  */
 export function parseStatusReportPatch(body: unknown): StatusReportPatchInput | null {
   const result = patchSchema.safeParse(body);
   return result.success ? result.data : null;
-}
-
-/**
- * Whether `body` would satisfy patchSchema (finding: statusReportPatchAlreadyApplied
- * in lib/api/status-report-http.ts otherwise falls through to `true` for an
- * INVALID patch — `{}` or a body with only unsupported keys — since no
- * recognized field mismatches, which recovers a stale retry as a false 200
- * instead of reproducing the original VALIDATION_ERROR). Exported so that
- * idempotency-recovery gate without duplicating patchSchema's shape.
- */
-export function isValidStatusReportPatch(body: unknown): boolean {
-  return parseStatusReportPatch(body) !== null;
 }
 
 const updateCreateSchema = z
@@ -427,7 +410,7 @@ function assertStatusMatchesType(type: StatusReportType, status: StatusReportUpd
 /**
  * Per-type impact vocabulary, mirroring the dashboard editor's own picker
  * (impactOptions in components/incidents/report-status.ts): incidents offer
- * down/degraded, maintenance windows offer maintenance/degraded — neither
+ * down/degraded, maintenance windows offer maintenance/degraded; neither
  * type exposes the other's exclusive impact. Enforced here too so a non-UI
  * client (API/CLI) can't persist a contradictory pairing, e.g. an incident
  * report with impact "maintenance" or a maintenance report with impact
@@ -455,14 +438,14 @@ function assertAffectedMatchesType(
 }
 
 /**
- * Incidents have no scheduled window — only maintenance reports do. Rejecting
+ * Incidents have no scheduled window; only maintenance reports do. Rejecting
  * endsAt on an incident at the boundary (rather than merely ignoring it) keeps
  * classifyPublicReport's maintenance-only window_ended demotion correct by
  * construction: an incident can never carry an endsAt for getPublicReportRows'
  * ended-window ORDER BY bucket to misclassify, so a still-ongoing incident can
  * never be pushed past the public 100-row cap by a bucket it should never be
- * in (finding: an incident with endsAt in the past stayed "ongoing" forever
- * per classifyPublicReport, yet ranked as an ended row in the SQL cap).
+ * in; classification and the SQL ranking must always agree on whether an
+ * incident's window has "ended".
  */
 function assertNoIncidentWindow(type: StatusReportType, endsAt: Date | null | undefined) {
   if (type === "incident" && endsAt != null) {
@@ -472,7 +455,7 @@ function assertNoIncidentWindow(type: StatusReportType, endsAt: Date | null | un
 
 /**
  * Total order for updates: (publishedAt, createdAt, id). The tiebreak is part
- * of the API contract — backdated updates with identical timestamps resolve
+ * of the API contract: backdated updates with identical timestamps resolve
  * deterministically everywhere (service, DISTINCT ON query, public page).
  */
 export function compareReportUpdates(left: StatusReportUpdateRow, right: StatusReportUpdateRow): number {
@@ -626,8 +609,8 @@ export async function listStatusReports(
 }
 
 /**
- * §3.1 list path: one page query + one batched details fan-out (counts,
- * DISTINCT ON latest status/publishedAt, affected). Never fetches markdown —
+ * List path: one page query + one batched details fan-out (counts,
+ * DISTINCT ON latest status/publishedAt, affected). Never fetches markdown;
  * the detailed shape stays on getStatusReport.
  */
 export async function listStatusReportSummaries(
@@ -689,7 +672,7 @@ export async function createStatusReport(
   assertAffectedMatchesType(parsed.type, parsed.affected ?? []);
 
   // Validate against the EFFECTIVE startsAt (the explicit value, or the `now`
-  // default applied below) — an omitted startsAt must not let an endsAt in
+  // default applied below); an omitted startsAt must not let an endsAt in
   // the past slip past validation and persist an inverted window.
   const effectiveStartsAt = parsed.startsAt ?? now;
   if (parsed.endsAt && parsed.endsAt.getTime() <= effectiveStartsAt.getTime()) {
@@ -731,7 +714,7 @@ export async function createStatusReport(
  * "running" record is reclaimed (i.e. a prior attempt crashed after
  * inserting but before the idempotency record was marked complete). The
  * route pins the report id to the idempotency operationId, so recovering is
- * just "does a report with this id exist" — no need to recompute or compare a
+ * just "does a report with this id exist," no need to recompute or compare a
  * content hash the way monitor creation does, since the id itself is unique
  * to this exact operation.
  */
@@ -757,7 +740,7 @@ export async function updateStatusReport(
   if (!existing) throw new StatusReportError("REPORT_NOT_FOUND", "Status report was not found");
   // A patch can't change `type` (it's not a patchable field), so the
   // existing report's type governs both checks below. Only the CALLER'S
-  // own endsAt is checked (not the merged/effective value) — a title- or
+  // own endsAt is checked (not the merged/effective value): a title- or
   // affected-only patch must not start failing because of pre-existing
   // data, only a patch that itself tries to add a window to an incident.
   assertNoIncidentWindow(existing.type, parsed.endsAt);
@@ -765,7 +748,7 @@ export async function updateStatusReport(
 
   // A partial patch touching only one bound must still validate against the
   // EFFECTIVE other bound (the existing report's, when the patch leaves it
-  // untouched) — not just the bound(s) the caller happened to send.
+  // untouched); not just the bound(s) the caller happened to send.
   const effectiveStartsAt = parsed.startsAt ?? existing.startsAt;
   const effectiveEndsAt = parsed.endsAt !== undefined ? parsed.endsAt : existing.endsAt;
   if (effectiveEndsAt && effectiveEndsAt.getTime() <= effectiveStartsAt.getTime()) {
@@ -794,22 +777,39 @@ export async function deleteStatusReport(id: string, dependencies: StatusReports
 }
 
 /**
- * Idempotency recovery for DELETE /status-reports/{id} (finding: this route
- * shipped with NO recover callback, so a committed delete + crash made the
- * retry rerun getStatusReport/deleteStatusReport, which records a false
- * REPORT_NOT_FOUND 404 for what was actually this operation's own success).
- * deleteReport is a guarded DELETE ... RETURNING: a concurrent delete of the
- * SAME report would itself observe zero rows and record its own
- * REPORT_NOT_FOUND rather than staying "running" — so a record left running
- * here, with the report now gone, proves THIS operation is what deleted it.
- * Returns true (recovered success) when the report is gone, or false when it
- * still exists — a genuine crash before the delete committed — so work()
- * reruns and performs the real delete.
+ * Idempotency recovery for DELETE /status-reports/{id}. deleteReport is a
+ * guarded DELETE ... RETURNING: a concurrent delete of the SAME report would
+ * itself observe zero rows and record its own REPORT_NOT_FOUND rather than
+ * staying "running", so a record left running here, with the report now
+ * gone, proves THIS operation is what deleted it. Returns true (recovered
+ * success) when the report is gone, or false when it still exists (a
+ * genuine crash before the delete committed), so work() reruns and performs
+ * the real delete.
+ *
+ * MALFORMED ids are rejected up front rather than handed to the store: a
+ * malformed id can never have identified a real report, so getReport's
+ * isUuid guard returning null for it is indistinguishable from "this
+ * recovery's own crashed delete already removed it"; without the check
+ * below, a first attempt that crashed on a genuine 404 (bad id, never
+ * touched a row) would be recovered as a false 200 instead of the true
+ * REPORT_NOT_FOUND work() would otherwise record. Returning false here lets
+ * work() rerun and record that genuine 404.
+ *
+ * WELL-FORMED ids that simply never existed are NOT distinguishable from "a
+ * crashed delete already removed this one" without a tombstone; that
+ * residual is accepted, same class as the documented publish residual
+ * (recoverPublishedStatusReport) and the config PUT recover residual
+ * (app/api/v1/status-page-config/route.ts): DELETE is an idempotent
+ * target-state operation, so answering 200 on a retry against an absent
+ * well-formed target reflects the achieved state either way: RFC 9110
+ * §9.3.5 explicitly allows a DELETE of an already-absent resource to answer
+ * either 200 or 404.
  */
 export async function recoverDeletedStatusReport(
   id: string,
   dependencies: StatusReportsDependencies = {},
 ): Promise<boolean> {
+  if (!isUuid(id)) return false;
   const store = dependencies.store ?? databaseStatusReportsStore;
   const existing = await store.getReport(id);
   return existing === null;
@@ -818,8 +818,9 @@ export async function recoverDeletedStatusReport(
 /**
  * Shared tail of the update mutations: recompute+persist the resolution
  * under the report-row lock (with the affected rows in parallel), and build
- * the response from the rows already in hand — no trailing getStatusReport
- * re-fetch (finding: ≤4 sequential round-trips per mutation).
+ * the response from the rows already in hand rather than a trailing
+ * getStatusReport re-fetch, keeping each mutation to at most 4 sequential
+ * round-trips.
  */
 async function persistResolutionAndSerialize(
   store: StatusReportsStore,
@@ -861,10 +862,10 @@ export async function addReportUpdate(
     updatedAt: now,
   };
   // Row-locked insert: closes the race where a concurrent DELETE commits
-  // between the existence check above and the insert (finding: an FK
-  // violation surfacing as a raw 500 instead of REPORT_NOT_FOUND). A report
-  // deleted in that window is re-detected here, inside the lock, instead of
-  // letting the insert crash against a gone-but-still-referenced report_id.
+  // between the existence check above and the insert. A report deleted in
+  // that window must be re-detected here, inside the lock, as
+  // REPORT_NOT_FOUND; never let the insert crash against a
+  // gone-but-still-referenced report_id as a raw foreign-key-violation 500.
   const report = await store.insertReportUpdate({ reportId, update });
   if (!report) throw new StatusReportError("REPORT_NOT_FOUND", "Status report was not found");
   return persistResolutionAndSerialize(store, report, now);
@@ -886,19 +887,17 @@ export async function recoverAddedReportUpdate(
   const now = dependencies.now?.() ?? new Date();
   const report = await store.getReport(reportId);
   if (!report) return null;
-  // Point lookup by the pinned update id rather than scanning the detail
-  // rows (finding: getReportDetails caps at PER_REPORT_UPDATE_LIMIT newest
-  // rows, so a backdated update whose publishedAt sorts behind 500+ newer
-  // ones would never surface there, causing a spurious rerun that inserts a
-  // duplicate).
+  // Point lookup by the pinned update id, never a scan: getReportDetails caps
+  // at PER_REPORT_UPDATE_LIMIT newest rows, so a backdated update whose
+  // publishedAt sorts behind 500+ newer ones must still be found here rather
+  // than missed into a spurious rerun that inserts a duplicate.
   const inserted = await store.getUpdate(reportId, updateId);
   if (!inserted) return null;
   // The crash this recovers from may have landed between the insert
-  // committing and the resolution recompute running (finding: a resolving
-  // update that never resolved the report) — recompute and persist
-  // resolution here too, via the same idempotent recompute the success path
-  // uses, instead of trusting the possibly-stale resolvedAt already on the
-  // report row.
+  // committing and the resolution recompute running, so resolution must be
+  // recomputed and persisted here too, via the same idempotent recompute the
+  // success path uses, rather than trusting the possibly-stale resolvedAt
+  // already on the report row.
   return persistResolutionAndSerialize(store, report, now);
 }
 
@@ -921,12 +920,9 @@ export async function editReportUpdate(
 }
 
 /**
- * Idempotency recovery for PATCH /status-reports/{id}/updates/{updateId}
- * (finding: the only mutation in this route family that shipped without a
- * recover callback — a committed edit + crash makes the retry rerun
- * editUpdate a second time, and re-run persistResolutionAndSerialize's
- * recompute). Recovery is "the report and update still exist, and the
- * update's CURRENT fields already match everything this patch asked for" —
+ * Idempotency recovery for PATCH /status-reports/{id}/updates/{updateId}.
+ * Recovery is "the report and update still exist, and the update's CURRENT
+ * fields already match everything this patch asked for":
  * status/markdown/publishedAt compared only where the caller sent them,
  * mirroring statusReportPatchAlreadyApplied for the report-level PATCH. A
  * genuine difference (crash landed before the edit committed) or an unknown
@@ -943,7 +939,7 @@ export async function recoverEditedReportUpdate(
   const report = await store.getReport(reportId);
   if (!report) return null;
   // Point lookup by id (uncapped) rather than the capped getReportDetails
-  // scan (mirrors recoverAddedReportUpdate) — PER_REPORT_UPDATE_LIMIT could
+  // scan (mirrors recoverAddedReportUpdate): PER_REPORT_UPDATE_LIMIT could
   // otherwise miss a backdated update on a report with 500+ newer ones.
   const current = await store.getUpdate(reportId, updateId);
   if (!current || !reportUpdatePatchAlreadyApplied(current, patch)) return null;
@@ -952,25 +948,25 @@ export async function recoverEditedReportUpdate(
 
 /**
  * Unlike statusReportPatchAlreadyApplied, this compares the RAW body fields
- * (not a schema-parsed result) — audited and confirmed safe: of the three
+ * (not a schema-parsed result), audited and confirmed safe: of the three
  * comparable fields, `status` is an enum with no coercion, `markdown` is
  * validated but never trimmed/transformed by updateEditSchema (only its
  * *trimmed length* is checked; the persisted value is the raw string), and
  * `publishedAt` is parsed inline via Date.parse right below rather than
  * relying on the schema's Date transform. No field this function compares is
  * normalized by updateEditSchema in a way the raw-body comparison would miss,
- * so the title/affected.monitorId trim bug fixed in
- * statusReportPatchAlreadyApplied (lib/api/status-report-http.ts) does not
- * apply here.
+ * so the trim-mismatch risk statusReportPatchAlreadyApplied
+ * (lib/api/status-report-http.ts) guards against does not apply here.
  */
 function reportUpdatePatchAlreadyApplied(
   current: Pick<StatusReportUpdateRow, "status" | "markdown" | "publishedAt">,
   body: unknown,
 ): boolean {
-  // Gate on the SAME schema the real edit would have to pass (finding: an
-  // INVALID patch — `{}`, or a body with only unsupported keys — otherwise
-  // falls through to `true` since no recognized field mismatches, turning a
-  // stale retry's genuine VALIDATION_ERROR into a false recovered 200).
+  // Gate on the SAME schema the real edit would have to pass: an INVALID
+  // patch (`{}`, or a body with only unsupported keys) has no recognized
+  // field to mismatch and must return false here, not fall through to
+  // `true` and turn a stale retry's genuine VALIDATION_ERROR into a false
+  // recovered 200.
   if (!updateEditSchema.safeParse(body).success) return false;
   if (body === null || typeof body !== "object") return false;
   const patch = body as Record<string, unknown>;
@@ -1007,23 +1003,36 @@ export async function deleteReportUpdate(
 }
 
 /**
- * Idempotency recovery for DELETE /status-reports/{id}/updates/{updateId}
- * (finding: this route shipped with NO recover callback, so a committed
- * delete + crash made the retry rerun deleteReportUpdate, which records a
- * false UPDATE_NOT_FOUND 404 for what was actually this operation's own
- * success). deleteUpdate is a row-locked, guarded delete: a concurrent delete
- * of the SAME update would itself observe it already gone and record its own
- * UPDATE_NOT_FOUND rather than staying "running" — so a record left running
+ * Idempotency recovery for DELETE /status-reports/{id}/updates/{updateId}.
+ * deleteUpdate is a row-locked, guarded delete: a concurrent delete of the
+ * SAME update would itself observe it already gone and record its own
+ * UPDATE_NOT_FOUND rather than staying "running", so a record left running
  * here, with the update now gone (and the report still present), proves THIS
  * operation is what deleted it. Recomputes+persists resolution the same way
  * the success path does (mirrors recoverEditedReportUpdate/
- * recoverAddedReportUpdate) since the crash this recovers from may have
+ * recoverAddedReportUpdate), since the crash this recovers from may have
  * landed between the delete committing and the recompute running. Returns
- * null — so work() reruns and records the genuine outcome — when the update
+ * null (so work() reruns and records the genuine outcome) when the update
  * still exists (a genuine crash before the delete committed, which reruns
  * into the real delete/LAST_UPDATE guard) or the report itself is gone (a
  * separate report-level delete since made the question moot; work() reruns
  * and records the truthful current REPORT_NOT_FOUND).
+ *
+ * A MALFORMED updateId is rejected up front rather than handed to
+ * store.getUpdate: a malformed id can never have identified a real update,
+ * so the store's isUuid guard returning null for it is indistinguishable
+ * from "this recovery's own crashed delete already removed it"; without the
+ * check below, a first attempt that crashed on a genuine 404 (bad id, never
+ * touched a row) would be recovered as a false 200 instead of the true
+ * UPDATE_NOT_FOUND work() would otherwise record. Returning null here
+ * (mirrors recoverDeletedStatusReport) lets work() rerun and record that
+ * genuine 404.
+ *
+ * A WELL-FORMED updateId that simply never existed is NOT distinguishable
+ * from "a crashed delete already removed it" without a tombstone; accepted,
+ * same residual as recoverDeletedStatusReport / recoverPublishedStatusReport:
+ * DELETE is idempotent target-state, so 200 on a retry against an absent
+ * well-formed target reflects the achieved state (RFC 9110 §9.3.5).
  */
 export async function recoverDeletedReportUpdate(
   reportId: string,
@@ -1034,6 +1043,7 @@ export async function recoverDeletedReportUpdate(
   const now = dependencies.now?.() ?? new Date();
   const report = await store.getReport(reportId);
   if (!report) return null;
+  if (!isUuid(updateId)) return null;
   const current = await store.getUpdate(reportId, updateId);
   if (current) return null;
   return persistResolutionAndSerialize(store, report, now);
@@ -1054,18 +1064,15 @@ export async function publishStatusReport(
 }
 
 /**
- * Idempotency recovery for POST /status-reports/{id}/publish (finding: this
- * route shipped with NO recover callback at all, so a committed publish +
- * crash made the retry rerun publishStatusReport, which hits the guarded
- * UPDATE ... WHERE published_at IS NULL, observes zero rows, and records a
- * false ALREADY_PUBLISHED 409 for what was actually this operation's own
- * success). The guard is what makes recovering safe: a concurrent publish of
- * the SAME report would itself observe the row already published and record
- * its own 409 rather than staying "running" — so a record left running here,
- * with the report now published, proves THIS operation is what published it.
- * Returns the current report when it's published, or null — an unpublished
- * or now-missing report — so work() reruns and records the genuine outcome
- * (a real ALREADY_PUBLISHED conflict, or REPORT_NOT_FOUND).
+ * Idempotency recovery for POST /status-reports/{id}/publish. The guarded
+ * UPDATE ... WHERE published_at IS NULL is what makes recovering safe: a
+ * concurrent publish of the SAME report would itself observe the row
+ * already published and record its own 409 rather than staying "running",
+ * so a record left running here, with the report now published, proves THIS
+ * operation is what published it. Returns the current report when it's
+ * published, or null (an unpublished or now-missing report) so work()
+ * reruns and records the genuine outcome (a real ALREADY_PUBLISHED conflict,
+ * or REPORT_NOT_FOUND).
  */
 export async function recoverPublishedStatusReport(
   id: string,
@@ -1135,15 +1142,14 @@ export async function promoteIncident(
 }
 
 /**
- * Idempotency recovery for POST /incidents/{incidentId}/promote (finding:
- * this route shipped with NO recover callback; promoteIncident is already
- * safe to rerun outright — insertPromotedReport's conflict path on the
- * partial unique index on originIncidentId just returns the existing report
- * — but the retry still reached the database, re-validated the incident, and
- * re-serialized fresh values on every replay instead of short-circuiting at
- * recovery like the report family's other mutations do). Returns the
- * existing report for this incident, or null when no report exists yet for
- * this incident so work() reruns to create it.
+ * Idempotency recovery for POST /incidents/{incidentId}/promote.
+ * promoteIncident is safe to rerun outright: insertPromotedReport's
+ * conflict path on the partial unique index on originIncidentId just returns
+ * the existing report, but recovery lets a retry short-circuit at this
+ * point lookup instead of reaching the database, re-validating the incident,
+ * and re-serializing fresh values on every replay. Returns the existing
+ * report for this incident, or null when no report exists yet so work()
+ * reruns to create it.
  *
  * The route distinguishes created (201) from already-existing (200) by
  * comparing the recovered report's id to the idempotency operationId:
@@ -1190,34 +1196,29 @@ export type PublicReports = {
 export const PUBLIC_RESOLVED_LIMIT = 10;
 
 /**
- * §3.6 group-page scoping: a report matches iff it affects a monitor in the
+ * Group-page scoping: a report matches iff it affects a monitor in the
  * group, by live monitor id or by the snapshotted group name (mirrors
  * filterReportsForGroup in lib/status-page/reports-display.ts). Passed
  * through to getPublicReportRows so the resolved-history LIMIT is applied
- * AFTER group scoping, not before — otherwise a global top-10 can starve a
+ * AFTER group scoping, not before; otherwise a global top-10 can starve a
  * group's history even though older relevant resolved reports exist.
  */
 export type PublicReportsFilter = { monitorIds: readonly string[]; groupNames: readonly string[] };
 
 /**
- * §3.1 lifecycle rules: upcoming = published ∧ startsAt > now — for EITHER
+ * Lifecycle rules: upcoming = published ∧ startsAt > now, for EITHER
  * report type, since a future-dated report of any kind hasn't started yet;
  * ongoing = published ∧ startsAt ≤ now ∧ not completed; a maintenance window
  * past endsAt with no completing update is demoted to "window_ended".
  *
- * `currentStatus` is NOT consulted to move a started window back to
- * "upcoming" (finding: a maintenance report whose window already started but
- * whose latest update is still `scheduled` — the operator never posted
- * in_progress — classified here as "upcoming" while the SQL cap in
- * getPublicReportRows ranks it as active, a mismatch. Per the lifecycle
- * rule above, a started, non-completed window is ongoing regardless of
- * whether anyone posted an in_progress update; the parameter is kept for
- * API/call-site stability even though it no longer affects the result.
+ * The latest update's status must never move a started window back to
+ * "upcoming": a started, non-completed window is ongoing regardless of
+ * whether anyone posted an in_progress update, so this must agree with the
+ * SQL active-bucket ranking in getPublicReportRows, which ranks a started
+ * window as active independent of the operator having posted anything.
  */
 export function classifyPublicReport(
   report: Pick<StatusReportRow, "type" | "startsAt" | "endsAt" | "resolvedAt">,
-  // Unused: kept for call-site/API stability. See the doc comment above.
-  currentStatus: StatusReportUpdateStatus | null,
   now: Date,
 ): PublicReportPhase {
   if (report.resolvedAt) return "resolved";
@@ -1229,12 +1230,12 @@ export function classifyPublicReport(
 }
 
 /**
- * §3.2 batched public read — exactly 3 queries: (1) published reports through
+ * Batched public read, exactly 3 queries: (1) published reports through
  * the partial indexes, (2) latest update per report via DISTINCT ON with the
  * contract total order, (3) affected rows. Drafts never appear.
  *
  * `filter` scopes query 1 to a single group's reports (via EXISTS against
- * status_report_affected) for /status/[group] pages — the root page passes no
+ * status_report_affected) for /status/[group] pages; the root page passes no
  * filter so its resolved LIMIT stays global. Queries 2 and 3 automatically
  * inherit the scoping since they only fan out over the ids query 1 returned.
  */
@@ -1255,7 +1256,7 @@ export async function getPublicReports(
   const result: PublicReports = { ongoing: [], upcoming: [], windowEnded: [], resolved: [] };
   for (const report of published) {
     const latest = latestByReport.get(report.id) ?? null;
-    const phase = classifyPublicReport(report, latest?.status ?? null, now);
+    const phase = classifyPublicReport(report, now);
     const entry: PublicStatusReport = {
       id: report.id,
       type: report.type,
@@ -1416,7 +1417,7 @@ export const databaseStatusReportsStore: StatusReportsStore = {
     // Per-report bound: a window rank partitioned by report keeps the newest
     // PER_REPORT_UPDATE_LIMIT updates for EVERY requested report, so one
     // chatty report can never starve the others out of a shared global cap.
-    // No outer ORDER BY — serializeReport re-sorts per report in JS anyway.
+    // No outer ORDER BY; serializeReport re-sorts per report in JS anyway.
     const ranked = db.$with("ranked_updates").as(
       db
         .select({
@@ -1510,8 +1511,8 @@ export const databaseStatusReportsStore: StatusReportsStore = {
     if (!isUuid(reportId)) return null;
     // `SELECT ... FOR UPDATE` on the report serializes against a concurrent
     // DELETE on the SAME row (mirrors deleteUpdate/recomputeResolution): a
-    // racing delete either commits first — the lock then finds zero rows,
-    // so this returns null before ever attempting the insert — or blocks
+    // racing delete either commits first (the lock then finds zero rows,
+    // so this returns null before ever attempting the insert), or blocks
     // behind this transaction, closing the window where an unguarded insert
     // could hit the report_id foreign key after the row was already gone.
     return db.transaction(async (tx) => {
@@ -1543,7 +1544,7 @@ export const databaseStatusReportsStore: StatusReportsStore = {
     // so unrelated reports never contend). The unlocked count subquery this
     // replaced let two concurrent deletes of DIFFERENT updates on a
     // two-update report both observe count=2 under READ COMMITTED and both
-    // succeed, leaving zero updates — the lock forces the second transaction
+    // succeed, leaving zero updates; the lock forces the second transaction
     // to wait and re-observe the post-delete count.
     return db.transaction(async (tx) => {
       const [locked] = await tx
@@ -1585,8 +1586,8 @@ export const databaseStatusReportsStore: StatusReportsStore = {
     // guard. Without the lock, two mutations racing on the same report could
     // each list-then-derive from a snapshot taken before the OTHER's write
     // committed, and whichever's UPDATE lands last would persist a stale
-    // resolvedAt over the correct one (finding: lost-update race). The lock
-    // forces the second transaction to wait and re-read the post-write state.
+    // resolvedAt over the correct one: a lost-update race. The lock forces
+    // the second transaction to wait and re-read the post-write state.
     return db.transaction(async (tx) => {
       const [locked] = await tx
         .select({ id: statusReports.id })
@@ -1640,9 +1641,9 @@ export const databaseStatusReportsStore: StatusReportsStore = {
   },
 
   async getPublicReportRows({ resolvedLimit, now, filter }) {
-    // group scoping (§3.6): EXISTS against status_report_affected, matching
+    // group scoping: EXISTS against status_report_affected, matching
     // either a live monitor id or the row's (possibly snapshotted) group
-    // name — mirrors filterReportsForGroup. Rides the same 2 branches below,
+    // name; mirrors filterReportsForGroup. Rides the same 2 branches below,
     // no extra query.
     const groupScope = filter
       ? sql`exists (
@@ -1659,17 +1660,17 @@ export const databaseStatusReportsStore: StatusReportsStore = {
     // sort. The unresolved branch ranks truly ACTIVE rows (started, not yet
     // ended) first, then future-scheduled rows, then ended-but-uncompleted
     // windows (a maintenance row whose endsAt already passed with no
-    // completing update) last — so within the 100 cap neither 100+ future
+    // completing update) last, so within the 100 cap neither 100+ future
     // maintenance windows nor a stale ended window can crowd out an active
     // report that would otherwise sort later by startsAt DESC alone.
     //
     // Within the future bucket the tiebreak is ASCENDING startsAt (nearest
     // upcoming first) rather than the DESC used elsewhere: a shared DESC
-    // tiebreak would keep the FARTHEST-future rows inside the 100 cap and
-    // drop the nearest ones (finding: 100+ future rows starving the soonest
-    // upcoming report). The CASE expression only produces a value for future
-    // rows, so it's a no-op tiebreak for the active bucket, which still falls
-    // through to the final `startsAt DESC` column.
+    // tiebreak would keep the FARTHEST-future rows inside the 100 cap,
+    // starving the soonest upcoming report whenever 100+ future rows exist.
+    // The CASE expression only produces a value for future rows, so it's a
+    // no-op tiebreak for the active bucket, which still falls through to the
+    // final `startsAt DESC` column.
     const unresolved = db
       .select(reportSelection)
       .from(statusReports)

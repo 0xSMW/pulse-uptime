@@ -1,12 +1,12 @@
 /**
- * Classifies infra-class database errors — the ones a PUBLIC status surface
- * should degrade on instead of throwing — vs. everything else (syntax
+ * Classifies infra-class database errors: the ones a PUBLIC status surface
+ * should degrade on instead of throwing, versus everything else (syntax
  * errors, constraint violations, app bugs), which must keep surfacing loudly.
  *
  * Three buckets, by `error.code` (walking the `cause` chain, since
  * postgres.js and Node's net/dns layers sometimes wrap the original error):
  *
- * 1. Connection failures — raw Node network errors bubbled through by
+ * 1. Connection failures: raw Node network errors bubbled through by
  *    postgres.js's socket handling, plus its own `connect_timeout` option:
  *    ECONNREFUSED, ECONNRESET, ENOTFOUND, EAI_AGAIN, ETIMEDOUT.
  * 2. Postgres.js "write CONNECTION_*" connection-lifecycle errors (thrown via
@@ -20,9 +20,9 @@
  *      (auth failures)
  *    - 42P01 undefined_table, 42703 undefined_column (unapplied migrations)
  *
- * Anything else — including a plain `TypeError`/app bug, or a Postgres error
- * with a different SQLSTATE (constraint violation, syntax error, etc.) —
- * is NOT classified as unavailable, so callers must rethrow it.
+ * Anything else, including a plain `TypeError`/app bug, or a Postgres error
+ * with a different SQLSTATE (constraint violation, syntax error, etc.), is
+ * NOT classified as unavailable, so callers must rethrow it.
  */
 
 const CONNECTION_ERROR_CODES = new Set([

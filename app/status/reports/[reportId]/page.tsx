@@ -19,7 +19,7 @@ import {
   type ReportPhase,
 } from "@/lib/status-page/reports-display";
 
-// The page people refresh compulsively mid-incident (§3.6): ISR at the same
+// The page people refresh compulsively mid-incident: ISR at the same
 // cadence as /status, plus the revalidatePath calls on every report mutation.
 export const revalidate = 30;
 
@@ -31,7 +31,7 @@ export async function generateMetadata({ params }: ReportPageProps): Promise<Met
   const { reportId } = await params;
   // Report lookup first: unknown ids and drafts 404 without paying for the
   // config read or the favicon bytes. A database-unavailable read is neither
-  // of those — it falls through to the default page name below.
+  // of those; it falls through to the default page name below.
   const report = await getPublicReportDetail(reportId);
   if (report === null) notFound();
   const [config, favicon] = await Promise.all([
@@ -76,9 +76,9 @@ export default async function PublicReportPage({ params }: ReportPageProps) {
   const zone = timezoneDisplay(config.timezone);
   const phase = publicReportPhase(report, new Date());
   const typeLabel = report.type === "maintenance" ? "Maintenance" : "Incident";
-  // Each timestamp gets its OWN offset label (finding: a single zone offset
-  // reused across every timestamp on the page is wrong for rows on the other
-  // side of a DST boundary) — startsAt and endsAt can even differ from each
+  // Each timestamp gets its OWN offset label: a single zone offset reused
+  // across every timestamp on the page would be wrong for rows on the other
+  // side of a DST boundary, since startsAt and endsAt can even differ from each
   // other when a long window straddles the transition.
   const window = `${formatStatusTimestamp(report.startsAt, zone.timeZone)} ${timezoneOffsetLabel(config.timezone, new Date(report.startsAt))}${
     report.endsAt
@@ -106,7 +106,9 @@ export default async function PublicReportPage({ params }: ReportPageProps) {
         </p>
         {phase === "upcoming" ? (
           <p className="text-[13px] text-[var(--fg-muted)]">
-            This maintenance window has not started yet.
+            {report.type === "maintenance"
+              ? "This maintenance window has not started yet."
+              : "This incident has not started yet."}
           </p>
         ) : null}
         {phase === "window_ended" ? (
@@ -134,7 +136,7 @@ export default async function PublicReportPage({ params }: ReportPageProps) {
                 </tr>
               </thead>
               <tbody>
-                {/* Snapshotted names (§3.1): historical reports never re-join the live registry. */}
+                {/* Snapshotted names: historical reports never re-join the live registry. */}
                 {report.affected.map((entry) => (
                   <tr key={entry.monitorId} className="h-10 border-b border-[var(--border)] last:border-0">
                     <td className="px-6 font-medium">{entry.monitorName}</td>

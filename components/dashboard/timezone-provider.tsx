@@ -6,7 +6,7 @@ export const DEFAULT_TIMEZONE = "system";
 /**
  * Deliberate this-device overrides only. The legacy "pulse-timezone" key was
  * written on every pick, so a concrete value there does NOT represent a
- * deliberate override — promoting it would permanently mask the account
+ * deliberate override; promoting it would permanently mask the account
  * time zone. It is deleted on load, never adopted.
  */
 export const TIMEZONE_STORAGE_KEY = "pulse-timezone-override";

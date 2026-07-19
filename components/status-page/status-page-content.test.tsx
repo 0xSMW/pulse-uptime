@@ -46,8 +46,8 @@ const operationalData: PublicStatusData = {
   ],
 };
 
-// Every OverallBanner tier label (§overall-banner.tsx) — none of these should
-// appear when the page is rendering the degraded "unavailable" shell.
+// Every OverallBanner tier label (see overall-banner.tsx): none of these
+// should appear when the page is rendering the degraded "unavailable" shell.
 const overallBannerLabels = [
   "All Systems Operational",
   "Investigating",

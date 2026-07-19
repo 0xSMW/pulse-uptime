@@ -1,5 +1,5 @@
 /**
- * Pure display helpers for public status reports (§3.6). Like display.ts these
+ * Pure display helpers for public status reports. Like display.ts these
  * carry no server-only marker: deterministic functions shared by the public
  * page RSCs and unit tests. The structural types mirror the serialized shape
  * of PublicStatusReport in lib/api/status-reports.ts (string timestamps).
@@ -66,7 +66,7 @@ export const reportImpactLabels: Record<ReportImpact, string> = {
 };
 
 /**
- * Overall banner tiers ordered by severity. "Redder wins" (§3.6): a machine
+ * Overall banner tiers ordered by severity: a machine
  * DOWN always outranks report-driven tiers, and an ongoing maintenance report
  * only tints the banner when nothing redder is happening. Degraded ranks above
  * investigating: a human-confirmed degradation outranks an unconfirmed blip.
@@ -96,7 +96,7 @@ function worse(left: PublicOverallState, right: PublicOverallState): PublicOvera
  * The banner tier one ongoing published report contributes. Incident reports
  * floor at "degraded" (an ongoing incident report must never sit under a green
  * banner) and escalate to "outage" when any affected service is down.
- * Maintenance reports always contribute the maintenance tint — downtime inside
+ * Maintenance reports always contribute the maintenance tint; downtime inside
  * a maintenance window is expected, not an outage.
  */
 export function reportBannerTier(
@@ -107,15 +107,15 @@ export function reportBannerTier(
 }
 
 /**
- * §3.6 overall state: machine states derive the existing
- * empty/operational/investigating/outage tiers; published ongoing reports feed
- * additional degraded/maintenance/outage tiers; the reddest wins.
+ * Overall state: machine states derive the existing
+ * empty/operational/investigating/outage tiers; published ongoing reports add
+ * degraded/maintenance/outage tiers; the reddest wins.
  *
- * "empty" only when there are NEITHER monitors NOR ongoing reports (finding: a
- * page with zero enabled monitors used to short-circuit to "empty" before
- * ever looking at ongoingReports, hiding a manually authored — or
- * promoted-then-archived-monitor — ongoing outage/maintenance report behind a
- * neutral banner). With no monitors but at least one ongoing report, the
+ * "empty" only when there are NEITHER monitors NOR ongoing reports: a page
+ * with zero enabled monitors must never short-circuit to "empty" without
+ * looking at ongoingReports, which would hide a manually authored (or
+ * promoted-then-archived-monitor) ongoing outage/maintenance report behind a
+ * neutral banner. With no monitors but at least one ongoing report, the
  * machine-derived floor is "operational" so the report's own tier (degraded /
  * maintenance / outage) is free to raise it.
  */
@@ -139,8 +139,8 @@ export function deriveOverallState(
 
 /**
  * A report appears on /status/[group] iff it affects a monitor in that group,
- * matched by live monitor id or by the snapshotted group name (§3.6). Null
- * group names collapse to the "Other" bucket exactly as the page groups them.
+ * matched by live monitor id or snapshotted group name. Null group names
+ * collapse to the "Other" bucket exactly as the page groups them.
  */
 export function filterReportsForGroup<T extends Pick<PublicReportEntry, "affected">>(
   reports: readonly T[],
@@ -155,7 +155,7 @@ export function filterReportsForGroup<T extends Pick<PublicReportEntry, "affecte
   );
 }
 
-/** Incident ids already represented by a published report (dedupe, §3.6). */
+/** Incident ids already represented by a published report (dedupe). */
 export function promotedIncidentIds(
   reports: ReadonlyArray<Pick<PublicReportEntry, "originIncidentId">>,
 ): Set<string> {
@@ -191,7 +191,7 @@ const impactSeverity: Record<ReportImpact, number> = { maintenance: 0, degraded:
 /**
  * Row annotations while a report is ongoing: monitor id → the worst declared
  * impact across ongoing reports. The annotation supplements the machine state
- * dot, never overrides it (§3.6).
+ * dot, never overrides it.
  */
 export function monitorReportAnnotations(
   ongoingReports: ReadonlyArray<Pick<PublicReportEntry, "id" | "affected">>,
@@ -218,13 +218,11 @@ export function monitorReportAnnotations(
  * endsAt with no completing update is "window_ended"; resolved wins over
  * everything.
  *
- * `currentStatus` is NOT consulted to move a started window back to
- * "upcoming" (finding: a maintenance report whose window already started but
- * whose latest update is still `scheduled` classified as "upcoming" here
- * while the SQL cap in getPublicReportRows ranks it as active — a mismatch.
- * A started, non-completed window is ongoing regardless of whether anyone
- * posted an in_progress update). The field is kept on the input shape for
- * call-site stability even though it no longer affects the result.
+ * The latest update's status must never move a started window back to
+ * "upcoming": a started, non-completed window is ongoing regardless of
+ * whether anyone posted an in_progress update, so this must agree with the
+ * SQL active-bucket ranking in getPublicReportRows, which ranks a started
+ * window as active independent of the operator having posted anything.
  */
 export function publicReportPhase(
   report: {
@@ -232,7 +230,6 @@ export function publicReportPhase(
     startsAt: string;
     endsAt: string | null;
     resolvedAt: string | null;
-    currentStatus: ReportUpdateStatus;
   },
   now: Date,
 ): ReportPhase {

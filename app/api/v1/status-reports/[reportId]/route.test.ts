@@ -129,8 +129,8 @@ describe("PATCH /api/v1/status-reports/{reportId}", () => {
       recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
     };
 
-    // Recovery hit: the current report's title already matches the patch —
-    // a prior attempt committed it before crashing — so the retry must
+    // Recovery hit: the current report's title already matches the patch:
+    // a prior attempt committed it before crashing, so the retry must
     // return that state as success instead of calling updateStatusReport
     // (and re-snapshotting affected) again.
     vi.mocked(getStatusReport).mockResolvedValue({ ...report, title: "New title" });
@@ -140,7 +140,7 @@ describe("PATCH /api/v1/status-reports/{reportId}", () => {
     });
 
     // Recovery miss: the current title still differs from the requested
-    // patch — the crash hit before the patch committed — so fall through
+    // patch: the crash hit before the patch committed, so fall through
     // and let work() actually apply it.
     vi.mocked(getStatusReport).mockResolvedValue(report);
     await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
@@ -161,6 +161,20 @@ describe("PATCH /api/v1/status-reports/{reportId}", () => {
       status: 400,
       body: errorEnvelope("VALIDATION_ERROR", "Provide at least one field to update", context.requestId, {}),
     });
+  });
+
+  it("revalidates ISR pages on a recovered replay too (finding: a crash between the mutation committing and revalidation running left ISR pages stale until the 30s refresh, since the recover path returned without ever calling revalidateStatusReportPaths)", async () => {
+    await PATCH(request("PATCH", { title: "New title" }), params);
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
+    };
+
+    vi.mocked(revalidatePath).mockClear();
+    vi.mocked(getStatusReport).mockResolvedValue({ ...report, title: "New title" });
+    await options.recover({ operationId: "op-1" });
+    expect(revalidatePath).toHaveBeenCalledWith("/status");
+    expect(revalidatePath).toHaveBeenCalledWith("/status/reports/rep-1");
+    expect(revalidatePath).toHaveBeenCalledWith("/status/core");
   });
 
   it("recover compares affected as an order-independent set and rejects a genuinely different set", async () => {
@@ -239,10 +253,27 @@ describe("DELETE /api/v1/status-reports/{reportId}", () => {
     });
     expect(recoverDeletedStatusReport).toHaveBeenCalledWith("rep-1");
 
-    // Recovery miss: the report still exists — a genuine crash before the
-    // delete committed — fall through so work() reruns the real delete.
+    // Recovery miss: the report still exists: a genuine crash before the
+    // delete committed, so fall through so work() reruns the real delete.
     vi.mocked(recoverDeletedStatusReport).mockResolvedValue(false);
     await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
+  });
+
+  it("revalidates on a recovered replay too, via the blanket whole-surface path (finding: a crash between the delete committing and revalidation running left ISR pages stale; the deleted report leaves no report object to derive group slugs from, so this falls back to the same blanket revalidatePath('/status', 'layout') the config PUT route uses for exactly this case)", async () => {
+    await DELETE(request("DELETE"), params);
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
+    };
+
+    vi.mocked(revalidatePath).mockClear();
+    vi.mocked(recoverDeletedStatusReport).mockResolvedValue(true);
+    await options.recover({ operationId: "op-1" });
+    expect(revalidatePath).toHaveBeenCalledWith("/status", "layout");
+
+    vi.mocked(revalidatePath).mockClear();
+    vi.mocked(recoverDeletedStatusReport).mockResolvedValue(false);
+    await options.recover({ operationId: "op-1" });
+    expect(revalidatePath).not.toHaveBeenCalled();
   });
 
   it("refuses rather than reruns on a recovery miss", async () => {

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { useNavigationGuard } from "@/components/navigation/use-navigation-guard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
@@ -12,7 +13,7 @@ import { apiRequest, type ApiEnvelope } from "@/components/settings/settings-api
 
 import { IncidentTime } from "./incident-time";
 import { ReportDraftBadge, ReportStatusChip, ReportTypeChip } from "./report-badges";
-import { setReportEditorDirty } from "./report-editor-dirty";
+import { setReportEditorDirty, UNSAVED_CHANGES_MESSAGE } from "./report-editor-dirty";
 import { messageForReportError } from "./report-errors";
 import {
   BEFORE_START_COPY,
@@ -120,21 +121,22 @@ export function ReportEditor({ report, monitors }: { report: ReportData | null; 
   const dirty = basicsDirty || affectedDirty || composerDirty || editingDirty;
 
   // Unsaved-changes protection: the editor lives outside the settings shell,
-  // so it registers its own beforeunload guard and shares a dirty flag with
-  // the incidents tabs and back link via a module-level store.
+  // so it mounts its own navigation guard (beforeunload, Back/Forward, and
+  // any link click document-wide: this also covers the back link and the
+  // incidents tabs, which no longer need their own confirm). The
+  // module-level store still tracks the raw flag for anything else that
+  // wants to read it (see report-editor-dirty.ts). The guard's dialog must
+  // be rendered below for the modal to appear.
   useEffect(() => {
     setReportEditorDirty(dirty);
   }, [dirty]);
   useEffect(() => () => setReportEditorDirty(false), []);
-  useEffect(() => {
-    if (!dirty) return;
-    const handler = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, [dirty]);
+  const guardDialog = useNavigationGuard(dirty, {
+    title: "Discard unsaved changes?",
+    description: UNSAVED_CHANGES_MESSAGE,
+    confirmLabel: "Discard",
+    cancelLabel: "Keep Editing",
+  });
 
   const pickerGroups = useMemo(() => {
     const known = new Set(monitors.map((monitor) => monitor.id));
@@ -226,14 +228,14 @@ export function ReportEditor({ report, monitors }: { report: ReportData | null; 
     try {
       // datetime-local drops seconds, so round-tripping an untouched value
       // would silently truncate startsAt/endsAt to minute precision on every
-      // basics save (same class as the publishedAt fix in saveEditedUpdate)
-      // — only send them when the input actually differs from the baseline.
+      // basics save. Only send them when the input actually differs from
+      // the baseline.
       const startsAtChanged = startsAt !== baseline.startsAt;
       const endsAtChanged = type === "maintenance" && endsAt !== baseline.endsAt;
       // No If-Match on report edits (last-writer-wins): sending the
       // page-load title on an affected- or window-only save would clobber a
-      // title another session changed meanwhile (finding) — only send it
-      // when it actually changed from the loaded baseline.
+      // title another session changed meanwhile. Only send it when it
+      // actually changed from the loaded baseline.
       const titleChanged = title.trim() !== baseline.title;
       const body = {
         ...(titleChanged ? { title: title.trim() } : {}),
@@ -338,14 +340,14 @@ export function ReportEditor({ report, monitors }: { report: ReportData | null; 
       setEditing({ ...editing, error: "Enter a valid time" });
       return;
     }
-    // Same class as the publishedAt fix above: no If-Match on report-update
-    // edits, so sending the page-load status/markdown on a publishedAt-only
-    // edit would clobber a concurrent change to either field (finding) —
-    // only send each when it actually changed from the loaded update.
+    // No If-Match on report-update edits, so sending the page-load
+    // status/markdown on a publishedAt-only edit would clobber a concurrent
+    // change to either field. Only send each when it actually changed from
+    // the loaded update.
     const statusChanged = !original || editing.status !== original.status;
     const markdownChanged = !original || editing.markdown !== original.markdown;
-    // §3.1 state-change warning: an edited timestamp or status that flips the
-    // report between Ongoing and Resolved needs an explicit second confirmation.
+    // An edited timestamp or status that flips the report between Ongoing
+    // and Resolved needs an explicit second confirmation.
     const flip = stateFlipDirection(report.updates, {
       id: editing.id,
       status: editing.status,
@@ -606,8 +608,8 @@ export function ReportEditor({ report, monitors }: { report: ReportData | null; 
               {report ? (
                 <ul className="space-y-4 border-t border-[var(--border)] pt-5">
                   {report.updates.map((update) => {
-                    // §3.1: deleting the latest resolving update can flip the
-                    // report back to Ongoing — warn inside the delete confirm.
+                    // Deleting the latest resolving update can flip the
+                    // report back to Ongoing; warn inside the delete confirm.
                     const deleteFlip =
                       confirmDeleteUpdateId === update.id ? stateFlipAfterRemoval(report.updates, update.id) : null;
                     return (
@@ -781,6 +783,7 @@ export function ReportEditor({ report, monitors }: { report: ReportData | null; 
           )}
         </div>
       </div>
+      {guardDialog}
     </div>
   );
 }

@@ -6,11 +6,11 @@ import { cn } from "@/lib/utils";
 
 /**
  * Public status shell. All personalization here is inert server-rendered
- * markup — the client bundle does not grow.
+ * markup: the client bundle does not grow.
  *
  * customHead injection: a nested App Router segment cannot reach the real
  * <head> (only the root layout renders it), and React can only hoist parsed
- * elements — never a raw HTML string. So the accepted-self-XSS customHead
+ * elements, never a raw HTML string. So the accepted-self-XSS customHead
  * string is emitted as the first markup inside the page shell instead:
  * browsers execute <script>, apply <link rel=stylesheet>, and honor <style>
  * identically in body, which covers the analytics/fonts/styling this field
