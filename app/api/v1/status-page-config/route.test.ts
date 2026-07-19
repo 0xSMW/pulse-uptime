@@ -252,6 +252,31 @@ describe("PUT /api/v1/status-page-config", () => {
     await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
   });
 
+  it("recover revalidates the status layout before returning the recovered 200, and only on a hit (finding: a committed-then-crashed write dies before work()'s revalidatePath, so a recovered retry that skips revalidation keeps serving the stale public status layout until the normal ISR window)", async () => {
+    const submitted = fullDocument({ name: "Acme Status" });
+    await PUT(putRequest(submitted, { "If-Match": '"5"' }));
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
+    };
+
+    // Recovery hit: the same revalidation as the work path, same args.
+    const recoveredData = { ...submitted, updatedAt: "2026-07-18T00:18:20.000Z", version: 6 };
+    vi.mocked(getStatusPageConfig).mockResolvedValue({ data: recoveredData as never, etag: '"6"' });
+    vi.mocked(revalidatePath).mockClear();
+    await expect(options.recover({ operationId: "op-1" })).resolves.toEqual({ status: 200, body: recoveredData });
+    expect(revalidatePath).toHaveBeenCalledWith("/status", "layout");
+    expect(revalidatePath).toHaveBeenCalledTimes(1);
+
+    // Recovery miss: nothing was proven committed, so nothing revalidates.
+    vi.mocked(getStatusPageConfig).mockResolvedValue({
+      data: { ...submitted, name: "Something Else", updatedAt: "2026-07-18T00:00:00.000Z", version: 5 } as never,
+      etag: '"5"',
+    });
+    vi.mocked(revalidatePath).mockClear();
+    await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
   it("recover refuses a document match whose version could not have been produced by THIS retry's If-Match (finding: a stale-If-Match's document merely happening to equal the current document — e.g. another writer advancing the version further, or converging on the same edit from a different base — must not be treated as this retry's own recovered success)", async () => {
     const submitted = fullDocument({ name: "Acme Status" });
     await PUT(putRequest(submitted, { "If-Match": '"5"' }));

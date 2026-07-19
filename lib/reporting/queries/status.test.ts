@@ -237,10 +237,89 @@ describe("getPublicStatus", () => {
     expect(data!.reports.ongoing).toHaveLength(1);
     expect(data!.reports.ongoing[0]!.id).toBe("report-1");
     expect(data!.overallState).toBe("outage");
-    // With zero visible monitors the group's display name is unknowable from
-    // a slug, so the report fetch must stay unfiltered and the slug filter
-    // scopes the results afterwards.
-    expect(getPublicReports).toHaveBeenCalledWith(undefined, undefined);
+    // With zero visible monitors the scoping can only come from the slug:
+    // getPublicReports resolves it back to the snapshotted group names, so
+    // the fetch is still group-scoped and the row caps cannot starve it.
+    expect(getPublicReports).toHaveBeenCalledWith(undefined, { monitorIds: [], groupSlug: "core" });
+  });
+
+  it("renders an archived-only group whose sole resolved report is older than 10 unrelated resolved reports (finding: with zero visible monitors the fetch ran unscoped, so the global resolved cap dropped the report before the slug filter and the page 404'd)", async () => {
+    vi.mocked(getStatusPageConfig).mockResolvedValue(resolvedConfig());
+    dbMock.select.mockReturnValue(selectChain([])); // all Core monitors archived
+    function resolvedEntry(id: string, groupName: string) {
+      return {
+        id,
+        type: "incident" as const,
+        title: `${groupName} outage`,
+        startsAt: "2026-07-18T10:00:00.000Z",
+        endsAt: null,
+        publishedAt: "2026-07-18T10:00:00.000Z",
+        resolvedAt: "2026-07-18T11:00:00.000Z",
+        originIncidentId: null,
+        currentStatus: "resolved" as const,
+        phase: "resolved" as const,
+        latestUpdate: null,
+        affected: [{ monitorId: `${id}-mon`, monitorName: `${groupName} API`, groupName, impact: "down" as const }],
+      };
+    }
+    // The service applies its resolved cap AFTER scoping, so an unscoped
+    // call surfaces only the 10 fresher unrelated reports while a scoped
+    // call surfaces the group's own older report. Under the old code the
+    // archived-only page called unscoped, saw zero matching rows after the
+    // slug filter, and returned null.
+    vi.mocked(getPublicReports).mockImplementation(async (_deps, filter) => ({
+      ongoing: [],
+      upcoming: [],
+      windowEnded: [],
+      resolved: filter?.groupSlug === "core"
+        ? [resolvedEntry("report-core", "Core")]
+        : Array.from({ length: 10 }, (_, index) => resolvedEntry(`report-other-${index}`, "Elsewhere")),
+    }));
+
+    const data = await getPublicStatus("core");
+
+    expect(getPublicReports).toHaveBeenCalledWith(undefined, { monitorIds: [], groupSlug: "core" });
+    expect(data).not.toBeNull();
+    expect(data!.reports.resolved.map((report) => report.id)).toEqual(["report-core"]);
+  });
+
+  it("shows a report whose snapshotted group name differs from the live one only in accents/case (same slug) on the group page (finding: the SQL prefilter compared raw strings, excluding a 'Café' snapshot from /status/cafe once the group was respelled 'Cafe')", async () => {
+    vi.mocked(getStatusPageConfig).mockResolvedValue(resolvedConfig());
+    const monitorRow = { id: "mon-live", name: "Espresso API", groupName: "Cafe", state: "UP" };
+    dbMock.select
+      .mockReturnValueOnce(selectChain([monitorRow])) // monitors
+      .mockReturnValueOnce(selectChain([])) // rollups
+      .mockReturnValueOnce(selectChain([])) // current incidents
+      .mockReturnValueOnce(selectChain([])); // recent incidents
+    vi.mocked(getPublicReports).mockResolvedValue({
+      ongoing: [{
+        id: "report-cafe",
+        type: "incident",
+        title: "Legacy cafe outage",
+        startsAt: "2026-07-18T10:00:00.000Z",
+        endsAt: null,
+        publishedAt: "2026-07-18T10:00:00.000Z",
+        resolvedAt: null,
+        originIncidentId: null,
+        currentStatus: "investigating",
+        phase: "ongoing",
+        latestUpdate: null,
+        // Archived monitor snapshotted under the accented spelling. Both
+        // "Café" and the live "Cafe" slug to "cafe".
+        affected: [{ monitorId: "mon-archived", monitorName: "Latte API", groupName: "Café", impact: "down" }],
+      }],
+      upcoming: [],
+      windowEnded: [],
+      resolved: [],
+    });
+
+    const data = await getPublicStatus("cafe");
+
+    // The fetch passes the slug down, so the SQL prefilter can resolve it to
+    // every snapshotted spelling instead of comparing live names raw.
+    expect(getPublicReports).toHaveBeenCalledWith(undefined, { monitorIds: ["mon-live"], groupSlug: "cafe" });
+    expect(data).not.toBeNull();
+    expect(data!.reports.ongoing.map((report) => report.id)).toEqual(["report-cafe"]);
   });
 
   it("still returns null for an unknown group even when other groups have published reports", async () => {
@@ -270,7 +349,7 @@ describe("getPublicStatus", () => {
     expect(data).toBeNull();
   });
 
-  it("scopes getPublicReports to the group's monitors/group names on a group page, and leaves the root page unfiltered", async () => {
+  it("scopes getPublicReports to the group's monitor ids and slug on a group page, and leaves the root page unfiltered", async () => {
     vi.mocked(getStatusPageConfig).mockResolvedValue(resolvedConfig());
     const monitorRow = { id: "mon-1", name: "API", groupName: "Core", state: "UP" };
     dbMock.select
@@ -280,7 +359,7 @@ describe("getPublicStatus", () => {
       .mockReturnValueOnce(selectChain([])); // recent incidents
 
     await getPublicStatus("core");
-    expect(getPublicReports).toHaveBeenCalledWith(undefined, { monitorIds: ["mon-1"], groupNames: ["Core"] });
+    expect(getPublicReports).toHaveBeenCalledWith(undefined, { monitorIds: ["mon-1"], groupSlug: "core" });
 
     vi.mocked(getPublicReports).mockClear();
     dbMock.select.mockReturnValue(selectChain([]));

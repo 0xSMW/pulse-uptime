@@ -207,6 +207,9 @@ function memoryStore(monitors: Array<{ id: string; name: string; groupName: stri
     async findIncident(incidentId) {
       return incidents.get(incidentId) ?? null;
     },
+    async getAffectedGroupNames() {
+      return [...new Set(affected.map((row) => row.groupName))];
+    },
     async getPublicReportRows({ resolvedLimit, now, filter }) {
       // Deliberately sloppier than the SQL (includes drafts) so the service's
       // own draft filter is exercised.
@@ -1464,7 +1467,51 @@ describe("getPublicReports", () => {
     const unfiltered = await getPublicReports(deps);
     expect(unfiltered.resolved.map((row) => row.id)).not.toContain(coreReport.id);
 
-    const filtered = await getPublicReports(deps, { monitorIds: ["api-prod"], groupNames: ["Core"] });
+    const filtered = await getPublicReports(deps, { monitorIds: ["api-prod"], groupSlug: "core" });
     expect(filtered.resolved.map((row) => row.id)).toEqual([coreReport.id]);
+  });
+
+  it("keeps an archived-only group's older resolved report inside the resolved cap via the slug alone (finding: with zero visible monitors the fetch ran unscoped, so 10 unrelated resolved reports starved the group's history and 404'd the page)", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    // The group's only report, resolved BEFORE all the unrelated history
+    // below, affecting a monitor that has since been archived. Only the
+    // snapshotted group name ties it to /status/core.
+    const coreReport = await createStatusReport(validCreate, deps);
+    await addReportUpdate(coreReport.id, {
+      status: "resolved", markdown: "Done.", publishedAt: "2026-07-18T12:30:00.000Z",
+    }, deps);
+    // 10 unrelated (web / "Other" group) resolved reports fill the global top 10.
+    for (let index = 0; index < 10; index += 1) {
+      const report = await createStatusReport({
+        ...validCreate, title: `Other resolved ${index}`,
+        affected: [{ monitorId: "web", impact: "down" }],
+      }, deps);
+      await addReportUpdate(report.id, {
+        status: "resolved", markdown: "Done.", publishedAt: `2026-07-18T${13 + index}:00:00.000Z`,
+      }, deps);
+    }
+
+    // monitorIds is EMPTY: every Core monitor is archived, so scoping can
+    // only come from the slug resolving to the snapshotted "Core" name.
+    const filtered = await getPublicReports(deps, { monitorIds: [], groupSlug: "core" });
+    expect(filtered.resolved.map((row) => row.id)).toEqual([coreReport.id]);
+  });
+
+  it("matches a snapshotted group name by slug, not raw string (finding: a 'Café' snapshot was excluded from /status/cafe by the SQL prefilter when the live group is now 'Cafe')", async () => {
+    const store = memoryStore([{ id: "cafe-1", name: "Cafe API", groupName: "Café" }]);
+    const deps = dependencies(store);
+    const report = await createStatusReport({
+      type: "incident",
+      title: "Cafe outage",
+      affected: [{ monitorId: "cafe-1", impact: "down" }],
+      update: { status: "investigating", markdown: "We are investigating." },
+    }, deps);
+
+    // The affected monitor is archived by the time the page loads, and the
+    // group's live monitors (if any) now spell the name "Cafe". Both spellings
+    // slug to "cafe", so the report must survive the prefilter.
+    const filtered = await getPublicReports(deps, { monitorIds: [], groupSlug: "cafe" });
+    expect(filtered.ongoing.map((row) => row.id)).toEqual([report.id]);
   });
 });

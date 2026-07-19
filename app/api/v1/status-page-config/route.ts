@@ -129,6 +129,13 @@ export async function PUT(request: Request) {
         void _currentUpdatedAt;
         void _currentVersion;
         if (canonicalSerialize(currentDocument) !== canonicalSerialize(parsed.data)) return null;
+        // A recovered 200 means the write committed but the original attempt
+        // died before work() below could run its revalidatePath, so the ISR
+        // layout may still be serving the pre-write config. Revalidation is
+        // idempotent, so repeating it when the crash landed after the original
+        // revalidate is harmless, and skipping it here would leave the public
+        // status layout stale until the normal ISR window refreshes it.
+        revalidatePath("/status", "layout");
         return { status: 200, body: current.data };
       },
       rerunAfterRecoveryMiss: false,

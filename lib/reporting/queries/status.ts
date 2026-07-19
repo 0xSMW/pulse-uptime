@@ -205,18 +205,18 @@ async function loadPublicStatus(group?: string) {
     : monitors;
 
   const ids = visible.map((monitor) => monitor.id);
-  // Group pages scope query 1 of getPublicReports to this group's monitors so
-  // the resolved-history LIMIT is applied after group filtering. Otherwise a
-  // global top-10 resolved list can starve a group's history even though
-  // older relevant resolved reports exist. The root page (no `group`) stays
-  // unfiltered, and so does a group page with zero visible monitors: the
-  // group's display name is not recoverable from a slug alone, so the SQL
-  // filter cannot express "this slug" and the slug filter below must see the
-  // full report set. filterReportsForGroupSlug below still runs as a
-  // defense-in-depth pass over whatever this returns.
-  const publicReportsFilter = group && visible.length > 0
-    ? { monitorIds: ids, groupNames: [...new Set(visible.map((monitor) => monitor.groupName ?? "Other"))] }
-    : undefined;
+  // Every group page scopes query 1 of getPublicReports to this group, with
+  // or without visible monitors, so the unresolved and resolved row caps are
+  // applied after group scoping. An unscoped fetch lets unrelated reports
+  // fill the caps and starve a group whose only reports are older, which
+  // would 404 an archived-only group that still has published history. The
+  // slug is passed down (never live group names) because getPublicReports
+  // resolves it back to the exact snapshotted group names, keeping a report
+  // matched even when the snapshot spells the group differently (accents,
+  // case, punctuation) than the live monitors do. The root page (no `group`)
+  // stays unfiltered so its caps stay global. filterReportsForGroupSlug
+  // below still runs as a defense-in-depth pass over whatever this returns.
+  const publicReportsFilter = group ? { monitorIds: ids, groupSlug: group } : undefined;
   // One parallel fan-out per revalidation: the three monitor-scoped queries
   // plus the batched public-reports read (itself exactly 3 queries).
   const [publicReports, [rollups, current, recent]] = await Promise.all([

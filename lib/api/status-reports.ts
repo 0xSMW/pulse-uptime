@@ -15,6 +15,7 @@ import {
   type statusReportTypes,
   type statusReportUpdateStatuses,
 } from "@/lib/db/schema";
+import { statusGroupSlug } from "@/lib/reporting/queries/timeline";
 
 import { decodeCursor, encodeCursor } from "./pagination";
 
@@ -248,8 +249,16 @@ export interface StatusReportsStore {
   getPublicReportRows(input: {
     resolvedLimit: number;
     now: Date;
-    filter?: PublicReportsFilter;
+    filter?: PublicReportRowsFilter;
   }): Promise<StatusReportRow[]>;
+  /**
+   * Distinct group names ever snapshotted into affected rows, null included.
+   * Backs slug scoping in getPublicReports: statusGroupSlug cannot be
+   * reproduced faithfully in SQL (NFKD normalization, diacritics), so the
+   * service enumerates the snapshot names, slugs them in JS, and hands the
+   * exact matching names to getPublicReportRows for raw-string comparison.
+   */
+  getAffectedGroupNames(): Promise<Array<string | null>>;
   /** Query 2: latest update per report via DISTINCT ON, total-order aligned. */
   getLatestUpdates(reportIds: readonly string[]): Promise<StatusReportUpdateRow[]>;
   /** Query 3: affected rows for the page of reports. */
@@ -1227,13 +1236,24 @@ export const PUBLIC_RESOLVED_LIMIT = 10;
 
 /**
  * Group-page scoping: a report matches iff it affects a monitor in the
- * group, by live monitor id or by the snapshotted group name (mirrors
- * filterReportsForGroup in lib/status-page/reports-display.ts). Passed
- * through to getPublicReportRows so the resolved-history LIMIT is applied
- * AFTER group scoping, not before. Otherwise a global top-10 can starve a
- * group's history even though older relevant resolved reports exist.
+ * group, by live monitor id or by the SLUG of the snapshotted group name
+ * (mirrors filterReportsForGroupSlug in lib/reporting/queries/status.ts).
+ * Passed through to getPublicReportRows so the unresolved and resolved
+ * LIMITs are applied AFTER group scoping, not before. Otherwise a global
+ * top-10 can starve a group's history even though older relevant resolved
+ * reports exist. Callers hand over the URL slug, never live group names: a
+ * raw-name comparison would drop a report whose snapshot spells the group
+ * differently (accents, case, punctuation) than the live monitors do even
+ * though both collapse to the same slug, and an archived-only group has no
+ * live names to compare at all.
  */
-export type PublicReportsFilter = { monitorIds: readonly string[]; groupNames: readonly string[] };
+export type PublicReportsFilter = { monitorIds: readonly string[]; groupSlug: string };
+
+/**
+ * Store-level prefilter with the slug already resolved to the exact
+ * snapshotted group names it matches, so the store can compare raw strings.
+ */
+export type PublicReportRowsFilter = { monitorIds: readonly string[]; groupNames: readonly string[] };
 
 /**
  * Lifecycle rules: upcoming = published ∧ startsAt > now, for EITHER
@@ -1265,7 +1285,8 @@ export function classifyPublicReport(
  * contract total order, (3) affected rows. Drafts never appear.
  *
  * `filter` scopes query 1 to a single group's reports (via EXISTS against
- * status_report_affected) for /status/[group] pages. The root page passes no
+ * status_report_affected) for /status/[group] pages, adding one small
+ * distinct-names query up front to resolve the slug. The root page passes no
  * filter so its resolved LIMIT stays global. Queries 2 and 3 automatically
  * inherit the scoping since they only fan out over the ids query 1 returned.
  */
@@ -1275,7 +1296,22 @@ export async function getPublicReports(
 ): Promise<PublicReports> {
   const store = dependencies.store ?? databaseStatusReportsStore;
   const now = dependencies.now?.() ?? new Date();
-  const rows = await store.getPublicReportRows({ resolvedLimit: PUBLIC_RESOLVED_LIMIT, now, filter });
+  // Slug resolution happens in JS, never in SQL: statusGroupSlug's NFKD
+  // normalization and punctuation folding have no portable SQL equivalent,
+  // so the exact snapshot names whose slug matches are enumerated here and
+  // the store compares raw strings against that list. By construction the
+  // SQL prefilter then keeps exactly the affected rows the JS slug filter
+  // (filterReportsForGroupSlug) would keep, so the row caps inside
+  // getPublicReportRows apply after group scoping and can never starve a
+  // group whose only reports are older than unrelated global history.
+  const rowsFilter = filter
+    ? {
+        monitorIds: filter.monitorIds,
+        groupNames: [...new Set((await store.getAffectedGroupNames()).map((name) => name ?? "Other"))]
+          .filter((name) => statusGroupSlug(name) === filter.groupSlug),
+      }
+    : undefined;
+  const rows = await store.getPublicReportRows({ resolvedLimit: PUBLIC_RESOLVED_LIMIT, now, filter: rowsFilter });
   const published = rows.filter((row) => row.publishedAt !== null);
   const ids = published.map((row) => row.id);
   const [latestUpdates, affected] = ids.length === 0
@@ -1670,10 +1706,23 @@ export const databaseStatusReportsStore: StatusReportsStore = {
     return row ?? null;
   },
 
+  async getAffectedGroupNames() {
+    // Distinct snapshot names are bounded by the number of group names ever
+    // used across published reports, far below this cap in any real
+    // deployment (the registry itself caps at 100 live monitors). The LIMIT
+    // only guards against a pathological table scan.
+    const rows = await db
+      .selectDistinct({ groupName: statusReportAffected.groupName })
+      .from(statusReportAffected)
+      .limit(10_000);
+    return rows.map((row) => row.groupName);
+  },
+
   async getPublicReportRows({ resolvedLimit, now, filter }) {
-    // group scoping: EXISTS against status_report_affected, matching
-    // either a live monitor id or the row's (possibly snapshotted) group
-    // name. Mirrors filterReportsForGroup. Rides the same 2 branches below,
+    // group scoping: EXISTS against status_report_affected, matching either
+    // a live monitor id or the row's snapshotted group name. The names
+    // arrive pre-resolved from the page slug (see getPublicReports), so this
+    // raw-string comparison is slug-exact. Rides the same 2 branches below,
     // no extra query.
     const groupScope = filter
       ? sql`exists (
