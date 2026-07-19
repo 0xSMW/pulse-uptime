@@ -115,4 +115,69 @@ describe("compareArtifacts", () => {
     expect(report.cases[0]!.rowCountChanged).toBe(true);
     expect(report.cases[0]!.reasons.some((reason) => reason.includes("Root row count changed"))).toBe(true);
   });
+
+  it("flags a regression when shared buffer reads go from a fully-warm zero baseline to a large candidate value", () => {
+    // pctDelta(0, N) is null, so before the fix the buffer-regression branch
+    // (which required bufferReadDeltaPct !== null) never fired here.
+    const baseline = artifact("baseline", [result("case-a", [sample({ sharedReadBlocks: 0 })])]);
+    const candidate = artifact("candidate", [result("case-a", [sample({ sharedReadBlocks: 500 })])]);
+    const report = compareArtifacts(baseline, candidate, DEFAULT_THRESHOLDS);
+    expect(report.hasRegression).toBe(true);
+    expect(report.cases[0]!.verdict).toBe("regressed");
+    expect(report.cases[0]!.bufferReadDeltaPct).toBeNull();
+    expect(report.cases[0]!.reasons.some((reason) => reason.includes("Shared buffer reads regressed from 0"))).toBe(true);
+  });
+
+  it("does not flag a zero-baseline buffer case below the absolute-blocks floor", () => {
+    const baseline = artifact("baseline", [result("case-a", [sample({ sharedReadBlocks: 0 })])]);
+    const candidate = artifact("candidate", [result("case-a", [sample({ sharedReadBlocks: 3 })])]);
+    const report = compareArtifacts(baseline, candidate, DEFAULT_THRESHOLDS);
+    expect(report.hasRegression).toBe(false);
+  });
+
+  it("does not flag a zero-baseline, zero-candidate buffer case", () => {
+    const baseline = artifact("baseline", [result("case-a", [sample({ sharedReadBlocks: 0 })])]);
+    const candidate = artifact("candidate", [result("case-a", [sample({ sharedReadBlocks: 0 })])]);
+    const report = compareArtifacts(baseline, candidate, DEFAULT_THRESHOLDS);
+    expect(report.hasRegression).toBe(false);
+    expect(report.cases[0]!.verdict).toBe("unchanged");
+  });
+
+  it("passes and has no missing/row-count flags when everything is unchanged", () => {
+    const baseline = artifact("baseline", [result("case-a", [sample()])]);
+    const candidate = artifact("candidate", [result("case-a", [sample()])]);
+    const report = compareArtifacts(baseline, candidate);
+    expect(report.passed).toBe(true);
+    expect(report.hasMissingCases).toBe(false);
+    expect(report.hasRowCountChanges).toBe(false);
+  });
+
+  it("fails (passed=false, hasMissingCases=true) when a case is missing from the candidate", () => {
+    const baseline = artifact("baseline", [result("case-a", [sample()]), result("case-b", [sample()])]);
+    const candidate = artifact("candidate", [result("case-a", [sample()])]);
+    const report = compareArtifacts(baseline, candidate);
+    expect(report.hasMissingCases).toBe(true);
+    expect(report.hasRegression).toBe(false);
+    expect(report.passed).toBe(false);
+  });
+
+  it("fails (passed=false, hasRowCountChanges=true) when a case's row count changed", () => {
+    const baseline = artifact("baseline", [result("case-a", [sample({ rootRows: 100 })])]);
+    const candidate = artifact("candidate", [result("case-a", [sample({ rootRows: 50 })])]);
+    const report = compareArtifacts(baseline, candidate);
+    expect(report.hasRowCountChanges).toBe(true);
+    expect(report.hasRegression).toBe(false);
+    expect(report.passed).toBe(false);
+  });
+
+  it("does not fail for a case that is new in the candidate (missing-in-baseline)", () => {
+    const baseline = artifact("baseline", [result("case-a", [sample()])]);
+    const candidate = artifact("candidate", [result("case-a", [sample()]), result("case-b", [sample()])]);
+    const report = compareArtifacts(baseline, candidate);
+    const byName = new Map(report.cases.map((entry) => [entry.name, entry]));
+    expect(byName.get("case-b")!.verdict).toBe("missing-in-baseline");
+    expect(report.hasMissingCases).toBe(false);
+    expect(report.hasRowCountChanges).toBe(false);
+    expect(report.passed).toBe(true);
+  });
 });

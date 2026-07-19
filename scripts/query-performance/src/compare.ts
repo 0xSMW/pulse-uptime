@@ -64,6 +64,18 @@ export interface ComparisonReport {
   thresholds: Thresholds;
   cases: CaseComparison[];
   hasRegression: boolean;
+  // A case present in the baseline but absent from the candidate — a query
+  // was removed or renamed without anyone noticing. Always a failure.
+  hasMissingCases: boolean;
+  // A case whose root row count changed between baseline and candidate —
+  // the candidate may no longer be returning equivalent results. Always a
+  // failure; the caller should look at each case's `rowCountChanged` flag
+  // and verify manually before trusting the new query.
+  hasRowCountChanges: boolean;
+  // True only when none of the above are true. Prefer this over
+  // re-deriving the same OR across hasRegression / hasMissingCases /
+  // hasRowCountChanges at call sites.
+  passed: boolean;
 }
 
 function pctDelta(baselineValue: number, candidateValue: number): number | null {
@@ -107,6 +119,12 @@ function compareCase(
   const reasons: string[] = [];
   let regressed = false;
   const absoluteTimeDeltaMs = candidate.executionTimeMs - baseline.executionTimeMs;
+  // Unlike sharedReadBlocks, a zero baseline here is not a realistic case
+  // worth special-casing: Postgres's "Execution Time" in EXPLAIN (ANALYZE)
+  // output is a wall-clock measurement with sub-millisecond floating-point
+  // precision, so a real median across repeats is never exactly 0 — there
+  // is no equivalent "fully warm, zero cost" state for elapsed time the way
+  // there is for shared buffer reads.
   if (
     executionTimeDeltaPct !== null &&
     executionTimeDeltaPct > thresholds.timeRegressionPct &&
@@ -118,14 +136,24 @@ function compareCase(
     );
   }
   const absoluteBufferDelta = candidate.sharedReadBlocks - baseline.sharedReadBlocks;
+  // pctDelta(0, N) is null for any N > 0 — a percentage regression is
+  // undefined when the baseline did zero shared reads (fully warm cache).
+  // Without this branch a baseline of 0 and a candidate of hundreds of
+  // blocks would pass silently because bufferReadDeltaPct !== null never
+  // holds. Fall back to an absolute-blocks comparison in that case.
+  const zeroBaselineBufferRegression =
+    baseline.sharedReadBlocks === 0 && candidate.sharedReadBlocks > thresholds.minAbsoluteBlocks;
   if (
-    bufferReadDeltaPct !== null &&
-    bufferReadDeltaPct > thresholds.bufferRegressionPct &&
-    absoluteBufferDelta > thresholds.minAbsoluteBlocks
+    zeroBaselineBufferRegression ||
+    (bufferReadDeltaPct !== null &&
+      bufferReadDeltaPct > thresholds.bufferRegressionPct &&
+      absoluteBufferDelta > thresholds.minAbsoluteBlocks)
   ) {
     regressed = true;
     reasons.push(
-      `Shared buffer reads regressed ${bufferReadDeltaPct.toFixed(1)}% (${baseline.sharedReadBlocks} -> ${candidate.sharedReadBlocks} blocks).`,
+      zeroBaselineBufferRegression
+        ? `Shared buffer reads regressed from 0 to ${candidate.sharedReadBlocks} blocks (baseline was fully cached, so a percentage change is undefined).`
+        : `Shared buffer reads regressed ${bufferReadDeltaPct!.toFixed(1)}% (${baseline.sharedReadBlocks} -> ${candidate.sharedReadBlocks} blocks).`,
     );
   }
   if (rowCountChanged) {
@@ -147,12 +175,20 @@ export function compareArtifacts(
   const names = [...new Set([...baselineByName.keys(), ...candidateByName.keys()])].sort();
 
   const cases = names.map((name) => compareCase(name, baselineByName.get(name), candidateByName.get(name), thresholds));
+  const hasRegression = cases.some((entry) => entry.verdict === "regressed");
+  // Deliberately excludes "missing-in-baseline" (a case newly added in the
+  // candidate) — that's expected growth, not a failure.
+  const hasMissingCases = cases.some((entry) => entry.verdict === "missing-in-candidate");
+  const hasRowCountChanges = cases.some((entry) => entry.rowCountChanged);
   return {
     createdAt: candidate.createdAt,
     baselineLabel: baseline.label,
     candidateLabel: candidate.label,
     thresholds,
     cases,
-    hasRegression: cases.some((entry) => entry.verdict === "regressed"),
+    hasRegression,
+    hasMissingCases,
+    hasRowCountChanges,
+    passed: !hasRegression && !hasMissingCases && !hasRowCountChanges,
   };
 }

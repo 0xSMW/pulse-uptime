@@ -2,8 +2,12 @@
 
 import { Search } from "lucide-react";
 import Link from "next/link";
-// Semi-public path: the only way to request a FULL (dynamic-data) prefetch
-// through router.prefetch() in Next 16 — the public default is shell-only.
+// Private path: as of Next 16.2.10, `next/navigation` exposes no public way
+// to request a FULL (dynamic-data) prefetch — router.prefetch()'s public
+// PrefetchOptions.kind type traces back to this same internal enum with no
+// public re-export. Access is isolated behind resolveFullPrefetchOptions()
+// below so a future Next upgrade that renames/removes PrefetchKind.FULL
+// degrades to a shell-only prefetch instead of throwing on every row hover.
 import { PrefetchKind } from "next/dist/client/components/router-reducer/router-reducer-types";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -26,6 +30,39 @@ export type DashboardMonitor = {
 };
 
 const rowInteractiveSelector = "a, button, input, select, textarea, summary, [role='button'], [role='link'], [contenteditable='true']";
+
+// Only fire the hover-triggered prefetch once the pointer has rested on a
+// row for this long — sweeping the mouse across N rows on the way to a
+// target would otherwise fire N full server-rendered prefetches.
+export const HOVER_PREFETCH_DELAY_MS = 120;
+
+// Resolved once (lazily) and cached for the module's lifetime. Isolated here
+// so the fragile private import above only has one call site: if
+// PrefetchKind.FULL is ever missing/renamed, this catches it and callers
+// silently fall back to an un-optioned (shell-only) router.prefetch() call
+// instead of the page crashing.
+let cachedFullPrefetchOptions: { kind: PrefetchKind } | undefined;
+let resolvedFullPrefetchOptions = false;
+function resolveFullPrefetchOptions(): { kind: PrefetchKind } | undefined {
+  if (!resolvedFullPrefetchOptions) {
+    resolvedFullPrefetchOptions = true;
+    try {
+      cachedFullPrefetchOptions = PrefetchKind.FULL ? { kind: PrefetchKind.FULL } : undefined;
+    } catch {
+      cachedFullPrefetchOptions = undefined;
+    }
+  }
+  return cachedFullPrefetchOptions;
+}
+
+// Tracks which monitor ids have already been prefetched so a row that's
+// hovered/focused repeatedly only ever issues one full prefetch. Pure and
+// standalone so it's unit-testable without mounting the table.
+export function shouldPrefetchMonitor(monitorId: string, prefetchedIds: Set<string>): boolean {
+  if (prefetchedIds.has(monitorId)) return false;
+  prefetchedIds.add(monitorId);
+  return true;
+}
 
 // Modified/aux clicks open new tabs (or nothing) — no client navigation
 // happens in this tab, so they must not enter the pending state.
@@ -73,6 +110,8 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
   const [pendingMonitorId, setPendingMonitorId] = useState<string | null>(null);
   const pendingResetRef = useRef<number | undefined>(undefined);
   const inputRef = useRef<HTMLInputElement>(null);
+  const hoverIntentRef = useRef<number | undefined>(undefined);
+  const prefetchedIdsRef = useRef<Set<string>>(new Set());
 
   // Successful navigation unmounts the table; this failsafe clears the pulse
   // when it doesn't (superseded navigation, error, modified click slipping by).
@@ -82,6 +121,22 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
     pendingResetRef.current = window.setTimeout(() => setPendingMonitorId(null), 8_000);
   };
   useEffect(() => () => window.clearTimeout(pendingResetRef.current), []);
+
+  const prefetchMonitor = (monitorId: string) => {
+    if (!shouldPrefetchMonitor(monitorId, prefetchedIdsRef.current)) return;
+    router.prefetch(`/monitors/${encodeURIComponent(monitorId)}`, resolveFullPrefetchOptions());
+  };
+
+  // Keyboard focus is a deliberate signal, so prefetch right away; a mouse
+  // sweeping past the row on its way elsewhere should not.
+  const handleRowMouseEnter = (monitorId: string) => {
+    window.clearTimeout(hoverIntentRef.current);
+    hoverIntentRef.current = window.setTimeout(() => prefetchMonitor(monitorId), HOVER_PREFETCH_DELAY_MS);
+  };
+  const handleRowMouseLeave = () => {
+    window.clearTimeout(hoverIntentRef.current);
+  };
+  useEffect(() => () => window.clearTimeout(hoverIntentRef.current), []);
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return monitors;
@@ -152,8 +207,9 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
                 }}
                 // Rows are unbounded, so no viewport prefetch — a full dynamic
                 // prefetch fires on hover/focus instead, when intent is clear.
-                onMouseEnter={() => router.prefetch(`/monitors/${encodeURIComponent(monitor.id)}`, { kind: PrefetchKind.FULL })}
-                onFocus={() => router.prefetch(`/monitors/${encodeURIComponent(monitor.id)}`, { kind: PrefetchKind.FULL })}
+                onMouseEnter={() => handleRowMouseEnter(monitor.id)}
+                onMouseLeave={handleRowMouseLeave}
+                onFocus={() => prefetchMonitor(monitor.id)}
                 className={cn(
                   "h-[60px] cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--hover)]",
                   monitor.state === "DOWN" && "shadow-[inset_3px_0_var(--down)]",

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { isPlainLeftClick, navigateFromMonitorRow } from "./monitor-table";
+import { HOVER_PREFETCH_DELAY_MS, isPlainLeftClick, navigateFromMonitorRow, shouldPrefetchMonitor } from "./monitor-table";
 
 function targetWithClosest(result: Element | null): EventTarget {
   return { closest: vi.fn(() => result) } as unknown as EventTarget;
@@ -42,5 +42,41 @@ describe("isPlainLeftClick", () => {
     ["defaultPrevented", { ...plain, defaultPrevented: true }],
   ])("rejects %s clicks so they never enter the pending state", (_label, event) => {
     expect(isPlainLeftClick(event)).toBe(false);
+  });
+});
+
+describe("shouldPrefetchMonitor", () => {
+  it("allows the first prefetch for a monitor id and records it", () => {
+    const prefetched = new Set<string>();
+
+    const allowed = shouldPrefetchMonitor("mon-1", prefetched);
+
+    expect(allowed).toBe(true);
+    expect(prefetched.has("mon-1")).toBe(true);
+  });
+
+  it("skips repeat prefetches for an id already seen this lifetime", () => {
+    const prefetched = new Set<string>(["mon-1"]);
+
+    const allowed = shouldPrefetchMonitor("mon-1", prefetched);
+
+    expect(allowed).toBe(false);
+    expect(prefetched.size).toBe(1);
+  });
+
+  it("tracks multiple ids independently", () => {
+    const prefetched = new Set<string>();
+
+    expect(shouldPrefetchMonitor("mon-1", prefetched)).toBe(true);
+    expect(shouldPrefetchMonitor("mon-2", prefetched)).toBe(true);
+    expect(shouldPrefetchMonitor("mon-1", prefetched)).toBe(false);
+    expect(prefetched).toEqual(new Set(["mon-1", "mon-2"]));
+  });
+});
+
+describe("HOVER_PREFETCH_DELAY_MS", () => {
+  it("is a short, non-zero hover-intent delay", () => {
+    expect(HOVER_PREFETCH_DELAY_MS).toBeGreaterThan(0);
+    expect(HOVER_PREFETCH_DELAY_MS).toBeLessThanOrEqual(250);
   });
 });

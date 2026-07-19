@@ -29,8 +29,17 @@ async function main() {
   if (report.hasRegression) {
     console.error("[compare-artifacts] regression(s) detected — see reasons above.");
     process.exitCode = 1;
-  } else {
-    console.error("[compare-artifacts] no regressions detected.");
+  }
+  if (report.hasMissingCases) {
+    console.error("[compare-artifacts] case(s) present in the baseline are missing from the candidate — see reasons above.");
+    process.exitCode = 1;
+  }
+  if (report.hasRowCountChanges) {
+    console.error("[compare-artifacts] row count changed for one or more case(s) — verify the candidate still returns equivalent results.");
+    process.exitCode = 1;
+  }
+  if (report.passed) {
+    console.error("[compare-artifacts] no regressions, missing cases, or row-count changes detected.");
   }
 }
 

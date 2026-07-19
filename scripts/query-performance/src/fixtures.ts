@@ -28,7 +28,12 @@ const NOW = new Date();
 
 const CHECK_INTERVAL_MINUTES = 1;
 const CHECK_HISTORY_HOURS = 6;
-const ROLLUP_15M_DAYS = 2;
+// getMonitorDetail's rollupsFor('15m', ...) call scans a 7-day window
+// (query-cases.ts's monitor-detail-rollups-7d case); 8 days gives that
+// production window a full day of margin so the query's end boundary — which
+// tracks the current completed 15m bucket, not the fixture's fixed seed-time
+// bucket — never truncates the 7-day scan against seeded rows.
+const ROLLUP_15M_DAYS = 8;
 const ROLLUP_HOUR_DAYS = 31;
 const ROLLUP_DAY_DAYS = 91;
 const DAILY_ROLLUP_DAYS = 30;
@@ -99,16 +104,42 @@ async function resetFixtureData(conn: GatedConnection): Promise<void> {
   // Deletion order respects FK dependencies (no cascades except
   // atomic_minute_commits -> check_batches, which we still delete explicitly
   // for clarity and to keep this correct if that cascade is ever removed).
+  //
+  // exception_payloads rows are exclusively linked from
+  // monitor_exceptions.payload_id (nullable, ON DELETE SET NULL) -- there's
+  // no tag column on the payload row itself, so scope the delete to payloads
+  // still referenced by a fixture-tagged monitor_exceptions row. This must
+  // run before the monitor_exceptions delete two lines down, while that link
+  // still exists to scope on.
+  await db.delete(schema.exceptionPayloads).where(
+    dsql`${schema.exceptionPayloads.id} in (
+      select payload_id from monitor_exceptions
+      where monitor_id like 'qh-%' and payload_id is not null
+    )`,
+  );
   await db.delete(schema.monitorExceptions).where(dsql`${schema.monitorExceptions.monitorId} like 'qh-%'`);
-  await db.delete(schema.exceptionPayloads).where(dsql`true`);
   await db.delete(schema.notificationOutbox).where(dsql`${schema.notificationOutbox.monitorId} like 'qh-%'`);
   await db.delete(schema.incidents).where(dsql`${schema.incidents.monitorId} like 'qh-%'`);
   await db.delete(schema.checkResults).where(dsql`${schema.checkResults.monitorId} like 'qh-%'`);
   await db.delete(schema.metricRollups).where(dsql`${schema.metricRollups.monitorId} like 'qh-%'`);
   await db.delete(schema.dailyRollups).where(dsql`${schema.dailyRollups.monitorId} like 'qh-%'`);
   await db.delete(schema.monitorState).where(dsql`${schema.monitorState.monitorId} like 'qh-%'`);
-  await db.delete(schema.atomicMinuteCommits).where(dsql`true`);
-  await db.delete(schema.checkBatches).where(dsql`true`);
+  // check_batches/atomic_minute_commits have no monitor_id column, but
+  // check_batches.monitor_ids is populated exclusively with this fixture's
+  // "qh-" ids (see insertMaintenanceAndScheduler below) -- a real batch would
+  // never contain one, so "at least one qh-tagged id in the array" is an
+  // ownership predicate the seeder guarantees. atomic_minute_commits has no
+  // tag of its own, so it's scoped by joining back to the still-intact
+  // check_batches rows before they're deleted on the next line.
+  await db.delete(schema.atomicMinuteCommits).where(
+    dsql`${schema.atomicMinuteCommits.scheduledMinute} in (
+      select scheduled_minute from check_batches
+      where exists (select 1 from unnest(monitor_ids) as m where m like 'qh-%')
+    )`,
+  );
+  await db.delete(schema.checkBatches).where(
+    dsql`exists (select 1 from unnest(${schema.checkBatches.monitorIds}) as m where m like 'qh-%')`,
+  );
   await db.delete(schema.monitorRegistry).where(dsql`${schema.monitorRegistry.id} like 'qh-%'`);
 
   await db.delete(schema.monitoringConfigSnapshots).where(dsql`${schema.monitoringConfigSnapshots.source} = 'qh-fixture'`);
@@ -116,7 +147,21 @@ async function resetFixtureData(conn: GatedConnection): Promise<void> {
   await db.delete(schema.configOperations).where(dsql`${schema.configOperations.principalKey} = 'qh-fixture'`);
   await db.delete(schema.cronRuns).where(dsql`${schema.cronRuns.jobName} like 'qh-%'`);
   await db.delete(schema.jobLeases).where(dsql`${schema.jobLeases.name} like 'qh-%'`);
-  await db.delete(schema.databaseUsageSnapshots).where(dsql`true`);
+  // database_usage_snapshots has no monitor/tag column at all -- its PK is
+  // just a captured_at timestamp, so a time-window scope would miss rows
+  // from an earlier seed run's different wall-clock NOW on a plain reset
+  // (no reseed). Instead scope on the exact deterministic signature
+  // insertMaintenanceAndScheduler always writes: governor_mode pinned to
+  // "full", scheduler_coverage pinned to the literal "0.9950", and
+  // storage_bytes on the fixture's fixed arithmetic progression (starts at
+  // 500,000,000, steps by 2,000,000). Real usage snapshots landing on all
+  // three simultaneously is not realistically possible.
+  await db.delete(schema.databaseUsageSnapshots).where(
+    dsql`${schema.databaseUsageSnapshots.governorMode} = 'full'
+      and ${schema.databaseUsageSnapshots.schedulerCoverage} = '0.9950'
+      and ${schema.databaseUsageSnapshots.storageBytes} >= 500000000
+      and mod(${schema.databaseUsageSnapshots.storageBytes} - 500000000, 2000000) = 0`,
+  );
 
   await db.delete(schema.onboardingProgress).where(
     dsql`${schema.onboardingProgress.userId} in (select id from admin_users where email like '%@${dsql.raw(FIXTURE_EMAIL_DOMAIN)}')`,

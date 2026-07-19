@@ -130,8 +130,19 @@ export async function runQueryCase(
   queryCase: QueryCase,
   options: RunOptions,
 ): Promise<QueryCaseResult> {
+  // A benchmark run needs at least one warmup pass to record in
+  // QueryCaseResult.warmup — reject rather than silently produce a result
+  // with no warmup sample. run-benchmark.ts's parseArgs already enforces
+  // this before a DB connection is opened; this is defense in depth for any
+  // other caller.
+  if (options.warmupCount < 1) {
+    throw new Error(`warmupCount must be >= 1 (got ${options.warmupCount}).`);
+  }
   const query = queryCase.build(conn, ctx);
-  const warmup = await runInRolledBackTransaction(conn.sql, (tx) => explainOnce(tx, query));
+  let warmup: ExplainSample | undefined;
+  for (let index = 0; index < options.warmupCount; index += 1) {
+    warmup = await runInRolledBackTransaction(conn.sql, (tx) => explainOnce(tx, query));
+  }
   const samples: ExplainSample[] = [];
   for (let index = 0; index < options.repeatCount; index += 1) {
     samples.push(await runInRolledBackTransaction(conn.sql, (tx) => explainOnce(tx, query)));
@@ -142,7 +153,7 @@ export async function runQueryCase(
     source: queryCase.source,
     mutating: queryCase.mutating,
     paramShape: JSON.stringify(query.params.map((param) => (param instanceof Date ? "Date" : typeof param))),
-    warmup,
+    warmup: warmup!,
     samples,
   };
 }

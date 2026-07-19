@@ -85,7 +85,21 @@ export async function runBenchmark(options: RunBenchmarkOptions): Promise<{ arti
   return { artifact, artifactPath };
 }
 
-function parseArgs(argv: string[]): RunBenchmarkOptions {
+// Number(...) alone accepts 0, negatives, decimals, and coerces empty/
+// whitespace strings to 0 rather than NaN — any of those would silently
+// produce zero-sample runs whose median collapses to 0 in the comparator,
+// making a broken run look impossibly fast. Reject anything that isn't a
+// positive integer before a DB connection is ever opened.
+function parsePositiveInt(raw: string | undefined, flagName: string, fallback: number): number {
+  if (raw === undefined) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(`Usage: --${flagName} must be a positive integer (got "${raw}").`);
+  }
+  return parsed;
+}
+
+export function parseArgs(argv: string[]): RunBenchmarkOptions {
   const flags = new Map<string, string>();
   for (const arg of argv) {
     const match = /^--([a-zA-Z-]+)=(.*)$/.exec(arg);
@@ -93,8 +107,8 @@ function parseArgs(argv: string[]): RunBenchmarkOptions {
   }
   return {
     label: flags.get("label") ?? "baseline",
-    warmupCount: Number(flags.get("warmup") ?? "2"),
-    repeatCount: Number(flags.get("repeat") ?? "5"),
+    warmupCount: parsePositiveInt(flags.get("warmup"), "warmup", 2),
+    repeatCount: parsePositiveInt(flags.get("repeat"), "repeat", 5),
   };
 }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useRef, useSyncExternalStore, type RefObject } from "react";
+import { useCallback, useRef, useSyncExternalStore, type RefObject } from "react";
 
 import type { LatencyPoint } from "@/components/charts/latency-chart";
 
@@ -27,8 +27,13 @@ function ChartPlaceholder() {
 function useIsIntersecting(containerRef: RefObject<HTMLDivElement | null>) {
   const visibleRef = useRef(false);
 
-  return useSyncExternalStore(
-    (onChange) => {
+  // Stabilized via useCallback (containerRef is a ref object, so it's
+  // referentially stable across renders) — otherwise useSyncExternalStore
+  // sees a "new" subscribe function on every parent re-render and tears down
+  // + recreates the IntersectionObserver each time, right up until the chart
+  // becomes visible.
+  const subscribe = useCallback(
+    (onChange: () => void) => {
       const container = containerRef.current;
       if (!container || visibleRef.current) return () => {};
 
@@ -50,6 +55,11 @@ function useIsIntersecting(containerRef: RefObject<HTMLDivElement | null>) {
       observer.observe(container);
       return () => observer.disconnect();
     },
+    [containerRef],
+  );
+
+  return useSyncExternalStore(
+    subscribe,
     () => visibleRef.current,
     () => false,
   );

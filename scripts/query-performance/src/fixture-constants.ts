@@ -6,7 +6,11 @@
 // domain, or token.
 
 export const FIXTURE_TAG = "qh";
-export const FIXTURE_VERSION = 1;
+// Bump whenever a fixtures.ts change alters seeded row shape or cardinality
+// (e.g. v2: ROLLUP_15M_DAYS 2 -> 8 to match production's 7-day monitor-detail
+// rollup window) so a stale, differently-shaped fixture is rejected by
+// run-benchmark's version check instead of silently benchmarked against.
+export const FIXTURE_VERSION = 2;
 export const MONITOR_COUNT = 100;
 export const FIXTURE_EMAIL_DOMAIN = "qh-fixture.pulse-query-hillclimb.invalid";
 export const FIXTURE_URL_DOMAIN = "example.invalid";

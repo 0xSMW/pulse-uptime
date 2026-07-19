@@ -116,9 +116,9 @@ describe("CHUNK_SIZE parameter budget", () => {
     expect(CHUNK_SIZE * metricRollupColumnCount).toBeLessThan(POSTGRES_MAX_BIND_PARAMETERS);
   });
 
-  it("inserts 102,700 metric_rollups rows (the fixture's actual rollup count) in fewer than 50 statements", () => {
-    const totalRollupRows = 102_700;
+  it("inserts 160,300 metric_rollups rows (the fixture's actual rollup count, 100 monitors x (8d*96 15m + 31d*24 hour + 91d day) buckets) in fewer than 100 statements", () => {
+    const totalRollupRows = 160_300;
     const statementCount = Math.ceil(totalRollupRows / CHUNK_SIZE);
-    expect(statementCount).toBeLessThan(50);
+    expect(statementCount).toBeLessThan(100);
   });
 });

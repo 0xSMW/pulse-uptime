@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { assertBenchmarkableState } from "../src/run-benchmark";
+import { assertBenchmarkableState, parseArgs } from "../src/run-benchmark";
 import { FIXTURE_VERSION } from "../src/fixture-constants";
 import type { RetainedStateProof } from "../src/verify-state";
 
@@ -52,5 +52,37 @@ describe("assertBenchmarkableState", () => {
   it("refuses when untagged rows are in scope (reset could touch data outside the fixture tag)", () => {
     const proof = validProof({ safeScope: false, monitorCountUntaggedResidue: 3 });
     expect(() => assertBenchmarkableState(proof)).toThrow(/untagged/i);
+  });
+});
+
+describe("parseArgs", () => {
+  it("defaults warmup to 2 and repeat to 5 when unset", () => {
+    const options = parseArgs([]);
+    expect(options).toEqual({ label: "baseline", warmupCount: 2, repeatCount: 5 });
+  });
+
+  it("accepts explicit positive integers for warmup and repeat", () => {
+    const options = parseArgs(["--warmup=3", "--repeat=10", "--label=candidate"]);
+    expect(options).toEqual({ label: "candidate", warmupCount: 3, repeatCount: 10 });
+  });
+
+  it("rejects --warmup=0", () => {
+    expect(() => parseArgs(["--warmup=0"])).toThrow(/warmup must be a positive integer/i);
+  });
+
+  it("rejects a negative --repeat", () => {
+    expect(() => parseArgs(["--repeat=-1"])).toThrow(/repeat must be a positive integer/i);
+  });
+
+  it("rejects a non-numeric --warmup (NaN)", () => {
+    expect(() => parseArgs(["--warmup=nope"])).toThrow(/warmup must be a positive integer/i);
+  });
+
+  it("rejects a non-integer --repeat", () => {
+    expect(() => parseArgs(["--repeat=2.5"])).toThrow(/repeat must be a positive integer/i);
+  });
+
+  it("rejects an empty --warmup value", () => {
+    expect(() => parseArgs(["--warmup="])).toThrow(/warmup must be a positive integer/i);
   });
 });
