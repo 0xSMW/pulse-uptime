@@ -2,13 +2,21 @@
 
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { LatencyPoint } from "@/components/charts/latency-chart";
 import { LazyLatencyChart } from "@/components/charts/lazy-latency-chart";
 import { useTimezone } from "@/components/dashboard/timezone-provider";
+import {
+  useMonitorLive,
+  type MonitorLiveStatus,
+} from "@/components/monitors/use-monitor-live";
 import { StatusBadge } from "@/components/monitors/status-badge";
-import { MonitorActions, MonitorEditButton } from "@/components/monitors/monitor-actions";
+import {
+  MonitorActions,
+  MonitorEditButton,
+  MonitorRunTestButton,
+} from "@/components/monitors/monitor-actions";
 import { StatusDot, type MonitorState } from "@/components/monitors/status-dot";
 import { TimelineBar, type TimelineBucket } from "@/components/monitors/timeline-bar";
 import { buttonVariants } from "@/components/ui/button";
@@ -18,6 +26,12 @@ import {
   formatLatency,
   formatUptimeDetail,
 } from "@/lib/reporting/format";
+import { formatUpdatedAgo } from "@/lib/reporting/live-poll";
+import {
+  uptimeTone,
+  type MonitorPhase,
+  type UptimeTone,
+} from "@/lib/reporting/queries/first-run";
 import { cn } from "@/lib/utils";
 
 type AvailabilityRange = "h24" | "d7" | "d30" | "d90";
@@ -42,8 +56,23 @@ export type MonitorDetailData = {
   recoveryThreshold: number;
   recipientCount: number;
   latestLatencyMs: number | null;
+  lastCheckedAt: string | null;
   p95LatencyMs: number | null;
   uptime: Record<AvailabilityRange, number | null>;
+  coverage: Record<AvailabilityRange, number | null>;
+  rangeUnlocked: Record<AvailabilityRange, boolean>;
+  firstRun: {
+    phase: MonitorPhase;
+    activatedAt: string | null;
+    observedSeconds: number;
+    observed: {
+      uptime: number | null;
+      completed: number;
+      expected: number;
+    };
+    setupError: string | null;
+    lastCheckedAt: string | null;
+  };
   availability: Record<
     AvailabilityRange,
     { start: string; buckets: TimelineBucket[] }
@@ -71,6 +100,7 @@ export type MonitorDetailData = {
     resultLabel: string;
     latencyMs: number | null;
   }>;
+  rollupVersion: string | null;
 };
 
 const availabilityRanges: Array<{ key: AvailabilityRange; label: string }> = [
@@ -102,11 +132,16 @@ function formatInterval(seconds: number): string {
   return `${seconds}s`;
 }
 
-function uptimeTone(value: number | null): string {
-  if (value === null) return "text-[var(--fg-muted)]";
-  if (value < 99) return "text-[var(--down-text)]";
-  if (value < 99.9) return "text-[var(--verifying-text)]";
-  return "text-[var(--fg)]";
+const toneClass: Record<UptimeTone, string> = {
+  healthy: "text-[var(--fg)]",
+  degraded: "text-[var(--verifying-text)]",
+  down: "text-[var(--down-text)]",
+  collecting: "text-[var(--fg-muted)]",
+  unknown: "text-[var(--fg-muted)]",
+};
+
+function formatCoverage(value: number | null): string {
+  return value === null ? "—" : `${Math.round(value * 100)}%`;
 }
 
 function RangeButtons<T extends string>({
@@ -144,6 +179,43 @@ function RangeButtons<T extends string>({
   );
 }
 
+// Quiet freshness indicator. "Live" while polling, "Updates paused" when the
+// tab is hidden, "Data may be stale" after repeated refresh failures, with an
+// "Updated Ns ago" note that ticks each second.
+function LiveIndicator({ status }: { status: MonitorLiveStatus }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const label = status.isStale
+    ? "Data may be stale"
+    : status.isPaused
+      ? "Updates paused"
+      : "Live";
+  const dotClass = status.isStale
+    ? "bg-[var(--down)]"
+    : status.isPaused
+      ? "bg-[var(--neutral-state)]"
+      : "bg-[var(--up)]";
+  const secondsAgo =
+    status.updatedAt === null ? null : Math.round((now - status.updatedAt) / 1_000);
+
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 font-data text-[11px] text-[var(--fg-muted)]"
+      aria-live="polite"
+    >
+      <span className={cn("size-1.5 rounded-full", dotClass)} aria-hidden />
+      {label}
+      {secondsAgo !== null && !status.isPaused ? (
+        <span className="text-[var(--fg-faint)]">· {formatUpdatedAgo(secondsAgo)}</span>
+      ) : null}
+    </span>
+  );
+}
+
 function EmptyCardContent({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-28 items-center justify-center text-[13px] text-[var(--fg-muted)]">
@@ -152,26 +224,118 @@ function EmptyCardContent({ children }: { children: React.ReactNode }) {
   );
 }
 
-function UptimeStat({ label, value }: { label: string; value: number | null }) {
+function UptimeStat({
+  label,
+  unlocked,
+  value,
+  coverage,
+  tone,
+}: {
+  label: string;
+  unlocked: boolean;
+  value: number | null;
+  coverage: number | null;
+  tone: UptimeTone;
+}) {
   return (
     <Card className="min-w-0">
       <CardContent>
         <p className="text-xs text-[var(--fg-muted)]">{label}</p>
-        <p className={cn("mt-2 font-data text-xl", uptimeTone(value))}>
-          {formatUptimeDetail(value)}
+        {unlocked ? (
+          <>
+            <p className={cn("mt-2 font-data text-xl", toneClass[tone])}>
+              {formatUptimeDetail(value)}
+            </p>
+            <p className="mt-1 font-data text-xs text-[var(--fg-muted)]">
+              Coverage {formatCoverage(coverage)}
+            </p>
+          </>
+        ) : (
+          <p className="mt-2 text-[13px] text-[var(--fg-muted)]">Collecting data</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ObservedUptimeStat({
+  firstRun,
+  tone,
+}: {
+  firstRun: MonitorDetailData["firstRun"];
+  tone: UptimeTone;
+}) {
+  return (
+    <Card className="min-w-0">
+      <CardContent>
+        <p className="text-xs text-[var(--fg-muted)]">Observed uptime</p>
+        <p className={cn("mt-2 font-data text-xl", toneClass[tone])}>
+          {formatUptimeDetail(firstRun.observed.uptime)}
+        </p>
+        <p className="mt-1 text-xs text-[var(--fg-muted)]">
+          Since monitoring began · {formatDuration(firstRun.observedSeconds)} observed
+        </p>
+        <p className="mt-1 font-data text-xs text-[var(--fg-muted)]">
+          {firstRun.observed.completed} of {firstRun.observed.expected} checks
         </p>
       </CardContent>
     </Card>
   );
 }
 
-export function MonitorDetail({ monitor }: { monitor: MonitorDetailData }) {
+function SetupStat() {
+  return (
+    <Card className="min-w-0">
+      <CardContent>
+        <p className="text-xs text-[var(--fg-muted)]">Status</p>
+        <p className="mt-2 text-xl">Verifying setup</p>
+        <p className="mt-1 text-xs text-[var(--fg-muted)]">
+          Monitoring begins at the first successful check
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+export function MonitorDetail({ monitor: snapshot }: { monitor: MonitorDetailData }) {
   const { resolvedTimeZone } = useTimezone();
+  const live = useMonitorLive(snapshot.id, {
+    phase: snapshot.firstRun.phase,
+    state: snapshot.state,
+    rollupVersion: snapshot.rollupVersion,
+  });
+  // Merge the polled fields over the snapshot in place. Charts, timeline
+  // buckets, and configuration stay on the snapshot until a rollup refresh
+  // advances them through router.refresh. Uptime and coverage merge per range,
+  // so the d30 and d90 values the live payload omits fall back to the snapshot.
+  const monitor: MonitorDetailData = live.data
+    ? {
+        ...snapshot,
+        ...live.data,
+        uptime: { ...snapshot.uptime, ...live.data.uptime },
+        coverage: { ...snapshot.coverage, ...live.data.coverage },
+      }
+    : snapshot;
   const [availabilityRange, setAvailabilityRange] =
     useState<AvailabilityRange>("h24");
   const [responseRange, setResponseRange] = useState<ResponseRange>("h24");
   const availability = monitor.availability[availabilityRange];
   const responseTime = monitor.responseTime[responseRange];
+  const { phase } = monitor.firstRun;
+  // Red is reserved for the present. An ongoing incident or a down state is
+  // the only thing that turns an uptime figure red. A recently resolved
+  // incident degrades it to amber instead.
+  const currentlyDown =
+    monitor.state === "DOWN" || monitor.latestIncident?.state === "ONGOING";
+  const recentlyDegraded = monitor.latestIncident?.state === "RESOLVED";
+  const toneFor = (range: AvailabilityRange): UptimeTone =>
+    uptimeTone({
+      unlocked: monitor.rangeUnlocked[range],
+      currentlyDown,
+      recentlyDegraded,
+      uptime: monitor.uptime[range],
+    });
+  const availabilityUnlocked = monitor.rangeUnlocked[availabilityRange];
 
   return (
     <div className="space-y-6">
@@ -190,6 +354,7 @@ export function MonitorDetail({ monitor }: { monitor: MonitorDetailData }) {
                 {monitor.name}
               </h1>
               <StatusBadge state={monitor.state} />
+              <LiveIndicator status={live} />
             </div>
             <div className="mt-2 flex min-w-0 items-center gap-2 font-data text-[13px] text-[var(--fg-muted)]">
               <span className="rounded bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] font-medium text-[var(--fg)]">
@@ -223,10 +388,49 @@ export function MonitorDetail({ monitor }: { monitor: MonitorDetailData }) {
             </p>
           </CardContent>
         </Card>
-        <UptimeStat label="Uptime 24h" value={monitor.uptime.h24} />
-        <UptimeStat label="Uptime 7d" value={monitor.uptime.d7} />
-        <UptimeStat label="Uptime 30d" value={monitor.uptime.d30} />
+        {phase === "setup" ? <SetupStat /> : null}
+        {phase === "collecting" ? (
+          <ObservedUptimeStat
+            firstRun={monitor.firstRun}
+            tone={uptimeTone({
+              unlocked: true,
+              currentlyDown,
+              recentlyDegraded,
+              uptime: monitor.firstRun.observed.uptime,
+            })}
+          />
+        ) : null}
+        {phase === "active"
+          ? (["h24", "d7", "d30"] as const).map((range) => (
+              <UptimeStat
+                key={range}
+                label={`Uptime ${availabilityRanges.find((entry) => entry.key === range)?.label}`}
+                unlocked={monitor.rangeUnlocked[range]}
+                value={monitor.uptime[range]}
+                coverage={monitor.coverage[range]}
+                tone={toneFor(range)}
+              />
+            ))
+          : null}
       </section>
+
+      {phase === "setup" ? (
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--bg)] p-4 text-[13px]">
+          <span className="flex items-center gap-2">
+            <StatusDot state="PENDING" />
+            <span className="font-medium">Verifying setup</span>
+          </span>
+          <p className="mt-1.5 text-[var(--fg-muted)]">
+            {monitor.firstRun.setupError
+              ? `The last check failed with ${monitor.firstRun.setupError}. Setup failures are warnings, not incidents. Fix the endpoint and run a test, or edit the configuration.`
+              : "Monitoring officially begins after the first successful check. No incidents or downtime are recorded during setup."}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <MonitorRunTestButton monitor={monitor} />
+            <MonitorEditButton monitor={monitor} />
+          </div>
+        </div>
+      ) : null}
 
       {monitor.latestIncident ? (
         <Link
@@ -262,9 +466,16 @@ export function MonitorDetail({ monitor }: { monitor: MonitorDetailData }) {
         <CardHeader className="flex-row items-center justify-between gap-4">
           <div>
             <CardTitle>Availability</CardTitle>
-            <p className={cn("mt-1 font-data text-[13px]", uptimeTone(monitor.uptime[availabilityRange]))}>
-              {formatUptimeDetail(monitor.uptime[availabilityRange])}
-            </p>
+            {availabilityUnlocked ? (
+              <p className={cn("mt-1 font-data text-[13px]", toneClass[toneFor(availabilityRange)])}>
+                {formatUptimeDetail(monitor.uptime[availabilityRange])}
+                <span className="ml-2 text-[var(--fg-muted)]">
+                  Coverage {formatCoverage(monitor.coverage[availabilityRange])}
+                </span>
+              </p>
+            ) : (
+              <p className="mt-1 text-[13px] text-[var(--fg-muted)]">Collecting data</p>
+            )}
           </div>
           <RangeButtons
             ranges={availabilityRanges}

@@ -18,6 +18,7 @@ suite("atomic minute PostgreSQL transaction", () => {
     await client.unsafe(text, values as never[]) as unknown as readonly T[] };
   const baseState: MonitorStateSnapshot = {
     monitorId: "api", state: "UP", consecutiveFailures: 0, consecutiveSuccesses: 0,
+    activatedAt: null,
     firstFailureAt: null, firstSuccessAt: null, lastCheckedAt: null, lastSuccessAt: null,
     lastFailureAt: null, lastStatusCode: null, lastLatencyMs: null, lastErrorCode: null,
     activeIncidentId: null, version: 0, updatedAt: new Date("2026-07-18T03:00:00Z"),

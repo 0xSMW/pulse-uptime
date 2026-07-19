@@ -12,16 +12,21 @@ import {
 import { DEFAULT_MONITOR_VALUES } from "@/lib/config/defaults";
 import { validateMonitoringConfig, type MonitorConfig } from "@/lib/config";
 
-import { buildRollupTimeline, summarizeRollupCoverage } from "./timeline";
-
-function secondsBetween(start: Date, end: Date): number {
-  return Math.max(0, Math.floor((end.getTime() - start.getTime()) / 1_000));
-}
-
-function openingFailure(errorCode: string | null, statusCode: number | null): string {
-  if (statusCode !== null) return `HTTP ${statusCode}`;
-  return errorCode ?? "Unknown failure";
-}
+import {
+  isRangeUnlocked,
+  rollupsSinceActivation,
+  summarizeCounts,
+  type AvailabilityRange,
+} from "./first-run";
+import {
+  buildFirstRun,
+  buildLatestIncident,
+  buildRecentChecks,
+  buildRecentIncidents,
+  rollupVersionOf,
+  type MonitorLiveData,
+} from "./live-summary";
+import { buildRollupTimeline } from "./timeline";
 
 const LATENCY_BUCKET_MAX_MS = [100, 250, 500, 1_000, 2_500, 5_000, 10_000] as const;
 
@@ -70,6 +75,40 @@ function p95Latency(rows: Array<{
   return null;
 }
 
+const ROLLUP_COLUMNS = {
+  bucketStart: metricRollups.bucketStart,
+  expectedChecks: metricRollups.expectedChecks,
+  completedChecks: metricRollups.completedChecks,
+  successfulChecks: metricRollups.successfulChecks,
+  failedChecks: metricRollups.failedChecks,
+  unknownChecks: metricRollups.unknownChecks,
+  downtimeSeconds: metricRollups.downtimeSeconds,
+  latencyCount: metricRollups.latencyCount,
+  latencySumMs: metricRollups.latencySumMs,
+  latencyMaxMs: metricRollups.latencyMaxMs,
+  latencyHistogram: metricRollups.latencyHistogram,
+};
+
+// Fetches one resolution's buckets in [end - durationMs, end), ordered oldest
+// first so the last row is the most recent completed bucket.
+function fetchRollups(
+  id: string,
+  resolution: "15m" | "hour" | "day",
+  end: Date,
+  durationMs: number,
+) {
+  return db
+    .select(ROLLUP_COLUMNS)
+    .from(metricRollups)
+    .where(and(
+      eq(metricRollups.monitorId, id),
+      eq(metricRollups.resolution, resolution),
+      gte(metricRollups.bucketStart, new Date(end.getTime() - durationMs)),
+      lt(metricRollups.bucketStart, end),
+    ))
+    .orderBy(metricRollups.bucketStart);
+}
+
 // Load identity without rollups. React cache shares the indexed lookup between
 // the page shell and detail island for each request.
 export const getMonitorIdentity = cache(async (id: string) => {
@@ -82,6 +121,11 @@ export const getMonitorIdentity = cache(async (id: string) => {
       enabled: monitorRegistry.enabled,
       state: monitorState.state,
       latestLatencyMs: monitorState.lastLatencyMs,
+      activatedAt: monitorState.activatedAt,
+      lastCheckedAt: monitorState.lastCheckedAt,
+      lastErrorCode: monitorState.lastErrorCode,
+      lastStatusCode: monitorState.lastStatusCode,
+      consecutiveFailures: monitorState.consecutiveFailures,
     })
     .from(monitorRegistry)
     .leftJoin(monitorState, eq(monitorState.monitorId, monitorRegistry.id))
@@ -101,33 +145,10 @@ export async function getMonitorDetail(id: string) {
   const end15m = completedRangeEnd(now, "15m");
   const endHour = completedRangeEnd(now, "hour");
   const endDay = completedRangeEnd(now, "day");
-  const rollupColumns = {
-    bucketStart: metricRollups.bucketStart,
-    expectedChecks: metricRollups.expectedChecks,
-    completedChecks: metricRollups.completedChecks,
-    successfulChecks: metricRollups.successfulChecks,
-    failedChecks: metricRollups.failedChecks,
-    unknownChecks: metricRollups.unknownChecks,
-    downtimeSeconds: metricRollups.downtimeSeconds,
-    latencyCount: metricRollups.latencyCount,
-    latencySumMs: metricRollups.latencySumMs,
-    latencyMaxMs: metricRollups.latencyMaxMs,
-    latencyHistogram: metricRollups.latencyHistogram,
-  };
-  const rollupsFor = (resolution: "15m" | "hour" | "day", end: Date, durationMs: number) => db
-    .select(rollupColumns)
-    .from(metricRollups)
-    .where(and(
-      eq(metricRollups.monitorId, id),
-      eq(metricRollups.resolution, resolution),
-      gte(metricRollups.bucketStart, new Date(end.getTime() - durationMs)),
-      lt(metricRollups.bucketStart, end),
-    ))
-    .orderBy(metricRollups.bucketStart);
   const [rollups7d, rollups30d, rollups90d, recentIncidents, accepted] = await Promise.all([
-    rollupsFor("15m", end15m, 7 * 86_400_000),
-    rollupsFor("hour", endHour, 30 * 86_400_000),
-    rollupsFor("day", endDay, 90 * 86_400_000),
+    fetchRollups(id, "15m", end15m, 7 * 86_400_000),
+    fetchRollups(id, "hour", endHour, 30 * 86_400_000),
+    fetchRollups(id, "day", endDay, 90 * 86_400_000),
     db.select().from(incidents)
       .where(eq(incidents.monitorId, id))
       .orderBy(desc(incidents.openedAt))
@@ -142,6 +163,15 @@ export async function getMonitorDetail(id: string) {
   // Derive the last 24 hours from the fetched seven days of rollups.
   const rollups24h = selectRecentRollupWindow(rollups7d, end15m.getTime() - 86_400_000, end15m.getTime());
 
+  // First-run model. activatedAt anchors phase, observed duration, and the
+  // range unlocks. Uptime and coverage count only buckets at or after
+  // activation, so setup-phase failures never define the monitor.
+  const activatedAt = monitor.activatedAt;
+  const observed24h = summarizeCounts(rollupsSinceActivation(rollups24h, activatedAt));
+  const observed7d = summarizeCounts(rollupsSinceActivation(rollups7d, activatedAt));
+  const observed30d = summarizeCounts(rollupsSinceActivation(rollups30d, activatedAt));
+  const observed90d = summarizeCounts(rollupsSinceActivation(rollups90d, activatedAt));
+
   let acceptedConfig = null;
   try { acceptedConfig = accepted[0] ? validateMonitoringConfig(accepted[0].configJson) : null; } catch { acceptedConfig = null; }
   const config: MonitorConfig | undefined = acceptedConfig?.monitors.find((candidate) => candidate.id === id);
@@ -153,12 +183,6 @@ export async function getMonitorDetail(id: string) {
       latencyMs: Number(row.latencySumMs) / row.latencyCount,
       successful: row.failedChecks === 0 && row.completedChecks === row.expectedChecks,
     }));
-  const mappedIncidents = recentIncidents.map((incident) => ({
-    id: incident.id,
-    openedAt: incident.openedAt.toISOString(),
-    durationSeconds: secondsBetween(incident.openedAt, incident.resolvedAt ?? now),
-    openingFailure: openingFailure(incident.openingErrorCode, incident.openingStatusCode),
-  }));
 
   return {
     id: monitor.id,
@@ -182,13 +206,28 @@ export async function getMonitorDetail(id: string) {
       ? (config.recipients.length || (acceptedConfig?.settings.defaultRecipients.length ?? 0))
       : 0,
     latestLatencyMs: monitor.latestLatencyMs,
+    lastCheckedAt: monitor.lastCheckedAt?.toISOString() ?? null,
     p95LatencyMs: p95Latency(rollups24h),
     uptime: {
-      h24: summarizeRollupCoverage(rollups24h).uptime,
-      d7: summarizeRollupCoverage(rollups7d).uptime,
-      d30: summarizeRollupCoverage(rollups30d).uptime,
-      d90: summarizeRollupCoverage(rollups90d).uptime,
+      h24: observed24h.uptime,
+      d7: observed7d.uptime,
+      d30: observed30d.uptime,
+      d90: observed90d.uptime,
     },
+    coverage: {
+      h24: observed24h.coverage,
+      d7: observed7d.coverage,
+      d30: observed30d.coverage,
+      d90: observed90d.coverage,
+    },
+    rangeUnlocked: {
+      h24: isRangeUnlocked("h24", activatedAt, now),
+      d7: isRangeUnlocked("d7", activatedAt, now),
+      d30: isRangeUnlocked("d30", activatedAt, now),
+      d90: isRangeUnlocked("d90", activatedAt, now),
+    } satisfies Record<AvailabilityRange, boolean>,
+    firstRun: buildFirstRun(monitor, observed24h, now),
+    rollupVersion: rollupVersionOf(rollups7d),
     availability: {
       h24: {
         start: new Date(end15m.getTime() - 86_400_000).toISOString(),
@@ -212,25 +251,63 @@ export async function getMonitorDetail(id: string) {
       d7: responsePoints(rollups7d),
       d30: responsePoints(rollups30d),
     },
-    latestIncident: recentIncidents[0] && (
-      recentIncidents[0].resolvedAt === null ||
-      recentIncidents[0].resolvedAt.getTime() >= now.getTime() - 86_400_000
-    ) ? {
-      id: recentIncidents[0].id,
-      state: recentIncidents[0].resolvedAt ? "RESOLVED" as const : "ONGOING" as const,
-      openedAt: recentIncidents[0].openedAt.toISOString(),
-      resolvedAt: recentIncidents[0].resolvedAt?.toISOString() ?? null,
-      durationSeconds: secondsBetween(recentIncidents[0].openedAt, recentIncidents[0].resolvedAt ?? now),
-      openingFailure: openingFailure(recentIncidents[0].openingErrorCode, recentIncidents[0].openingStatusCode),
-    } : null,
-    recentIncidents: mappedIncidents,
-    recentChecks: rollups24h.slice(-20).toReversed().map((rollup) => ({
-      id: `15m:${rollup.bucketStart.toISOString()}`,
-      checkedAt: rollup.bucketStart.toISOString(),
-      successful: rollup.failedChecks === 0 && rollup.completedChecks === rollup.expectedChecks,
-      statusCode: null,
-      resultLabel: rollup.unknownChecks > 0 ? "Unknown coverage" : rollup.failedChecks > 0 ? "Failed checks" : "Healthy rollup",
-      latencyMs: rollup.latencyCount === 0 ? null : Math.round(Number(rollup.latencySumMs) / rollup.latencyCount),
-    })),
+    latestIncident: buildLatestIncident(recentIncidents, now),
+    recentIncidents: buildRecentIncidents(recentIncidents, now),
+    recentChecks: buildRecentChecks(rollups24h),
+  };
+}
+
+// Lean payload for the live poll. It fetches only the 7d 15-minute rollups,
+// enough for the h24 and d7 uptime and coverage, the recent checks, and the
+// rollup version. The d30 and d90 figures are absent, so the client keeps the
+// snapshot values that refresh through the rollup-version-gated router.refresh.
+// It skips the config snapshot, the timeline buckets, and the response chart
+// series that the full detail query builds. Locked ranges report null so an
+// API consumer cannot read partial history as a full-range score.
+export async function getMonitorLive(id: string): Promise<MonitorLiveData | null> {
+  const monitor = await getMonitorIdentity(id);
+  if (!monitor) return null;
+
+  const now = new Date();
+  const end15m = completedRangeEnd(now, "15m");
+  const [rollups7d, recentIncidents] = await Promise.all([
+    fetchRollups(id, "15m", end15m, 7 * 86_400_000),
+    db.select().from(incidents)
+      .where(eq(incidents.monitorId, id))
+      .orderBy(desc(incidents.openedAt))
+      .limit(5),
+  ]);
+
+  const rollups24h = selectRecentRollupWindow(rollups7d, end15m.getTime() - 86_400_000, end15m.getTime());
+  const activatedAt = monitor.activatedAt;
+  const observed24h = summarizeCounts(rollupsSinceActivation(rollups24h, activatedAt));
+  const observed7d = summarizeCounts(rollupsSinceActivation(rollups7d, activatedAt));
+  const unlocked24h = isRangeUnlocked("h24", activatedAt, now);
+  const unlocked7d = isRangeUnlocked("d7", activatedAt, now);
+
+  return {
+    state: monitor.state ?? "PENDING",
+    latestLatencyMs: monitor.latestLatencyMs,
+    lastCheckedAt: monitor.lastCheckedAt?.toISOString() ?? null,
+    p95LatencyMs: p95Latency(rollups24h),
+    uptime: {
+      h24: unlocked24h ? observed24h.uptime : null,
+      d7: unlocked7d ? observed7d.uptime : null,
+    },
+    coverage: {
+      h24: unlocked24h ? observed24h.coverage : null,
+      d7: unlocked7d ? observed7d.coverage : null,
+    },
+    rangeUnlocked: {
+      h24: unlocked24h,
+      d7: unlocked7d,
+      d30: isRangeUnlocked("d30", activatedAt, now),
+      d90: isRangeUnlocked("d90", activatedAt, now),
+    },
+    firstRun: buildFirstRun(monitor, observed24h, now),
+    latestIncident: buildLatestIncident(recentIncidents, now),
+    recentIncidents: buildRecentIncidents(recentIncidents, now),
+    recentChecks: buildRecentChecks(rollups24h),
+    rollupVersion: rollupVersionOf(rollups7d),
   };
 }

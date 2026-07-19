@@ -45,6 +45,7 @@ with batch_insert as materialized (
   select r.* from jsonb_to_recordset($11::jsonb) as r(
     "monitorId" text, "expectedVersion" integer, state text,
     "consecutiveFailures" integer, "consecutiveSuccesses" integer,
+    "activatedAt" timestamptz,
     "firstFailureAt" timestamptz, "firstSuccessAt" timestamptz,
     "lastCheckedAt" timestamptz, "lastSuccessAt" timestamptz,
     "lastFailureAt" timestamptz, "lastStatusCode" integer,
@@ -110,6 +111,7 @@ with batch_insert as materialized (
 ), state_update as (
   update monitor_state set state = r.state,
     consecutive_failures = r."consecutiveFailures", consecutive_successes = r."consecutiveSuccesses",
+    activated_at = r."activatedAt",
     first_failure_at = r."firstFailureAt", first_success_at = r."firstSuccessAt",
     last_checked_at = r."lastCheckedAt", last_success_at = r."lastSuccessAt",
     last_failure_at = r."lastFailureAt", last_status_code = r."lastStatusCode",
@@ -183,6 +185,7 @@ export async function persistAtomicMinute(db: PackedMinuteExecutor, input: Atomi
         progressed.push({ id: incidentId, lastFailureAt: null, firstSuccessAt: iso(transition.state.firstSuccessAt), clearFirstSuccess: false, updatedAt: iso(check.checkedAt) });
       }
       stateRows.push({ ...transition.state, monitorId, expectedVersion: current.version,
+        activatedAt: iso(transition.state.activatedAt),
         firstFailureAt: iso(transition.state.firstFailureAt), firstSuccessAt: iso(transition.state.firstSuccessAt),
         lastCheckedAt: iso(transition.state.lastCheckedAt), lastSuccessAt: iso(transition.state.lastSuccessAt),
         lastFailureAt: iso(transition.state.lastFailureAt), updatedAt: iso(transition.state.updatedAt) });

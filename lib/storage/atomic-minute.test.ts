@@ -7,6 +7,7 @@ import { persistAtomicMinute, PERSIST_ATOMIC_MINUTE_SQL } from "./atomic-minute"
 const at = new Date("2026-07-18T03:15:10Z");
 const state: MonitorStateSnapshot = {
   monitorId: "api", state: "UP", consecutiveFailures: 0, consecutiveSuccesses: 0,
+  activatedAt: null,
   firstFailureAt: null, firstSuccessAt: null, lastCheckedAt: null, lastSuccessAt: null,
   lastFailureAt: null, lastStatusCode: null, lastLatencyMs: null, lastErrorCode: null,
   activeIncidentId: null, version: 3, updatedAt: new Date("2026-07-18T03:14:00Z"),

@@ -142,6 +142,11 @@ export const monitorState = pgTable("monitor_state", {
   state: text("state", { enum: monitorStates }).notNull(),
   consecutiveFailures: integer("consecutive_failures").notNull().default(0),
   consecutiveSuccesses: integer("consecutive_successes").notNull().default(0),
+  // Set once at the first successful scheduled check and never cleared. Null
+  // marks the setup verification phase, where failures are warnings, not
+  // incidents. A non-null value is the instant monitoring officially began and
+  // anchors observed-uptime and range-unlock math.
+  activatedAt: timestamptz("activated_at"),
   firstFailureAt: timestamptz("first_failure_at"),
   firstSuccessAt: timestamptz("first_success_at"),
   lastCheckedAt: timestamptz("last_checked_at"),

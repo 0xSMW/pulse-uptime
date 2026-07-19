@@ -132,9 +132,9 @@ export const queryCases: QueryCase[] = [
     return [{
       name: `monitor-detail-rollups-${window.label}`,
       description: resolution === "15m"
-        ? "Monitor detail page 15m-resolution rollup scan over the actual 7-day window rollupsFor() issues; production derives its 24h view in-memory from this superset instead of querying it separately."
+        ? "Monitor detail page 15m-resolution rollup scan over the actual 7-day window fetchRollups() issues; production derives its 24h view in-memory from this superset instead of querying it separately."
         : `Monitor detail page rollup series at ${resolution} resolution over a ${window.label} window.`,
-      source: "lib/reporting/queries/monitors.ts:121-134 (rollupsFor call sites in getMonitorDetail)",
+      source: "lib/reporting/queries/monitors.ts:fetchRollups call sites in getMonitorDetail and getMonitorLive",
       mutating: false,
       build: (conn: GatedConnection, ctx: SampleContext) => {
         const end = new Date(ctx.now);

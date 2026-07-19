@@ -36,6 +36,8 @@ function checkedState(current: MonitorStateSnapshot, event: CheckTransitionEvent
     next.lastSuccessAt = event.checkedAt;
     next.lastErrorCode = null;
     next.consecutiveFailures = 0;
+    // The first ever success activates the monitor and ends the setup phase.
+    if (current.activatedAt === null) next.activatedAt = event.checkedAt;
 
     if (current.state === "PENDING" || current.state === "UP" || current.state === "VERIFYING_DOWN") {
       next.state = "UP";
@@ -99,6 +101,15 @@ function checkedState(current: MonitorStateSnapshot, event: CheckTransitionEvent
 
   if (failures < event.failureThreshold) {
     next.state = current.state === "PENDING" ? "PENDING" : "VERIFYING_DOWN";
+    return { next, incident: null };
+  }
+  // A monitor that has never succeeded stays in the setup phase no matter how
+  // many times it fails. Setup failures never open incidents or mark downtime,
+  // so the monitor holds PENDING until its first success activates it. Only a
+  // never-activated PENDING monitor qualifies, since any activated monitor has
+  // left PENDING for good.
+  if (current.state === "PENDING" && current.activatedAt === null) {
+    next.state = "PENDING";
     return { next, incident: null };
   }
   next.state = "DOWN";

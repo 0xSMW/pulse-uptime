@@ -67,6 +67,7 @@ export async function listDashboardMonitors() {
       state: monitorState.state,
       lastLatencyMs: monitorState.lastLatencyMs,
       lastCheckedAt: monitorState.lastCheckedAt,
+      activatedAt: monitorState.activatedAt,
       activeIncidentOpenedAt: incidents.openedAt,
       uptime24h: dsql<number | null>`(
         select case when coalesce(rollup.completed, 0) + coalesce(raw.completed, 0) = 0 then null
@@ -112,6 +113,7 @@ export async function listDashboardMonitors() {
         ...row,
         state: row.state ?? ("PENDING" as const),
         lastCheckedAt: row.lastCheckedAt?.toISOString() ?? null,
+        activatedAt: row.activatedAt?.toISOString() ?? null,
         activeIncidentOpenedAt: row.activeIncidentOpenedAt?.toISOString() ?? null,
         uptime24h: row.uptime24h === null ? null : Number(row.uptime24h),
       }];

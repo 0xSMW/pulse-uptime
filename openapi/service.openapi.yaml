@@ -1021,6 +1021,15 @@
     "/api/v1/monitors/{monitorId}/test": {
       "$ref": "#/components/pathItems/MonitorTest"
     },
+    "/api/v1/monitors/{monitorId}/live": {
+      "parameters": [{"name": "monitorId", "in": "path", "required": true, "schema": {"type": "string"}}],
+      "get": {
+        "operationId": "getMonitorLive", "tags": ["Monitors"], "summary": "Get monitor live summary",
+        "x-required-scopes": ["monitors:read"], "security": [{"bearerAuth": []}, {"humanSession": []}],
+        "parameters": [{"$ref": "#/components/parameters/RequestId"}],
+        "responses": {"200": {"description": "Monitor live summary", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MonitorLiveEnvelope"}}}}, "401": {"$ref": "#/components/responses/AuthenticationRequired"}, "403": {"$ref": "#/components/responses/ScopeDenied"}, "404": {"$ref": "#/components/responses/NotFound"}, "429": {"$ref": "#/components/responses/RateLimited"}}
+      }
+    },
     "/api/v1/groups": {
       "get": {
         "operationId": "listGroups", "tags": ["Monitors"], "summary": "List monitor groups",
@@ -3010,6 +3019,35 @@
           "meta": {
             "$ref": "#/components/schemas/Meta"
           }
+        }
+      },
+      "MonitorLive": {
+        "type": "object",
+        "unevaluatedProperties": false,
+        "required": ["state", "latestLatencyMs", "lastCheckedAt", "p95LatencyMs", "uptime", "coverage", "rangeUnlocked", "firstRun", "latestIncident", "recentIncidents", "recentChecks", "rollupVersion"],
+        "properties": {
+          "state": {"type": "string"},
+          "latestLatencyMs": {"type": ["integer", "null"]},
+          "lastCheckedAt": {"type": ["string", "null"], "format": "date-time"},
+          "p95LatencyMs": {"type": ["integer", "null"]},
+          "uptime": {"type": "object", "unevaluatedProperties": false, "required": ["h24", "d7"], "properties": {"h24": {"type": ["number", "null"]}, "d7": {"type": ["number", "null"]}}, "description": "Uptime for the ranges the live poll recomputes. d30 and d90 are absent, so a client keeps the snapshot values. A locked range reports null."},
+          "coverage": {"type": "object", "unevaluatedProperties": false, "required": ["h24", "d7"], "properties": {"h24": {"type": ["number", "null"]}, "d7": {"type": ["number", "null"]}}, "description": "Coverage for the ranges the live poll recomputes. d30 and d90 are absent, so a client keeps the snapshot values. A locked range reports null."},
+          "rangeUnlocked": {"type": "object", "additionalProperties": {"type": "boolean"}},
+          "firstRun": {"type": "object"},
+          "latestIncident": {"type": ["object", "null"]},
+          "recentIncidents": {"type": "array", "items": {"type": "object"}},
+          "recentChecks": {"type": "array", "items": {"type": "object"}},
+          "rollupVersion": {"type": ["string", "null"], "description": "Latest completed rollup bucket start. It advances when a new bucket finalizes."}
+        }
+      },
+      "MonitorLiveEnvelope": {
+        "type": "object",
+        "required": ["apiVersion", "kind", "data", "meta"],
+        "properties": {
+          "apiVersion": {"$ref": "#/components/schemas/ApiVersion"},
+          "kind": {"const": "MonitorLive"},
+          "data": {"$ref": "#/components/schemas/MonitorLive"},
+          "meta": {"$ref": "#/components/schemas/Meta"}
         }
       },
       "MonitorListEnvelope": {

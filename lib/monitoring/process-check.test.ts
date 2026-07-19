@@ -38,6 +38,7 @@ function monitor(overrides: Partial<MonitorStateSnapshot> = {}): MonitorStateSna
     state: "UP",
     consecutiveFailures: 0,
     consecutiveSuccesses: 0,
+    activatedAt: null,
     firstFailureAt: null,
     firstSuccessAt: null,
     lastCheckedAt: null,
