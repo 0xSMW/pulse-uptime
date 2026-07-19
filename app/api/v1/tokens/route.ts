@@ -20,7 +20,7 @@ export async function POST(request: Request) {
       principalKey: context.principalKey,
       routeKey: "token-create",
       body: canonicalInput,
-      work: async ({ operationId }) => {
+      work: async ({ operationId, transaction }) => transaction(async (tx) => {
         const credential = deriveBearerToken(credentialDerivationContext({
           kind: "api-token",
           principalKey: context.principalKey,
@@ -28,9 +28,9 @@ export async function POST(request: Request) {
           body: canonicalInput,
           operationId,
         }));
-        const created = await createApiToken({ ...input, principal: context.principal, credential });
+        const created = await createApiToken({ ...input, principal: context.principal, credential }, new Date(), tx);
         return { status: 201, body: { ...serializeToken(created.token), token: created.secret } };
-      },
+      }),
       persistBody: (body) => ({
         id: body.id,
         name: body.name,

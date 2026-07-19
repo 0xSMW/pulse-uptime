@@ -6,17 +6,30 @@ import { and, eq, lt, lte } from "drizzle-orm";
 
 import { canonicalSerialize } from "@/lib/config/canonical";
 import { db } from "@/lib/db/client";
+import type { DatabaseHandle } from "@/lib/db/client";
 import { apiIdempotency } from "@/lib/db/schema";
 
 export type StoredResponse<T = unknown> = { status: number; body: T };
-export type IdempotencyContext = { operationId: string };
+export type IdempotencyContext = {
+  operationId: string;
+  /**
+   * Opens a database transaction, runs `run`, and if it resolves, persists
+   * the idempotency record's completion inside that SAME transaction before
+   * committing. If `run` throws, the transaction (and the completion) rolls
+   * back, so the record is left running, which now truthfully means "no
+   * effect committed". work() must return exactly what this returns.
+   * Callable at most once per execution.
+   */
+  transaction: <R>(run: (tx: DatabaseHandle) => Promise<StoredResponse<R>>) => Promise<StoredResponse<R>>;
+};
 export type IdempotencyRecord = typeof apiIdempotency.$inferSelect;
 export type IdempotencyPersistence = {
   insertRunning(value: typeof apiIdempotency.$inferInsert): Promise<string | undefined>;
   findOwner(principalKey: string, idempotencyKey: string): Promise<IdempotencyRecord | undefined>;
   reclaimExpired(id: string, now: Date, value: typeof apiIdempotency.$inferInsert): Promise<string | null>;
   claimStale(id: string, staleBefore: Date, now: Date, expiresAt: Date): Promise<string | undefined>;
-  complete(id: string, status: number, body: unknown, completedAt: Date): Promise<void>;
+  transaction<R>(run: (tx: DatabaseHandle) => Promise<R>): Promise<R>;
+  complete(id: string, status: number, body: unknown, completedAt: Date, tx?: DatabaseHandle): Promise<void>;
 };
 
 export class IdempotencyError extends Error {
@@ -46,8 +59,6 @@ export async function executeIdempotent<T>(input: {
   retentionSeconds?: number;
   now?: Date;
   work: (context: IdempotencyContext) => Promise<StoredResponse<T>>;
-  recover?: (context: IdempotencyContext) => Promise<StoredResponse<T> | null>;
-  rerunAfterRecoveryMiss?: boolean;
   persistBody?: (body: T) => unknown;
   replayBody?: (storedBody: unknown, context: IdempotencyContext) => Promise<T> | T;
   persistence?: IdempotencyPersistence;
@@ -118,37 +129,56 @@ export async function executeIdempotent<T>(input: {
       return {
         status: existing.responseStatus!,
         body: input.replayBody
-          ? await input.replayBody(existing.responseBody, { operationId: existing.id })
+          ? await input.replayBody(existing.responseBody, replayContext(existing.id))
           : existing.responseBody as T,
         replayed: true,
       };
-    } else {
-      const staleBefore = new Date(now.getTime() - 5 * 60_000);
-      if (existing.createdAt > staleBefore) {
-        throw new IdempotencyError("REQUEST_IN_PROGRESS", "A request with this idempotency key is still running");
-      }
-      recordId = await persistence.claimStale(existing.id, staleBefore, now, expiresAt);
-      if (!recordId) {
-        throw new IdempotencyError("REQUEST_IN_PROGRESS", "A request with this idempotency key is still running");
-      }
-      if (input.recover) {
-        const recovered = await input.recover({ operationId: recordId });
-        if (recovered) {
-          await complete(persistence, recordId, recovered, input.persistBody);
-          return { ...recovered, replayed: true };
-        }
-        if (input.rerunAfterRecoveryMiss === false) {
-          throw new IdempotencyError(
-            "REQUEST_IN_PROGRESS",
-            "The prior result cannot be recovered safely. Review current state, then retry with a new idempotency key.",
-          );
-        }
-      }
+    }
+    const staleBefore = new Date(now.getTime() - 5 * 60_000);
+    if (existing.createdAt > staleBefore) {
+      throw new IdempotencyError("REQUEST_IN_PROGRESS", "A request with this idempotency key is still running");
+    }
+    // Completion now commits atomically with the mutation, so a running
+    // record past the stale window proves the prior attempt never took
+    // effect. Reclaim it and rerun work() rather than trying to recover.
+    recordId = await persistence.claimStale(existing.id, staleBefore, now, expiresAt);
+    if (!recordId) {
+      throw new IdempotencyError("REQUEST_IN_PROGRESS", "A request with this idempotency key is still running");
     }
   }
 
-  const result = await input.work({ operationId: recordId });
-  await complete(persistence, recordId, result, input.persistBody);
+  const operationId = recordId;
+  let transactionUsed = false;
+  const context: IdempotencyContext = {
+    operationId,
+    transaction: async (run) => {
+      if (transactionUsed) {
+        throw new Error("context.transaction can only be called once per idempotent execution");
+      }
+      transactionUsed = true;
+      return await persistence.transaction(async (tx) => {
+        const result = await run(tx);
+        // context.transaction is generic in R so any route's work() can use
+        // it, but a route only ever instantiates it at its own T (work()
+        // must return exactly what this call returns), so this cast is safe.
+        await persistence.complete(
+          operationId,
+          result.status,
+          input.persistBody ? input.persistBody(result.body as unknown as T) : result.body,
+          new Date(),
+          tx,
+        );
+        return result;
+      });
+    },
+  };
+
+  const result = await input.work(context);
+  // Routes with no database mutation to be atomic with never call
+  // context.transaction, so completion falls back to this post-hoc write.
+  if (!transactionUsed) {
+    await complete(persistence, operationId, result, input.persistBody);
+  }
   return { ...result, replayed: false };
 }
 
@@ -184,6 +214,16 @@ async function complete<T>(persistence: IdempotencyPersistence, recordId: string
   await persistence.complete(recordId, result.status, persistBody ? persistBody(result.body) : result.body, new Date());
 }
 
+// Only replayBody sees this, and it only ever reads operationId. There is no
+// mutation to make atomic with a replay, so opening a transaction here is a
+// programmer error, not a supported path.
+function replayContext(operationId: string): IdempotencyContext {
+  return {
+    operationId,
+    transaction: () => { throw new Error("context.transaction is not available while replaying a stored response"); },
+  };
+}
+
 const databaseIdempotencyPersistence: IdempotencyPersistence = {
   async insertRunning(value) {
     return (await db.insert(apiIdempotency).values(value).onConflictDoNothing()
@@ -206,8 +246,11 @@ const databaseIdempotencyPersistence: IdempotencyPersistence = {
       .where(and(eq(apiIdempotency.id, id), lt(apiIdempotency.createdAt, staleBefore)))
       .returning({ id: apiIdempotency.id }))[0]?.id;
   },
-  async complete(id, status, body, completedAt) {
-    await db.update(apiIdempotency).set({
+  async transaction(run) {
+    return await db.transaction(run);
+  },
+  async complete(id, status, body, completedAt, tx) {
+    await (tx ?? db).update(apiIdempotency).set({
       state: "completed", responseStatus: status, responseBody: body, completedAt,
     }).where(eq(apiIdempotency.id, id));
   },

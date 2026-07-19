@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { apiError, apiJson, objectEnvelope } from "@/lib/api/envelopes";
-import { deleteGroup, GroupApiError, recoverDeletedGroup, recoverUpdatedGroup, updateGroup } from "@/lib/api/groups";
+import { deleteGroup, GroupApiError, updateGroup } from "@/lib/api/groups";
 import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, isApiResponse } from "@/lib/api/middleware";
 import { routeError } from "@/lib/api/route";
@@ -16,12 +16,12 @@ function groupError(error: unknown, requestId: string): Response | null {
 export async function PATCH(request: Request, { params }: Params) {
   const context = await authorize(request, { scope: "monitors:write" }); if (isApiResponse(context)) return context;
   const id = (await params).groupId;
-  try { const body = await request.json(); const result = await executeIdempotent({ request, principalKey: context.principalKey, routeKey: `/api/v1/groups/${id}`, body, recover: async () => { const group = await recoverUpdatedGroup(id, body); return group ? { status: 200, body: objectEnvelope("Group", group, context.requestId) } : null; }, rerunAfterRecoveryMiss: false, work: async () => ({ status: 200, body: objectEnvelope("Group", await updateGroup(id, body, context.principalKey), context.requestId) }) }); return apiJson(result.body); }
+  try { const body = await request.json(); const result = await executeIdempotent({ request, principalKey: context.principalKey, routeKey: `/api/v1/groups/${id}`, body, work: async ({ transaction }) => transaction(async (tx) => ({ status: 200, body: objectEnvelope("Group", await updateGroup(id, body, context.principalKey, tx), context.requestId) })) }); return apiJson(result.body); }
   catch (error) { return groupError(error, context.requestId) ?? routeError(error, context.requestId); }
 }
 export async function DELETE(request: Request, { params }: Params) {
   const context = await authorize(request, { scope: "monitors:write" }); if (isApiResponse(context)) return context;
   const id = (await params).groupId;
-  try { const result = await executeIdempotent({ request, principalKey: context.principalKey, routeKey: `/api/v1/groups/${id}`, body: {}, recover: async () => { const deletion = await recoverDeletedGroup(id); return deletion ? { status: 200, body: objectEnvelope("GroupDeletion", deletion, context.requestId) } : null; }, rerunAfterRecoveryMiss: false, work: async () => ({ status: 200, body: objectEnvelope("GroupDeletion", await deleteGroup(id, context.principalKey), context.requestId) }) }); return apiJson(result.body); }
+  try { const result = await executeIdempotent({ request, principalKey: context.principalKey, routeKey: `/api/v1/groups/${id}`, body: {}, work: async ({ transaction }) => transaction(async (tx) => ({ status: 200, body: objectEnvelope("GroupDeletion", await deleteGroup(id, context.principalKey, tx), context.requestId) })) }); return apiJson(result.body); }
   catch (error) { return groupError(error, context.requestId) ?? routeError(error, context.requestId); }
 }

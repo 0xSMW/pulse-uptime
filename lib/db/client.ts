@@ -15,3 +15,5 @@ export const sql = postgres(process.env.DATABASE_URL!, {
 export const db = drizzle(sql, { schema });
 
 export type Database = typeof db;
+export type DatabaseTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
+export type DatabaseHandle = Database | DatabaseTransaction;

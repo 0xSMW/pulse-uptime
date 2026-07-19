@@ -2,7 +2,7 @@ import { apiError, apiJson, objectEnvelope } from "@/lib/api/envelopes";
 import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, isApiResponse } from "@/lib/api/middleware";
 import { routeError } from "@/lib/api/route";
-import { MonitorApiError, recoverMonitorEnabled, setMonitorEnabled } from "@/lib/api/monitors";
+import { MonitorApiError, setMonitorEnabled } from "@/lib/api/monitors";
 
 export async function POST(request: Request, { params }: { params: Promise<{ monitorId: string }> }) {
   const context = await authorize(request, { scope: "monitors:write" });
@@ -10,12 +10,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mon
   const id = (await params).monitorId;
   try {
     const result = await executeIdempotent({ request, principalKey: context.principalKey, routeKey: `/api/v1/monitors/${id}/resume`, body: {},
-      recover: async () => {
-        const monitor = await recoverMonitorEnabled(id, true);
-        return monitor ? { status: 200, body: objectEnvelope("Monitor", monitor, context.requestId) } : null;
-      },
-      rerunAfterRecoveryMiss: false,
-      work: async () => ({ status: 200, body: objectEnvelope("Monitor", await setMonitorEnabled(id, true, context.principalKey), context.requestId) }),
+      work: async ({ transaction }) => transaction(async (tx) => ({ status: 200, body: objectEnvelope("Monitor", await setMonitorEnabled(id, true, context.principalKey, tx), context.requestId) })),
     });
     return apiJson(result.body, { status: result.status });
   } catch (error) {

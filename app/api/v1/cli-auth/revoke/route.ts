@@ -1,5 +1,5 @@
 import { apiJson, objectEnvelope, requestIdFrom } from "@/lib/api/envelopes";
-import { isCliInstallationRevoked, resolveRevokedCliRevokeReplay, revokeCliInstallation } from "@/lib/api/device-authorization";
+import { resolveRevokedCliRevokeReplay, revokeCliInstallation } from "@/lib/api/device-authorization";
 import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, isApiResponse } from "@/lib/api/middleware";
 import { routeError } from "@/lib/api/route";
@@ -17,10 +17,7 @@ export async function POST(request: Request) {
       principalKey: context.principalKey,
       routeKey: "cli-session-revoke",
       body: {},
-      recover: async () => await isCliInstallationRevoked(context.principal.id)
-        ? { status: 200, body: { revoked: true } }
-        : null,
-      work: async () => ({ status: 200, body: { revoked: await revokeCliInstallation(context.principal) } }),
+      work: async ({ transaction }) => transaction(async (tx) => ({ status: 200, body: { revoked: await revokeCliInstallation(context.principal, new Date(), tx) } })),
     });
     return apiJson(objectEnvelope("CliSessionRevocation", result.body, context.requestId), { status: result.status });
   } catch (error) {

@@ -1,6 +1,6 @@
 import { authorize, isApiResponse } from "@/lib/api/middleware";
 import { runStatusReportMutation } from "@/lib/api/status-report-http";
-import { promoteIncident, recoverPromotedReport } from "@/lib/api/status-reports";
+import { createDatabaseStatusReportsStore, promoteIncident } from "@/lib/api/status-reports";
 
 /**
  * Promotes an auto-detected incident to a DRAFT status report. Requires
@@ -17,25 +17,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ inc
     context,
     routeKey: `/api/v1/incidents/${incidentId}/promote`,
     body: {},
-    // created vs. existing is recoverable via the pinned id: promoteIncident
-    // pins its new report's id to the idempotency operationId, and a stale
-    // reclaim reuses the SAME record id, so a recovered report whose id
-    // equals THIS retry's operationId proves this crashed attempt inserted
-    // it (201). Any other id means a different operation created it: a
-    // concurrent promote that won the race, or one that already completed
-    // (200).
-
-    // No revalidateStatusReportPaths call here or in work() below: promotion
-    // always creates a DRAFT (publishedAt: null), which is invisible on every
-    // public route, so there is nothing to revalidate. The work() path below
-    // never revalidates either, for the same reason.
-    recover: async ({ operationId }) => {
-      const recovered = await recoverPromotedReport(incidentId);
-      if (!recovered) return null;
-      return { status: recovered.id === operationId ? 201 : 200, kind: "StatusReport", data: recovered };
-    },
-    work: async ({ operationId }) => {
-      const { report, created } = await promoteIncident(incidentId, { reportId: operationId });
+    // No revalidateStatusReportPaths call in work() below: promotion always
+    // creates a DRAFT (publishedAt: null), which is invisible on every
+    // public route, so there is nothing to revalidate.
+    work: async (tx, { operationId }) => {
+      const { report, created } = await promoteIncident(incidentId, {
+        reportId: operationId,
+        store: createDatabaseStatusReportsStore(tx),
+      });
       return { status: created ? 201 : 200, kind: "StatusReport", data: report };
     },
   });

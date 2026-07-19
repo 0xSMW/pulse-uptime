@@ -2,7 +2,7 @@ import { apiError, apiJson, listEnvelope } from "@/lib/api/envelopes";
 import { authorize, isApiResponse } from "@/lib/api/middleware";
 import { pageLimit } from "@/lib/api/pagination";
 import { revalidateStatusReportPaths, runStatusReportMutation, statusReportRouteError } from "@/lib/api/status-report-http";
-import { createStatusReport, listStatusReportSummaries, parseStatusReportListQuery, recoverCreatedStatusReport } from "@/lib/api/status-reports";
+import { createDatabaseStatusReportsStore, createStatusReport, listStatusReportSummaries, parseStatusReportListQuery } from "@/lib/api/status-reports";
 
 export async function GET(request: Request) {
   const context = await authorize(request, { scope: "reports:read" });
@@ -38,19 +38,8 @@ export async function POST(request: Request) {
     context,
     routeKey: "/api/v1/status-reports",
     body,
-    // Recover by the id pinned to this operation rather than rerunning
-    // work() with a fresh random id, which would insert a duplicate report.
-    recover: async ({ operationId }) => {
-      const report = await recoverCreatedStatusReport(operationId);
-      if (!report) return null;
-      // The crash this recovers from may have landed between the insert
-      // committing and revalidation running, so ISR pages must be refreshed
-      // here too, same as the normal work() path.
-      await revalidateStatusReportPaths(report);
-      return { status: 201, kind: "StatusReport", data: report };
-    },
-    work: async ({ operationId }) => {
-      const report = await createStatusReport(body, { reportId: operationId });
+    work: async (tx, { operationId }) => {
+      const report = await createStatusReport(body, { reportId: operationId, store: createDatabaseStatusReportsStore(tx) });
       await revalidateStatusReportPaths(report);
       return { status: 201, kind: "StatusReport", data: report };
     },

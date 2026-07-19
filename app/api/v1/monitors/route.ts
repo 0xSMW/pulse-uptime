@@ -5,7 +5,7 @@ import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, isApiResponse } from "@/lib/api/middleware";
 import { pageLimit } from "@/lib/api/pagination";
 import { routeError } from "@/lib/api/route";
-import { createMonitor, listMonitors, MonitorApiError, recoverCreatedMonitor } from "@/lib/api/monitors";
+import { createMonitor, listMonitors, MonitorApiError } from "@/lib/api/monitors";
 
 function monitorError(error: unknown, requestId: string): Response | null {
   if (error instanceof MonitorApiError) {
@@ -53,12 +53,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const result = await executeIdempotent({ request, principalKey: context.principalKey, routeKey: "/api/v1/monitors", body,
-      recover: async () => {
-        const monitor = await recoverCreatedMonitor(body);
-        return monitor ? { status: 201, body: objectEnvelope("Monitor", monitor, context.requestId) } : null;
-      },
-      rerunAfterRecoveryMiss: false,
-      work: async () => ({ status: 201, body: objectEnvelope("Monitor", await createMonitor(body, context.principalKey), context.requestId) }),
+      work: async ({ transaction }) => transaction(async (tx) => ({ status: 201, body: objectEnvelope("Monitor", await createMonitor(body, context.principalKey, tx), context.requestId) })),
     });
     return apiJson(result.body, { status: result.status });
   } catch (error) {

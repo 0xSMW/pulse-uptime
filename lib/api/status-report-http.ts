@@ -2,12 +2,13 @@ import "server-only";
 
 import { revalidatePath } from "next/cache";
 
+import type { DatabaseHandle } from "@/lib/db/client";
 import { statusGroupSlug } from "@/lib/reporting/queries/timeline";
 
 import { apiError, apiJson, errorEnvelope, objectEnvelope } from "./envelopes";
-import { executeIdempotent, type IdempotencyContext, type StoredResponse } from "./idempotency";
+import { executeIdempotent, type StoredResponse } from "./idempotency";
 import { routeError } from "./route";
-import { databaseStatusReportsStore, parseStatusReportPatch, StatusReportError } from "./status-reports";
+import { databaseStatusReportsStore, StatusReportError } from "./status-reports";
 
 function statusReportErrorStatus(error: StatusReportError): number {
   return error.code === "VALIDATION_ERROR" || error.code === "INVALID_CURSOR"
@@ -40,117 +41,61 @@ export function storedStatusReportError(error: StatusReportError, requestId: str
 type MutationOutcome<T> = { status: number; kind: string; data: T };
 
 /**
- * Runs one idempotent status-report mutation end to end: acquires or replays
- * the idempotency record, wraps the domain result in the standard object
- * envelope, and maps everything onto an HTTP Response. Every mutation route
- * in the status-reports/incidents-promote family is authorize() → parse
- * params/body → one call here with route-specific `recover`/`work` closures.
+ * Runs one idempotent status-report mutation end to end: acquires the
+ * idempotency record (or replays a completed one), runs `work` inside a
+ * database transaction shared with the idempotency completion write, wraps
+ * the domain result in the standard object envelope, and maps everything
+ * onto an HTTP Response. Every mutation route in the status-reports/
+ * incidents-promote family is authorize() → parse params/body → one call
+ * here with a route-specific `work` closure.
  *
- * `work` returns the eventual `{ status, kind, data }` or throws
- * StatusReportError. `recover` returns the same shape for an already-applied
- * operation, or null to fall through to `work`. Two invariants this helper
- * owns on every call, so route files don't have to restate them:
+ * `work` receives the open transaction handle and returns the eventual
+ * `{ status, kind, data }`, or throws StatusReportError. Two invariants this
+ * helper owns on every call, so route files don't have to restate them:
  *
- * - A StatusReportError thrown by `work` is caught HERE and recorded as the
- *   operation's own completed response (via storedStatusReportError), never
- *   rethrown past executeIdempotent. A deterministic domain error (bad
- *   input, not-found, a conflict like ALREADY_PUBLISHED) is not evidence the
- *   operation never ran: letting it throw would leave the idempotency
- *   record stuck "running" until a stale reclaim, whose `recover` can't tell
- *   "never ran" from "failed this way" and would either force every retry
- *   into a REQUEST_IN_PROGRESS 409 or misread the failure's own state as a
- *   false recovered success.
- * - `rerunAfterRecoveryMiss` is always false. A recovery miss means either
- *   the operation never committed (safe to rerun) or a different, newer
- *   write changed the state since (rerunning would clobber it), which are
- *   indistinguishable from here, so a miss always surfaces "cannot recover
- *   safely, retry with a new idempotency key" instead of guessing.
+ * - The mutation and the idempotency completion commit together, in the
+ *   SAME transaction (via context.transaction inside executeIdempotent). If
+ *   `work` throws anything OTHER than StatusReportError, the transaction
+ *   rolls back both the mutation and the completion, so the record is left
+ *   running: truthfully, nothing committed, and a retry reruns `work` from
+ *   scratch rather than trying to recover a state that never existed.
+ * - A StatusReportError thrown by `work` is caught HERE, INSIDE the same
+ *   transaction, and recorded as the operation's own completed response (via
+ *   storedStatusReportError) instead of rolling back. A deterministic domain
+ *   error (bad input, not-found, a conflict like ALREADY_PUBLISHED) is a
+ *   real outcome of this operation, not evidence it never ran, and every
+ *   status-reports store method guards before mutating (returning a
+ *   sentinel or throwing before any write), so committing "no mutation, this
+ *   response" alongside the error is always correct.
  */
 export async function runStatusReportMutation<T>(input: {
   request: Request;
   context: { principalKey: string; requestId: string };
   routeKey: string;
   body: unknown;
-  recover?: (context: IdempotencyContext) => Promise<MutationOutcome<T> | null>;
-  work: (context: IdempotencyContext) => Promise<MutationOutcome<T>>;
+  work: (tx: DatabaseHandle, context: { operationId: string }) => Promise<MutationOutcome<T>>;
 }): Promise<Response> {
-  const { request, context, routeKey, body, recover, work } = input;
+  const { request, context, routeKey, body, work } = input;
   try {
     const result = await executeIdempotent({
       request,
       principalKey: context.principalKey,
       routeKey,
       body,
-      recover: recover
-        ? async (idempotencyContext) => {
-            const outcome = await recover(idempotencyContext);
-            return outcome
-              ? { status: outcome.status, body: objectEnvelope(outcome.kind, outcome.data, context.requestId) }
-              : null;
-          }
-        : undefined,
-      rerunAfterRecoveryMiss: false,
-      work: async (idempotencyContext) => {
+      work: async (idempotencyContext) => idempotencyContext.transaction(async (tx) => {
         try {
-          const outcome = await work(idempotencyContext);
+          const outcome = await work(tx, idempotencyContext);
           return { status: outcome.status, body: objectEnvelope(outcome.kind, outcome.data, context.requestId) };
         } catch (error) {
           if (error instanceof StatusReportError) return storedStatusReportError(error, context.requestId);
           throw error;
         }
-      },
+      }),
     });
     return apiJson(result.body, { status: result.status });
   } catch (error) {
     return statusReportRouteError(error, context.requestId);
   }
-}
-
-/**
- * Idempotency recovery check for PATCH /status-reports/{id}. True when the
- * CURRENT report already reflects everything the caller asked to change:
- * title/startsAt/endsAt equal wherever the caller sent them (compared as
- * instants, tolerant of formatting), and affected (if sent) equal as a set
- * of monitorId:impact pairs (order-independent, full-replacement semantics).
- * Fields the caller didn't send are never compared, since the patch never
- * touched them.
- */
-export function statusReportPatchAlreadyApplied(
-  current: {
-    title: string;
-    startsAt: string;
-    endsAt: string | null;
-    affected: ReadonlyArray<{ monitorId: string; impact: string }>;
-  },
-  body: unknown,
-): boolean {
-  // Parsed through the SAME patchSchema updateStatusReport uses: an INVALID
-  // patch (`{}`, or a body with only unsupported keys) must return false
-  // rather than falling through to `true` for "no recognized field
-  // mismatches", which would recover a stale retry's genuine VALIDATION_ERROR
-  // as a false 200. Comparing the PARSED patch (not the raw body) also
-  // matters for fields the schema normalizes: title and affected[].monitorId
-  // are trimmed, so this must compare against the same trimmed values the
-  // real write persists.
-  const patch = parseStatusReportPatch(body);
-  if (!patch) return false;
-  if ("title" in patch && patch.title !== current.title) return false;
-  if ("startsAt" in patch && !sameInstant(patch.startsAt, current.startsAt)) return false;
-  if ("endsAt" in patch && !sameInstant(patch.endsAt, current.endsAt)) return false;
-  if ("affected" in patch && patch.affected) {
-    const requested = new Set(patch.affected.map((entry) => `${entry.monitorId}:${entry.impact}`));
-    const actual = new Set(current.affected.map((entry) => `${entry.monitorId}:${entry.impact}`));
-    if (requested.size !== actual.size) return false;
-    for (const key of requested) if (!actual.has(key)) return false;
-  }
-  return true;
-}
-
-/** `value` is patchSchema's already-parsed Date (or null/undefined when the caller omitted the field). */
-function sameInstant(value: Date | null | undefined, current: string | null): boolean {
-  if (value === undefined) return true;
-  if (value === null) return current === null;
-  return current !== null && value.getTime() === Date.parse(current);
 }
 
 /**
