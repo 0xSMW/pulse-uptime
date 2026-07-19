@@ -1,4 +1,5 @@
 import { and, desc, eq, gte, isNull, lt } from "drizzle-orm";
+import { cache } from "react";
 
 import { db } from "@/lib/db/client";
 import {
@@ -57,7 +58,10 @@ function p95Latency(rows: Array<{
   return null;
 }
 
-export async function getMonitorDetail(id: string) {
+// Cheap identity lookup for the page shell: one indexed query, no rollups.
+// cache(): the page (shell/404 check) and the detail island share one lookup
+// per request.
+export const getMonitorIdentity = cache(async (id: string) => {
   const [monitor] = await db
     .select({
       id: monitorRegistry.id,
@@ -73,6 +77,14 @@ export async function getMonitorDetail(id: string) {
     .where(and(eq(monitorRegistry.id, id), isNull(monitorRegistry.archivedAt)))
     .limit(1);
   if (!monitor || monitor.state === "ARCHIVED") return null;
+  return { ...monitor, state: monitor.state ?? ("PENDING" as const) };
+});
+
+export type MonitorIdentity = NonNullable<Awaited<ReturnType<typeof getMonitorIdentity>>>;
+
+export async function getMonitorDetail(id: string) {
+  const monitor = await getMonitorIdentity(id);
+  if (!monitor) return null;
 
   const now = new Date();
   const end15m = completedRangeEnd(now, "15m");

@@ -12,7 +12,32 @@ function failureLabel(statusCode: number | null): string {
   return "Availability check failed";
 }
 
+/**
+ * Thrown when public status data fails to load. Status routes must catch
+ * this and never let it escape as an uncaught rejection. Status pages are
+ * ISR and build-time prerendered, so an unhandled failure breaks builds in
+ * database-less environments (CI, preview) and 500s the public page during
+ * a real outage instead of degrading to "unavailable".
+ */
+export class StatusDataUnavailableError extends Error {
+  constructor(cause: unknown) {
+    super("Public status data is temporarily unavailable");
+    this.name = "StatusDataUnavailableError";
+    this.cause = cause;
+  }
+}
+
 export async function getPublicStatus(group?: string) {
+  try {
+    return await loadPublicStatus(group);
+  } catch (error) {
+    if (error instanceof StatusDataUnavailableError) throw error;
+    console.error("[status] failed to load public status data", error);
+    throw new StatusDataUnavailableError(error);
+  }
+}
+
+async function loadPublicStatus(group?: string) {
   const now = new Date();
   const completedDay = new Date(now);
   completedDay.setUTCHours(0, 0, 0, 0);

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { and, eq, gt, isNull, sql as drizzleSql } from "drizzle-orm";
+import { after } from "next/server";
 
 import { db } from "@/lib/db/client";
 import { adminUsers, humanSessions, onboardingProgress } from "@/lib/db/schema";
@@ -300,6 +301,8 @@ export async function revokeSession(sessionId: string) {
   await db.update(humanSessions).set({ revokedAt: new Date() }).where(eq(humanSessions.id, sessionId));
 }
 
+const SESSION_TOUCH_INTERVAL_MS = 5 * 60_000;
+
 export async function findSessionByDigest(digest: Buffer, now = new Date()): Promise<HumanSession | null> {
   const [row] = await db
     .select({
@@ -308,14 +311,26 @@ export async function findSessionByDigest(digest: Buffer, now = new Date()): Pro
       email: adminUsers.email,
       expiresAt: humanSessions.expiresAt,
       onboardingCompletedAt: adminUsers.onboardingCompletedAt,
+      lastSeenAt: humanSessions.lastSeenAt,
     })
     .from(humanSessions)
     .innerJoin(adminUsers, eq(adminUsers.id, humanSessions.userId))
     .where(and(eq(humanSessions.tokenDigest, digest), isNull(humanSessions.revokedAt), gt(humanSessions.expiresAt, now)))
     .limit(1);
   if (!row) return null;
-  await db.update(humanSessions).set({ lastSeenAt: now }).where(eq(humanSessions.id, row.sessionId));
-  return row;
+  const { lastSeenAt, ...session } = row;
+  if (!lastSeenAt || now.getTime() - lastSeenAt.getTime() >= SESSION_TOUCH_INTERVAL_MS) {
+    const touch = () =>
+      db.update(humanSessions).set({ lastSeenAt: now }).where(eq(humanSessions.id, row.sessionId));
+    try {
+      // Off the render critical path; lastSeenAt has no readers that need it fresh.
+      after(touch);
+    } catch {
+      // after() requires a request scope; direct callers (tests) update inline.
+      await touch();
+    }
+  }
+  return session;
 }
 
 function isEmail(value: string) {

@@ -1,10 +1,10 @@
 import type { NextConfig } from "next";
 
-// Central browser security policy. The CSP intentionally constrains only framing,
-// base URI, plugins, and form submission — not script/style/connect — because the App
-// Router streams inline bootstrap scripts and there is no nonce middleware to allow
-// them; a strict script-src would break hydration. frame-ancestors 'none' and
-// X-Frame-Options together give the clickjacking protection.
+// Central browser security policy. The CSP constrains only framing, base URI,
+// plugins, and form submission (not script/style/connect) because the App
+// Router streams inline bootstrap scripts and there is no nonce middleware to
+// allow them; a strict script-src would break hydration. frame-ancestors
+// 'none' and X-Frame-Options together give the clickjacking protection.
 const CONTENT_SECURITY_POLICY = [
   "base-uri 'self'",
   "object-src 'none'",
@@ -24,6 +24,12 @@ const SECURITY_HEADERS = [
 const nextConfig: NextConfig = {
   experimental: {
     authInterrupts: true,
+    // Client router cache. Two freshness tiers: revisited routes re-render
+    // from memory for up to `dynamic` (30s), while data delivered through
+    // prefetch={true} links can be served up to `static` (180s) old.
+    // Mutations purge the whole cache via router.refresh(); cron-driven data
+    // is kept honest by AutoRefresh (focus + interval).
+    staleTimes: { dynamic: 30, static: 180 },
   },
   poweredByHeader: false,
   async headers() {

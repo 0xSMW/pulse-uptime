@@ -1,9 +1,10 @@
+import { SettingsCardsSkeleton } from "@/components/settings/settings-skeleton";
+
 export default function MonitorSettingsLoading() {
   return (
-    <div aria-busy="true" aria-label="Loading monitor settings" className="animate-pulse space-y-6">
-      <div className="h-[420px] rounded-xl bg-[var(--chip-bg)]" />
-      <div className="h-48 rounded-xl bg-[var(--chip-bg)]" />
-      <div className="h-32 rounded-xl bg-[var(--chip-bg)]" />
-    </div>
+    <>
+      <h1 className="mb-8 text-xl font-semibold tracking-[-0.02em]">Monitors</h1>
+      <SettingsCardsSkeleton label="Loading monitor settings" heights={["h-[420px]", "h-48", "h-32"]} />
+    </>
   );
 }
