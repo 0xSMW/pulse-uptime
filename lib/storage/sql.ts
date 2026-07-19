@@ -250,4 +250,37 @@ on conflict (captured_at) do update set
 returning governor_mode
 `;
 
+// Recent per-check rows for a single monitor, decoded straight from
+// check_batches instead of the 15-minute rollups. expected = 1 already
+// carries the monitor's own interval, so the result lands on its true cadence.
+export const RECENT_MINUTE_CHECKS_SQL = `
+with positioned as (
+  select batch.scheduled_minute, array_position(batch.monitor_ids, $1::text) position,
+    batch.expected_bitmap, batch.completed_bitmap, batch.failure_bitmap, batch.latency_values
+  from check_batches batch
+  where batch.scheduled_minute >= $2 and batch.scheduled_minute < $3
+), bits as (
+  select positioned.scheduled_minute,
+    ((get_byte(positioned.expected_bitmap, ((positioned.position - 1) / 8)::integer) >> (((positioned.position - 1) % 8)::integer)) & 1) expected,
+    ((get_byte(positioned.completed_bitmap, ((positioned.position - 1) / 8)::integer) >> (((positioned.position - 1) % 8)::integer)) & 1) completed,
+    ((get_byte(positioned.failure_bitmap, ((positioned.position - 1) / 8)::integer) >> (((positioned.position - 1) % 8)::integer)) & 1) failed,
+    ((get_byte(positioned.latency_values, ((positioned.position - 1) * 4)::integer)::bigint << 24)
+    + (get_byte(positioned.latency_values, ((positioned.position - 1) * 4 + 1)::integer)::bigint << 16)
+    + (get_byte(positioned.latency_values, ((positioned.position - 1) * 4 + 2)::integer)::bigint << 8)
+    + get_byte(positioned.latency_values, ((positioned.position - 1) * 4 + 3)::integer)::bigint) raw_latency_ms
+  from positioned
+  where positioned.position is not null
+)
+select bits.scheduled_minute checked_at, bits.completed = 1 completed, bits.failed = 1 failed,
+  -- Clamped to int4 range before the cast. The encoder allows latencies up to
+  -- 0xfffffffe, past what an integer column can hold, so an out-of-range
+  -- stored value is reported at the int4 ceiling instead of failing the query.
+  case when bits.completed = 1 and bits.raw_latency_ms <> 4294967295::bigint
+    then least(bits.raw_latency_ms, 2147483647::bigint)::integer else null end latency_ms
+from bits
+where bits.expected = 1
+order by bits.scheduled_minute desc
+limit $4
+`;
+
 export type UsageModeRow = { governor_mode: GovernorMode };
