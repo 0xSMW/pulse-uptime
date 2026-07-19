@@ -181,6 +181,11 @@ export async function getMonitorDetail(id: string) {
   const monitor = await getMonitorIdentity(id);
   if (!monitor) return null;
 
+  // First-run model. activatedAt anchors phase, observed duration, and the
+  // range unlocks. Uptime, coverage, latency, and incidents count only data at
+  // or after activation, so setup-phase failures never define the monitor. A
+  // monitor with no activation surfaces no incidents at all.
+  const activatedAt = monitor.activatedAt;
   const now = new Date();
   const end15m = completedRangeEnd(now, "15m");
   const endHour = completedRangeEnd(now, "hour");
@@ -189,10 +194,12 @@ export async function getMonitorDetail(id: string) {
     fetchRollups(id, "15m", end15m, 7 * 86_400_000),
     fetchRollups(id, "hour", endHour, 30 * 86_400_000),
     fetchRollups(id, "day", endDay, 90 * 86_400_000),
-    db.select().from(incidents)
-      .where(eq(incidents.monitorId, id))
-      .orderBy(desc(incidents.openedAt))
-      .limit(5),
+    activatedAt === null
+      ? Promise.resolve([])
+      : db.select().from(incidents)
+          .where(and(eq(incidents.monitorId, id), gte(incidents.openedAt, activatedAt)))
+          .orderBy(desc(incidents.openedAt))
+          .limit(5),
     db.select({ configJson: monitoringConfigSnapshots.configJson })
       .from(monitoringConfigSnapshots)
       .where(eq(monitoringConfigSnapshots.status, "accepted"))
@@ -204,10 +211,6 @@ export async function getMonitorDetail(id: string) {
   // Derive the last 24 hours from the fetched seven days of rollups.
   const rollups24h = selectRecentRollupWindow(rollups7d, end15m.getTime() - 86_400_000, end15m.getTime());
 
-  // First-run model. activatedAt anchors phase, observed duration, and the
-  // range unlocks. Uptime and coverage count only buckets at or after
-  // activation, so setup-phase failures never define the monitor.
-  const activatedAt = monitor.activatedAt;
   const observed24h = summarizeCounts(rollupsSinceActivation(rollups24h, activatedAt));
   const observed7d = summarizeCounts(rollupsSinceActivation(rollups7d, activatedAt));
   const observed30d = summarizeCounts(rollupsSinceActivation(rollups30d, activatedAt));
@@ -248,7 +251,10 @@ export async function getMonitorDetail(id: string) {
       : 0,
     latestLatencyMs: monitor.latestLatencyMs,
     lastCheckedAt: monitor.lastCheckedAt?.toISOString() ?? null,
-    p95LatencyMs: p95Latency(rollups24h),
+    // Latency reads the same activation-filtered rollups uptime does, so a slow
+    // or failing setup check never degrades the header p95 after the first-run
+    // UI hides its bucket.
+    p95LatencyMs: p95Latency(rollupsSinceActivation(rollups24h, activatedAt)),
     uptime: {
       h24: observed24h.uptime,
       d7: observed7d.uptime,
@@ -290,10 +296,13 @@ export async function getMonitorDetail(id: string) {
         buckets: buildRollupTimeline(rollupsSinceActivation(rollups90d, activatedAt), 90, 90 * 86_400_000, endDay),
       },
     },
+    // The response chart draws from activation-filtered rollups in every window
+    // so setup-phase latency points never trail into the series the rest of the
+    // first-run UI has hidden.
     responseTime: {
-      h24: responsePoints(rollups24h),
-      d7: responsePoints(rollups7d),
-      d30: responsePoints(rollups30d),
+      h24: responsePoints(rollupsSinceActivation(rollups24h, activatedAt)),
+      d7: responsePoints(rollupsSinceActivation(rollups7d, activatedAt)),
+      d30: responsePoints(rollupsSinceActivation(rollups30d, activatedAt)),
     },
     latestIncident: buildLatestIncident(recentIncidents, now),
     recentIncidents: buildRecentIncidents(recentIncidents, now),
@@ -322,15 +331,19 @@ export async function getMonitorLive(
   const monitor = await getMonitorIdentity(id);
   if (!monitor) return null;
 
+  // First-run model. Uptime, coverage, latency, and incidents count only data
+  // at or after activation, so setup-phase failures never define the monitor. A
+  // monitor with no activation surfaces no incidents at all.
+  const activatedAt = monitor.activatedAt;
   const now = new Date();
   const end15m = completedRangeEnd(now, "15m");
   const endHour = completedRangeEnd(now, "hour");
   const endDay = completedRangeEnd(now, "day");
   const [rollups7d, recentIncidents, recentRawChecks] = await Promise.all([
     fetchRollups(id, "15m", end15m, 7 * 86_400_000),
-    includeIncidents
+    includeIncidents && activatedAt !== null
       ? db.select().from(incidents)
-          .where(eq(incidents.monitorId, id))
+          .where(and(eq(incidents.monitorId, id), gte(incidents.openedAt, activatedAt)))
           .orderBy(desc(incidents.openedAt))
           .limit(5)
       : Promise.resolve([]),
@@ -338,7 +351,6 @@ export async function getMonitorLive(
   ]);
 
   const rollups24h = selectRecentRollupWindow(rollups7d, end15m.getTime() - 86_400_000, end15m.getTime());
-  const activatedAt = monitor.activatedAt;
   const observed24h = summarizeCounts(rollupsSinceActivation(rollups24h, activatedAt));
   const observed7d = summarizeCounts(rollupsSinceActivation(rollups7d, activatedAt));
   const unlocked24h = isRangeUnlocked("h24", activatedAt, end15m);
@@ -352,7 +364,10 @@ export async function getMonitorLive(
     enabled: monitor.enabled,
     latestLatencyMs: monitor.latestLatencyMs,
     lastCheckedAt: monitor.lastCheckedAt?.toISOString() ?? null,
-    p95LatencyMs: p95Latency(rollups24h),
+    // Latency reads the same activation-filtered rollups uptime does, so a slow
+    // or failing setup check never degrades the header p95 after the first-run
+    // UI hides its bucket.
+    p95LatencyMs: p95Latency(rollupsSinceActivation(rollups24h, activatedAt)),
     uptime: {
       h24: unlocked24h ? observed24h.uptime : null,
       d7: unlocked7d ? observed7d.uptime : null,

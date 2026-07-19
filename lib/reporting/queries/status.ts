@@ -259,7 +259,18 @@ async function loadPublicStatus(group?: string) {
       resolvedAt: incidents.resolvedAt,
     }).from(incidents)
       .innerJoin(monitorRegistry, eq(monitorRegistry.id, incidents.monitorId))
-      .where(and(inArray(incidents.monitorId, ids), isNotNull(incidents.resolvedAt)))
+      // Resolved incidents opened before their monitor activated are setup-phase
+      // failures, not real downtime, so the activation gate drops them from
+      // public history. A null activatedAt fails the comparison, so a monitor
+      // that never activated surfaces no resolved incidents. Ongoing incidents
+      // are exempt from this gate below, since a backfilled activatedAt is at or
+      // before their opened_at and must never hide a live outage.
+      .innerJoin(monitorState, eq(monitorState.monitorId, incidents.monitorId))
+      .where(and(
+        inArray(incidents.monitorId, ids),
+        isNotNull(incidents.resolvedAt),
+        gte(incidents.openedAt, monitorState.activatedAt),
+      ))
       .orderBy(desc(incidents.resolvedAt))
       .limit(RECENT_INCIDENTS_FETCH_LIMIT),
     ]),
