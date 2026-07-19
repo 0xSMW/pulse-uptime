@@ -71,6 +71,34 @@ function jsonResponse(body: unknown, init: { status?: number; etag?: string } = 
   });
 }
 
+type ResponseFactory = () => Response;
+
+// The form revalidates its etag with a GET on mount, so stubs are routed by
+// method instead of call order. Each queue keeps replaying its last factory,
+// and the GET queue defaults to the pristine baseline the form rendered with.
+function stubFetch(routes: { get?: ResponseFactory[]; put?: ResponseFactory[]; post?: ResponseFactory[] } = {}) {
+  const queues: Record<string, ResponseFactory[]> = {
+    GET: [...(routes.get ?? [() => jsonResponse({ data: baseConfig() }, { etag: '"1"' })])],
+    PUT: [...(routes.put ?? [])],
+    POST: [...(routes.post ?? [])],
+  };
+  const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
+    const method = init?.method ?? "GET";
+    const queue = queues[method] ?? [];
+    const factory = queue.length > 1 ? queue.shift() : queue[0];
+    if (!factory) return Promise.reject(new Error(`no stubbed ${method} response`));
+    return Promise.resolve(factory());
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+function methodCalls(fetchMock: ReturnType<typeof vi.fn>, method: string) {
+  return fetchMock.mock.calls.filter(
+    (call) => ((call[1] as RequestInit | undefined)?.method ?? "GET") === method,
+  );
+}
+
 describe("mergeStatusPageDrafts", () => {
   const base = baseConfig();
 
@@ -116,8 +144,9 @@ describe("StatusPageSettings save model", () => {
   });
 
   it("saves the whole document in a single PUT with If-Match", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ data: baseConfig({ name: "Acme Status" }) }, { etag: '"2"' }));
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = stubFetch({
+      put: [() => jsonResponse({ data: baseConfig({ name: "Acme Status" }) }, { etag: '"2"' })],
+    });
     renderSettings();
 
     fireEvent.change(screen.getByLabelText("Page name"), { target: { value: "Acme Status" } });
@@ -126,8 +155,8 @@ describe("StatusPageSettings save model", () => {
     await waitFor(() => {
       expect(screen.getByText("Status page settings saved")).toBeDefined();
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(methodCalls(fetchMock, "PUT")).toHaveLength(1);
+    const [url, init] = methodCalls(fetchMock, "PUT")[0]!;
     expect(url).toBe("/api/v1/status-page-config");
     expect(init.method).toBe("PUT");
     expect(init.headers["If-Match"]).toBe('"1"');
@@ -148,11 +177,16 @@ describe("StatusPageSettings save model", () => {
 
   it("recovers from a 412 by merging and preserving local edits", async () => {
     const serverDocument = baseConfig({ contactUrl: "mailto:ops@acme.dev" });
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse({ error: { message: "conflict" } }, { status: 412 }))
-      .mockResolvedValueOnce(jsonResponse({ data: serverDocument }, { etag: '"7"' }))
-      .mockResolvedValueOnce(jsonResponse({ data: serverDocument }, { etag: '"8"' }));
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = stubFetch({
+      get: [
+        () => jsonResponse({ data: baseConfig() }, { etag: '"1"' }),
+        () => jsonResponse({ data: serverDocument }, { etag: '"7"' }),
+      ],
+      put: [
+        () => jsonResponse({ error: { message: "conflict" } }, { status: 412 }),
+        () => jsonResponse({ data: serverDocument }, { etag: '"8"' }),
+      ],
+    });
     renderSettings();
 
     fireEvent.change(screen.getByLabelText("Page name"), { target: { value: "Acme Status" } });
@@ -171,11 +205,33 @@ describe("StatusPageSettings save model", () => {
     // The retry carries the refreshed ETag.
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(methodCalls(fetchMock, "PUT")).toHaveLength(2);
     });
-    const [, retryInit] = fetchMock.mock.calls[2]!;
-    expect(retryInit.method).toBe("PUT");
+    const [, retryInit] = methodCalls(fetchMock, "PUT")[1]!;
     expect(retryInit.headers["If-Match"]).toBe('"7"');
+  });
+
+  it("adopts a fresh server document on mount while pristine, so a stale cached etag never conflicts", async () => {
+    const serverDocument = baseConfig({ name: "Server Status" });
+    const fetchMock = stubFetch({
+      get: [() => jsonResponse({ data: serverDocument }, { etag: '"9"' })],
+      put: [() => jsonResponse({ data: baseConfig({ name: "Renamed" }) }, { etag: '"10"' })],
+    });
+    renderSettings();
+
+    await waitFor(() => {
+      expect((screen.getByLabelText("Page name") as HTMLInputElement).value).toBe("Server Status");
+    });
+    // Adoption is silent, the form stays clean.
+    expect(screen.queryByText("Unsaved changes")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Page name"), { target: { value: "Renamed" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => {
+      expect(methodCalls(fetchMock, "PUT")).toHaveLength(1);
+    });
+    const [, init] = methodCalls(fetchMock, "PUT")[0]!;
+    expect(init.headers["If-Match"]).toBe('"9"');
   });
 });
 
@@ -204,22 +260,22 @@ describe("StatusPageSettings navigation links", () => {
   });
 
   it("surfaces link validation only on a save attempt and blocks the PUT", () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = stubFetch();
     renderSettings();
     fireEvent.click(screen.getByRole("button", { name: "Add Link" }));
     fireEvent.change(screen.getByLabelText("Link 1 label"), { target: { value: "Docs" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(screen.getByText("Every link needs a label and a URL")).toBeDefined();
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(methodCalls(fetchMock, "PUT")).toHaveLength(0);
     // Editing the links clears the save-attempt error.
     fireEvent.change(screen.getByLabelText("Link 1 URL"), { target: { value: "https://acme.dev/docs" } });
     expect(screen.queryByText("Every link needs a label and a URL")).toBeNull();
   });
 
   it("drops fully-empty rows on save instead of failing validation", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ data: baseConfig({ name: "Acme Status" }) }, { etag: '"2"' }));
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = stubFetch({
+      put: [() => jsonResponse({ data: baseConfig({ name: "Acme Status" }) }, { etag: '"2"' })],
+    });
     renderSettings();
     fireEvent.change(screen.getByLabelText("Page name"), { target: { value: "Acme Status" } });
     fireEvent.click(screen.getByRole("button", { name: "Add Link" }));
@@ -227,7 +283,7 @@ describe("StatusPageSettings navigation links", () => {
     await waitFor(() => {
       expect(screen.getByText("Status page settings saved")).toBeDefined();
     });
-    const [, init] = fetchMock.mock.calls[0]!;
+    const [, init] = methodCalls(fetchMock, "PUT")[0]!;
     const payload = JSON.parse(init.body as string) as { navLinks: unknown[] };
     expect(payload.navLinks).toEqual([]);
   });
@@ -235,10 +291,10 @@ describe("StatusPageSettings navigation links", () => {
 
 describe("StatusPageSettings uploads", () => {
   it("uploads pre-save and commits only the returned id via the draft", async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse({ data: { id: IMAGE_ID } }, { status: 201 }))
-      .mockResolvedValueOnce(jsonResponse({ data: baseConfig({ logoLightImageId: IMAGE_ID }) }, { etag: '"2"' }));
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = stubFetch({
+      post: [() => jsonResponse({ data: { id: IMAGE_ID } }, { status: 201 })],
+      put: [() => jsonResponse({ data: baseConfig({ logoLightImageId: IMAGE_ID }) }, { etag: '"2"' })],
+    });
     renderSettings();
 
     const file = new File(["png-bytes"], "logo.png", { type: "image/png" });
@@ -247,7 +303,7 @@ describe("StatusPageSettings uploads", () => {
     await waitFor(() => {
       expect(screen.getByText("Ready — save to apply")).toBeDefined();
     });
-    const [uploadUrl, uploadInit] = fetchMock.mock.calls[0]!;
+    const [uploadUrl, uploadInit] = methodCalls(fetchMock, "POST")[0]!;
     expect(uploadUrl).toBe("/api/v1/images");
     expect(uploadInit.method).toBe("POST");
     expect((uploadInit.body as FormData).get("kind")).toBe("logo-light");
@@ -258,7 +314,7 @@ describe("StatusPageSettings uploads", () => {
     await waitFor(() => {
       expect(screen.getByText("Status page settings saved")).toBeDefined();
     });
-    const [, putInit] = fetchMock.mock.calls[1]!;
+    const [, putInit] = methodCalls(fetchMock, "PUT")[0]!;
     const payload = JSON.parse(putInit.body as string) as Record<string, unknown>;
     expect(payload.logoLightImageId).toBe(IMAGE_ID);
   });
@@ -280,8 +336,7 @@ describe("StatusPageSettings uploads", () => {
   });
 
   it("rejects wrong types and oversized files before any network round-trip", () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = stubFetch();
     renderSettings();
 
     fireEvent.change(screen.getByLabelText("Logo (light theme)"), {
@@ -293,7 +348,7 @@ describe("StatusPageSettings uploads", () => {
     fireEvent.change(screen.getByLabelText("Favicon"), { target: { files: [oversized] } });
     expect(screen.getByText("Favicon files must be at most 32 KB.")).toBeDefined();
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(methodCalls(fetchMock, "POST")).toHaveLength(0);
     expect(screen.queryByText("Unsaved changes")).toBeNull();
   });
 

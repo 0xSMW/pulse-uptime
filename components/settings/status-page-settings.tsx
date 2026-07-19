@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useDirtyGuard } from "@/components/settings/settings-dirty";
 import { CardHeading } from "@/components/settings/settings-row";
@@ -414,6 +414,45 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
 
   const dirty = !documentsEqual(draft, saved);
   useDirtyGuard("status-page", dirty);
+
+  const draftRef = useRef(draft);
+  const savedRef = useRef(saved);
+  const etagRef = useRef(etag);
+  useEffect(() => {
+    draftRef.current = draft;
+    savedRef.current = saved;
+    etagRef.current = etag;
+  });
+
+  // A remount can hydrate from a cached snapshot (client router cache,
+  // prefetched payload, bfcache) whose etag is stale. Saving with that etag
+  // 412s against the user's own previous save and surfaces as a phantom
+  // "changed elsewhere" conflict. Revalidate once on mount and adopt the
+  // server document only while the form is pristine. A form the user has
+  // already edited is left alone, the existing 412 recovery covers it.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch("/api/v1/status-page-config", { cache: "no-store" });
+        if (!response.ok) return;
+        const nextEtag = response.headers.get("ETag");
+        const payload = (await response.json()) as { data: StatusPageConfigDocument };
+        if (cancelled || !nextEtag || nextEtag === etagRef.current) return;
+        if (!documentsEqual(draftRef.current, savedRef.current)) return;
+        const server = toDocument(payload.data);
+        setEtag(nextEtag);
+        setSaved(server);
+        setDraft(structuredClone(server));
+      } catch {
+        // Revalidation is best-effort. A stale etag still recovers through
+        // the conflict path on save.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function update(patch: Partial<StatusPageConfigDocument>) {
     if (patch.navLinks) setNavLinksError("");

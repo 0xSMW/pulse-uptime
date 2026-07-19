@@ -242,7 +242,7 @@ export function AccountSettings({ data }: { data: AccountSettingsData }) {
               </Field>
             </form>
 
-            <div className="border-t border-[var(--border)] pt-4">
+            <div className="-mx-6 border-t border-[var(--border)] px-6 pt-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-[13px] font-medium">Email</p>

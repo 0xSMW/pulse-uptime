@@ -39,10 +39,13 @@ export function SheetIconButton({
       >
         {children}
       </Button>
+      {/* Right aligned so the nowrap tooltip stays inside the sheet, the
+          buttons sit at the sheet's right edge and a centered tooltip would
+          extend past it and widen the dialog's scrollable overflow. */}
       <span
         id={tooltipId}
         role="tooltip"
-        className="pointer-events-none absolute top-[calc(100%+8px)] left-1/2 z-20 -translate-x-1/2 rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-2 py-1 text-xs font-medium whitespace-nowrap text-[var(--fg)] opacity-0 shadow-[var(--popover-shadow)] transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none"
+        className="pointer-events-none absolute top-[calc(100%+8px)] right-0 z-20 rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-2 py-1 text-xs font-medium whitespace-nowrap text-[var(--fg)] opacity-0 shadow-[var(--popover-shadow)] transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none"
       >
         {label}
       </span>
@@ -86,7 +89,10 @@ export function Sheet({
         onClose();
       }}
       onClose={onClose}
-      className="fixed inset-y-0 right-0 left-auto m-0 h-dvh w-[min(480px,100vw)] max-w-none border-0 border-l border-[var(--border)] bg-[var(--bg)] p-0 text-[var(--fg)] shadow-[-12px_0_40px_rgb(0_0_0/20%)] backdrop:bg-black/45 open:flex open:flex-col"
+      // overflow-x-hidden overrides the modal dialog's UA overflow auto so
+      // nothing inside can ever produce a horizontal scrollbar, the inner
+      // content div owns vertical scrolling.
+      className="fixed inset-y-0 right-0 left-auto m-0 h-dvh w-[min(480px,100vw)] max-w-none overflow-x-hidden border-0 border-l border-[var(--border)] bg-[var(--bg)] p-0 text-[var(--fg)] shadow-[-12px_0_40px_rgb(0_0_0/20%)] backdrop:bg-black/45 open:flex open:flex-col open:animate-[sheet-slide-in_200ms_ease-out] backdrop:animate-[sheet-backdrop-in_200ms_ease-out] motion-reduce:open:animate-none motion-reduce:backdrop:animate-none"
     >
       <header className="flex shrink-0 items-start justify-between gap-4 border-b border-[var(--border)] px-6 py-5">
         <div>
@@ -100,7 +106,7 @@ export function Sheet({
           </SheetIconButton>
         </div>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">{children}</div>
+      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-6 py-5">{children}</div>
     </dialog>
   );
 }

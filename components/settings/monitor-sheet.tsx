@@ -98,6 +98,20 @@ export function isPublicMonitorUrl(value: string): boolean {
   } catch { return false; }
 }
 
+export function deriveMonitorName(url: string): string {
+  // Bare hostnames like api.acme.dev parse on the second pass with an
+  // assumed scheme, www. is presentation noise and never part of the name.
+  for (const candidate of [url.trim(), `https://${url.trim()}`]) {
+    try {
+      const hostname = new URL(candidate).hostname.replace(/^www\./, "");
+      if (hostname) return hostname;
+    } catch {
+      // Not parseable as-is, try the next candidate.
+    }
+  }
+  return "";
+}
+
 export function validateMonitorForm(values: MonitorFormValues): MonitorFormErrors {
   const errors: MonitorFormErrors = {};
   if (!values.name.trim()) errors.name = "Enter a monitor name";
@@ -118,7 +132,9 @@ function NumberField({ label, value, error, onChange, min, max }: { label: strin
   return (
     <label className="block">
       <span className="mb-1.5 block text-[13px] font-medium">{label}</span>
-      <input type="number" min={min} max={max} value={value} onChange={(event) => onChange(Number(event.target.value))} aria-invalid={Boolean(error)} className="h-10 w-full rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-3 font-data text-[13px]" />
+      {/* min-w-0 lets the two column advanced grid shrink below the input's
+          intrinsic width inside the narrow sheet instead of overflowing */}
+      <input type="number" min={min} max={max} value={value} onChange={(event) => onChange(Number(event.target.value))} aria-invalid={Boolean(error)} className="h-10 w-full min-w-0 rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-3 font-data text-[13px]" />
       {error ? <span className="mt-1 block text-xs text-[var(--down-text)]">{error}</span> : null}
     </label>
   );
@@ -156,6 +172,21 @@ export function MonitorSheet({ open, monitor, groups, onGroupCreated, onMonitorG
   }, []);
 
   const set = <K extends keyof MonitorFormValues>(key: K, value: MonitorFormValues[K]) => setValues((current) => ({ ...current, [key]: value }));
+
+  const lastDerivedName = useRef("");
+
+  // URL edits fill the name only while it is empty or still machine derived,
+  // a manually entered name is never overwritten and an existing monitor
+  // never has its name rewritten.
+  function updateUrl(url: string) {
+    if (monitor || (values.name !== "" && values.name !== lastDerivedName.current)) {
+      set("url", url);
+      return;
+    }
+    const name = deriveMonitorName(url);
+    lastDerivedName.current = name;
+    setValues((current) => ({ ...current, url, name }));
+  }
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -243,8 +274,8 @@ export function MonitorSheet({ open, monitor, groups, onGroupCreated, onMonitorG
       </> : undefined}
     >
       <form ref={formRef} onSubmit={submit} className="space-y-4">
-        <label className="block"><span className="mb-1.5 block text-[13px] font-medium">Name</span><input ref={firstField} value={values.name} onChange={(e) => set("name", e.target.value)} aria-invalid={Boolean(errors.name)} className={inputClass} />{errors.name ? <span className="mt-1 block text-xs text-[var(--down-text)]">{errors.name}</span> : null}</label>
-        <label className="block"><span className="mb-1.5 block text-[13px] font-medium">URL</span><input value={values.url} onChange={(e) => set("url", e.target.value)} aria-invalid={Boolean(errors.url)} className={`${inputClass} font-data`} placeholder="https://example.com/health" />{errors.url ? <span className="mt-1 block text-xs text-[var(--down-text)]">{errors.url}</span> : null}</label>
+        <label className="block"><span className="mb-1.5 block text-[13px] font-medium">URL</span><input ref={firstField} value={values.url} onChange={(e) => updateUrl(e.target.value)} aria-invalid={Boolean(errors.url)} className={`${inputClass} font-data`} placeholder="https://example.com/health" />{errors.url ? <span className="mt-1 block text-xs text-[var(--down-text)]">{errors.url}</span> : null}</label>
+        <label className="block"><span className="mb-1.5 block text-[13px] font-medium">Name</span><input value={values.name} onChange={(e) => set("name", e.target.value)} aria-invalid={Boolean(errors.name)} className={inputClass} />{errors.name ? <span className="mt-1 block text-xs text-[var(--down-text)]">{errors.name}</span> : null}</label>
         <div>
           <label id="monitor-group-label" className="mb-1.5 block text-[13px] font-medium">Group</label>
           {sortedGroups.length === 0 ? (
