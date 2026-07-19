@@ -11,8 +11,8 @@ export default async function MonitorDetailPage({
   params: Promise<{ monitorId: string }>;
 }) {
   const { monitorId } = await params;
-  // One sub-ms lookup gates 404 and paints the real header; the seven-query
-  // detail payload streams in behind it.
+  // The identity lookup gates 404 and renders the header. Five detail queries
+  // stream in behind it.
   const identity = await getMonitorIdentity(monitorId);
   if (!identity) notFound();
 

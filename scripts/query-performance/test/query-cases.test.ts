@@ -77,6 +77,9 @@ describe("dashboard monitor incident join", () => {
   it("selects blended rollup and raw uptime", () => {
     const built = findCase("dashboard-monitors-uptime24h").build(fakeConnection(), FAKE_SAMPLE_CONTEXT);
     expect(built.text).toMatch(/cross join lateral/i);
+    expect(built.text).toMatch(/not exists/i);
+    expect(built.text).toMatch(/date_bin\('15 minutes'/i);
+    expect(built.text).not.toMatch(/last_bucket_start/i);
   });
 });
 
@@ -87,7 +90,7 @@ describe("dashboard uptime window fixture anchor", () => {
     const ctx: SampleContext = { ...FAKE_SAMPLE_CONTEXT, now: fixtureNow };
     const built = findCase("dashboard-monitors-uptime24h").build(fakeConnection(), ctx);
 
-    // The query binds start, end, then start again for the coalesce fallback.
+    // The query binds start, end, then start again for raw coverage.
     const expectedStartIso = "2024-06-14T12:30:00.000Z";
     const expectedEndIso = "2024-06-15T12:30:00.000Z";
     expect(built.params).toHaveLength(3);

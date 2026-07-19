@@ -24,12 +24,11 @@ export function groupByMonitorId<T extends { monitorId: string }>(rows: T[]): Ma
 }
 
 /**
- * Thrown when the public status data can't be loaded because the database
- * (or a query against it) failed. Public status pages are ISR + build-time
- * prerendered, so this must never bubble up as an uncaught rejection: build
- * environments without a reachable database (CI, preview builds) would fail
- * the whole build, and in production it should degrade to an honest
- * "temporarily unavailable" page rather than a 500.
+ * Thrown when public status data fails to load. Status routes must catch
+ * this and never let it escape as an uncaught rejection. Status pages are
+ * ISR and build-time prerendered, so an unhandled failure breaks builds in
+ * database-less environments (CI, preview) and 500s the public page during
+ * a real outage instead of degrading to "unavailable".
  */
 export class StatusDataUnavailableError extends Error {
   constructor(cause: unknown) {

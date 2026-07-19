@@ -59,8 +59,7 @@ export const queryCases: QueryCase[] = [
               / (coalesce(rollup.completed, 0) + coalesce(raw.completed, 0)) end
           from (
             select sum(${schema.metricRollups.completedChecks}) as completed,
-              sum(${schema.metricRollups.successfulChecks}) as successful,
-              max(${schema.metricRollups.bucketStart}) as last_bucket_start
+              sum(${schema.metricRollups.successfulChecks}) as successful
             from ${schema.metricRollups}
             where ${schema.metricRollups.monitorId} = ${schema.monitorRegistry.id}
               and ${schema.metricRollups.resolution} = '15m'
@@ -72,7 +71,13 @@ export const queryCases: QueryCase[] = [
               count(*) filter (where ${schema.checkResults.successful}) as successful
             from ${schema.checkResults}
             where ${schema.checkResults.monitorId} = ${schema.monitorRegistry.id}
-              and ${schema.checkResults.checkedAt} >= coalesce(rollup.last_bucket_start + interval '15 minutes', ${start15m})
+              and ${schema.checkResults.checkedAt} >= ${start15m}
+              and not exists (
+                select 1 from ${schema.metricRollups} covered
+                where covered.monitor_id = ${schema.monitorRegistry.id}
+                  and covered.resolution = '15m'
+                  and covered.bucket_start = date_bin('15 minutes', ${schema.checkResults.checkedAt}, timestamptz '2000-01-01')
+              )
           ) raw
         )`,
       }).from(schema.monitorRegistry)

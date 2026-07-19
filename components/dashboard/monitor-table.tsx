@@ -191,7 +191,7 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
                     markPending(monitor.id);
                   }
                 }}
-                // Prefetch on hover or focus to limit full requests to intended navigation.
+                // Prefetch after hover intent or immediately on keyboard focus.
                 onMouseEnter={() => handleRowMouseEnter(monitor.id)}
                 onMouseLeave={handleRowMouseLeave}
                 onFocus={() => prefetchMonitor(monitor.id)}

@@ -15,9 +15,9 @@ function ChartPlaceholder() {
   return <div className="h-[220px] w-full animate-pulse rounded bg-[var(--chip-bg)]" aria-hidden />;
 }
 
-// Tracks whether the chart container is visible. Mount immediately when
-// IntersectionObserver is unavailable. A false server snapshot keeps hydration
-// consistent until the client subscription reports visibility.
+// Subscribe to visibility without changing state from an effect. Mount
+// immediately without IntersectionObserver. The false server snapshot keeps
+// hydration consistent until the client reports visibility.
 function useIsIntersecting(containerRef: RefObject<HTMLDivElement | null>) {
   const visibleRef = useRef(false);
 

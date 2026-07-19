@@ -1,5 +1,5 @@
-// Mirrors the incidents page shell: real heading, filter-sized block, list
-// skeleton — so prefetched navigation feedback matches the streamed shell.
+// Mirrors the incidents page shell (real heading, filter-sized block, list
+// skeleton) so prefetched navigation feedback matches the streamed shell.
 export default function IncidentsLoading() {
   return (
     <>

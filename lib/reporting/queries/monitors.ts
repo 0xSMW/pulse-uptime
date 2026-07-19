@@ -70,8 +70,8 @@ function p95Latency(rows: Array<{
   return null;
 }
 
-// Performs one indexed identity lookup for the page shell without loading rollups.
-// React cache shares the lookup between the page and detail island for each request.
+// Load identity without rollups. React cache shares the indexed lookup between
+// the page shell and detail island for each request.
 export const getMonitorIdentity = cache(async (id: string) => {
   const [monitor] = await db
     .select({
