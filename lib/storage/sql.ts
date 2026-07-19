@@ -283,19 +283,30 @@ order by bits.scheduled_minute desc
 limit $4
 `;
 
-// Aggregated per-check counts for a single monitor over [start, end), read
-// straight from check_batches. The collecting card folds the uncompacted
-// post-activation tail onto the completed rollups, and the tail can exceed the
-// display query's row cap, so this counts every due minute in the window rather
-// than the newest rows. The window is bounded to the tail past the last rollup,
-// so it never scans the full raw retention. It always returns one row, zeros
-// when no minute is due.
+// Aggregated per-check counts for a single monitor over [$2, $3), read straight
+// from check_batches, minus the counted rollup middle [$4, $5). The collecting
+// card folds the raw post-activation minutes no rollup counts onto the completed
+// rollups, and that raw contribution can exceed the display query's row cap, so
+// this counts every due minute rather than the newest rows. $2 is the minute
+// floor of activation and $3 is now, so the scan never touches the full raw
+// retention. The counted rollups since activation exclude the activation
+// straddling bucket, so the middle they cover is [$4, $5) with $4 the earliest
+// counted bucket start and $5 the newest counted bucket end. Minutes before $4
+// are the straddling bucket tail no rollup counts, and minutes at or after $5 are
+// the uncompacted tail. When no counted bucket exists yet $4 and $5 are null and
+// the scan is the single interval [$2, $3). A counted middle with a missing
+// bucket leaves that bucket's minutes uncounted, an accepted approximation for a
+// first-24h card and a rare gap. It always returns one row, zeros when no minute
+// is due.
 export const RECENT_MINUTE_CHECK_TAIL_COUNTS_SQL = `
 with positioned as (
   select array_position(batch.monitor_ids, $1::text) position,
     batch.expected_bitmap, batch.completed_bitmap, batch.failure_bitmap
   from check_batches batch
   where batch.scheduled_minute >= $2 and batch.scheduled_minute < $3
+    and ($4::timestamptz is null
+      or batch.scheduled_minute < $4::timestamptz
+      or batch.scheduled_minute >= $5::timestamptz)
 ), bits as (
   select
     ((get_byte(positioned.expected_bitmap, ((positioned.position - 1) / 8)::integer) >> (((positioned.position - 1) % 8)::integer)) & 1) expected,

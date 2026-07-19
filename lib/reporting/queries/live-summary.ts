@@ -198,9 +198,9 @@ export function buildRecentChecks(rollups24h: LiveRollupRow[]): LiveRecentCheck[
   }));
 }
 
-// Aggregated counts for the uncompacted post-activation raw tail, summed over
-// the check source between rawTailCutoff and now. Each minute is one expected
-// check, so completed, successful, and failed read the per-minute flags.
+// Aggregated counts for the post-activation raw minutes no rollup counts, summed
+// over the check source across rawTailBounds. Each minute is one expected check,
+// so completed, successful, and failed read the per-minute flags.
 export type RawTailCounts = {
   expected: number;
   completed: number;
@@ -208,28 +208,57 @@ export type RawTailCounts = {
   failed: number;
 };
 
-// The instant the uncompacted tail begins, where the completed rollups end. With
-// completed post-activation buckets, ordered oldest first, the cutoff is the
-// newest bucket end, so no minute a rollup already counts is folded twice. With
-// none yet the cutoff floors activation to its minute, matching
-// rawChecksSinceActivation, so the whole tail counts and the activating check
-// whose completion instant trails its scheduled minute still joins in. An
-// unactivated monitor has no tail.
-export function rawTailCutoff(
-  completedRollups: Array<{ bucketStart: Date }>,
+// The two boundaries that carve the raw contribution to the collecting card out
+// of [activationFloor, now), so no post-activation minute is dropped and none is
+// counted twice against the rollups.
+//   activationFloor          the minute floor of activation. A raw minute is
+//                            aligned to its scheduled minute while activated_at
+//                            trails a few seconds in, so flooring keeps the
+//                            activating check that shares activation's minute.
+//   firstCountedBucketStart  the earliest counted rollup bucket start. Rollups
+//                            since activation exclude the straddling bucket, so
+//                            the raw minutes at or after activationFloor but
+//                            before this start are the post-activation portion of
+//                            that bucket, which no rollup ever counts.
+//   lastCompletedBucketEnd   the newest counted rollup bucket end. Raw minutes at
+//                            or after it are the uncompacted tail no rollup covers
+//                            yet.
+// The counted rollups cover the contiguous middle
+// [firstCountedBucketStart, lastCompletedBucketEnd), so the raw contribution is
+// the activation-bucket segment before it plus the uncompacted-tail segment after
+// it. With no counted bucket yet both boundaries are null and the raw
+// contribution collapses to the single interval [activationFloor, now), the
+// pre-compaction behavior. An unactivated monitor has no raw contribution.
+export type RawTailBounds = {
+  activationFloor: Date;
+  firstCountedBucketStart: Date | null;
+  lastCompletedBucketEnd: Date | null;
+};
+
+export function rawTailBounds(
+  countedRollups: Array<{ bucketStart: Date }>,
   activatedAt: Date | null,
-): Date | null {
+): RawTailBounds | null {
   if (activatedAt === null) return null;
-  const last = completedRollups.at(-1);
-  if (last) return new Date(last.bucketStart.getTime() + FIFTEEN_MINUTE_MS);
-  return new Date(Math.floor(activatedAt.getTime() / MINUTE_MS) * MINUTE_MS);
+  const activationFloor = new Date(Math.floor(activatedAt.getTime() / MINUTE_MS) * MINUTE_MS);
+  const first = countedRollups[0];
+  const last = countedRollups.at(-1);
+  if (!first || !last) {
+    return { activationFloor, firstCountedBucketStart: null, lastCompletedBucketEnd: null };
+  }
+  return {
+    activationFloor,
+    firstCountedBucketStart: first.bucketStart,
+    lastCompletedBucketEnd: new Date(last.bucketStart.getTime() + FIFTEEN_MINUTE_MS),
+  };
 }
 
-// Folds the uncompacted post-activation raw tail counts onto the collecting-card
-// observed counts. The base counts come from completed rollup buckets since
-// activation. The tail counts cover the minutes no rollup covers yet, aggregated
-// over the same source from rawTailCutoff, so the fold reads the full tail rather
-// than the newest rows a display limit caps at and no minute is counted twice.
+// Folds the post-activation raw counts onto the collecting-card observed counts.
+// The base counts come from completed rollup buckets since activation. The raw
+// counts cover the minutes no rollup counts, the activation-bucket segment and
+// the uncompacted tail across rawTailBounds, so the fold reads the full raw
+// contribution rather than the newest rows a display limit caps at and no minute
+// is counted twice.
 // An unknown tail minute lowers coverage without touching uptime, and completed
 // never exceeds expected nor successful completed, so uptime stays at or below
 // 100. With no completed buckets yet the whole tail counts, so the first

@@ -9,7 +9,7 @@ import {
   observedWithRawTail,
   openingFailure,
   rawChecksSinceActivation,
-  rawTailCutoff,
+  rawTailBounds,
   rollupVersionOf,
   secondsBetween,
   type LiveIncidentRow,
@@ -171,23 +171,93 @@ describe("rawChecksSinceActivation", () => {
   });
 });
 
-describe("rawTailCutoff", () => {
+describe("rawTailBounds", () => {
   it("is null for an unactivated monitor", () => {
-    expect(rawTailCutoff([], null)).toBeNull();
+    expect(rawTailBounds([], null)).toBeNull();
   });
 
-  it("floors activation to its minute when no bucket has compacted yet", () => {
+  it("floors activation to its minute and leaves both middle bounds absent with no counted bucket", () => {
     const activatedAt = new Date("2026-07-19T12:03:05.000Z");
-    expect(rawTailCutoff([], activatedAt)).toEqual(new Date("2026-07-19T12:03:00.000Z"));
+    expect(rawTailBounds([], activatedAt)).toEqual({
+      activationFloor: new Date("2026-07-19T12:03:00.000Z"),
+      firstCountedBucketStart: null,
+      lastCompletedBucketEnd: null,
+    });
   });
 
-  it("is the newest completed bucket end so a compacted minute never folds twice", () => {
+  it("carves the counted middle out of the raw contribution once a bucket compacts", () => {
+    // Activated 12:03:05, so rollupsSinceActivation excludes the 12:00 straddling
+    // bucket and counts from 12:15. The bounds keep the straddling tail before
+    // 12:15 and the uncompacted tail at or after the 12:15 bucket end 12:30, so no
+    // post-activation minute drops and the counted middle never folds twice.
+    const activatedAt = new Date("2026-07-19T12:03:05.000Z");
+    const rollups = [{ bucketStart: new Date("2026-07-19T12:15:00.000Z") }];
+    expect(rawTailBounds(rollups, activatedAt)).toEqual({
+      activationFloor: new Date("2026-07-19T12:03:00.000Z"),
+      firstCountedBucketStart: new Date("2026-07-19T12:15:00.000Z"),
+      lastCompletedBucketEnd: new Date("2026-07-19T12:30:00.000Z"),
+    });
+  });
+
+  it("spans first counted start to last counted end across several buckets", () => {
     const activatedAt = new Date("2026-07-19T06:00:00.000Z");
     const rollups = [
       { bucketStart: new Date("2026-07-19T11:30:00.000Z") },
       { bucketStart: new Date("2026-07-19T11:45:00.000Z") },
     ];
-    expect(rawTailCutoff(rollups, activatedAt)).toEqual(new Date("2026-07-19T12:00:00.000Z"));
+    expect(rawTailBounds(rollups, activatedAt)).toEqual({
+      activationFloor: new Date("2026-07-19T06:00:00.000Z"),
+      firstCountedBucketStart: new Date("2026-07-19T11:30:00.000Z"),
+      lastCompletedBucketEnd: new Date("2026-07-19T12:00:00.000Z"),
+    });
+  });
+});
+
+describe("observed counts hold across compaction of the straddling bucket", () => {
+  // A monitor activated 12:03:05 on a one-minute cadence. The 12:00 straddling
+  // bucket holds pre-activation setup failures plus the post-activation successes
+  // 12:03 through 12:14. rollupsSinceActivation excludes that whole bucket.
+  const activatedAt = new Date("2026-07-19T12:03:05.000Z");
+  // Twelve post-activation minutes 12:03 through 12:14 all succeed.
+  const straddlingTail = { expected: 12, completed: 12, successful: 12, failed: 0 };
+
+  it("counts the straddling tail before compaction with no counted rollup", () => {
+    const bounds = rawTailBounds([], activatedAt);
+    expect(bounds).toEqual({
+      activationFloor: new Date("2026-07-19T12:03:00.000Z"),
+      firstCountedBucketStart: null,
+      lastCompletedBucketEnd: null,
+    });
+    // With no counted rollup the aggregate scans the single interval and folds
+    // the whole straddling tail onto empty base counts.
+    const observed = observedWithRawTail([], straddlingTail);
+    expect(observed).toMatchObject({ expected: 12, completed: 12, successful: 12, uptime: 100 });
+  });
+
+  it("still counts the straddling tail after the 12:15 bucket compacts and does not drop", () => {
+    // The 12:15 bucket compacts. rollupsSinceActivation counts it, and the raw
+    // aggregate now scans [12:03, 12:15) plus [12:30, now), still folding the same
+    // twelve straddling-tail minutes since they sit before firstCountedBucketStart.
+    const counted = [{
+      bucketStart: new Date("2026-07-19T12:15:00.000Z"),
+      expectedChecks: 15,
+      completedChecks: 15,
+      successfulChecks: 15,
+      failedChecks: 0,
+    }];
+    const bounds = rawTailBounds(counted, activatedAt);
+    expect(bounds).toMatchObject({
+      activationFloor: new Date("2026-07-19T12:03:00.000Z"),
+      firstCountedBucketStart: new Date("2026-07-19T12:15:00.000Z"),
+      lastCompletedBucketEnd: new Date("2026-07-19T12:30:00.000Z"),
+    });
+    // The straddling tail sits in [12:03, 12:15), so the aggregate keeps counting
+    // it while the 12:15 bucket carries the middle. Expected does not drop from the
+    // pre-compaction 12, it rises to 12 + 15, and the compacted middle is not
+    // double counted.
+    const observed = observedWithRawTail(counted, straddlingTail);
+    expect(observed).toMatchObject({ expected: 27, completed: 27, successful: 27, uptime: 100 });
+    expect(observed.expected).toBeGreaterThanOrEqual(12);
   });
 });
 

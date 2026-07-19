@@ -29,9 +29,10 @@ import {
   buildRecentIncidents,
   observedWithRawTail,
   rawChecksSinceActivation,
-  rawTailCutoff,
+  rawTailBounds,
   rollupVersionOf,
   type MonitorLiveData,
+  type RawTailBounds,
   type RawTailCounts,
 } from "./live-summary";
 import { buildRollupTimeline } from "./timeline";
@@ -191,17 +192,25 @@ type RawTailCountsDbRow = {
   failed: number | string;
 };
 
-// Aggregates the uncompacted post-activation tail into observed counts. It scans
-// only [cutoff, end), the minutes no completed rollup covers yet, so the
-// collecting card folds the full tail rather than the newest rows the display
-// query caps at. An empty window or a decode failure degrades to zero counts,
-// so the card falls back to the completed rollups alone.
-export async function getRawTailCounts(monitorId: string, cutoff: Date, end: Date): Promise<RawTailCounts> {
-  if (cutoff.getTime() >= end.getTime()) return EMPTY_TAIL_COUNTS;
+// Aggregates the raw post-activation minutes no rollup counts into observed
+// counts. It scans [activationFloor, end) minus the counted rollup middle
+// [firstCountedBucketStart, lastCompletedBucketEnd), so the collecting card folds
+// the activation-bucket segment and the uncompacted tail without double counting
+// the compacted middle, reading the full contribution rather than the newest rows
+// the display query caps at. An empty window or a decode failure degrades to zero
+// counts, so the card falls back to the completed rollups alone.
+export async function getRawTailCounts(monitorId: string, bounds: RawTailBounds, end: Date): Promise<RawTailCounts> {
+  if (bounds.activationFloor.getTime() >= end.getTime()) return EMPTY_TAIL_COUNTS;
   try {
     const rows = await sql.unsafe(
       RECENT_MINUTE_CHECK_TAIL_COUNTS_SQL,
-      portableQueryValues([monitorId, cutoff, end]) as never[],
+      portableQueryValues([
+        monitorId,
+        bounds.activationFloor,
+        end,
+        bounds.firstCountedBucketStart,
+        bounds.lastCompletedBucketEnd,
+      ]) as never[],
     ) as unknown as RawTailCountsDbRow[];
     const row = rows[0];
     if (!row) return EMPTY_TAIL_COUNTS;
@@ -256,17 +265,17 @@ export async function getMonitorDetail(id: string) {
 
   const activeRollups24h = rollupsSinceActivation(rollups24h, activatedAt);
   const observed24h = summarizeCounts(activeRollups24h);
-  // The collecting card counts every post-activation minute, so it folds the
-  // uncompacted raw tail onto the completed rollups. Only the collecting phase
-  // renders that card, so the tail aggregate runs only then. The window from the
-  // last rollup end to now bounds the scan to the uncompacted tail, and the
-  // aggregate reads the full tail rather than the newest rows the display query
-  // caps at. The range cards above keep the pure rollup counts, since a range
-  // score reads only completed buckets.
-  const tailCutoff = firstRunPhase(activatedAt, now) === "collecting"
-    ? rawTailCutoff(activeRollups24h, activatedAt)
+  // The collecting card counts every post-activation minute, so it folds the raw
+  // minutes no rollup counts onto the completed rollups. Only the collecting phase
+  // renders that card, so the raw aggregate runs only then. The bounds carve
+  // [activationFloor, now) minus the counted rollup middle, so the aggregate reads
+  // the activation-bucket segment and the uncompacted tail rather than the newest
+  // rows the display query caps at. The range cards above keep the pure rollup
+  // counts, since a range score reads only completed buckets.
+  const tailBounds = firstRunPhase(activatedAt, now) === "collecting"
+    ? rawTailBounds(activeRollups24h, activatedAt)
     : null;
-  const rawTail = tailCutoff ? await getRawTailCounts(id, tailCutoff, now) : EMPTY_TAIL_COUNTS;
+  const rawTail = tailBounds ? await getRawTailCounts(id, tailBounds, now) : EMPTY_TAIL_COUNTS;
   const observedCollecting = observedWithRawTail(activeRollups24h, rawTail);
   const observed7d = summarizeCounts(rollupsSinceActivation(rollups7d, activatedAt));
   const observed30d = summarizeCounts(rollupsSinceActivation(rollups30d, activatedAt));
@@ -432,15 +441,15 @@ export async function getMonitorLive(
   const activeRawChecks = rawChecksSinceActivation(recentRawChecks, activatedAt);
   const activeRollups24h = rollupsSinceActivation(rollups24h, activatedAt);
   const observed24h = summarizeCounts(activeRollups24h);
-  // The collecting card folds the uncompacted raw tail onto the completed
+  // The collecting card folds the raw minutes no rollup counts onto the completed
   // rollups so the live poll matches the detail snapshot. Only the collecting
-  // phase renders that card, so the tail aggregate runs only then, bounded to the
-  // window from the last rollup end to now. The range cards below keep the pure
-  // rollup counts, since a range score reads only completed buckets.
-  const tailCutoff = firstRunPhase(activatedAt, now) === "collecting"
-    ? rawTailCutoff(activeRollups24h, activatedAt)
+  // phase renders that card, so the raw aggregate runs only then, over
+  // [activationFloor, now) minus the counted rollup middle. The range cards below
+  // keep the pure rollup counts, since a range score reads only completed buckets.
+  const tailBounds = firstRunPhase(activatedAt, now) === "collecting"
+    ? rawTailBounds(activeRollups24h, activatedAt)
     : null;
-  const rawTail = tailCutoff ? await getRawTailCounts(id, tailCutoff, now) : EMPTY_TAIL_COUNTS;
+  const rawTail = tailBounds ? await getRawTailCounts(id, tailBounds, now) : EMPTY_TAIL_COUNTS;
   const observedCollecting = observedWithRawTail(activeRollups24h, rawTail);
   const observed7d = summarizeCounts(rollupsSinceActivation(rollups7d, activatedAt));
   const unlocked24h = isRangeUnlocked("h24", activatedAt, end15m);

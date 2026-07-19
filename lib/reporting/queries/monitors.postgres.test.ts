@@ -164,17 +164,26 @@ suite("recent raw checks read straight from check_batches", () => {
     }
     const end = new Date(base.getTime() + 25 * 60_000);
 
-    // The whole window folds all twenty-five due minutes, well past the cap.
-    expect(await getRawTailCounts("tail-mon", base, end)).toEqual({
+    // No counted rollup yet, so both middle bounds are absent and the scan is the
+    // single interval. The whole window folds all twenty-five due minutes.
+    expect(await getRawTailCounts("tail-mon", {
+      activationFloor: base,
+      firstCountedBucketStart: null,
+      lastCompletedBucketEnd: null,
+    }, end)).toEqual({
       expected: 25,
       completed: 24,
       successful: 23,
       failed: 1,
     });
 
-    // A later cutoff scopes the scan to the uncompacted tail, excluding the
-    // failed and unknown minutes before it, so no compacted minute folds twice.
-    expect(await getRawTailCounts("tail-mon", new Date(base.getTime() + 10 * 60_000), end)).toEqual({
+    // A later activation floor scopes the scan forward, excluding the failed and
+    // unknown minutes before it.
+    expect(await getRawTailCounts("tail-mon", {
+      activationFloor: new Date(base.getTime() + 10 * 60_000),
+      firstCountedBucketStart: null,
+      lastCompletedBucketEnd: null,
+    }, end)).toEqual({
       expected: 15,
       completed: 15,
       successful: 15,
@@ -182,12 +191,59 @@ suite("recent raw checks read straight from check_batches", () => {
     });
 
     // An empty window queries nothing and reports zeros.
-    expect(await getRawTailCounts("tail-mon", end, end)).toEqual({
+    expect(await getRawTailCounts("tail-mon", {
+      activationFloor: end,
+      firstCountedBucketStart: null,
+      lastCompletedBucketEnd: null,
+    }, end)).toEqual({
       expected: 0,
       completed: 0,
       successful: 0,
       failed: 0,
     });
+  });
+
+  it("counts the straddling-bucket tail and the uncompacted tail but not the compacted middle", async () => {
+    // A one-minute monitor activated 07:03. The 07:00 to 07:15 straddling bucket
+    // holds pre-activation setup minutes 07:00 through 07:02 and post-activation
+    // successes 07:03 through 07:14. The 07:15 to 07:30 bucket compacts, so it is
+    // the counted middle. Minutes 07:30 onward are the uncompacted tail. Every
+    // due minute here succeeds, so the counts equal the minute counts.
+    const straddleStart = new Date("2026-08-05T07:00:00Z");
+    const firstCountedBucketStart = new Date("2026-08-05T07:15:00Z");
+    const lastCompletedBucketEnd = new Date("2026-08-05T07:30:00Z");
+    const activationFloor = new Date("2026-08-05T07:03:00Z");
+    const end = new Date("2026-08-05T07:33:00Z");
+    for (let offset = 0; offset < 33; offset += 1) {
+      const minute = new Date(straddleStart.getTime() + offset * 60_000);
+      await insertBatch(minute, ["straddle-mon"], [
+        { expected: true, completed: true, failed: false, latencyMs: 120 },
+      ]);
+    }
+
+    // The straddling tail is the twelve minutes 07:03 through 07:14, and the
+    // uncompacted tail is the three minutes 07:30 through 07:32, fifteen due
+    // minutes. The fifteen minutes of the compacted 07:15 middle are carved out,
+    // so they are not double counted against the rollup that already holds them.
+    expect(await getRawTailCounts("straddle-mon", {
+      activationFloor,
+      firstCountedBucketStart,
+      lastCompletedBucketEnd,
+    }, end)).toEqual({
+      expected: 15,
+      completed: 15,
+      successful: 15,
+      failed: 0,
+    });
+
+    // The pre-activation minutes 07:00 through 07:02 sit before the activation
+    // floor, so they never reach the count.
+    const beforeFloor = await getRawTailCounts("straddle-mon", {
+      activationFloor: straddleStart,
+      firstCountedBucketStart,
+      lastCompletedBucketEnd,
+    }, end);
+    expect(beforeFloor.expected).toBe(18);
   });
 
   it("degrades to an empty result instead of throwing when the raw query fails", async () => {
