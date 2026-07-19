@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
+import type { DatabaseHandle } from "@/lib/db/client";
+
 import {
   acquireIdempotencyOwner,
   executeIdempotent,
@@ -11,9 +13,11 @@ import {
 } from "./idempotency";
 
 const key = "00000000-0000-4000-8000-000000000001";
+const stubTx = "stub-tx" as unknown as DatabaseHandle;
 
 class MemoryPersistence implements IdempotencyPersistence {
   owner: IdempotencyRecord | undefined;
+  completions: Array<{ id: string; status: number; body: unknown; usedTx: boolean }> = [];
 
   constructor(owner?: IdempotencyRecord) { this.owner = owner; }
 
@@ -39,7 +43,15 @@ class MemoryPersistence implements IdempotencyPersistence {
     return id;
   }
 
-  async complete(id: string, status: number, body: unknown, completedAt: Date) {
+  async transaction<R>(run: (tx: DatabaseHandle) => Promise<R>) {
+    // A real transaction rolls back everything, including the completion
+    // write, when `run` throws. The fake mirrors that by only committing
+    // owner/completion state after `run` resolves.
+    return await run(stubTx);
+  }
+
+  async complete(id: string, status: number, body: unknown, completedAt: Date, tx?: DatabaseHandle) {
+    this.completions.push({ id, status, body, usedTx: tx !== undefined });
     if (!this.owner || this.owner.id !== id) return;
     this.owner = { ...this.owner, state: "completed", responseStatus: status, responseBody: body, completedAt };
   }
@@ -86,32 +98,13 @@ describe("idempotency retention reclamation", () => {
     expect(persistence.owner?.responseBody).toEqual({ value: "fresh" });
   });
 
-  it("atomically replaces an expired running owner", async () => {
+  it("reruns work() for an expired running owner instead of trying to recover", async () => {
     const now = new Date("2026-07-18T12:00:00.000Z");
     const persistence = new MemoryPersistence(stored("running", now));
     const oldId = persistence.owner!.id;
-    await executeIdempotent({ ...request({ value: "same" }), now, persistence, work: async () => ({ status: 200, body: { value: "recovered" } }) });
-    expect(persistence.owner).toMatchObject({ state: "completed", responseBody: { value: "recovered" } });
+    await executeIdempotent({ ...request({ value: "same" }), now, persistence, work: async () => ({ status: 200, body: { value: "reran" } }) });
+    expect(persistence.owner).toMatchObject({ state: "completed", responseBody: { value: "reran" } });
     expect(persistence.owner?.id).not.toBe(oldId);
-  });
-
-  it("does not rerun unsafe work after a stale recovery miss", async () => {
-    const firstNow = new Date("2026-07-18T12:00:00.000Z");
-    const persistence = new MemoryPersistence();
-    await executeIdempotent({
-      ...request({ value: "same" }), now: firstNow, persistence,
-      work: async () => ({ status: 200, body: { value: "first" } }),
-    });
-    persistence.owner = {
-      ...persistence.owner!, state: "running", responseStatus: null, responseBody: null, completedAt: null,
-      createdAt: new Date(firstNow.getTime() - 10 * 60_000),
-    };
-    const work = vi.fn(async () => ({ status: 200, body: { value: "unsafe-rerun" } }));
-    await expect(executeIdempotent({
-      ...request({ value: "same" }), now: firstNow, persistence, work,
-      recover: async () => null, rerunAfterRecoveryMiss: false,
-    })).rejects.toMatchObject({ code: "REQUEST_IN_PROGRESS" });
-    expect(work).not.toHaveBeenCalled();
   });
 
   it("makes a boundary loser observe the replacement owner", async () => {
@@ -204,6 +197,69 @@ describe("idempotency retention reclamation", () => {
     });
     expect(acquired).toEqual({ recordId: "new-owner" });
     expect(insertCount).toBe(2);
+  });
+});
+
+describe("atomic completion via context.transaction", () => {
+  it("persists completion with the transaction handle when work uses context.transaction", async () => {
+    const now = new Date("2026-07-18T12:00:00.000Z");
+    const persistence = new MemoryPersistence();
+    const result = await executeIdempotent({
+      ...request({ value: "same" }), now, persistence,
+      work: async (context) => context.transaction(async (tx) => {
+        expect(tx).toBe(stubTx);
+        return { status: 201, body: { value: "atomic" } };
+      }),
+    });
+    expect(result).toMatchObject({ status: 201, body: { value: "atomic" }, replayed: false });
+    expect(persistence.completions).toEqual([{ id: persistence.owner!.id, status: 201, body: { value: "atomic" }, usedTx: true }]);
+    expect(persistence.owner).toMatchObject({ state: "completed", responseStatus: 201, responseBody: { value: "atomic" } });
+  });
+
+  it("applies persistBody to the transaction-completion path too", async () => {
+    const now = new Date("2026-07-18T12:00:00.000Z");
+    const persistence = new MemoryPersistence();
+    await executeIdempotent({
+      ...request({ value: "same" }), now, persistence,
+      work: async (context) => context.transaction(async () => ({ status: 201, body: { secret: "raw", value: "kept" } })),
+      persistBody: (body: { secret: string; value: string }) => ({ value: body.value }),
+    });
+    expect(persistence.completions[0]).toMatchObject({ body: { value: "kept" } });
+  });
+
+  it("falls back to a post-hoc completion write when work never calls context.transaction", async () => {
+    const now = new Date("2026-07-18T12:00:00.000Z");
+    const persistence = new MemoryPersistence();
+    await executeIdempotent({
+      ...request({ value: "same" }), now, persistence,
+      work: async () => ({ status: 200, body: { value: "no-mutation" } }),
+    });
+    expect(persistence.completions).toEqual([{ id: persistence.owner!.id, status: 200, body: { value: "no-mutation" }, usedTx: false }]);
+  });
+
+  it("throws when context.transaction is called more than once", async () => {
+    const now = new Date("2026-07-18T12:00:00.000Z");
+    const persistence = new MemoryPersistence();
+    await expect(executeIdempotent({
+      ...request({ value: "same" }), now, persistence,
+      work: async (context) => {
+        await context.transaction(async () => ({ status: 200, body: { value: "first" } }));
+        return context.transaction(async () => ({ status: 200, body: { value: "second" } }));
+      },
+    })).rejects.toThrow("context.transaction can only be called once per idempotent execution");
+  });
+
+  it("leaves the record running with no completion when run() throws", async () => {
+    const now = new Date("2026-07-18T12:00:00.000Z");
+    const persistence = new MemoryPersistence();
+    await expect(executeIdempotent({
+      ...request({ value: "same" }), now, persistence,
+      work: async (context) => context.transaction(async () => {
+        throw new Error("mutation failed");
+      }),
+    })).rejects.toThrow("mutation failed");
+    expect(persistence.completions).toEqual([]);
+    expect(persistence.owner).toMatchObject({ state: "running", responseStatus: null, responseBody: null });
   });
 });
 

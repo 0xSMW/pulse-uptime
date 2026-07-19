@@ -10,14 +10,18 @@ vi.mock("@/lib/api/status-reports", async (importOriginal) => {
     databaseStatusReportsStore: { ...actual.databaseStatusReportsStore, findMonitors: vi.fn() },
   };
 });
+vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api/idempotency")>()),
+  executeIdempotent: vi.fn(),
+}));
 
 import { revalidatePath } from "next/cache";
 
-import { errorEnvelope } from "@/lib/api/envelopes";
-import { executeIdempotent, type IdempotencyPersistence, type IdempotencyRecord } from "@/lib/api/idempotency";
+import type { DatabaseHandle } from "@/lib/db/client";
+import { executeIdempotent, type IdempotencyContext } from "@/lib/api/idempotency";
 import { databaseStatusReportsStore, StatusReportError } from "@/lib/api/status-reports";
 
-import { revalidateStatusReportPaths, statusReportPatchAlreadyApplied, storedStatusReportError } from "./status-report-http";
+import { revalidateStatusReportPaths, runStatusReportMutation } from "./status-report-http";
 
 beforeEach(() => {
   vi.mocked(revalidatePath).mockReset();
@@ -79,248 +83,97 @@ describe("revalidateStatusReportPaths", () => {
   });
 });
 
-describe("statusReportPatchAlreadyApplied (finding: an INVALID patch retry was recovered as a false 200)", () => {
-  const current = {
-    title: "API outage",
-    startsAt: "2026-07-18T09:00:00.000Z",
-    endsAt: null,
-    affected: [{ monitorId: "api-prod", impact: "down" }],
-  };
-
-  it("returns false for an empty body — patchSchema requires at least one field", () => {
-    expect(statusReportPatchAlreadyApplied(current, {})).toBe(false);
-  });
-
-  it("returns false for a body with only unsupported keys (fails patchSchema's .strict())", () => {
-    expect(statusReportPatchAlreadyApplied(current, { foo: 1 })).toBe(false);
-  });
-
-  it("still returns true for a genuinely already-applied, schema-valid patch", () => {
-    expect(statusReportPatchAlreadyApplied(current, { title: "API outage" })).toBe(true);
-  });
-
-  it("recovers a padded title against the schema-trimmed stored value (finding: comparing the raw body missed patchSchema's titleSchema.trim())", () => {
-    // updateStatusReport parses the patch through patchSchema before
-    // persisting, so `{ title: " API outage " }` is stored as "API outage".
-    // A stale post-commit retry replaying the SAME raw, padded body must
-    // still recover: comparing the raw field against the trimmed current
-    // title would spuriously return false and rerun work().
-    expect(statusReportPatchAlreadyApplied(current, { title: " API outage " })).toBe(true);
-  });
-
-  it("does not recover a genuinely different (non-whitespace) title", () => {
-    expect(statusReportPatchAlreadyApplied(current, { title: "Different outage" })).toBe(false);
-  });
-
-  it("recovers a padded affected monitorId against the schema-trimmed stored value", () => {
-    // affectedEntrySchema trims monitorId the same way titleSchema trims
-    // title. A stale retry's raw, padded monitorId must still match the
-    // current (already-trimmed) affected set.
-    expect(
-      statusReportPatchAlreadyApplied(current, { affected: [{ monitorId: " api-prod ", impact: "down" }] }),
-    ).toBe(true);
-  });
-});
-
-/** Minimal in-memory IdempotencyPersistence, mirroring lib/api/idempotency.test.ts. */
-class MemoryPersistence implements IdempotencyPersistence {
-  owner: IdempotencyRecord | undefined;
-
-  async insertRunning(value: Parameters<IdempotencyPersistence["insertRunning"]>[0]) {
-    if (this.owner) return undefined;
-    this.owner = { responseStatus: null, responseBody: null, completedAt: null, ...value } as IdempotencyRecord;
-    return this.owner.id;
-  }
-
-  async findOwner(principalKey: string, idempotencyKey: string) {
-    return this.owner?.principalKey === principalKey && this.owner.idempotencyKey === idempotencyKey ? this.owner : undefined;
-  }
-
-  async reclaimExpired(id: string, now: Date, value: Parameters<IdempotencyPersistence["reclaimExpired"]>[2]) {
-    if (!this.owner || this.owner.id !== id || this.owner.expiresAt > now) return null;
-    this.owner = { responseStatus: null, responseBody: null, completedAt: null, ...value } as IdempotencyRecord;
-    return this.owner.id;
-  }
-
-  async claimStale(id: string, staleBefore: Date, now: Date, expiresAt: Date) {
-    if (!this.owner || this.owner.id !== id || this.owner.createdAt >= staleBefore) return undefined;
-    this.owner = { ...this.owner, createdAt: now, expiresAt };
-    return id;
-  }
-
-  async complete(id: string, status: number, body: unknown, completedAt: Date) {
-    if (!this.owner || this.owner.id !== id) return;
-    this.owner = { ...this.owner, state: "completed", responseStatus: status, responseBody: body, completedAt };
-  }
-}
-
-function idempotentRequest() {
+function mutationRequest() {
   return new Request("https://pulse.test/api/v1/status-reports/rep-1/publish", {
     method: "POST",
     headers: { "Idempotency-Key": "00000000-0000-4000-8000-000000000001" },
   });
 }
 
-describe("storedStatusReportError + executeIdempotent (finding: publish/report-delete/update-delete threw their deterministic 409/404s past executeIdempotent, leaving the idempotency record stuck 'running' until a stale reclaim's recover callback saw the exact state the failure described and replayed it as a false 200)", () => {
-  it("records a genuine conflict inside work() and replays it verbatim on retry, instead of a recover callback manufacturing success", async () => {
-    const persistence = new MemoryPersistence();
-    const work = vi.fn(async () => {
-      try {
+/**
+ * executeIdempotent itself is mocked here (mirroring every route.test.ts in
+ * this family): the fake stands in for the real acquire/replay machinery
+ * (already exhaustively covered in lib/api/idempotency.test.ts) and instead
+ * models just the ONE contract runStatusReportMutation's doc comment is
+ * about: context.transaction runs `run` against a transaction handle and
+ * only records a completion (into `completions`, standing in for the DB
+ * write) if `run` resolves. If `run` throws, nothing is pushed, mirroring a
+ * rolled-back transaction leaving the record running.
+ */
+describe("runStatusReportMutation", () => {
+  const stubTx = "stub-tx" as unknown as DatabaseHandle;
+  let completions: Array<{ status: number; body: unknown }>;
+
+  beforeEach(() => {
+    completions = [];
+    vi.mocked(executeIdempotent).mockReset().mockImplementation(async ({ work }) => {
+      const context: IdempotencyContext = {
+        operationId: "op-1",
+        transaction: async (run) => {
+          const result = await run(stubTx);
+          completions.push({ status: result.status, body: result.body });
+          return result;
+        },
+      };
+      const result = await work(context);
+      return { ...result, replayed: false };
+    });
+  });
+
+  it("threads the same transaction handle executeIdempotent opened into work(), and commits the completion through it", async () => {
+    const response = await runStatusReportMutation({
+      request: mutationRequest(),
+      context: { principalKey: "human:1", requestId: "req-1" },
+      routeKey: "test",
+      body: {},
+      work: async (tx) => {
+        expect(tx).toBe(stubTx);
+        return { status: 200, kind: "StatusReport", data: { id: "rep-1" } };
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(completions).toEqual([{
+      status: 200,
+      body: { apiVersion: "v1", kind: "StatusReport", data: { id: "rep-1" }, meta: { requestId: "req-1" } },
+    }]);
+  });
+
+  it("records a StatusReportError thrown by work() as the operation's own completed response, mapped to its HTTP status", async () => {
+    const response = await runStatusReportMutation({
+      request: mutationRequest(),
+      context: { principalKey: "human:1", requestId: "req-1" },
+      routeKey: "test",
+      body: {},
+      work: async () => {
         throw new StatusReportError("ALREADY_PUBLISHED", "The status report is already published");
-      } catch (error) {
-        if (error instanceof StatusReportError) return storedStatusReportError(error, "req-1");
-        throw error;
-      }
+      },
     });
 
-    const first = await executeIdempotent({
-      request: idempotentRequest(), principalKey: "human:1", routeKey: "test", body: {}, persistence, work,
-    });
-    expect(first).toMatchObject({ status: 409, replayed: false });
-    expect(first.body).toEqual(errorEnvelope("ALREADY_PUBLISHED", "The status report is already published", "req-1", {}));
-
-    // Retry with the SAME idempotency key: replays the recorded 409 verbatim
-    // via the ordinary completed-record path, work() never runs again, so
-    // there's no recover callback in the loop to manufacture a false success.
-    const second = await executeIdempotent({
-      request: idempotentRequest(), principalKey: "human:1", routeKey: "test", body: {}, persistence, work,
-    });
-    expect(work).toHaveBeenCalledOnce();
-    expect(second).toEqual({ ...first, replayed: true });
+    expect(response.status).toBe(409);
+    const payload = await response.json();
+    expect(payload.error.code).toBe("ALREADY_PUBLISHED");
+    // Committed, not left running: the mapped 409 is the operation's own
+    // durable response, recorded alongside (the absent) mutation, so a retry
+    // replays this verbatim instead of rerunning work().
+    expect(completions).toMatchObject([{ status: 409 }]);
   });
 
-  it("still replays a genuine success on retry, with no recover callback needed", async () => {
-    const persistence = new MemoryPersistence();
-    const work = vi.fn(async () => ({ status: 200, body: { ok: true } }));
-
-    const first = await executeIdempotent({
-      request: idempotentRequest(), principalKey: "human:1", routeKey: "test", body: {}, persistence, work,
-    });
-    expect(first).toMatchObject({ status: 200, body: { ok: true }, replayed: false });
-
-    const second = await executeIdempotent({
-      request: idempotentRequest(), principalKey: "human:1", routeKey: "test", body: {}, persistence, work,
-    });
-    expect(work).toHaveBeenCalledOnce();
-    expect(second).toMatchObject({ status: 200, body: { ok: true }, replayed: true });
-  });
-
-  it("mirrors POST /api/v1/incidents/{id}/promote: promoting an unknown incident records a 404 and a retry replays it, instead of leaving the record stuck 'running' with no recover callback to fall back on", async () => {
-    const persistence = new MemoryPersistence();
-    const work = vi.fn(async () => {
-      try {
-        throw new StatusReportError("INCIDENT_NOT_FOUND", "Incident was not found");
-      } catch (error) {
-        if (error instanceof StatusReportError) return storedStatusReportError(error, "req-1");
-        throw error;
-      }
+  it("propagates a non-domain error out of the transaction and never persists a completion", async () => {
+    const response = await runStatusReportMutation({
+      request: mutationRequest(),
+      context: { principalKey: "human:1", requestId: "req-1" },
+      routeKey: "test",
+      body: {},
+      work: async () => {
+        throw new Error("boom");
+      },
     });
 
-    const first = await executeIdempotent({
-      request: idempotentRequest(), principalKey: "human:1", routeKey: "test-promote", body: {}, persistence, work,
-    });
-    expect(first).toMatchObject({ status: 404, replayed: false });
-    expect(first.body).toEqual(errorEnvelope("INCIDENT_NOT_FOUND", "Incident was not found", "req-1", {}));
-
-    // Retry with the same key: replays the recorded 404 verbatim via the
-    // ordinary completed-record path. Without catching this inside work(),
-    // the record would stay "running" and a retry within the 5-minute stale
-    // window would hit REQUEST_IN_PROGRESS (there's no recover callback for
-    // promote to fall back on) instead of this clean, replayed 404.
-    const second = await executeIdempotent({
-      request: idempotentRequest(), principalKey: "human:1", routeKey: "test-promote", body: {}, persistence, work,
-    });
-    expect(work).toHaveBeenCalledOnce();
-    expect(second).toEqual({ ...first, replayed: true });
-  });
-});
-
-describe("statusReportPatchAlreadyApplied + executeIdempotent: a stale retry of an INVALID patch reproduces the genuine 400, never a false 200", () => {
-  const CURRENT = {
-    title: "API outage",
-    startsAt: "2026-07-18T09:00:00.000Z",
-    endsAt: null as string | null,
-    affected: [] as Array<{ monitorId: string; impact: string }>,
-  };
-
-  function patchRequest(body: unknown) {
-    return new Request("https://pulse.test/api/v1/status-reports/rep-1", {
-      method: "PATCH",
-      headers: { "Idempotency-Key": "00000000-0000-4000-8000-000000000002" },
-      body: JSON.stringify(body),
-    });
-  }
-
-  /** Mirrors the route's work(): an invalid patch throws VALIDATION_ERROR, caught and recorded via storedStatusReportError instead of thrown past executeIdempotent. */
-  const invalidPatchWork = async () => {
-    try {
-      throw new StatusReportError("VALIDATION_ERROR", "Provide at least one field to update");
-    } catch (error) {
-      if (error instanceof StatusReportError) return storedStatusReportError(error, "req-1");
-      throw error;
-    }
-  };
-
-  async function staleRetryReproducesGenuine400(body: unknown) {
-    const persistence = new MemoryPersistence();
-    const firstNow = new Date("2026-07-18T12:00:00.000Z");
-    const staleNow = new Date(firstNow.getTime() + 6 * 60_000); // past the 5-minute stale threshold
-
-    // First attempt: simulate a genuine crash mid-request: work() never
-    // returns, so complete() never persists a response, leaving the record
-    // stuck "running" with the real computed request hash.
-    await expect(executeIdempotent({
-      request: patchRequest(body), principalKey: "human:1", routeKey: "test-patch", body, persistence, now: firstNow,
-      work: async () => { throw new Error("simulated crash"); },
-    })).rejects.toThrow("simulated crash");
-    expect(persistence.owner?.state).toBe("running");
-
-    // Stale retry, same Idempotency-Key + body, 6+ minutes later: recover()
-    // must see the patch fails patchSchema and return null instead of
-    // falling through to `true` (no recognized field mismatched a body with
-    // no recognized fields at all), so work() reruns and reproduces the
-    // real 400, rather than a recover callback manufacturing a false 200.
-    const retried = await executeIdempotent({
-      request: patchRequest(body), principalKey: "human:1", routeKey: "test-patch", body, persistence, now: staleNow,
-      recover: async () => (statusReportPatchAlreadyApplied(CURRENT, body) ? { status: 200, body: { ok: true } } : null),
-      work: invalidPatchWork,
-    });
-    expect(retried.status).toBe(400);
-    expect(retried.body).toMatchObject({ error: { code: "VALIDATION_ERROR" } });
-  }
-
-  it("stale retry of {} replays a genuine 400", async () => {
-    await staleRetryReproducesGenuine400({});
-  });
-
-  it("stale retry of {foo:1} (unsupported key) replays a genuine 400", async () => {
-    await staleRetryReproducesGenuine400({ foo: 1 });
-  });
-
-  it("stale retry of a padded title recovers a 200 without rerunning work() (finding: comparing the raw body missed patchSchema's trim, so a genuinely-applied padded-title patch replay spuriously reran work() and re-snapshotted affected monitors a second time)", async () => {
-    const persistence = new MemoryPersistence();
-    const firstNow = new Date("2026-07-18T12:00:00.000Z");
-    const staleNow = new Date(firstNow.getTime() + 6 * 60_000); // past the 5-minute stale threshold
-    const body = { title: " API outage " };
-
-    // First attempt: the patch DID commit (title persisted trimmed as
-    // "API outage"), but the response never made it back (simulated here as
-    // a thrown error after the record was inserted, same as the other tests
-    // in this file), leaving the record stuck "running".
-    await expect(executeIdempotent({
-      request: patchRequest(body), principalKey: "human:1", routeKey: "test-patch", body, persistence, now: firstNow,
-      work: async () => { throw new Error("simulated crash after commit"); },
-    })).rejects.toThrow("simulated crash after commit");
-    expect(persistence.owner?.state).toBe("running");
-
-    const work = vi.fn(invalidPatchWork);
-    const retried = await executeIdempotent({
-      request: patchRequest(body), principalKey: "human:1", routeKey: "test-patch", body, persistence, now: staleNow,
-      recover: async () => (statusReportPatchAlreadyApplied(CURRENT, body) ? { status: 200, body: { ok: true } } : null),
-      work,
-    });
-
-    expect(retried).toMatchObject({ status: 200, body: { ok: true }, replayed: true });
-    expect(work).not.toHaveBeenCalled();
+    // Mapped to a generic error response by the outer catch, not a stored
+    // 4xx: this is not a domain outcome, so nothing about it is durable, and
+    // the (faked) transaction never reaches its commit step.
+    expect(response.status).toBe(500);
+    expect(completions).toEqual([]);
   });
 });

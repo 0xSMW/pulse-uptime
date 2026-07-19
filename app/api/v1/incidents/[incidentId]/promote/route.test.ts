@@ -9,25 +9,23 @@ vi.mock("@/lib/api/middleware", () => ({
 }));
 vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/idempotency")>()),
-  executeIdempotent: vi.fn(async ({ work }: { work: (context: { operationId: string }) => Promise<{ status: number; body: unknown }> }) => ({
-    ...(await work({ operationId: "op-1" })),
+  executeIdempotent: vi.fn(async ({ work }: {
+    work: (context: { operationId: string; transaction: (run: (tx: unknown) => Promise<unknown>) => Promise<unknown> }) => Promise<{ status: number; body: unknown }>;
+  }) => ({
+    ...(await work({ operationId: "op-1", transaction: (run) => run("tx") })),
     replayed: false,
   })),
 }));
 vi.mock("@/lib/api/status-reports", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/status-reports")>()),
   promoteIncident: vi.fn(),
-  recoverPromotedReport: vi.fn(),
 }));
 
-import { revalidatePath } from "next/cache";
-
-import { apiError, errorEnvelope, objectEnvelope } from "@/lib/api/envelopes";
+import { apiError } from "@/lib/api/envelopes";
 import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, type ApiContext } from "@/lib/api/middleware";
 import {
   promoteIncident,
-  recoverPromotedReport,
   StatusReportError,
   type StatusReportData,
 } from "@/lib/api/status-reports";
@@ -62,7 +60,6 @@ function request() {
 beforeEach(() => {
   vi.mocked(authorize).mockReset().mockResolvedValue(context);
   vi.mocked(promoteIncident).mockReset().mockResolvedValue({ report: draft, created: true });
-  vi.mocked(recoverPromotedReport).mockReset();
   vi.mocked(executeIdempotent).mockClear();
 });
 
@@ -75,7 +72,7 @@ describe("POST /api/v1/incidents/{incidentId}/promote", () => {
     expect(payload.kind).toBe("StatusReport");
     expect(payload.data.publishedAt).toBeNull();
     expect(payload.data.originIncidentId).toBe("inc-1");
-    expect(promoteIncident).toHaveBeenCalledWith("inc-1", { reportId: "op-1" });
+    expect(promoteIncident).toHaveBeenCalledWith("inc-1", expect.objectContaining({ reportId: "op-1" }));
   });
 
   it("returns 200 with the existing report when already promoted", async () => {
@@ -99,67 +96,10 @@ describe("POST /api/v1/incidents/{incidentId}/promote", () => {
     expect((await response.json()).error.code).toBe("INCIDENT_NOT_FOUND");
   });
 
-  it("maps INCIDENT_NOT_FOUND inside work() itself, not thrown past executeIdempotent (finding: a thrown 404 left the idempotency record stuck 'running'; recover only ever recovers when a report already exists for this incident, so a genuinely unknown incident falls through to here every time)", async () => {
+  it("maps INCIDENT_NOT_FOUND inside work() itself, not thrown past executeIdempotent (finding: a thrown 404 left the idempotency record stuck 'running' until a stale reclaim, which now simply reruns work() from scratch rather than trying to recover)", async () => {
     vi.mocked(promoteIncident).mockRejectedValue(new StatusReportError("INCIDENT_NOT_FOUND", "missing"));
-    await POST(request(), params);
-    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
-      work: (context: { operationId: string }) => Promise<{ status: number; body: unknown }>;
-    };
-    await expect(options.work({ operationId: "op-1" })).resolves.toEqual({
-      status: 404,
-      body: errorEnvelope("INCIDENT_NOT_FOUND", "missing", context.requestId, {}),
-    });
-  });
-
-  it("wires a recover callback that replays a committed-then-crashed promote as success instead of re-validating the incident and re-serializing fresh values (finding: promote shipped with no recover callback)", async () => {
-    await POST(request(), params);
-    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
-      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
-    };
-
-    // Recovery hit, matching id: the recovered report's id equals THIS
-    // retry's operationId, since promoteIncident pinned the new report's id to
-    // the operationId, so this exact crashed attempt is the one that
-    // inserted it, so this replays as 201 rather than 200.
-    vi.mocked(recoverPromotedReport).mockResolvedValue({ ...draft, id: "op-1" });
-    await expect(options.recover({ operationId: "op-1" })).resolves.toEqual({
-      status: 201,
-      body: objectEnvelope("StatusReport", { ...draft, id: "op-1" }, context.requestId),
-    });
-    expect(recoverPromotedReport).toHaveBeenCalledWith("inc-1");
-
-    // Recovery hit, non-matching id: some other operation created the
-    // report: a concurrent promote that won the originIncidentId race, or
-    // one that already completed before this key was ever used. Replays as
-    // 200, created:false semantics.
-    vi.mocked(recoverPromotedReport).mockResolvedValue(draft);
-    await expect(options.recover({ operationId: "op-1" })).resolves.toEqual({
-      status: 200,
-      body: objectEnvelope("StatusReport", draft, context.requestId),
-    });
-
-    // Recovery miss: no report exists yet for this incident (genuine crash
-    // before the create committed). Fall through so work() reruns to
-    // create it.
-    vi.mocked(recoverPromotedReport).mockResolvedValue(null);
-    await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
-  });
-
-  it("never revalidates on a recovered replay — promotion only ever produces a DRAFT report, invisible on every public route (finding: unlike the other mutation routes in this family, recover here must NOT call revalidateStatusReportPaths, matching work()'s own behavior)", async () => {
-    await POST(request(), params);
-    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
-      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
-    };
-
-    vi.mocked(revalidatePath).mockClear();
-    vi.mocked(recoverPromotedReport).mockResolvedValue({ ...draft, id: "op-1" });
-    await options.recover({ operationId: "op-1" });
-    expect(revalidatePath).not.toHaveBeenCalled();
-  });
-
-  it("refuses rather than reruns on a recovery miss", async () => {
-    await POST(request(), params);
-    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as { rerunAfterRecoveryMiss?: boolean };
-    expect(options.rerunAfterRecoveryMiss).toBe(false);
+    const response = await POST(request(), params);
+    expect(response.status).toBe(404);
+    expect((await response.json()).error.code).toBe("INCIDENT_NOT_FOUND");
   });
 });

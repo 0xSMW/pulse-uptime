@@ -4,12 +4,12 @@ import { randomUUID } from "node:crypto";
 import { desc, eq, sql as drizzleSql } from "drizzle-orm";
 
 import { evaluateDestructiveChange, exportDeclarativeConfig, hashMonitoringConfig, validateMonitoringConfig, type MonitoringConfig } from "@/lib/config";
-import { db } from "@/lib/db/client";
+import { db, type DatabaseHandle, type DatabaseTransaction } from "@/lib/db/client";
 import { configChangeApprovals, monitoringConfigSnapshots } from "@/lib/db/schema";
 import { synchronizeRegistry as syncRegistryRows } from "@/lib/scheduler/registry-sync";
 
 export type AcceptedSnapshot = { config: MonitoringConfig; hash: string };
-type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type DbTransaction = DatabaseTransaction;
 
 export class ConfigMutationError extends Error {
   constructor(readonly code: "CONFIGURATION_UNAVAILABLE" | "EDGE_CONFIG_UNAVAILABLE", message: string) {
@@ -53,8 +53,8 @@ export async function synchronizeRegistry(tx: DbTransaction, config: MonitoringC
   });
 }
 
-export async function mutateConfig(principalKey: string, mutator: (config: MonitoringConfig) => MonitoringConfig): Promise<MonitoringConfig> {
-  return db.transaction(async (tx) => {
+export async function mutateConfig(principalKey: string, mutator: (config: MonitoringConfig) => MonitoringConfig, handle: DatabaseHandle = db): Promise<MonitoringConfig> {
+  return handle.transaction(async (tx) => {
     await tx.execute(drizzleSql`select pg_advisory_xact_lock(hashtext('pulse:configuration'))`);
     const current = await loadAcceptedConfig(tx as unknown as typeof db);
     const target = validateMonitoringConfig(mutator(current.config));

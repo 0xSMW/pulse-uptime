@@ -49,7 +49,7 @@ export async function POST(request: Request) {
       principalKey: deviceKey,
       routeKey: "cli-device-poll",
       body: { deviceCode },
-      work: async ({ operationId }) => {
+      work: async ({ operationId, transaction }) => transaction<PollResponse>(async (tx) => {
         const credential = deriveBearerToken(credentialDerivationContext({
           kind: "cli-session",
           principalKey: deviceKey,
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
           operationId,
         }), CLI_SESSION_PREFIX);
         try {
-          const session = await pollDeviceAuthorization(deviceCode, new Date(), credential);
+          const session = await pollDeviceAuthorization(deviceCode, new Date(), credential, tx);
           return {
             status: 200,
             body: {
@@ -75,7 +75,7 @@ export async function POST(request: Request) {
           }
           throw error;
         }
-      },
+      }),
       persistBody: (body) => body.outcome === "session"
         ? {
             outcome: body.outcome,

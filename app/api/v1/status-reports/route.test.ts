@@ -9,8 +9,10 @@ vi.mock("@/lib/api/middleware", () => ({
 }));
 vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/idempotency")>()),
-  executeIdempotent: vi.fn(async ({ work }: { work: (context: { operationId: string }) => Promise<{ status: number; body: unknown }> }) => ({
-    ...(await work({ operationId: "op-1" })),
+  executeIdempotent: vi.fn(async ({ work }: {
+    work: (context: { operationId: string; transaction: (run: (tx: unknown) => Promise<unknown>) => Promise<unknown> }) => Promise<{ status: number; body: unknown }>;
+  }) => ({
+    ...(await work({ operationId: "op-1", transaction: (run) => run("tx") })),
     replayed: false,
   })),
 }));
@@ -18,18 +20,16 @@ vi.mock("@/lib/api/status-reports", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/status-reports")>()),
   listStatusReportSummaries: vi.fn(),
   createStatusReport: vi.fn(),
-  recoverCreatedStatusReport: vi.fn(),
 }));
 
 import { revalidatePath } from "next/cache";
 
-import { apiError, errorEnvelope, objectEnvelope } from "@/lib/api/envelopes";
+import { apiError } from "@/lib/api/envelopes";
 import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, type ApiContext } from "@/lib/api/middleware";
 import {
   createStatusReport,
   listStatusReportSummaries,
-  recoverCreatedStatusReport,
   StatusReportError,
   type StatusReportData,
   type StatusReportListItemData,
@@ -70,7 +70,6 @@ beforeEach(() => {
   vi.mocked(revalidatePath).mockReset();
   vi.mocked(listStatusReportSummaries).mockReset().mockResolvedValue({ data: [listRow], nextCursor: "cursor-2" });
   vi.mocked(createStatusReport).mockReset().mockResolvedValue(report);
-  vi.mocked(recoverCreatedStatusReport).mockReset();
   vi.mocked(executeIdempotent).mockClear();
 });
 
@@ -134,39 +133,12 @@ describe("POST /api/v1/status-reports", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/status/core");
   });
 
-  it("pins the report id to the idempotency operationId and wires recover + rerunAfterRecoveryMiss: false (finding: duplicate report after a crash)", async () => {
+  it("pins the report id to the idempotency operationId and threads a tx-bound store into createStatusReport", async () => {
     await POST(postRequest({ type: "incident" }));
-    expect(createStatusReport).toHaveBeenCalledWith({ type: "incident" }, { reportId: "op-1" });
-
-    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
-      recover: (context: { operationId: string }) => Promise<unknown>;
-      rerunAfterRecoveryMiss: boolean;
-    };
-    expect(options.rerunAfterRecoveryMiss).toBe(false);
-
-    vi.mocked(recoverCreatedStatusReport).mockResolvedValue(report);
-    await expect(options.recover({ operationId: "op-99" })).resolves.toEqual({
-      status: 201,
-      body: objectEnvelope("StatusReport", report, context.requestId),
-    });
-    expect(recoverCreatedStatusReport).toHaveBeenCalledWith("op-99");
-
-    vi.mocked(recoverCreatedStatusReport).mockResolvedValue(null);
-    await expect(options.recover({ operationId: "op-100" })).resolves.toBeNull();
-  });
-
-  it("revalidates ISR pages on a recovered replay too (finding: a crash between the insert committing and revalidation running left ISR pages stale until the 30s refresh, since the recover path returned without ever calling revalidateStatusReportPaths)", async () => {
-    await POST(postRequest({ type: "incident" }));
-    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
-      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
-    };
-
-    vi.mocked(revalidatePath).mockClear();
-    vi.mocked(recoverCreatedStatusReport).mockResolvedValue(report);
-    await options.recover({ operationId: "op-99" });
-    expect(revalidatePath).toHaveBeenCalledWith("/status");
-    expect(revalidatePath).toHaveBeenCalledWith("/status/reports/rep-1");
-    expect(revalidatePath).toHaveBeenCalledWith("/status/core");
+    expect(createStatusReport).toHaveBeenCalledWith(
+      { type: "incident" },
+      expect.objectContaining({ reportId: "op-1" }),
+    );
   });
 
   it("maps validation failures to 400 VALIDATION_ERROR", async () => {
@@ -187,15 +159,10 @@ describe("POST /api/v1/status-reports", () => {
     expect((await response.json()).error.code).toBe("INVALID_JSON");
   });
 
-  it("maps VALIDATION_ERROR inside work() itself, not thrown past executeIdempotent (finding: consistency with the delete/publish routes — a thrown error left the idempotency record stuck 'running' until a stale reclaim's recover callback, which can't tell 'never ran' from 'validation failed', forced a REQUEST_IN_PROGRESS 409 demanding a new key)", async () => {
+  it("maps VALIDATION_ERROR inside work() itself, not thrown past executeIdempotent (finding: a thrown error left the idempotency record stuck 'running' until a stale reclaim, which now simply reruns work() from scratch rather than trying to recover)", async () => {
     vi.mocked(createStatusReport).mockRejectedValue(new StatusReportError("VALIDATION_ERROR", "Title is required"));
-    await POST(postRequest({}));
-    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
-      work: (context: { operationId: string }) => Promise<{ status: number; body: unknown }>;
-    };
-    await expect(options.work({ operationId: "op-1" })).resolves.toEqual({
-      status: 400,
-      body: errorEnvelope("VALIDATION_ERROR", "Title is required", context.requestId, {}),
-    });
+    const response = await POST(postRequest({}));
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.code).toBe("VALIDATION_ERROR");
   });
 });
