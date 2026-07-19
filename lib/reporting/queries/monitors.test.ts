@@ -180,6 +180,90 @@ describe("getMonitorDetail latency and response chart", () => {
   });
 });
 
+describe("recent checks activation cutoff", () => {
+  const PRE_FAILED_RAW = {
+    checked_at: PRE_BUCKET,
+    completed: true,
+    failed: true,
+    latency_ms: 9_000,
+  };
+  const POST_HEALTHY_RAW = {
+    checked_at: POST_BUCKET,
+    completed: true,
+    failed: false,
+    latency_ms: 90,
+  };
+
+  it("excludes a pre-activation failed minute from the raw recent-checks path", async () => {
+    sqlMock.unsafe.mockResolvedValue([PRE_FAILED_RAW, POST_HEALTHY_RAW]);
+    dbMock.select
+      .mockReturnValueOnce(selectChain([identity({})])) // identity
+      .mockReturnValueOnce(selectChain([POST_ACTIVATION_ROLLUP])) // rollups 15m
+      .mockReturnValueOnce(selectChain([])) // rollups hour
+      .mockReturnValueOnce(selectChain([])) // rollups day
+      .mockReturnValueOnce(selectChain([])) // incidents
+      .mockReturnValueOnce(selectChain([])); // accepted config
+
+    const detail = await getMonitorDetail("site-home");
+
+    expect(detail!.recentChecks).toHaveLength(1);
+    expect(detail!.recentChecks[0]).toMatchObject({
+      id: `minute:${POST_BUCKET.toISOString()}`,
+      successful: true,
+    });
+  });
+
+  it("excludes a pre-activation bucket from the rollup fallback path", async () => {
+    sqlMock.unsafe.mockResolvedValue([]); // no raw rows, fall back to rollups
+    dbMock.select
+      .mockReturnValueOnce(selectChain([identity({})])) // identity
+      .mockReturnValueOnce(selectChain([PRE_ACTIVATION_ROLLUP, POST_ACTIVATION_ROLLUP])) // rollups 15m
+      .mockReturnValueOnce(selectChain([])) // rollups hour
+      .mockReturnValueOnce(selectChain([])) // rollups day
+      .mockReturnValueOnce(selectChain([])) // incidents
+      .mockReturnValueOnce(selectChain([])); // accepted config
+
+    const detail = await getMonitorDetail("site-home");
+
+    expect(detail!.recentChecks).toHaveLength(1);
+    expect(detail!.recentChecks[0]).toMatchObject({
+      checkedAt: POST_BUCKET.toISOString(),
+      successful: true,
+    });
+  });
+
+  it("shows no recent checks for an unactivated monitor even with raw rows", async () => {
+    sqlMock.unsafe.mockResolvedValue([PRE_FAILED_RAW]);
+    dbMock.select
+      .mockReturnValueOnce(selectChain([identity({ activatedAt: null, state: "PENDING" })])) // identity
+      .mockReturnValueOnce(selectChain([PRE_ACTIVATION_ROLLUP])) // rollups 15m
+      .mockReturnValueOnce(selectChain([])) // rollups hour
+      .mockReturnValueOnce(selectChain([])) // rollups day
+      .mockReturnValueOnce(selectChain([])); // accepted config (no incidents select)
+
+    const detail = await getMonitorDetail("site-home");
+
+    expect(detail!.recentChecks).toEqual([]);
+  });
+
+  it("keeps the live poll consistent, dropping a pre-activation raw minute", async () => {
+    sqlMock.unsafe.mockResolvedValue([PRE_FAILED_RAW, POST_HEALTHY_RAW]);
+    dbMock.select
+      .mockReturnValueOnce(selectChain([identity({})])) // identity
+      .mockReturnValueOnce(selectChain([POST_ACTIVATION_ROLLUP])) // rollups 15m
+      .mockReturnValueOnce(selectChain([])) // incidents
+      .mockReturnValueOnce(selectChain([{ acceptedAt: null }])); // accepted config version
+
+    const live = await getMonitorLive("site-home");
+
+    expect(live!.recentChecks).toHaveLength(1);
+    expect(live!.recentChecks[0]).toMatchObject({
+      id: `minute:${POST_BUCKET.toISOString()}`,
+      successful: true,
+    });
+  });
+});
+
 describe("selectRecentRollupWindow", () => {
   const rowAt = (iso: string) => ({ bucketStart: new Date(iso) });
 

@@ -210,14 +210,15 @@ function LiveIndicator({ status }: { status: MonitorLiveStatus }) {
     status.updatedAt === null ? null : Math.round((now - status.updatedAt) / 1_000);
 
   return (
-    <span
-      className="inline-flex items-center gap-1.5 font-data text-[11px] text-[var(--fg-muted)]"
-      aria-live="polite"
-    >
+    <span className="inline-flex items-center gap-1.5 font-data text-[11px] text-[var(--fg-muted)]">
       <span className={cn("size-1.5 rounded-full", dotClass)} aria-hidden />
-      {label}
+      {/* Only the status label is announced, and only when it changes. The
+          Updated Ns ago counter ticks every second, so it stays visible to
+          sighted users but aria-hidden to keep screen readers from
+          re-announcing the timestamp each second. */}
+      <span aria-live="polite">{label}</span>
       {secondsAgo !== null && !status.isPaused ? (
-        <span className="text-[var(--fg-faint)]">· {formatUpdatedAgo(secondsAgo)}</span>
+        <span className="text-[var(--fg-faint)]" aria-hidden>· {formatUpdatedAgo(secondsAgo)}</span>
       ) : null}
     </span>
   );

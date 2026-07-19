@@ -7,10 +7,12 @@ import {
   buildRecentChecks,
   buildRecentIncidents,
   openingFailure,
+  rawChecksSinceActivation,
   rollupVersionOf,
   secondsBetween,
   type LiveIncidentRow,
   type LiveRollupRow,
+  type RawMinuteCheck,
 } from "./live-summary";
 
 const now = new Date("2026-07-19T12:00:00Z");
@@ -125,6 +127,31 @@ describe("buildRecentChecks", () => {
 
   it("reports null latency when no samples were recorded", () => {
     expect(buildRecentChecks([rollup({ latencyCount: 0, latencySumMs: 0n })])[0]!.latencyMs).toBeNull();
+  });
+});
+
+describe("rawChecksSinceActivation", () => {
+  const check = (overrides: Partial<RawMinuteCheck>): RawMinuteCheck => ({
+    checked_at: ago(DAY),
+    completed: true,
+    failed: false,
+    latency_ms: 90,
+    ...overrides,
+  });
+  const activatedAt = ago(6 * 3_600_000);
+
+  it("drops a check before activation and keeps one at or after it", () => {
+    const before = check({ checked_at: ago(12 * 3_600_000), failed: true });
+    const atCutoff = check({ checked_at: activatedAt });
+    const after = check({ checked_at: ago(3_600_000) });
+
+    const kept = rawChecksSinceActivation([before, atCutoff, after], activatedAt);
+
+    expect(kept).toEqual([atCutoff, after]);
+  });
+
+  it("returns an empty array for an unactivated monitor", () => {
+    expect(rawChecksSinceActivation([check({})], null)).toEqual([]);
   });
 });
 

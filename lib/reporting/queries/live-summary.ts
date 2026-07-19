@@ -144,6 +144,19 @@ export type RawMinuteCheck = {
   latency_ms: number | null;
 };
 
+// Keeps only raw minute checks recorded at or after activation, the same cutoff
+// rollupsSinceActivation applies to buckets. An unactivated monitor has no
+// post-activation checks, so its recent-checks list is empty, matching how
+// incidents and uptime exclude setup-phase data.
+export function rawChecksSinceActivation(
+  checks: RawMinuteCheck[],
+  activatedAt: Date | null,
+): RawMinuteCheck[] {
+  if (activatedAt === null) return [];
+  const cutoff = activatedAt.getTime();
+  return checks.filter((check) => check.checked_at.getTime() >= cutoff);
+}
+
 // Raw minute rows carry real per-check results, so they take precedence over
 // the rollup-derived rows below whenever the retention window still has them.
 export function buildRecentChecksFromRaw(checks: RawMinuteCheck[]): LiveRecentCheck[] {

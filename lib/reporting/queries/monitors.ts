@@ -26,6 +26,7 @@ import {
   buildRecentChecks,
   buildRecentChecksFromRaw,
   buildRecentIncidents,
+  rawChecksSinceActivation,
   rollupVersionOf,
   type MonitorLiveData,
 } from "./live-summary";
@@ -213,6 +214,7 @@ export async function getMonitorDetail(id: string) {
 
   // Derive the last 24 hours from the fetched seven days of rollups.
   const rollups24h = selectRecentRollupWindow(rollups7d, end15m.getTime() - 86_400_000, end15m.getTime());
+  const activeRawChecks = rawChecksSinceActivation(recentRawChecks, activatedAt);
 
   const observed24h = summarizeCounts(rollupsSinceActivation(rollups24h, activatedAt));
   const observed7d = summarizeCounts(rollupsSinceActivation(rollups7d, activatedAt));
@@ -313,9 +315,14 @@ export async function getMonitorDetail(id: string) {
     },
     latestIncident: buildLatestIncident(recentIncidents, now),
     recentIncidents: buildRecentIncidents(recentIncidents, now),
-    recentChecks: recentRawChecks.length > 0
-      ? buildRecentChecksFromRaw(recentRawChecks)
-      : buildRecentChecks(rollups24h),
+    // Recent Checks hide pre-activation setup minutes the same way uptime,
+    // timelines, latency, and incidents do. The raw path filters to checks at or
+    // after activation, and the rollup fallback reuses rollupsSinceActivation, so
+    // a null activation yields an empty list rather than the setup failures the
+    // setup card already surfaces.
+    recentChecks: activeRawChecks.length > 0
+      ? buildRecentChecksFromRaw(activeRawChecks)
+      : buildRecentChecks(rollupsSinceActivation(rollups24h, activatedAt)),
   };
 }
 
@@ -367,6 +374,7 @@ export async function getMonitorLive(
   ]);
 
   const rollups24h = selectRecentRollupWindow(rollups7d, end15m.getTime() - 86_400_000, end15m.getTime());
+  const activeRawChecks = rawChecksSinceActivation(recentRawChecks, activatedAt);
   const observed24h = summarizeCounts(rollupsSinceActivation(rollups24h, activatedAt));
   const observed7d = summarizeCounts(rollupsSinceActivation(rollups7d, activatedAt));
   const unlocked24h = isRangeUnlocked("h24", activatedAt, end15m);
@@ -401,9 +409,12 @@ export async function getMonitorLive(
     firstRun: buildFirstRun(monitor, observed24h, now),
     latestIncident: buildLatestIncident(recentIncidents, now),
     recentIncidents: buildRecentIncidents(recentIncidents, now),
-    recentChecks: recentRawChecks.length > 0
-      ? buildRecentChecksFromRaw(recentRawChecks)
-      : buildRecentChecks(rollups24h),
+    // Recent Checks hide pre-activation setup minutes the same way uptime,
+    // timelines, latency, and incidents do, so the live poll stays consistent
+    // with the detail snapshot. A null activation yields an empty list.
+    recentChecks: activeRawChecks.length > 0
+      ? buildRecentChecksFromRaw(activeRawChecks)
+      : buildRecentChecks(rollupsSinceActivation(rollups24h, activatedAt)),
     rollupVersion: rollupVersionOf(rollups7d),
     configVersion: accepted[0]?.acceptedAt?.toISOString() ?? null,
   };
