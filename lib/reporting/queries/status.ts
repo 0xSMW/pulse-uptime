@@ -377,6 +377,10 @@ export const getPublicStatus = cache(async (group?: string) => {
   try {
     return await loadPublicStatus(group);
   } catch (error) {
+    // Infra-class failures (unreachable or unmigrated database) degrade to
+    // the unavailable shell so ISR builds and the public page survive their
+    // own provider's outage. Application bugs still surface: degrading them
+    // too would hide real regressions behind a healthy-looking page.
     if (!isDatabaseUnavailableError(error)) throw error;
     return degradedPublicStatus();
   }

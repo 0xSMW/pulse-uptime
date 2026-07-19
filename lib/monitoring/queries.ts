@@ -1,7 +1,7 @@
 import { and, eq, isNull, sql as dsql } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
-import { checkResults, incidents, monitorRegistry, monitorState } from "@/lib/db/schema";
+import { checkResults, incidents, metricRollups, monitorRegistry, monitorState } from "@/lib/db/schema";
 
 const stateOrder = [
   "DOWN",
@@ -33,6 +33,28 @@ export async function listCommandPaletteMonitors() {
 }
 
 export async function listDashboardMonitors() {
+  // uptime24h blends 15m metric_rollups with raw check_results because rollups close
+  // at quarter-hour boundaries and lag up to 15 minutes on their own. check_results
+  // rows are purged 30 days after creation independently of rollup status
+  // (retention in lib/maintenance, compaction reads check_batches in
+  // lib/storage), so a raw row and its rollup bucket coexist. The raw side
+  // is an anti-join: only raw checks whose own 15m bucket lacks a rollup
+  // row are counted, so gaps are covered by raw data, never double-counted.
+  // A gap whose raw rows were already purged cannot be recovered here.
+  // Both sides are clamped to [start15m, end15m), the most recent completed
+  // 24h of quarter-hour buckets, so the card always covers exactly 24 hours
+  // and agrees with the detail page's completed rollup window. Checks in the
+  // current partial bucket are excluded until their bucket closes.
+  // The window filter and bucket comparison below use check_results.scheduled_at
+  // (not checked_at): metric_rollups buckets are date_bin'd from check_batches
+  // .scheduled_minute (see COMPACT_15_MINUTE_SQL), and check_results.scheduled_at
+  // is set from that same scheduled minute (lib/scheduler/coordinator.ts). A
+  // check scheduled just before a 15m boundary but completing after it must be
+  // compared on scheduled_at, or it would land in the rollup's earlier bucket
+  // while the anti-join probed the later checked_at bucket, double-counting it.
+  const end15m = new Date();
+  end15m.setUTCMinutes(Math.floor(end15m.getUTCMinutes() / 15) * 15, 0, 0);
+  const start15m = new Date(end15m.getTime() - 86_400_000);
   const rows = await db
     .select({
       id: monitorRegistry.id,
@@ -43,11 +65,32 @@ export async function listDashboardMonitors() {
       lastCheckedAt: monitorState.lastCheckedAt,
       activeIncidentOpenedAt: incidents.openedAt,
       uptime24h: dsql<number | null>`(
-        select case when count(*) = 0 then null
-          else 100.0 * count(*) filter (where ${checkResults.successful}) / count(*) end
-        from ${checkResults}
-        where ${checkResults.monitorId} = ${monitorRegistry.id}
-          and ${checkResults.checkedAt} >= now() - interval '24 hours'
+        select case when coalesce(rollup.completed, 0) + coalesce(raw.completed, 0) = 0 then null
+          else 100.0 * (coalesce(rollup.successful, 0) + coalesce(raw.successful, 0))
+            / (coalesce(rollup.completed, 0) + coalesce(raw.completed, 0)) end
+        from (
+          select sum(${metricRollups.completedChecks}) as completed,
+            sum(${metricRollups.successfulChecks}) as successful
+          from ${metricRollups}
+          where ${metricRollups.monitorId} = ${monitorRegistry.id}
+            and ${metricRollups.resolution} = '15m'
+            and ${metricRollups.bucketStart} >= ${start15m}
+            and ${metricRollups.bucketStart} < ${end15m}
+        ) rollup
+        cross join lateral (
+          select count(*) as completed,
+            count(*) filter (where ${checkResults.successful}) as successful
+          from ${checkResults}
+          where ${checkResults.monitorId} = ${monitorRegistry.id}
+            and ${checkResults.scheduledAt} >= ${start15m}
+            and ${checkResults.scheduledAt} < ${end15m}
+            and not exists (
+              select 1 from ${metricRollups} covered
+              where covered.monitor_id = ${monitorRegistry.id}
+                and covered.resolution = '15m'
+                and covered.bucket_start = date_bin('15 minutes', ${checkResults.scheduledAt}, timestamptz '2000-01-01')
+            )
+        ) raw
       )`,
     })
     .from(monitorRegistry)

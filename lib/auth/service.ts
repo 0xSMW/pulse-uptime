@@ -1,6 +1,7 @@
 import "server-only";
 
 import { and, eq, gt, isNull, lt, or, sql as drizzleSql } from "drizzle-orm";
+import { after } from "next/server";
 
 import { db } from "@/lib/db/client";
 import { adminUsers, humanSessions, onboardingProgress } from "@/lib/db/schema";
@@ -358,13 +359,22 @@ export async function findSessionByDigest(digest: Buffer, now = new Date()): Pro
   // bursts collapse under the row lock instead of each re-writing lastSeenAt.
   if (shouldRefreshLastSeen(lastSeenAt, now)) {
     const cutoff = new Date(now.getTime() - LAST_SEEN_REFRESH_SECONDS * 1_000);
-    await db
-      .update(humanSessions)
-      .set({ lastSeenAt: now })
-      .where(and(
-        eq(humanSessions.id, row.sessionId),
-        or(isNull(humanSessions.lastSeenAt), lt(humanSessions.lastSeenAt, cutoff)),
-      ));
+    const touch = () =>
+      db
+        .update(humanSessions)
+        .set({ lastSeenAt: now })
+        .where(and(
+          eq(humanSessions.id, row.sessionId),
+          or(isNull(humanSessions.lastSeenAt), lt(humanSessions.lastSeenAt, cutoff)),
+        ));
+    try {
+      // Off the render critical path. The Security page tolerates a refresh
+      // that lands after the response, only the minute-level bound matters.
+      after(touch);
+    } catch {
+      // after() requires a request scope; direct callers (tests) update inline.
+      await touch();
+    }
   }
   return session;
 }

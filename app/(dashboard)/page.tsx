@@ -1,18 +1,20 @@
+import { Suspense } from "react";
+
 import { HealthBanner } from "@/components/dashboard/health-banner";
 import { MonitorTable } from "@/components/dashboard/monitor-table";
+import { MonitorTableSkeleton } from "@/components/dashboard/monitor-table-skeleton";
 import { NewMonitorAction } from "@/components/dashboard/new-monitor-action";
 import { getHealthWarnings } from "@/lib/monitoring/health";
 import { listDashboardMonitors } from "@/lib/monitoring/queries";
 
-export default async function OverviewPage() {
-  const [monitors, warnings] = await Promise.all([
-    listDashboardMonitors(),
-    getHealthWarnings(),
-  ]);
-
+export default function OverviewPage() {
   return (
     <>
-      <HealthBanner warnings={warnings} />
+      {/* Empty fallback: warnings are rare, and layout shift from a
+          late-arriving alert banner is acceptable for an alert. */}
+      <Suspense fallback={null}>
+        <HealthBannerIsland />
+      </Suspense>
       <div className="mb-6 flex items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold tracking-[-0.02em]">Monitors</h1>
@@ -20,7 +22,17 @@ export default async function OverviewPage() {
         </div>
         <NewMonitorAction />
       </div>
-      <MonitorTable monitors={monitors} />
+      <Suspense fallback={<MonitorTableSkeleton />}>
+        <MonitorTableIsland />
+      </Suspense>
     </>
   );
+}
+
+async function HealthBannerIsland() {
+  return <HealthBanner warnings={await getHealthWarnings()} />;
+}
+
+async function MonitorTableIsland() {
+  return <MonitorTable monitors={await listDashboardMonitors()} />;
 }

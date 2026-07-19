@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+
 import { IncidentEmpty } from "@/components/incidents/incident-empty";
 import { IncidentFilters } from "@/components/incidents/incident-filters";
 import { IncidentsTabs } from "@/components/incidents/incidents-tabs";
@@ -17,12 +19,6 @@ export default async function IncidentsPage({
   searchParams: Promise<{ filter?: string | string[] }>;
 }) {
   const filter = parseFilter((await searchParams).filter);
-  const [incidents, hasMonitors]: [IncidentSummary[], boolean] = await Promise.all([
-    listIncidents(filter),
-    hasConfiguredMonitors(),
-  ]);
-  const ongoing = incidents.filter((incident) => !incident.resolvedAt);
-  const history = incidents.filter((incident) => Boolean(incident.resolvedAt));
 
   return (
     <>
@@ -37,21 +33,46 @@ export default async function IncidentsPage({
         <IncidentsTabs className="mt-4" />
       </header>
 
-      {incidents.length === 0 ? (
-        <IncidentEmpty filtered={filter !== "all"} hasMonitors={hasMonitors} />
-      ) : (
-        <div className="space-y-8">
-          {ongoing.length > 0 ? (
-            <section aria-labelledby="ongoing-incidents-title">
-              <h2 id="ongoing-incidents-title" className="mb-3 text-sm font-semibold tracking-[-0.28px]">Ongoing</h2>
-              <div className="space-y-4">
-                {ongoing.map((incident) => <OngoingIncidentCard key={incident.id} incident={incident} />)}
-              </div>
-            </section>
-          ) : null}
-          {history.length > 0 ? <IncidentHistoryTable incidents={history} /> : null}
-        </div>
-      )}
+      {/* key={filter}: switching filters re-shows the fallback instead of
+          freezing the stale list while the new one loads. */}
+      <Suspense key={filter} fallback={<IncidentListSkeleton />}>
+        <IncidentList filter={filter} />
+      </Suspense>
     </>
+  );
+}
+
+async function IncidentList({ filter }: { filter: IncidentFilter }) {
+  const [incidents, hasMonitors]: [IncidentSummary[], boolean] = await Promise.all([
+    listIncidents(filter),
+    hasConfiguredMonitors(),
+  ]);
+  const ongoing = incidents.filter((incident) => !incident.resolvedAt);
+  const history = incidents.filter((incident) => Boolean(incident.resolvedAt));
+
+  if (incidents.length === 0) {
+    return <IncidentEmpty filtered={filter !== "all"} hasMonitors={hasMonitors} />;
+  }
+  return (
+    <div className="space-y-8">
+      {ongoing.length > 0 ? (
+        <section aria-labelledby="ongoing-incidents-title">
+          <h2 id="ongoing-incidents-title" className="mb-3 text-sm font-semibold tracking-[-0.28px]">Ongoing</h2>
+          <div className="space-y-4">
+            {ongoing.map((incident) => <OngoingIncidentCard key={incident.id} incident={incident} />)}
+          </div>
+        </section>
+      ) : null}
+      {history.length > 0 ? <IncidentHistoryTable incidents={history} /> : null}
+    </div>
+  );
+}
+
+function IncidentListSkeleton() {
+  return (
+    <div aria-busy="true" aria-label="Loading incidents" className="animate-pulse space-y-6">
+      <div className="h-32 rounded-xl bg-[var(--chip-bg)]" />
+      <div className="h-80 rounded-xl bg-[var(--chip-bg)]" />
+    </div>
   );
 }

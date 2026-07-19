@@ -63,7 +63,11 @@
     <main id="main">
       <section class="hero shell" id="top">
         <div class="hero-copy" data-reveal>
-          <p class="eyebrow">Open-source uptime monitoring</p>
+          <a class="eyebrow release-link" href="https://github.com/0xSMW/pulse-uptime/releases" target="_blank" rel="noreferrer">
+            <span class="status-dot up" aria-hidden="true"></span>
+            Latest update · v0.1.0 released
+            <svg class="arrow-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" /></svg>
+          </a>
           <h1>Own your uptime</h1>
           <p class="lede">Pulse checks your endpoints, opens incidents, and gives people and agents the same control plane</p>
           <div class="hero-actions">
@@ -256,6 +260,13 @@
           <aside class="simulation-control panel" data-reveal>
             <p class="app-kicker">Demo Control</p>
             <h3 id="control-heading">Service is healthy</h3>
+            <p class="control-hint" id="control-hint">
+              <span class="status-dot up" id="control-hint-dot" aria-hidden="true"></span>
+              <span class="hint-caption">
+                <span class="hint-default">Every surface on this page follows this state</span>
+                <span class="hint-alt mono" aria-hidden="true">dashboard · incident · status page · CLI</span>
+              </span>
+            </p>
             <p id="control-copy">Every check is passing. Press play to watch Pulse work through an outage.</p>
             <div class="player-controls">
               <button class="icon-button player-step" id="step-back" type="button" aria-label="Previous step">
@@ -347,7 +358,7 @@
             <p class="section-number">4.0 &nbsp; Attribute</p>
             <h2>Is it us,<br />or them?</h2>
           </div>
-          <p>Add OpenAI, Stripe, or Vercel in one click. Provider incidents appear beside your own checks.</p>
+          <p>Add OpenAI, Stripe, or 28 other services in one click. Incidents appear beside your own checks.</p>
         </div>
 
         <div class="dependency-grid">
@@ -363,7 +374,6 @@
               <input id="dep-search" type="text" placeholder="Search services…" autocomplete="off" spellcheck="false" aria-label="Search dependency catalog" />
             </div>
             <div class="dep-catalog" id="dep-catalog"></div>
-            <p class="form-note">Provider status is context, never proof</p>
           </div>
 
           <div class="dep-table panel" data-reveal>
@@ -607,17 +617,110 @@
         </div>
       </section>
 
+      <section class="story shell section-rule" id="security">
+        <div class="section-intro" data-reveal>
+          <div>
+            <p class="section-number">9.0 &nbsp; Harden</p>
+            <h2>Trust nothing</h2>
+          </div>
+          <p>Every target, response, redirect, and DNS answer is treated as hostile by design.</p>
+        </div>
+
+        <div class="security-scene" data-reveal>
+          <div class="security-callouts callouts-left">
+            <div class="callout">
+              <h3>SSRF-proof checking</h3>
+              <p>Only publicly routable addresses. Every DNS answer is validated and the socket is pinned to it.</p>
+            </div>
+            <div class="callout">
+              <h3>Hardened auth</h3>
+              <p>Argon2id passwords, gated first-admin bootstrap, rate-limited login, hashed tokens with lineage.</p>
+            </div>
+            <div class="callout">
+              <h3>Hostile-proof CLI</h3>
+              <p><code>pulsectl</code> treats server responses as untrusted and rejects control characters outright.</p>
+            </div>
+          </div>
+
+          <div class="security-window">
+            <div class="dv-head">
+              <span class="terminal-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span>lib · checker</span>
+              <span class="dv-live"><span class="status-dot info"></span>enforcing</span>
+            </div>
+            <div class="security-body">
+              <div class="security-tree mono" role="tablist" aria-label="Security modules">
+                <button type="button" data-file="ip-policy">ip-policy.ts</button>
+                <button type="button" class="active" data-file="secure-lookup">secure-lookup.ts</button>
+                <button type="button" data-file="validation">validation.ts</button>
+                <button type="button" data-file="credentials">credentials.ts</button>
+                <button type="button" data-file="rate-limit">rate-limit.ts</button>
+              </div>
+              <pre class="dv-code security-trace" id="security-trace"><span class="t-prompt">$</span> check https://api.example.com/health
+
+<span class="t-label">resolve</span>  api.example.com → 93.184.216.34
+<span class="t-label">policy</span>   <span class="t-up">public range</span> · not private, not link-local
+<span class="t-label">pin</span>      socket pinned to validated address
+<span class="t-label">tls</span>      TLS 1.3 · certificate valid
+<span class="t-label">result</span>   <span class="t-up">200 OK</span> in 42 ms → <span class="t-up">UP</span></pre>
+            </div>
+            <div class="security-blocked">
+              <div class="blocked-head">
+                <span>Blocked</span>
+                <span class="mono" id="security-attempts">2 attempts</span>
+              </div>
+              <div id="security-blocked-rows">
+                <div class="blocked-row mono"><span class="t-down">✗</span> redirect → 169.254.169.254 <span class="blocked-why">link-local · BLOCKED_TARGET</span></div>
+                <div class="blocked-row mono"><span class="t-down">✗</span> target resolves to 10.0.0.8 <span class="blocked-why">private range · refused</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="security-callouts callouts-right">
+            <div class="callout">
+              <h3>Untrusted providers</h3>
+              <p>Status feeds read allowlisted hosts only. No cross-host redirects, 512 KB caps, XML entities off.</p>
+            </div>
+            <div class="callout">
+              <h3>Locked-down browser</h3>
+              <p>Strict CSP, frame-ancestors none, nosniff, and preloaded HSTS on every response.</p>
+            </div>
+            <div class="callout">
+              <h3>Abuse containment</h3>
+              <p>Rate limits without amplification. Scheduler leases and dedup make duplicate alerts impossible.</p>
+            </div>
+          </div>
+        </div>
+
+        <p class="security-docs" data-reveal>
+          Ship it locked down.
+          <a class="text-link" href="./docs.html#hardening">
+            Read the hardening guide
+            <svg class="arrow-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" /></svg>
+          </a>
+        </p>
+      </section>
+
       <section class="final-cta" id="deploy">
         <div class="shell section-rule" data-reveal>
           <p class="section-number">One prompt · Live in 5 minutes</p>
           <h2>Deploy monitoring<br />you control</h2>
-          <p>One dashboard. One API. One record of what happened.</p>
-          <div class="hero-actions centered">
-            <a class="button primary" href="https://github.com/0xSMW/pulse-uptime" target="_blank" rel="noreferrer">
-              <svg class="github-mark" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
-              Deploy Pulse
+          <p>Codex discovers every app you run and monitors them all.</p>
+          <button class="cta-command" id="deploy-command" type="button" aria-label="Copy the full agent deploy command">
+            <span class="t-prompt">$</span>
+            <span>codex "deploy pulse"</span>
+            <span class="cta-command-copy" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="7.5" height="7.5" rx="1.5" /><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H4.5A1.5 1.5 0 0 0 3 3v4.5A1.5 1.5 0 0 0 4.5 9H5" /></svg></span>
+          </button>
+          <p class="cta-command-note">Copies the full agent deploy prompt</p>
+          <div class="cta-links">
+            <a class="text-link" href="./docs.html">
+              Read the docs
+              <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 3.5 4.5 4.5L6 12.5" /></svg>
             </a>
-            <a class="button secondary" href="./docs.html">Read the docs</a>
+            <a class="text-link" href="https://github.com/0xSMW/pulse-uptime" target="_blank" rel="noreferrer">
+              View the code
+              <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 3.5 4.5 4.5L6 12.5" /></svg>
+            </a>
           </div>
         </div>
       </section>
@@ -657,8 +760,24 @@
           <kbd>esc</kbd>
         </div>
         <ul class="palette-list" id="palette-list" role="listbox"></ul>
+        <div class="palette-footer">
+          <span id="palette-count"></span>
+          <span class="palette-keys"><kbd>↑↓</kbd><span>navigate</span><kbd>↵</kbd><span>run</span><kbd>esc</kbd><span>close</span></span>
+        </div>
       </div>
     </dialog>
+
+    <script type="text/plain" id="deploy-prompt-fallback">
+codex \
+  -m gpt-5.6-sol \
+  -c model_reasoning_effort='"low"' \
+  --sandbox danger-full-access \
+  --ask-for-approval on-request \
+  "$(cat <<'PROMPT'
+Act as the deployment owner for Pulse, the self-hosted uptime monitor at https://github.com/0xSMW/pulse-uptime: inspect the repository, documentation, `.env.example`, migrations, deployment configuration, CLI manifest, and OpenAPI spec; identify every active public web project the user owns or maintains by inspecting available workspaces, repositories, deployment providers, project metadata, configured domains, production environments, and existing infrastructure, verify each endpoint is genuinely active and production-facing, then deploy Pulse and configure monitoring for all of them without waiting for the user to enumerate URLs. Establish the correct Vercel team and project, create and configure Neon Postgres, Vercel Edge Config, and Resend, verify the sending domain, generate independent high-entropy application secrets, set the one-time bootstrap token, apply migrations through the direct connection, run the full verification suite, and deploy production. Determine the user’s commonly used work email from authoritative account metadata, repository identities, deployment-provider profiles, domain ownership, and existing project configuration; use the strongest consistent match to claim the first administrator account, asking only when multiple plausible addresses remain unresolved. Generate a unique password with at least 24 random characters, store the email, password, Pulse URL, creation date, and recovery notes in the user’s available password manager when supported; otherwise create a clearly named local credentials file outside the repository with owner-only permissions, never print its contents to chat, logs, shell history, or command output, report its exact path, and instruct the user to import it into their password manager and securely delete the file afterward. Remove the bootstrap token and migration-owner credential from the runtime environment after account creation. Build a complete grouped configuration covering every discovered active web project and its meaningful health endpoints, using appropriate intervals, timeouts, expected status ranges, failure thresholds, recovery thresholds, and recipients; validate, plan, review, and apply it through `pulsectl`, automatically applying additive and non-destructive changes while requiring explicit user approval only for destructive operations. Run a live test for every monitor, investigate and correct failed checks where access permits, verify `/api/v1/version`, `/openapi/v1.json`, `/status`, cron authentication, database health, monitoring activation, and end-to-end outage, recovery, and test-email delivery. Use least-privilege credentials, preserve existing production infrastructure, keep all secrets out of source control and agent transcripts, and pause only when an external login, billing consent, domain verification, secret entry, unresolved administrator-email ambiguity, or destructive-change approval requires the user. Finish with the Pulse URL, public status-page URL, administrator email used, secure credential-storage location, every project and endpoint monitored, resources created, configuration applied, live-test results, verification evidence, unresolved blockers, and exact commands for future administration.
+PROMPT
+)"
+    </script>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </body>

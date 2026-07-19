@@ -2,6 +2,9 @@
 
 import { Search } from "lucide-react";
 import Link from "next/link";
+// Semi-public path: the only way to request a FULL (dynamic-data) prefetch
+// through router.prefetch() in Next 16, since the public default is shell-only.
+import { PrefetchKind } from "next/dist/client/components/router-reducer/router-reducer-types";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -23,6 +26,26 @@ export type DashboardMonitor = {
 };
 
 const rowInteractiveSelector = "a, button, input, select, textarea, summary, [role='button'], [role='link'], [contenteditable='true']";
+
+// Modified/aux clicks open new tabs (or nothing): no client navigation
+// happens in this tab, so they must not enter the pending state.
+export function isPlainLeftClick(event: {
+  button: number;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+  altKey: boolean;
+  defaultPrevented: boolean;
+}): boolean {
+  return (
+    event.button === 0 &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.shiftKey &&
+    !event.altKey &&
+    !event.defaultPrevented
+  );
+}
 
 export function navigateFromMonitorRow(
   target: EventTarget | null,
@@ -47,7 +70,18 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
   const router = useRouter();
   const { resolvedTimeZone } = useTimezone();
   const [query, setQuery] = useState("");
+  const [pendingMonitorId, setPendingMonitorId] = useState<string | null>(null);
+  const pendingResetRef = useRef<number | undefined>(undefined);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Successful navigation unmounts the table; this failsafe clears the pulse
+  // when it doesn't (superseded navigation, error, modified click slipping by).
+  const markPending = (monitorId: string) => {
+    setPendingMonitorId(monitorId);
+    window.clearTimeout(pendingResetRef.current);
+    pendingResetRef.current = window.setTimeout(() => setPendingMonitorId(null), 8_000);
+  };
+  useEffect(() => () => window.clearTimeout(pendingResetRef.current), []);
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return monitors;
@@ -111,11 +145,19 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
               <tr
                 key={monitor.id}
                 onClick={(event) => {
-                  navigateFromMonitorRow(event.target, monitor.id, router.push);
+                  if (!isPlainLeftClick(event)) return;
+                  if (navigateFromMonitorRow(event.target, monitor.id, router.push)) {
+                    markPending(monitor.id);
+                  }
                 }}
+                // Rows are unbounded, so no viewport prefetch: a full dynamic
+                // prefetch fires on hover/focus instead, when intent is clear.
+                onMouseEnter={() => router.prefetch(`/monitors/${encodeURIComponent(monitor.id)}`, { kind: PrefetchKind.FULL })}
+                onFocus={() => router.prefetch(`/monitors/${encodeURIComponent(monitor.id)}`, { kind: PrefetchKind.FULL })}
                 className={cn(
                   "h-[60px] cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--hover)]",
                   monitor.state === "DOWN" && "shadow-[inset_3px_0_var(--down)]",
+                  pendingMonitorId === monitor.id && "animate-pulse bg-[var(--hover)]",
                 )}
               >
                 <td className="px-6">
@@ -125,7 +167,14 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
                   </span>
                 </td>
                 <td className="px-4">
-                  <Link href={`/monitors/${encodeURIComponent(monitor.id)}`} className="font-medium hover:underline">
+                  <Link
+                    href={`/monitors/${encodeURIComponent(monitor.id)}`}
+                    prefetch={false}
+                    onClick={(event) => {
+                      if (isPlainLeftClick(event)) markPending(monitor.id);
+                    }}
+                    className="font-medium hover:underline"
+                  >
                     {monitor.name}
                   </Link>
                   <div className="max-w-[320px] truncate font-data text-xs text-[var(--fg-muted)]">

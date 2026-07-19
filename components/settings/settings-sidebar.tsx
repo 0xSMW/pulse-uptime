@@ -16,6 +16,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 
 import { useSettingsDirty } from "@/components/settings/settings-dirty";
+import { LinkPendingPulse } from "@/components/ui/link-status";
 import { cn } from "@/lib/utils";
 
 export const SETTINGS_RETURN_KEY = "pulse:settings-return";
@@ -133,14 +134,16 @@ export function SettingsSidebar() {
                     <li key={item.href}>
                       <Link
                         href={item.href}
+                        prefetch={true}
                         aria-current={active ? "page" : undefined}
                         className={cn(
-                          "flex h-8 items-center gap-2 rounded-[6px] px-3 text-[13px] whitespace-nowrap text-[var(--fg-muted)] hover:bg-[var(--hover)] hover:text-[var(--fg)]",
+                          "relative flex h-8 items-center gap-2 rounded-[6px] px-3 pr-6 text-[13px] whitespace-nowrap text-[var(--fg-muted)] hover:bg-[var(--hover)] hover:text-[var(--fg)]",
                           active && "bg-[var(--hover)] font-medium text-[var(--fg)]",
                         )}
                       >
                         <item.icon className="size-4 shrink-0" aria-hidden />
                         {item.label}
+                        <LinkPendingPulse className="right-2.5" />
                       </Link>
                     </li>
                   );

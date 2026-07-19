@@ -1,0 +1,6521 @@
+{
+  "schemaVersion": 1,
+  "label": "candidate-indexes",
+  "createdAt": "2026-07-18T18:25:04.118Z",
+  "projectId": "falling-glade-31419684",
+  "regionId": "aws-us-east-1",
+  "fixture": {
+    "version": 1,
+    "cardinalities": {
+      "monitor_registry": 100,
+      "monitor_state": 100,
+      "check_results": 36000,
+      "metric_rollups": 102700,
+      "daily_rollups": 3000,
+      "incidents": 64,
+      "notification_outbox": 113,
+      "monitoring_config_snapshots": 2,
+      "config_change_approvals": 1,
+      "config_operations": 10,
+      "cron_runs": 200,
+      "job_leases": 1,
+      "check_batches": 60,
+      "atomic_minute_commits": 60,
+      "exception_payloads": 15,
+      "monitor_exceptions": 15,
+      "database_usage_snapshots": 30,
+      "admin_users": 2,
+      "human_sessions": 2,
+      "onboarding_progress": 1,
+      "api_tokens": 3,
+      "cli_installations": 2,
+      "cli_sessions": 2,
+      "device_authorizations": 1,
+      "api_idempotency": 1,
+      "api_rate_limit_buckets": 1
+    }
+  },
+  "run": {
+    "warmupCount": 2,
+    "repeatCount": 7
+  },
+  "results": [
+    {
+      "name": "dashboard-monitors-uptime24h",
+      "description": "Dashboard monitor list with the rollup+raw-check blended 24h uptime subquery and the active-incident left join production performs alongside it.",
+      "source": "lib/monitoring/queries.ts:35-117 (listDashboardMonitors)",
+      "mutating": false,
+      "paramShape": "[\"Date\",\"Date\",\"Date\"]",
+      "warmup": {
+        "totalTimeMs": 8.074,
+        "planningTimeMs": 0.808,
+        "executionTimeMs": 7.266,
+        "sharedHitBlocks": 4399,
+        "sharedReadBlocks": 0,
+        "sharedDirtiedBlocks": 0,
+        "sharedWrittenBlocks": 0,
+        "rootRows": 98,
+        "nodeCount": 12,
+        "topNodes": [
+          {
+            "nodeType": "Hash Join",
+            "actualTotalTimeMs": 7.14,
+            "actualRows": 98,
+            "actualLoops": 1,
+            "sharedHitBlocks": 1101,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Hash Join",
+            "actualTotalTimeMs": 0.142,
+            "actualRows": 98,
+            "actualLoops": 1,
+            "sharedHitBlocks": 5,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Seq Scan",
+            "actualTotalTimeMs": 0.037,
+            "actualRows": 98,
+            "actualLoops": 1,
+            "sharedHitBlocks": 3,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Hash",
+            "actualTotalTimeMs": 0.043,
+            "actualRows": 100,
+            "actualLoops": 1,
+            "sharedHitBlocks": 2,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Seq Scan",
+            "actualTotalTimeMs": 0.019,
+            "actualRows": 100,
+            "actualLoops": 1,
+            "sharedHitBlocks": 2,
+            "sharedReadBlocks": 0
+          }
+        ]
+      },
+      "samples": [
+        {
+          "totalTimeMs": 5.18,
+          "planningTimeMs": 0.362,
+          "executionTimeMs": 4.818,
+          "sharedHitBlocks": 4399,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 98,
+          "nodeCount": 12,
+          "topNodes": [
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 4.738,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1101,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.114,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.036,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.038,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.018,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 5.266,
+          "planningTimeMs": 0.372,
+          "executionTimeMs": 4.894,
+          "sharedHitBlocks": 4399,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 98,
+          "nodeCount": 12,
+          "topNodes": [
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 4.829,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1101,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.114,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.03,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.036,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.017,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 5.489000000000001,
+          "planningTimeMs": 0.395,
+          "executionTimeMs": 5.094,
+          "sharedHitBlocks": 4399,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 98,
+          "nodeCount": 12,
+          "topNodes": [
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 5.027,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1101,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.114,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.032,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.037,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.018,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 5.531000000000001,
+          "planningTimeMs": 0.363,
+          "executionTimeMs": 5.168,
+          "sharedHitBlocks": 4399,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 98,
+          "nodeCount": 12,
+          "topNodes": [
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 5.103,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1101,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.168,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.03,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.036,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.017,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 5.234,
+          "planningTimeMs": 0.365,
+          "executionTimeMs": 4.869,
+          "sharedHitBlocks": 4399,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 98,
+          "nodeCount": 12,
+          "topNodes": [
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 4.805,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1101,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.108,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.029,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.036,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.017,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 5.304,
+          "planningTimeMs": 0.364,
+          "executionTimeMs": 4.94,
+          "sharedHitBlocks": 4399,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 98,
+          "nodeCount": 12,
+          "topNodes": [
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 4.875,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1101,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.113,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.03,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.036,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.017,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 5.236000000000001,
+          "planningTimeMs": 0.365,
+          "executionTimeMs": 4.871,
+          "sharedHitBlocks": 4399,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 98,
+          "nodeCount": 12,
+          "topNodes": [
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 4.81,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1101,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.103,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.028,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.036,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.017,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "command-palette-monitors",
+      "description": "Slim monitor projection for the command palette (no rollup join).",
+      "source": "lib/monitoring/queries.ts:16-33 (listCommandPaletteMonitors)",
+      "mutating": false,
+      "paramShape": "[]",
+      "warmup": {
+        "totalTimeMs": 0.273,
+        "planningTimeMs": 0.165,
+        "executionTimeMs": 0.108,
+        "sharedHitBlocks": 12,
+        "sharedReadBlocks": 0,
+        "sharedDirtiedBlocks": 0,
+        "sharedWrittenBlocks": 0,
+        "rootRows": 98,
+        "nodeCount": 4,
+        "topNodes": [
+          {
+            "nodeType": "Hash Join",
+            "actualTotalTimeMs": 0.085,
+            "actualRows": 98,
+            "actualLoops": 1,
+            "sharedHitBlocks": 5,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Seq Scan",
+            "actualTotalTimeMs": 0.023,
+            "actualRows": 98,
+            "actualLoops": 1,
+            "sharedHitBlocks": 3,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Hash",
+            "actualTotalTimeMs": 0.036,
+            "actualRows": 100,
+            "actualLoops": 1,
+            "sharedHitBlocks": 2,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Seq Scan",
+            "actualTotalTimeMs": 0.019,
+            "actualRows": 100,
+            "actualLoops": 1,
+            "sharedHitBlocks": 2,
+            "sharedReadBlocks": 0
+          }
+        ]
+      },
+      "samples": [
+        {
+          "totalTimeMs": 0.276,
+          "planningTimeMs": 0.168,
+          "executionTimeMs": 0.108,
+          "sharedHitBlocks": 12,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 98,
+          "nodeCount": 4,
+          "topNodes": [
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.083,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.024,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.035,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.017,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.256,
+          "planningTimeMs": 0.152,
+          "executionTimeMs": 0.104,
+          "sharedHitBlocks": 12,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 98,
+          "nodeCount": 4,
+          "topNodes": [
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.082,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.023,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.034,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.016,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.26,
+          "planningTimeMs": 0.154,
+          "executionTimeMs": 0.106,
+          "sharedHitBlocks": 12,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 98,
+          "nodeCount": 4,
+          "topNodes": [
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.083,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.023,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.034,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.017,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.343,
+          "planningTimeMs": 0.234,
+          "executionTimeMs": 0.109,
+          "sharedHitBlocks": 12,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 98,
+          "nodeCount": 4,
+          "topNodes": [
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.084,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.024,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.035,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.017,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.278,
+          "planningTimeMs": 0.152,
+          "executionTimeMs": 0.126,
+          "sharedHitBlocks": 12,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 98,
+          "nodeCount": 4,
+          "topNodes": [
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.083,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.024,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.035,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.017,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.281,
+          "planningTimeMs": 0.152,
+          "executionTimeMs": 0.129,
+          "sharedHitBlocks": 12,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 98,
+          "nodeCount": 4,
+          "topNodes": [
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.105,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.032,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.041,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.024,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.271,
+          "planningTimeMs": 0.165,
+          "executionTimeMs": 0.106,
+          "sharedHitBlocks": 12,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 98,
+          "nodeCount": 4,
+          "topNodes": [
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.084,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.024,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.035,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.016,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "monitor-identity-lookup",
+      "description": "Single monitor identity lookup by primary key, joined to current state.",
+      "source": "lib/reporting/queries/monitors.ts:getMonitorIdentity",
+      "mutating": false,
+      "paramShape": "[\"string\",\"number\"]",
+      "warmup": {
+        "totalTimeMs": 0.14400000000000002,
+        "planningTimeMs": 0.101,
+        "executionTimeMs": 0.043,
+        "sharedHitBlocks": 12,
+        "sharedReadBlocks": 0,
+        "sharedDirtiedBlocks": 0,
+        "sharedWrittenBlocks": 0,
+        "rootRows": 1,
+        "nodeCount": 4,
+        "topNodes": [
+          {
+            "nodeType": "Limit",
+            "actualTotalTimeMs": 0.023,
+            "actualRows": 1,
+            "actualLoops": 1,
+            "sharedHitBlocks": 4,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Nested Loop",
+            "actualTotalTimeMs": 0.022,
+            "actualRows": 1,
+            "actualLoops": 1,
+            "sharedHitBlocks": 4,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Seq Scan",
+            "actualTotalTimeMs": 0.015,
+            "actualRows": 1,
+            "actualLoops": 1,
+            "sharedHitBlocks": 2,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Seq Scan",
+            "actualTotalTimeMs": 0.005,
+            "actualRows": 1,
+            "actualLoops": 1,
+            "sharedHitBlocks": 2,
+            "sharedReadBlocks": 0
+          }
+        ]
+      },
+      "samples": [
+        {
+          "totalTimeMs": 0.149,
+          "planningTimeMs": 0.104,
+          "executionTimeMs": 0.045,
+          "sharedHitBlocks": 12,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 4,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.024,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Nested Loop",
+              "actualTotalTimeMs": 0.022,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.005,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.14200000000000002,
+          "planningTimeMs": 0.1,
+          "executionTimeMs": 0.042,
+          "sharedHitBlocks": 12,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 4,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.022,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Nested Loop",
+              "actualTotalTimeMs": 0.021,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.005,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.148,
+          "planningTimeMs": 0.103,
+          "executionTimeMs": 0.045,
+          "sharedHitBlocks": 12,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 4,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.023,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Nested Loop",
+              "actualTotalTimeMs": 0.022,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.005,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.147,
+          "planningTimeMs": 0.103,
+          "executionTimeMs": 0.044,
+          "sharedHitBlocks": 12,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 4,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.023,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Nested Loop",
+              "actualTotalTimeMs": 0.021,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.004,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.14400000000000002,
+          "planningTimeMs": 0.1,
+          "executionTimeMs": 0.044,
+          "sharedHitBlocks": 12,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 4,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.023,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Nested Loop",
+              "actualTotalTimeMs": 0.022,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.005,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.147,
+          "planningTimeMs": 0.103,
+          "executionTimeMs": 0.044,
+          "sharedHitBlocks": 12,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 4,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.023,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Nested Loop",
+              "actualTotalTimeMs": 0.022,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.016,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.005,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.172,
+          "planningTimeMs": 0.128,
+          "executionTimeMs": 0.044,
+          "sharedHitBlocks": 12,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 4,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.023,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Nested Loop",
+              "actualTotalTimeMs": 0.022,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.005,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "monitor-detail-rollups-7d",
+      "description": "Monitor detail page 15m-resolution rollup scan over the actual 7-day window rollupsFor() issues; production derives its 24h view in-memory from this superset instead of querying it separately.",
+      "source": "lib/reporting/queries/monitors.ts:121-134 (rollupsFor call sites in getMonitorDetail)",
+      "mutating": false,
+      "paramShape": "[\"string\",\"string\",\"string\",\"string\"]",
+      "warmup": {
+        "totalTimeMs": 0.272,
+        "planningTimeMs": 0.163,
+        "executionTimeMs": 0.109,
+        "sharedHitBlocks": 9,
+        "sharedReadBlocks": 0,
+        "sharedDirtiedBlocks": 0,
+        "sharedWrittenBlocks": 0,
+        "rootRows": 192,
+        "nodeCount": 1,
+        "topNodes": [
+          {
+            "nodeType": "Index Scan",
+            "actualTotalTimeMs": 0.084,
+            "actualRows": 192,
+            "actualLoops": 1,
+            "sharedHitBlocks": 9,
+            "sharedReadBlocks": 0
+          }
+        ]
+      },
+      "samples": [
+        {
+          "totalTimeMs": 0.22699999999999998,
+          "planningTimeMs": 0.106,
+          "executionTimeMs": 0.121,
+          "sharedHitBlocks": 9,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 192,
+          "nodeCount": 1,
+          "topNodes": [
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.095,
+              "actualRows": 192,
+              "actualLoops": 1,
+              "sharedHitBlocks": 9,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.22899999999999998,
+          "planningTimeMs": 0.108,
+          "executionTimeMs": 0.121,
+          "sharedHitBlocks": 9,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 192,
+          "nodeCount": 1,
+          "topNodes": [
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.094,
+              "actualRows": 192,
+              "actualLoops": 1,
+              "sharedHitBlocks": 9,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.22699999999999998,
+          "planningTimeMs": 0.105,
+          "executionTimeMs": 0.122,
+          "sharedHitBlocks": 9,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 192,
+          "nodeCount": 1,
+          "topNodes": [
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.096,
+              "actualRows": 192,
+              "actualLoops": 1,
+              "sharedHitBlocks": 9,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.23299999999999998,
+          "planningTimeMs": 0.109,
+          "executionTimeMs": 0.124,
+          "sharedHitBlocks": 9,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 192,
+          "nodeCount": 1,
+          "topNodes": [
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.096,
+              "actualRows": 192,
+              "actualLoops": 1,
+              "sharedHitBlocks": 9,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.241,
+          "planningTimeMs": 0.106,
+          "executionTimeMs": 0.135,
+          "sharedHitBlocks": 9,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 192,
+          "nodeCount": 1,
+          "topNodes": [
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.098,
+              "actualRows": 192,
+              "actualLoops": 1,
+              "sharedHitBlocks": 9,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.283,
+          "planningTimeMs": 0.107,
+          "executionTimeMs": 0.176,
+          "sharedHitBlocks": 9,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 192,
+          "nodeCount": 1,
+          "topNodes": [
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.134,
+              "actualRows": 192,
+              "actualLoops": 1,
+              "sharedHitBlocks": 9,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.236,
+          "planningTimeMs": 0.116,
+          "executionTimeMs": 0.12,
+          "sharedHitBlocks": 9,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 192,
+          "nodeCount": 1,
+          "topNodes": [
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.093,
+              "actualRows": 192,
+              "actualLoops": 1,
+              "sharedHitBlocks": 9,
+              "sharedReadBlocks": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "monitor-detail-rollups-30d",
+      "description": "Monitor detail page rollup series at hour resolution over a 30d window.",
+      "source": "lib/reporting/queries/monitors.ts:121-134 (rollupsFor call sites in getMonitorDetail)",
+      "mutating": false,
+      "paramShape": "[\"string\",\"string\",\"string\",\"string\"]",
+      "warmup": {
+        "totalTimeMs": 0.403,
+        "planningTimeMs": 0.101,
+        "executionTimeMs": 0.302,
+        "sharedHitBlocks": 25,
+        "sharedReadBlocks": 0,
+        "sharedDirtiedBlocks": 0,
+        "sharedWrittenBlocks": 0,
+        "rootRows": 719,
+        "nodeCount": 1,
+        "topNodes": [
+          {
+            "nodeType": "Index Scan",
+            "actualTotalTimeMs": 0.251,
+            "actualRows": 719,
+            "actualLoops": 1,
+            "sharedHitBlocks": 25,
+            "sharedReadBlocks": 0
+          }
+        ]
+      },
+      "samples": [
+        {
+          "totalTimeMs": 0.425,
+          "planningTimeMs": 0.118,
+          "executionTimeMs": 0.307,
+          "sharedHitBlocks": 25,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 719,
+          "nodeCount": 1,
+          "topNodes": [
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.255,
+              "actualRows": 719,
+              "actualLoops": 1,
+              "sharedHitBlocks": 25,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.39499999999999996,
+          "planningTimeMs": 0.107,
+          "executionTimeMs": 0.288,
+          "sharedHitBlocks": 25,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 719,
+          "nodeCount": 1,
+          "topNodes": [
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.237,
+              "actualRows": 719,
+              "actualLoops": 1,
+              "sharedHitBlocks": 25,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.35800000000000004,
+          "planningTimeMs": 0.077,
+          "executionTimeMs": 0.281,
+          "sharedHitBlocks": 25,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 719,
+          "nodeCount": 1,
+          "topNodes": [
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.236,
+              "actualRows": 719,
+              "actualLoops": 1,
+              "sharedHitBlocks": 25,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.43,
+          "planningTimeMs": 0.118,
+          "executionTimeMs": 0.312,
+          "sharedHitBlocks": 25,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 719,
+          "nodeCount": 1,
+          "topNodes": [
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.257,
+              "actualRows": 719,
+              "actualLoops": 1,
+              "sharedHitBlocks": 25,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.45599999999999996,
+          "planningTimeMs": 0.15,
+          "executionTimeMs": 0.306,
+          "sharedHitBlocks": 25,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 719,
+          "nodeCount": 1,
+          "topNodes": [
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.254,
+              "actualRows": 719,
+              "actualLoops": 1,
+              "sharedHitBlocks": 25,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.39299999999999996,
+          "planningTimeMs": 0.109,
+          "executionTimeMs": 0.284,
+          "sharedHitBlocks": 25,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 719,
+          "nodeCount": 1,
+          "topNodes": [
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.234,
+              "actualRows": 719,
+              "actualLoops": 1,
+              "sharedHitBlocks": 25,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.38999999999999996,
+          "planningTimeMs": 0.106,
+          "executionTimeMs": 0.284,
+          "sharedHitBlocks": 25,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 719,
+          "nodeCount": 1,
+          "topNodes": [
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.234,
+              "actualRows": 719,
+              "actualLoops": 1,
+              "sharedHitBlocks": 25,
+              "sharedReadBlocks": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "monitor-detail-rollups-90d",
+      "description": "Monitor detail page rollup series at day resolution over a 90d window.",
+      "source": "lib/reporting/queries/monitors.ts:121-134 (rollupsFor call sites in getMonitorDetail)",
+      "mutating": false,
+      "paramShape": "[\"string\",\"string\",\"string\",\"string\"]",
+      "warmup": {
+        "totalTimeMs": 0.185,
+        "planningTimeMs": 0.107,
+        "executionTimeMs": 0.078,
+        "sharedHitBlocks": 6,
+        "sharedReadBlocks": 0,
+        "sharedDirtiedBlocks": 0,
+        "sharedWrittenBlocks": 0,
+        "rootRows": 90,
+        "nodeCount": 1,
+        "topNodes": [
+          {
+            "nodeType": "Index Scan",
+            "actualTotalTimeMs": 0.057,
+            "actualRows": 90,
+            "actualLoops": 1,
+            "sharedHitBlocks": 6,
+            "sharedReadBlocks": 0
+          }
+        ]
+      },
+      "samples": [
+        {
+          "totalTimeMs": 0.187,
+          "planningTimeMs": 0.105,
+          "executionTimeMs": 0.082,
+          "sharedHitBlocks": 6,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 90,
+          "nodeCount": 1,
+          "topNodes": [
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.06,
+              "actualRows": 90,
+              "actualLoops": 1,
+              "sharedHitBlocks": 6,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.186,
+          "planningTimeMs": 0.104,
+          "executionTimeMs": 0.082,
+          "sharedHitBlocks": 6,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 90,
+          "nodeCount": 1,
+          "topNodes": [
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.061,
+              "actualRows": 90,
+              "actualLoops": 1,
+              "sharedHitBlocks": 6,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.189,
+          "planningTimeMs": 0.108,
+          "executionTimeMs": 0.081,
+          "sharedHitBlocks": 6,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 90,
+          "nodeCount": 1,
+          "topNodes": [
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.059,
+              "actualRows": 90,
+              "actualLoops": 1,
+              "sharedHitBlocks": 6,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.187,
+          "planningTimeMs": 0.107,
+          "executionTimeMs": 0.08,
+          "sharedHitBlocks": 6,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 90,
+          "nodeCount": 1,
+          "topNodes": [
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.058,
+              "actualRows": 90,
+              "actualLoops": 1,
+              "sharedHitBlocks": 6,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.189,
+          "planningTimeMs": 0.108,
+          "executionTimeMs": 0.081,
+          "sharedHitBlocks": 6,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 90,
+          "nodeCount": 1,
+          "topNodes": [
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.059,
+              "actualRows": 90,
+              "actualLoops": 1,
+              "sharedHitBlocks": 6,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.21200000000000002,
+          "planningTimeMs": 0.112,
+          "executionTimeMs": 0.1,
+          "sharedHitBlocks": 6,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 90,
+          "nodeCount": 1,
+          "topNodes": [
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.076,
+              "actualRows": 90,
+              "actualLoops": 1,
+              "sharedHitBlocks": 6,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.188,
+          "planningTimeMs": 0.105,
+          "executionTimeMs": 0.083,
+          "sharedHitBlocks": 6,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 90,
+          "nodeCount": 1,
+          "topNodes": [
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.059,
+              "actualRows": 90,
+              "actualLoops": 1,
+              "sharedHitBlocks": 6,
+              "sharedReadBlocks": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "monitor-detail-recent-incidents",
+      "description": "Most recent 5 incidents for a single monitor's detail page.",
+      "source": "lib/reporting/queries/monitors.ts:getMonitorDetail",
+      "mutating": false,
+      "paramShape": "[\"string\",\"number\"]",
+      "warmup": {
+        "totalTimeMs": 0.21200000000000002,
+        "planningTimeMs": 0.167,
+        "executionTimeMs": 0.045,
+        "sharedHitBlocks": 12,
+        "sharedReadBlocks": 0,
+        "sharedDirtiedBlocks": 0,
+        "sharedWrittenBlocks": 0,
+        "rootRows": 0,
+        "nodeCount": 3,
+        "topNodes": [
+          {
+            "nodeType": "Limit",
+            "actualTotalTimeMs": 0.029,
+            "actualRows": 0,
+            "actualLoops": 1,
+            "sharedHitBlocks": 5,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Sort",
+            "actualTotalTimeMs": 0.027,
+            "actualRows": 0,
+            "actualLoops": 1,
+            "sharedHitBlocks": 5,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Seq Scan",
+            "actualTotalTimeMs": 0.014,
+            "actualRows": 0,
+            "actualLoops": 1,
+            "sharedHitBlocks": 2,
+            "sharedReadBlocks": 0
+          }
+        ]
+      },
+      "samples": [
+        {
+          "totalTimeMs": 0.13,
+          "planningTimeMs": 0.088,
+          "executionTimeMs": 0.042,
+          "sharedHitBlocks": 6,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 0,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.024,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.023,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.019,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.129,
+          "planningTimeMs": 0.087,
+          "executionTimeMs": 0.042,
+          "sharedHitBlocks": 6,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 0,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.023,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.022,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.018,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.131,
+          "planningTimeMs": 0.089,
+          "executionTimeMs": 0.042,
+          "sharedHitBlocks": 6,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 0,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.024,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.023,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.019,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.128,
+          "planningTimeMs": 0.086,
+          "executionTimeMs": 0.042,
+          "sharedHitBlocks": 6,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 0,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.024,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.023,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.019,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.159,
+          "planningTimeMs": 0.116,
+          "executionTimeMs": 0.043,
+          "sharedHitBlocks": 6,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 0,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.024,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.023,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.019,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.13,
+          "planningTimeMs": 0.088,
+          "executionTimeMs": 0.042,
+          "sharedHitBlocks": 6,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 0,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.024,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.022,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.019,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.131,
+          "planningTimeMs": 0.088,
+          "executionTimeMs": 0.043,
+          "sharedHitBlocks": 6,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 0,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.024,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.023,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.019,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "monitor-detail-accepted-config",
+      "description": "Latest accepted monitoring config snapshot lookup.",
+      "source": "lib/reporting/queries/monitors.ts:getMonitorDetail",
+      "mutating": false,
+      "paramShape": "[\"string\",\"number\"]",
+      "warmup": {
+        "totalTimeMs": 0.209,
+        "planningTimeMs": 0.175,
+        "executionTimeMs": 0.034,
+        "sharedHitBlocks": 3,
+        "sharedReadBlocks": 0,
+        "sharedDirtiedBlocks": 0,
+        "sharedWrittenBlocks": 0,
+        "rootRows": 1,
+        "nodeCount": 3,
+        "topNodes": [
+          {
+            "nodeType": "Limit",
+            "actualTotalTimeMs": 0.017,
+            "actualRows": 1,
+            "actualLoops": 1,
+            "sharedHitBlocks": 1,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Sort",
+            "actualTotalTimeMs": 0.016,
+            "actualRows": 1,
+            "actualLoops": 1,
+            "sharedHitBlocks": 1,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Seq Scan",
+            "actualTotalTimeMs": 0.01,
+            "actualRows": 1,
+            "actualLoops": 1,
+            "sharedHitBlocks": 1,
+            "sharedReadBlocks": 0
+          }
+        ]
+      },
+      "samples": [
+        {
+          "totalTimeMs": 0.11399999999999999,
+          "planningTimeMs": 0.072,
+          "executionTimeMs": 0.042,
+          "sharedHitBlocks": 3,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.021,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.02,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.014,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.10900000000000001,
+          "planningTimeMs": 0.07,
+          "executionTimeMs": 0.039,
+          "sharedHitBlocks": 3,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.021,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.019,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.014,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.11099999999999999,
+          "planningTimeMs": 0.071,
+          "executionTimeMs": 0.04,
+          "sharedHitBlocks": 3,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.021,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.02,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.014,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.118,
+          "planningTimeMs": 0.074,
+          "executionTimeMs": 0.044,
+          "sharedHitBlocks": 3,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.023,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.022,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.016,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.11099999999999999,
+          "planningTimeMs": 0.071,
+          "executionTimeMs": 0.04,
+          "sharedHitBlocks": 3,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.022,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.021,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.11399999999999999,
+          "planningTimeMs": 0.073,
+          "executionTimeMs": 0.041,
+          "sharedHitBlocks": 3,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.022,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.02,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.11100000000000002,
+          "planningTimeMs": 0.07,
+          "executionTimeMs": 0.041,
+          "sharedHitBlocks": 3,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.022,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.02,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "incidents-list-all",
+      "description": "Incident list page, unfiltered, most recent 100.",
+      "source": "lib/reporting/queries/incidents.ts:listIncidents",
+      "mutating": false,
+      "paramShape": "[\"number\"]",
+      "warmup": {
+        "totalTimeMs": 0.239,
+        "planningTimeMs": 0.132,
+        "executionTimeMs": 0.107,
+        "sharedHitBlocks": 23,
+        "sharedReadBlocks": 0,
+        "sharedDirtiedBlocks": 0,
+        "sharedWrittenBlocks": 0,
+        "rootRows": 64,
+        "nodeCount": 6,
+        "topNodes": [
+          {
+            "nodeType": "Limit",
+            "actualTotalTimeMs": 0.089,
+            "actualRows": 64,
+            "actualLoops": 1,
+            "sharedHitBlocks": 5,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Sort",
+            "actualTotalTimeMs": 0.083,
+            "actualRows": 64,
+            "actualLoops": 1,
+            "sharedHitBlocks": 5,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Hash Join",
+            "actualTotalTimeMs": 0.062,
+            "actualRows": 64,
+            "actualLoops": 1,
+            "sharedHitBlocks": 5,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Seq Scan",
+            "actualTotalTimeMs": 0.01,
+            "actualRows": 64,
+            "actualLoops": 1,
+            "sharedHitBlocks": 2,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Hash",
+            "actualTotalTimeMs": 0.032,
+            "actualRows": 100,
+            "actualLoops": 1,
+            "sharedHitBlocks": 3,
+            "sharedReadBlocks": 0
+          }
+        ]
+      },
+      "samples": [
+        {
+          "totalTimeMs": 0.28500000000000003,
+          "planningTimeMs": 0.159,
+          "executionTimeMs": 0.126,
+          "sharedHitBlocks": 23,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 64,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.094,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.087,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.066,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.012,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.033,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.294,
+          "planningTimeMs": 0.174,
+          "executionTimeMs": 0.12,
+          "sharedHitBlocks": 23,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 64,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.095,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.088,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.067,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.011,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.033,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.297,
+          "planningTimeMs": 0.178,
+          "executionTimeMs": 0.119,
+          "sharedHitBlocks": 23,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 64,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.094,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.088,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.066,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.011,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.033,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.294,
+          "planningTimeMs": 0.175,
+          "executionTimeMs": 0.119,
+          "sharedHitBlocks": 23,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 64,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.095,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.089,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.067,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.011,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.034,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.292,
+          "planningTimeMs": 0.174,
+          "executionTimeMs": 0.118,
+          "sharedHitBlocks": 23,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 64,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.094,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.087,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.065,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.011,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.033,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.306,
+          "planningTimeMs": 0.187,
+          "executionTimeMs": 0.119,
+          "sharedHitBlocks": 23,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 64,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.095,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.089,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.067,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.012,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.033,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.304,
+          "planningTimeMs": 0.186,
+          "executionTimeMs": 0.118,
+          "sharedHitBlocks": 23,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 64,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.094,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.088,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.066,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.012,
+              "actualRows": 64,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.033,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "incidents-list-ongoing",
+      "description": "Incident list page filtered to ongoing incidents.",
+      "source": "lib/reporting/queries/incidents.ts:listIncidents",
+      "mutating": false,
+      "paramShape": "[\"number\"]",
+      "warmup": {
+        "totalTimeMs": 0.265,
+        "planningTimeMs": 0.18,
+        "executionTimeMs": 0.085,
+        "sharedHitBlocks": 22,
+        "sharedReadBlocks": 0,
+        "sharedDirtiedBlocks": 0,
+        "sharedWrittenBlocks": 0,
+        "rootRows": 15,
+        "nodeCount": 6,
+        "topNodes": [
+          {
+            "nodeType": "Limit",
+            "actualTotalTimeMs": 0.061,
+            "actualRows": 15,
+            "actualLoops": 1,
+            "sharedHitBlocks": 5,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Sort",
+            "actualTotalTimeMs": 0.058,
+            "actualRows": 15,
+            "actualLoops": 1,
+            "sharedHitBlocks": 5,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Hash Join",
+            "actualTotalTimeMs": 0.049,
+            "actualRows": 15,
+            "actualLoops": 1,
+            "sharedHitBlocks": 5,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Seq Scan",
+            "actualTotalTimeMs": 0.015,
+            "actualRows": 100,
+            "actualLoops": 1,
+            "sharedHitBlocks": 3,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Hash",
+            "actualTotalTimeMs": 0.016,
+            "actualRows": 15,
+            "actualLoops": 1,
+            "sharedHitBlocks": 2,
+            "sharedReadBlocks": 0
+          }
+        ]
+      },
+      "samples": [
+        {
+          "totalTimeMs": 0.266,
+          "planningTimeMs": 0.182,
+          "executionTimeMs": 0.084,
+          "sharedHitBlocks": 22,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 15,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.06,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.058,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.049,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.017,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.261,
+          "planningTimeMs": 0.178,
+          "executionTimeMs": 0.083,
+          "sharedHitBlocks": 22,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 15,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.06,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.058,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.049,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.016,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.016,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.273,
+          "planningTimeMs": 0.191,
+          "executionTimeMs": 0.082,
+          "sharedHitBlocks": 22,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 15,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.06,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.057,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.048,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.016,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.261,
+          "planningTimeMs": 0.179,
+          "executionTimeMs": 0.082,
+          "sharedHitBlocks": 22,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 15,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.059,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.057,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.048,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.016,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.266,
+          "planningTimeMs": 0.183,
+          "executionTimeMs": 0.083,
+          "sharedHitBlocks": 22,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 15,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.06,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.058,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.049,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.016,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.262,
+          "planningTimeMs": 0.18,
+          "executionTimeMs": 0.082,
+          "sharedHitBlocks": 22,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 15,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.06,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.058,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.049,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.016,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.266,
+          "planningTimeMs": 0.183,
+          "executionTimeMs": 0.083,
+          "sharedHitBlocks": 22,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 15,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.061,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.058,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.05,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.017,
+              "actualRows": 15,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "incidents-notification-summary",
+      "description": "Bulk sent/dead/unsent aggregate for a page of incidents (avoids N+1 outbox scans).",
+      "source": "lib/reporting/queries/incidents.ts:listIncidents",
+      "mutating": false,
+      "paramShape": "[\"string\"]",
+      "warmup": {
+        "totalTimeMs": 0.312,
+        "planningTimeMs": 0.266,
+        "executionTimeMs": 0.046,
+        "sharedHitBlocks": 10,
+        "sharedReadBlocks": 0,
+        "sharedDirtiedBlocks": 0,
+        "sharedWrittenBlocks": 0,
+        "rootRows": 1,
+        "nodeCount": 2,
+        "topNodes": [
+          {
+            "nodeType": "Aggregate",
+            "actualTotalTimeMs": 0.024,
+            "actualRows": 1,
+            "actualLoops": 1,
+            "sharedHitBlocks": 5,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Seq Scan",
+            "actualTotalTimeMs": 0.018,
+            "actualRows": 1,
+            "actualLoops": 1,
+            "sharedHitBlocks": 5,
+            "sharedReadBlocks": 0
+          }
+        ]
+      },
+      "samples": [
+        {
+          "totalTimeMs": 0.16399999999999998,
+          "planningTimeMs": 0.093,
+          "executionTimeMs": 0.071,
+          "sharedHitBlocks": 10,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 2,
+          "topNodes": [
+            {
+              "nodeType": "Aggregate",
+              "actualTotalTimeMs": 0.03,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.025,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.149,
+          "planningTimeMs": 0.093,
+          "executionTimeMs": 0.056,
+          "sharedHitBlocks": 10,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 2,
+          "topNodes": [
+            {
+              "nodeType": "Aggregate",
+              "actualTotalTimeMs": 0.03,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.024,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.153,
+          "planningTimeMs": 0.096,
+          "executionTimeMs": 0.057,
+          "sharedHitBlocks": 10,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 2,
+          "topNodes": [
+            {
+              "nodeType": "Aggregate",
+              "actualTotalTimeMs": 0.031,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.025,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.148,
+          "planningTimeMs": 0.093,
+          "executionTimeMs": 0.055,
+          "sharedHitBlocks": 10,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 2,
+          "topNodes": [
+            {
+              "nodeType": "Aggregate",
+              "actualTotalTimeMs": 0.03,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.024,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.153,
+          "planningTimeMs": 0.095,
+          "executionTimeMs": 0.058,
+          "sharedHitBlocks": 10,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 2,
+          "topNodes": [
+            {
+              "nodeType": "Aggregate",
+              "actualTotalTimeMs": 0.032,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.026,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.15,
+          "planningTimeMs": 0.093,
+          "executionTimeMs": 0.057,
+          "sharedHitBlocks": 10,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 2,
+          "topNodes": [
+            {
+              "nodeType": "Aggregate",
+              "actualTotalTimeMs": 0.031,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.025,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.176,
+          "planningTimeMs": 0.117,
+          "executionTimeMs": 0.059,
+          "sharedHitBlocks": 10,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 2,
+          "topNodes": [
+            {
+              "nodeType": "Aggregate",
+              "actualTotalTimeMs": 0.032,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.026,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "incident-detail-lookup",
+      "description": "Single incident detail row, joined to monitor name.",
+      "source": "lib/reporting/queries/incidents.ts:getIncidentDetail",
+      "mutating": false,
+      "paramShape": "[\"string\",\"number\"]",
+      "warmup": {
+        "totalTimeMs": 0.22599999999999998,
+        "planningTimeMs": 0.179,
+        "executionTimeMs": 0.047,
+        "sharedHitBlocks": 14,
+        "sharedReadBlocks": 0,
+        "sharedDirtiedBlocks": 0,
+        "sharedWrittenBlocks": 0,
+        "rootRows": 1,
+        "nodeCount": 5,
+        "topNodes": [
+          {
+            "nodeType": "Limit",
+            "actualTotalTimeMs": 0.028,
+            "actualRows": 1,
+            "actualLoops": 1,
+            "sharedHitBlocks": 4,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Hash Join",
+            "actualTotalTimeMs": 0.026,
+            "actualRows": 1,
+            "actualLoops": 1,
+            "sharedHitBlocks": 4,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Seq Scan",
+            "actualTotalTimeMs": 0.008,
+            "actualRows": 9,
+            "actualLoops": 1,
+            "sharedHitBlocks": 2,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Hash",
+            "actualTotalTimeMs": 0.012,
+            "actualRows": 1,
+            "actualLoops": 1,
+            "sharedHitBlocks": 2,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Seq Scan",
+            "actualTotalTimeMs": 0.009,
+            "actualRows": 1,
+            "actualLoops": 1,
+            "sharedHitBlocks": 2,
+            "sharedReadBlocks": 0
+          }
+        ]
+      },
+      "samples": [
+        {
+          "totalTimeMs": 0.169,
+          "planningTimeMs": 0.132,
+          "executionTimeMs": 0.037,
+          "sharedHitBlocks": 14,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 5,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.021,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.02,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.006,
+              "actualRows": 9,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.009,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.007,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.23199999999999998,
+          "planningTimeMs": 0.184,
+          "executionTimeMs": 0.048,
+          "sharedHitBlocks": 14,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 5,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.028,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.027,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.007,
+              "actualRows": 9,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.013,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.009,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.21999999999999997,
+          "planningTimeMs": 0.173,
+          "executionTimeMs": 0.047,
+          "sharedHitBlocks": 14,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 5,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.026,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.025,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.008,
+              "actualRows": 9,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.011,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.008,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.22399999999999998,
+          "planningTimeMs": 0.177,
+          "executionTimeMs": 0.047,
+          "sharedHitBlocks": 14,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 5,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.027,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.026,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.008,
+              "actualRows": 9,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.011,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.009,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.22299999999999998,
+          "planningTimeMs": 0.175,
+          "executionTimeMs": 0.048,
+          "sharedHitBlocks": 14,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 5,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.027,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.026,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.008,
+              "actualRows": 9,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.011,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.008,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.22699999999999998,
+          "planningTimeMs": 0.179,
+          "executionTimeMs": 0.048,
+          "sharedHitBlocks": 14,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 5,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.028,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.026,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.008,
+              "actualRows": 9,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.012,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.008,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.22199999999999998,
+          "planningTimeMs": 0.174,
+          "executionTimeMs": 0.048,
+          "sharedHitBlocks": 14,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 5,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.027,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.026,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 4,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.008,
+              "actualRows": 9,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.012,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.008,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "incident-detail-notifications",
+      "description": "Notification timeline rows for a single incident's detail page.",
+      "source": "lib/reporting/queries/incidents.ts:getIncidentDetail",
+      "mutating": false,
+      "paramShape": "[\"string\",\"number\"]",
+      "warmup": {
+        "totalTimeMs": 0.172,
+        "planningTimeMs": 0.128,
+        "executionTimeMs": 0.044,
+        "sharedHitBlocks": 15,
+        "sharedReadBlocks": 0,
+        "sharedDirtiedBlocks": 0,
+        "sharedWrittenBlocks": 0,
+        "rootRows": 1,
+        "nodeCount": 3,
+        "topNodes": [
+          {
+            "nodeType": "Limit",
+            "actualTotalTimeMs": 0.028,
+            "actualRows": 1,
+            "actualLoops": 1,
+            "sharedHitBlocks": 5,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Sort",
+            "actualTotalTimeMs": 0.026,
+            "actualRows": 1,
+            "actualLoops": 1,
+            "sharedHitBlocks": 5,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Seq Scan",
+            "actualTotalTimeMs": 0.021,
+            "actualRows": 1,
+            "actualLoops": 1,
+            "sharedHitBlocks": 5,
+            "sharedReadBlocks": 0
+          }
+        ]
+      },
+      "samples": [
+        {
+          "totalTimeMs": 0.138,
+          "planningTimeMs": 0.088,
+          "executionTimeMs": 0.05,
+          "sharedHitBlocks": 15,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.032,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.031,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.025,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.132,
+          "planningTimeMs": 0.084,
+          "executionTimeMs": 0.048,
+          "sharedHitBlocks": 15,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.031,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.03,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.025,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.134,
+          "planningTimeMs": 0.085,
+          "executionTimeMs": 0.049,
+          "sharedHitBlocks": 15,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.032,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.03,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.025,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.13699999999999998,
+          "planningTimeMs": 0.086,
+          "executionTimeMs": 0.051,
+          "sharedHitBlocks": 15,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.033,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.032,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.026,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.136,
+          "planningTimeMs": 0.086,
+          "executionTimeMs": 0.05,
+          "sharedHitBlocks": 15,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.033,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.031,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.025,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.136,
+          "planningTimeMs": 0.087,
+          "executionTimeMs": 0.049,
+          "sharedHitBlocks": 15,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.031,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.03,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.024,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.135,
+          "planningTimeMs": 0.086,
+          "executionTimeMs": 0.049,
+          "sharedHitBlocks": 15,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.031,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.03,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.025,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public-status-monitors",
+      "description": "Public status page: enabled, non-archived monitors, capped at 100.",
+      "source": "lib/reporting/queries/status.ts:loadPublicStatus",
+      "mutating": false,
+      "paramShape": "[\"boolean\",\"number\"]",
+      "warmup": {
+        "totalTimeMs": 0.302,
+        "planningTimeMs": 0.191,
+        "executionTimeMs": 0.111,
+        "sharedHitBlocks": 17,
+        "sharedReadBlocks": 0,
+        "sharedDirtiedBlocks": 0,
+        "sharedWrittenBlocks": 0,
+        "rootRows": 98,
+        "nodeCount": 5,
+        "topNodes": [
+          {
+            "nodeType": "Limit",
+            "actualTotalTimeMs": 0.088,
+            "actualRows": 98,
+            "actualLoops": 1,
+            "sharedHitBlocks": 5,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Hash Join",
+            "actualTotalTimeMs": 0.079,
+            "actualRows": 98,
+            "actualLoops": 1,
+            "sharedHitBlocks": 5,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Seq Scan",
+            "actualTotalTimeMs": 0.023,
+            "actualRows": 98,
+            "actualLoops": 1,
+            "sharedHitBlocks": 3,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Hash",
+            "actualTotalTimeMs": 0.03,
+            "actualRows": 100,
+            "actualLoops": 1,
+            "sharedHitBlocks": 2,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Seq Scan",
+            "actualTotalTimeMs": 0.013,
+            "actualRows": 100,
+            "actualLoops": 1,
+            "sharedHitBlocks": 2,
+            "sharedReadBlocks": 0
+          }
+        ]
+      },
+      "samples": [
+        {
+          "totalTimeMs": 0.275,
+          "planningTimeMs": 0.165,
+          "executionTimeMs": 0.11,
+          "sharedHitBlocks": 17,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 98,
+          "nodeCount": 5,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.088,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.079,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.024,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.03,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.013,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.27,
+          "planningTimeMs": 0.161,
+          "executionTimeMs": 0.109,
+          "sharedHitBlocks": 17,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 98,
+          "nodeCount": 5,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.086,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.077,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.023,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.03,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.013,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.297,
+          "planningTimeMs": 0.187,
+          "executionTimeMs": 0.11,
+          "sharedHitBlocks": 17,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 98,
+          "nodeCount": 5,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.086,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.077,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.023,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.029,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.013,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.28800000000000003,
+          "planningTimeMs": 0.169,
+          "executionTimeMs": 0.119,
+          "sharedHitBlocks": 17,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 98,
+          "nodeCount": 5,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.096,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.087,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.023,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.037,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.021,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.292,
+          "planningTimeMs": 0.181,
+          "executionTimeMs": 0.111,
+          "sharedHitBlocks": 17,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 98,
+          "nodeCount": 5,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.087,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.078,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.023,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.03,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.013,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.278,
+          "planningTimeMs": 0.166,
+          "executionTimeMs": 0.112,
+          "sharedHitBlocks": 17,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 98,
+          "nodeCount": 5,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.088,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.079,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.023,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.03,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.013,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.269,
+          "planningTimeMs": 0.16,
+          "executionTimeMs": 0.109,
+          "sharedHitBlocks": 17,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 98,
+          "nodeCount": 5,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.086,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.076,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.023,
+              "actualRows": 98,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.029,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.013,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public-status-rollups-90d",
+      "description": "Public status page: day-resolution rollups across up to 100 monitors over 90 days.",
+      "source": "lib/reporting/queries/status.ts:loadPublicStatus",
+      "mutating": false,
+      "paramShape": "[\"string\",\"string\",\"string\",\"string\",\"string\",\"string\",\"string\",\"string\",\"string\",\"string\",\"string\",\"string\",\"string\",\"number\"]",
+      "warmup": {
+        "totalTimeMs": 0.884,
+        "planningTimeMs": 0.171,
+        "executionTimeMs": 0.713,
+        "sharedHitBlocks": 180,
+        "sharedReadBlocks": 0,
+        "sharedDirtiedBlocks": 0,
+        "sharedWrittenBlocks": 0,
+        "rootRows": 900,
+        "nodeCount": 3,
+        "topNodes": [
+          {
+            "nodeType": "Limit",
+            "actualTotalTimeMs": 0.66,
+            "actualRows": 900,
+            "actualLoops": 1,
+            "sharedHitBlocks": 60,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Sort",
+            "actualTotalTimeMs": 0.594,
+            "actualRows": 900,
+            "actualLoops": 1,
+            "sharedHitBlocks": 60,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Index Scan",
+            "actualTotalTimeMs": 0.367,
+            "actualRows": 900,
+            "actualLoops": 1,
+            "sharedHitBlocks": 60,
+            "sharedReadBlocks": 0
+          }
+        ]
+      },
+      "samples": [
+        {
+          "totalTimeMs": 0.8190000000000001,
+          "planningTimeMs": 0.135,
+          "executionTimeMs": 0.684,
+          "sharedHitBlocks": 180,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 900,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.63,
+              "actualRows": 900,
+              "actualLoops": 1,
+              "sharedHitBlocks": 60,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.562,
+              "actualRows": 900,
+              "actualLoops": 1,
+              "sharedHitBlocks": 60,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.359,
+              "actualRows": 900,
+              "actualLoops": 1,
+              "sharedHitBlocks": 60,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.792,
+          "planningTimeMs": 0.11,
+          "executionTimeMs": 0.682,
+          "sharedHitBlocks": 180,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 900,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.631,
+              "actualRows": 900,
+              "actualLoops": 1,
+              "sharedHitBlocks": 60,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.564,
+              "actualRows": 900,
+              "actualLoops": 1,
+              "sharedHitBlocks": 60,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.358,
+              "actualRows": 900,
+              "actualLoops": 1,
+              "sharedHitBlocks": 60,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.802,
+          "planningTimeMs": 0.124,
+          "executionTimeMs": 0.678,
+          "sharedHitBlocks": 180,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 900,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.625,
+              "actualRows": 900,
+              "actualLoops": 1,
+              "sharedHitBlocks": 60,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.557,
+              "actualRows": 900,
+              "actualLoops": 1,
+              "sharedHitBlocks": 60,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.358,
+              "actualRows": 900,
+              "actualLoops": 1,
+              "sharedHitBlocks": 60,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.8140000000000001,
+          "planningTimeMs": 0.138,
+          "executionTimeMs": 0.676,
+          "sharedHitBlocks": 180,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 900,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.621,
+              "actualRows": 900,
+              "actualLoops": 1,
+              "sharedHitBlocks": 60,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.553,
+              "actualRows": 900,
+              "actualLoops": 1,
+              "sharedHitBlocks": 60,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.353,
+              "actualRows": 900,
+              "actualLoops": 1,
+              "sharedHitBlocks": 60,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.841,
+          "planningTimeMs": 0.134,
+          "executionTimeMs": 0.707,
+          "sharedHitBlocks": 180,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 900,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.652,
+              "actualRows": 900,
+              "actualLoops": 1,
+              "sharedHitBlocks": 60,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.584,
+              "actualRows": 900,
+              "actualLoops": 1,
+              "sharedHitBlocks": 60,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.376,
+              "actualRows": 900,
+              "actualLoops": 1,
+              "sharedHitBlocks": 60,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.849,
+          "planningTimeMs": 0.139,
+          "executionTimeMs": 0.71,
+          "sharedHitBlocks": 180,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 900,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.621,
+              "actualRows": 900,
+              "actualLoops": 1,
+              "sharedHitBlocks": 60,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.552,
+              "actualRows": 900,
+              "actualLoops": 1,
+              "sharedHitBlocks": 60,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.35,
+              "actualRows": 900,
+              "actualLoops": 1,
+              "sharedHitBlocks": 60,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.868,
+          "planningTimeMs": 0.141,
+          "executionTimeMs": 0.727,
+          "sharedHitBlocks": 180,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 900,
+          "nodeCount": 3,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.67,
+              "actualRows": 900,
+              "actualLoops": 1,
+              "sharedHitBlocks": 60,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.602,
+              "actualRows": 900,
+              "actualLoops": 1,
+              "sharedHitBlocks": 60,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.388,
+              "actualRows": 900,
+              "actualLoops": 1,
+              "sharedHitBlocks": 60,
+              "sharedReadBlocks": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public-status-current-incidents",
+      "description": "Public status page: currently-open incidents across the visible monitor set.",
+      "source": "lib/reporting/queries/status.ts:loadPublicStatus",
+      "mutating": false,
+      "paramShape": "[\"string\",\"string\",\"string\",\"string\",\"string\",\"string\",\"string\",\"string\",\"string\",\"string\",\"number\"]",
+      "warmup": {
+        "totalTimeMs": 0.303,
+        "planningTimeMs": 0.229,
+        "executionTimeMs": 0.074,
+        "sharedHitBlocks": 22,
+        "sharedReadBlocks": 0,
+        "sharedDirtiedBlocks": 0,
+        "sharedWrittenBlocks": 0,
+        "rootRows": 1,
+        "nodeCount": 6,
+        "topNodes": [
+          {
+            "nodeType": "Limit",
+            "actualTotalTimeMs": 0.053,
+            "actualRows": 1,
+            "actualLoops": 1,
+            "sharedHitBlocks": 5,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Sort",
+            "actualTotalTimeMs": 0.052,
+            "actualRows": 1,
+            "actualLoops": 1,
+            "sharedHitBlocks": 5,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Hash Join",
+            "actualTotalTimeMs": 0.047,
+            "actualRows": 1,
+            "actualLoops": 1,
+            "sharedHitBlocks": 5,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Seq Scan",
+            "actualTotalTimeMs": 0.015,
+            "actualRows": 100,
+            "actualLoops": 1,
+            "sharedHitBlocks": 3,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Hash",
+            "actualTotalTimeMs": 0.017,
+            "actualRows": 1,
+            "actualLoops": 1,
+            "sharedHitBlocks": 2,
+            "sharedReadBlocks": 0
+          }
+        ]
+      },
+      "samples": [
+        {
+          "totalTimeMs": 0.27799999999999997,
+          "planningTimeMs": 0.205,
+          "executionTimeMs": 0.073,
+          "sharedHitBlocks": 22,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.052,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.051,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.047,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.016,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.307,
+          "planningTimeMs": 0.226,
+          "executionTimeMs": 0.081,
+          "sharedHitBlocks": 22,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.061,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.059,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.055,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.022,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.017,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.28099999999999997,
+          "planningTimeMs": 0.207,
+          "executionTimeMs": 0.074,
+          "sharedHitBlocks": 22,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.052,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.051,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.047,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.017,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.286,
+          "planningTimeMs": 0.204,
+          "executionTimeMs": 0.082,
+          "sharedHitBlocks": 22,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.061,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.06,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.056,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.017,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.301,
+          "planningTimeMs": 0.228,
+          "executionTimeMs": 0.073,
+          "sharedHitBlocks": 22,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.053,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.051,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.046,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.016,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.016,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.273,
+          "planningTimeMs": 0.202,
+          "executionTimeMs": 0.071,
+          "sharedHitBlocks": 22,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.052,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.051,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.046,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.016,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.269,
+          "planningTimeMs": 0.199,
+          "executionTimeMs": 0.07,
+          "sharedHitBlocks": 22,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 1,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.05,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.048,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.044,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 1,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public-status-recent-incidents-resolved",
+      "description": "Public status page: 10 most recently resolved incidents across the visible monitor set.",
+      "source": "lib/reporting/queries/status.ts:loadPublicStatus",
+      "mutating": false,
+      "paramShape": "[\"string\",\"string\",\"string\",\"string\",\"string\",\"string\",\"string\",\"string\",\"string\",\"string\",\"number\"]",
+      "warmup": {
+        "totalTimeMs": 0.34700000000000003,
+        "planningTimeMs": 0.269,
+        "executionTimeMs": 0.078,
+        "sharedHitBlocks": 22,
+        "sharedReadBlocks": 0,
+        "sharedDirtiedBlocks": 0,
+        "sharedWrittenBlocks": 0,
+        "rootRows": 4,
+        "nodeCount": 6,
+        "topNodes": [
+          {
+            "nodeType": "Limit",
+            "actualTotalTimeMs": 0.057,
+            "actualRows": 4,
+            "actualLoops": 1,
+            "sharedHitBlocks": 5,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Sort",
+            "actualTotalTimeMs": 0.056,
+            "actualRows": 4,
+            "actualLoops": 1,
+            "sharedHitBlocks": 5,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Hash Join",
+            "actualTotalTimeMs": 0.05,
+            "actualRows": 4,
+            "actualLoops": 1,
+            "sharedHitBlocks": 5,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Seq Scan",
+            "actualTotalTimeMs": 0.015,
+            "actualRows": 100,
+            "actualLoops": 1,
+            "sharedHitBlocks": 3,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Hash",
+            "actualTotalTimeMs": 0.019,
+            "actualRows": 4,
+            "actualLoops": 1,
+            "sharedHitBlocks": 2,
+            "sharedReadBlocks": 0
+          }
+        ]
+      },
+      "samples": [
+        {
+          "totalTimeMs": 0.296,
+          "planningTimeMs": 0.216,
+          "executionTimeMs": 0.08,
+          "sharedHitBlocks": 22,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 4,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.06,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.058,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.053,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.019,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.019,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.275,
+          "planningTimeMs": 0.199,
+          "executionTimeMs": 0.076,
+          "sharedHitBlocks": 22,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 4,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.056,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.054,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.049,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.018,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.288,
+          "planningTimeMs": 0.211,
+          "executionTimeMs": 0.077,
+          "sharedHitBlocks": 22,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 4,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.056,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.055,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.049,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.019,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.275,
+          "planningTimeMs": 0.201,
+          "executionTimeMs": 0.074,
+          "sharedHitBlocks": 22,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 4,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.055,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.054,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.048,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.014,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.018,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.276,
+          "planningTimeMs": 0.201,
+          "executionTimeMs": 0.075,
+          "sharedHitBlocks": 22,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 4,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.056,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.054,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.048,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.018,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.276,
+          "planningTimeMs": 0.2,
+          "executionTimeMs": 0.076,
+          "sharedHitBlocks": 22,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 4,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.056,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.055,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.049,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.018,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.273,
+          "planningTimeMs": 0.198,
+          "executionTimeMs": 0.075,
+          "sharedHitBlocks": 22,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 4,
+          "nodeCount": 6,
+          "topNodes": [
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.056,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.054,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash Join",
+              "actualTotalTimeMs": 0.048,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 5,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 100,
+              "actualLoops": 1,
+              "sharedHitBlocks": 3,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Hash",
+              "actualTotalTimeMs": 0.018,
+              "actualRows": 4,
+              "actualLoops": 1,
+              "sharedHitBlocks": 2,
+              "sharedReadBlocks": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "notification-outbox-claim",
+      "description": "Scheduler-style claim of due outbox rows with FOR UPDATE SKIP LOCKED.",
+      "source": "lib/notifications/sql.ts:CLAIM_NOTIFICATIONS_SQL",
+      "mutating": true,
+      "paramShape": "[\"Date\",\"number\",\"string\"]",
+      "warmup": {
+        "totalTimeMs": 1.152,
+        "planningTimeMs": 0.296,
+        "executionTimeMs": 0.856,
+        "sharedHitBlocks": 676,
+        "sharedReadBlocks": 1,
+        "sharedDirtiedBlocks": 0,
+        "sharedWrittenBlocks": 0,
+        "rootRows": 25,
+        "nodeCount": 9,
+        "topNodes": [
+          {
+            "nodeType": "ModifyTable",
+            "actualTotalTimeMs": 0.796,
+            "actualRows": 25,
+            "actualLoops": 1,
+            "sharedHitBlocks": 363,
+            "sharedReadBlocks": 1
+          },
+          {
+            "nodeType": "Limit",
+            "actualTotalTimeMs": 0.109,
+            "actualRows": 25,
+            "actualLoops": 1,
+            "sharedHitBlocks": 58,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "LockRows",
+            "actualTotalTimeMs": 0.106,
+            "actualRows": 25,
+            "actualLoops": 1,
+            "sharedHitBlocks": 58,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Sort",
+            "actualTotalTimeMs": 0.051,
+            "actualRows": 25,
+            "actualLoops": 1,
+            "sharedHitBlocks": 8,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Seq Scan",
+            "actualTotalTimeMs": 0.025,
+            "actualRows": 39,
+            "actualLoops": 1,
+            "sharedHitBlocks": 5,
+            "sharedReadBlocks": 0
+          }
+        ]
+      },
+      "samples": [
+        {
+          "totalTimeMs": 0.83,
+          "planningTimeMs": 0.241,
+          "executionTimeMs": 0.589,
+          "sharedHitBlocks": 530,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 25,
+          "nodeCount": 9,
+          "topNodes": [
+            {
+              "nodeType": "ModifyTable",
+              "actualTotalTimeMs": 0.555,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 351,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.085,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 31,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "LockRows",
+              "actualTotalTimeMs": 0.082,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 31,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.046,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 6,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.029,
+              "actualRows": 39,
+              "actualLoops": 1,
+              "sharedHitBlocks": 6,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.7809999999999999,
+          "planningTimeMs": 0.2,
+          "executionTimeMs": 0.581,
+          "sharedHitBlocks": 541,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 25,
+          "nodeCount": 9,
+          "topNodes": [
+            {
+              "nodeType": "ModifyTable",
+              "actualTotalTimeMs": 0.549,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 353,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.069,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 32,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "LockRows",
+              "actualTotalTimeMs": 0.066,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 32,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.049,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 7,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.032,
+              "actualRows": 39,
+              "actualLoops": 1,
+              "sharedHitBlocks": 7,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.8039999999999999,
+          "planningTimeMs": 0.217,
+          "executionTimeMs": 0.587,
+          "sharedHitBlocks": 559,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 25,
+          "nodeCount": 9,
+          "topNodes": [
+            {
+              "nodeType": "ModifyTable",
+              "actualTotalTimeMs": 0.552,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 362,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.07,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 33,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "LockRows",
+              "actualTotalTimeMs": 0.067,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 33,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.048,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 8,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.031,
+              "actualRows": 39,
+              "actualLoops": 1,
+              "sharedHitBlocks": 8,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.847,
+          "planningTimeMs": 0.22,
+          "executionTimeMs": 0.627,
+          "sharedHitBlocks": 570,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 25,
+          "nodeCount": 9,
+          "topNodes": [
+            {
+              "nodeType": "ModifyTable",
+              "actualTotalTimeMs": 0.591,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 364,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.073,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 34,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "LockRows",
+              "actualTotalTimeMs": 0.07,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 34,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.052,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 9,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.035,
+              "actualRows": 39,
+              "actualLoops": 1,
+              "sharedHitBlocks": 9,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.907,
+          "planningTimeMs": 0.221,
+          "executionTimeMs": 0.686,
+          "sharedHitBlocks": 593,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 25,
+          "nodeCount": 9,
+          "topNodes": [
+            {
+              "nodeType": "ModifyTable",
+              "actualTotalTimeMs": 0.649,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 378,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.074,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 35,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "LockRows",
+              "actualTotalTimeMs": 0.071,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 35,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Sort",
+              "actualTotalTimeMs": 0.052,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 10,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Seq Scan",
+              "actualTotalTimeMs": 0.035,
+              "actualRows": 39,
+              "actualLoops": 1,
+              "sharedHitBlocks": 10,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.898,
+          "planningTimeMs": 0.226,
+          "executionTimeMs": 0.672,
+          "sharedHitBlocks": 603,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 25,
+          "nodeCount": 9,
+          "topNodes": [
+            {
+              "nodeType": "ModifyTable",
+              "actualTotalTimeMs": 0.633,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 396,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.093,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 34,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "LockRows",
+              "actualTotalTimeMs": 0.09,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 34,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Incremental Sort",
+              "actualTotalTimeMs": 0.072,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 9,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.041,
+              "actualRows": 39,
+              "actualLoops": 1,
+              "sharedHitBlocks": 6,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.972,
+          "planningTimeMs": 0.228,
+          "executionTimeMs": 0.744,
+          "sharedHitBlocks": 586,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 25,
+          "nodeCount": 9,
+          "topNodes": [
+            {
+              "nodeType": "ModifyTable",
+              "actualTotalTimeMs": 0.705,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 395,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Limit",
+              "actualTotalTimeMs": 0.068,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 31,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "LockRows",
+              "actualTotalTimeMs": 0.065,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 31,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Incremental Sort",
+              "actualTotalTimeMs": 0.046,
+              "actualRows": 25,
+              "actualLoops": 1,
+              "sharedHitBlocks": 6,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.028,
+              "actualRows": 39,
+              "actualLoops": 1,
+              "sharedHitBlocks": 6,
+              "sharedReadBlocks": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "notification-outbox-reconcile-stale",
+      "description": "Reconciliation sweep for outbox rows stuck in 'sending' past the stale-claim cutoff.",
+      "source": "lib/notifications/sql.ts:RECONCILE_STALE_CLAIMS_SQL",
+      "mutating": true,
+      "paramShape": "[\"Date\",\"Date\",\"Date\"]",
+      "warmup": {
+        "totalTimeMs": 0.144,
+        "planningTimeMs": 0.12,
+        "executionTimeMs": 0.024,
+        "sharedHitBlocks": 2,
+        "sharedReadBlocks": 0,
+        "sharedDirtiedBlocks": 0,
+        "sharedWrittenBlocks": 0,
+        "rootRows": 0,
+        "nodeCount": 2,
+        "topNodes": [
+          {
+            "nodeType": "ModifyTable",
+            "actualTotalTimeMs": 0.005,
+            "actualRows": 0,
+            "actualLoops": 1,
+            "sharedHitBlocks": 1,
+            "sharedReadBlocks": 0
+          },
+          {
+            "nodeType": "Index Scan",
+            "actualTotalTimeMs": 0.004,
+            "actualRows": 0,
+            "actualLoops": 1,
+            "sharedHitBlocks": 1,
+            "sharedReadBlocks": 0
+          }
+        ]
+      },
+      "samples": [
+        {
+          "totalTimeMs": 0.133,
+          "planningTimeMs": 0.099,
+          "executionTimeMs": 0.034,
+          "sharedHitBlocks": 2,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 0,
+          "nodeCount": 2,
+          "topNodes": [
+            {
+              "nodeType": "ModifyTable",
+              "actualTotalTimeMs": 0.014,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.013,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.133,
+          "planningTimeMs": 0.099,
+          "executionTimeMs": 0.034,
+          "sharedHitBlocks": 2,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 0,
+          "nodeCount": 2,
+          "topNodes": [
+            {
+              "nodeType": "ModifyTable",
+              "actualTotalTimeMs": 0.014,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.013,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.131,
+          "planningTimeMs": 0.097,
+          "executionTimeMs": 0.034,
+          "sharedHitBlocks": 2,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 0,
+          "nodeCount": 2,
+          "topNodes": [
+            {
+              "nodeType": "ModifyTable",
+              "actualTotalTimeMs": 0.014,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.013,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.136,
+          "planningTimeMs": 0.101,
+          "executionTimeMs": 0.035,
+          "sharedHitBlocks": 2,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 0,
+          "nodeCount": 2,
+          "topNodes": [
+            {
+              "nodeType": "ModifyTable",
+              "actualTotalTimeMs": 0.014,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.013,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.148,
+          "planningTimeMs": 0.109,
+          "executionTimeMs": 0.039,
+          "sharedHitBlocks": 2,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 0,
+          "nodeCount": 2,
+          "topNodes": [
+            {
+              "nodeType": "ModifyTable",
+              "actualTotalTimeMs": 0.015,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.014,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.13799999999999998,
+          "planningTimeMs": 0.102,
+          "executionTimeMs": 0.036,
+          "sharedHitBlocks": 2,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 0,
+          "nodeCount": 2,
+          "topNodes": [
+            {
+              "nodeType": "ModifyTable",
+              "actualTotalTimeMs": 0.014,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.013,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            }
+          ]
+        },
+        {
+          "totalTimeMs": 0.132,
+          "planningTimeMs": 0.099,
+          "executionTimeMs": 0.033,
+          "sharedHitBlocks": 2,
+          "sharedReadBlocks": 0,
+          "sharedDirtiedBlocks": 0,
+          "sharedWrittenBlocks": 0,
+          "rootRows": 0,
+          "nodeCount": 2,
+          "topNodes": [
+            {
+              "nodeType": "ModifyTable",
+              "actualTotalTimeMs": 0.013,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            },
+            {
+              "nodeType": "Index Scan",
+              "actualTotalTimeMs": 0.012,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "sharedHitBlocks": 1,
+              "sharedReadBlocks": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "excluded": [
+    {
+      "name": "scheduler-fill-gaps",
+      "source": "lib/storage/sql.ts:FILL_SCHEDULER_GAPS_SQL",
+      "reason": "Multi-CTE maintenance query whose correctness depends on bit-packed check_batches state built up minute-by-minute by the live scheduler; synthetic params risk producing a misleading plan (or none) without duplicating that runtime logic here."
+    },
+    {
+      "name": "scheduler-compact-15-minute",
+      "source": "lib/storage/sql.ts:COMPACT_15_MINUTE_SQL",
+      "reason": "Same bit-packed check_batches coupling as scheduler-fill-gaps — the bitmap decode logic in the query only means something over batches the fixture doesn't reconstruct byte-for-byte."
+    },
+    {
+      "name": "scheduler-promote-rollup",
+      "source": "lib/storage/sql.ts:PROMOTE_ROLLUP_SQL",
+      "reason": "Depends on an upstream compaction pass having produced a specific bucket history; benchmarking it in isolation from scheduler-compact-15-minute would measure an unrepresentative input shape."
+    },
+    {
+      "name": "auth-login-password-verify",
+      "source": "lib/auth/service.ts",
+      "reason": "Dominated by argon2 hashing cost, not SQL; the DB portion is a trivial unique-indexed email lookup already covered in shape by monitor-identity-lookup."
+    },
+    {
+      "name": "token-verification-lookup",
+      "source": "lib/api/token-service.ts",
+      "reason": "Trivial unique-index point lookup on tokenDigest — same shape as monitor-identity-lookup, no incremental benchmarking value."
+    },
+    {
+      "name": "rate-limit-increment",
+      "source": "lib/api/rate-limit.ts",
+      "reason": "Single-row upsert on a composite PK that mutates a counter every call; it's correctness-critical but not sensitive to the kind of query-shape optimization this hillclimb targets."
+    },
+    {
+      "name": "idempotency-claim-upsert",
+      "source": "lib/api/idempotency.ts",
+      "reason": "Single-row upsert/point-lookup keyed by a unique index; same category as rate-limit-increment."
+    },
+    {
+      "name": "notification-mark-sent-or-failed",
+      "source": "lib/notifications/sql.ts:MARK_NOTIFICATION_SENT_SQL / MARK_NOTIFICATION_FAILED_SQL",
+      "reason": "Single-row conditional update keyed by primary key + claim token; correctness-critical but not query-shape sensitive."
+    }
+  ]
+}

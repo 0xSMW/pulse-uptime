@@ -1,9 +1,12 @@
+import { SettingsCardsSkeleton } from "@/components/settings/settings-skeleton";
+
+// Mirrors the page shell exactly (real heading, same card skeletons) so the
+// prefetched navigation state and the Suspense fallback are indistinguishable.
 export default function AccountSettingsLoading() {
   return (
-    <div aria-busy="true" aria-label="Loading account settings" className="animate-pulse space-y-6">
-      <div className="h-9 w-32 rounded bg-[var(--chip-bg)]" />
-      <div className="h-64 rounded-xl bg-[var(--chip-bg)]" />
-      <div className="h-48 rounded-xl bg-[var(--chip-bg)]" />
-    </div>
+    <>
+      <h1 className="mb-8 text-xl font-semibold tracking-[-0.02em]">Account</h1>
+      <SettingsCardsSkeleton label="Loading account settings" heights={["h-64", "h-48"]} />
+    </>
   );
 }

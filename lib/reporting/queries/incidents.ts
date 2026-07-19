@@ -1,4 +1,4 @@
-import { desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { desc, eq, inArray, isNotNull, isNull, sql as dsql } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 import { incidents, monitorRegistry, notificationOutbox } from "@/lib/db/schema";
@@ -27,16 +27,54 @@ function failureLabel(errorCode: string | null, statusCode: number | null): stri
   return errorCode ?? "Unknown failure";
 }
 
-function summarizeNotifications(rows: NotificationRow[]) {
-  const sentCount = rows.filter((row) => row.status === "sent").length;
-  const state = rows.some((row) => row.status === "dead")
+// Single source of truth for the sent/retrying/dead/none precedence, shared
+// by the SQL aggregate path (listIncidents) and the row path (getIncidentDetail).
+export function summarizeNotificationAggregate(aggregate: {
+  sentCount: number;
+  anyDead: boolean;
+  anyUnsent: boolean;
+}) {
+  const state = aggregate.anyDead
     ? "dead" as const
-    : rows.some((row) => row.status !== "sent")
+    : aggregate.anyUnsent
       ? "retrying" as const
-      : sentCount > 0
+      : aggregate.sentCount > 0
         ? "sent" as const
         : "none" as const;
-  return { state, sentCount };
+  return { state, sentCount: aggregate.sentCount };
+}
+
+function summarizeNotifications(rows: NotificationRow[]) {
+  return summarizeNotificationAggregate({
+    sentCount: rows.filter((row) => row.status === "sent").length,
+    anyDead: rows.some((row) => row.status === "dead"),
+    anyUnsent: rows.some((row) => row.status !== "sent"),
+  });
+}
+
+// Slim projection for the command palette: no notification data, so the
+// dashboard layout never drags the outbox into its critical path.
+export async function listCommandPaletteIncidents() {
+  const rows = await db.select({
+    id: incidents.id,
+    monitorId: incidents.monitorId,
+    monitorName: monitorRegistry.name,
+    openedAt: incidents.openedAt,
+    openingErrorCode: incidents.openingErrorCode,
+    openingStatusCode: incidents.openingStatusCode,
+  }).from(incidents)
+    .innerJoin(monitorRegistry, eq(monitorRegistry.id, incidents.monitorId))
+    .where(isNull(incidents.resolvedAt))
+    .orderBy(desc(incidents.openedAt))
+    .limit(100);
+
+  return rows.map((row) => ({
+    id: row.id,
+    monitorId: row.monitorId,
+    monitorName: row.monitorName,
+    openedAt: row.openedAt.toISOString(),
+    openingFailure: failureLabel(row.openingErrorCode, row.openingStatusCode),
+  }));
 }
 
 export async function listIncidents(filter: IncidentFilter = "all") {
@@ -59,15 +97,20 @@ export async function listIncidents(filter: IncidentFilter = "all") {
     .orderBy(desc(incidents.openedAt))
     .limit(100);
 
-  const notifications = rows.length === 0 ? [] : await db.select({
+  // Aggregated in SQL: one row per incident, so the result stays bounded
+  // regardless of outbox size.
+  const summaries = rows.length === 0 ? [] : await db.select({
     incidentId: notificationOutbox.incidentId,
-    status: notificationOutbox.status,
+    sentCount: dsql<number>`count(*) filter (where ${notificationOutbox.status} = 'sent')`.mapWith(Number),
+    anyDead: dsql<boolean>`bool_or(${notificationOutbox.status} = 'dead')`,
+    anyUnsent: dsql<boolean>`bool_or(${notificationOutbox.status} <> 'sent')`,
   }).from(notificationOutbox)
     .where(inArray(notificationOutbox.incidentId, rows.map((row) => row.id)))
-    .limit(4_000);
+    .groupBy(notificationOutbox.incidentId);
+  const summaryByIncident = new Map(summaries.map((summary) => [summary.incidentId, summary]));
 
   return rows.map((row) => {
-    const related = notifications.filter((notification) => notification.incidentId === row.id);
+    const summary = summaryByIncident.get(row.id);
     return {
       id: row.id,
       monitorId: row.monitorId,
@@ -77,7 +120,9 @@ export async function listIncidents(filter: IncidentFilter = "all") {
       durationSeconds: durationSeconds(row.openedAt, row.resolvedAt),
       openingFailure: failureLabel(row.openingErrorCode, row.openingStatusCode),
       status: row.openingStatusCode?.toString() ?? null,
-      notificationSummary: summarizeNotifications(related),
+      notificationSummary: summarizeNotificationAggregate(
+        summary ?? { sentCount: 0, anyDead: false, anyUnsent: false },
+      ),
     };
   });
 }
