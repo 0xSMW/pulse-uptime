@@ -50,7 +50,11 @@ export function IncidentHistoryTable({ incidents }: { incidents: IncidentSummary
                 </td>
                 <td className="incident-hide-status px-4 font-data text-[var(--fg-muted)]">{incident.status ?? "—"}</td>
                 <td className="incident-hide-notifications px-4"><NotificationSummary summary={incident.notificationSummary} /></td>
-                <td className="px-6 text-right"><WriteReportButton incidentId={incident.id} /></td>
+                {/* relative z-10 raises this cell above the row link's
+                    after:absolute after:inset-0 click overlay (which paints
+                    at z-index:auto), so clicks land on the button instead of
+                    falling through to the row navigation. */}
+                <td className="relative z-10 px-6 text-right"><WriteReportButton incidentId={incident.id} /></td>
               </tr>
             ))}
           </tbody>

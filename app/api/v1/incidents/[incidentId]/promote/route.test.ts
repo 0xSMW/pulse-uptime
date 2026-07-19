@@ -73,7 +73,7 @@ describe("POST /api/v1/incidents/{incidentId}/promote", () => {
     expect(payload.kind).toBe("StatusReport");
     expect(payload.data.publishedAt).toBeNull();
     expect(payload.data.originIncidentId).toBe("inc-1");
-    expect(promoteIncident).toHaveBeenCalledWith("inc-1");
+    expect(promoteIncident).toHaveBeenCalledWith("inc-1", { reportId: "op-1" });
   });
 
   it("returns 200 with the existing report when already promoted", async () => {
@@ -115,16 +115,28 @@ describe("POST /api/v1/incidents/{incidentId}/promote", () => {
       recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
     };
 
-    // Recovery hit: a report already exists for this incident — a prior
-    // attempt committed the create before crashing (or a concurrent promote
-    // won the race) — so the retry recovers with that report (200,
-    // created:false semantics) instead of rerunning promoteIncident.
+    // Recovery hit, matching id: the recovered report's id equals THIS
+    // retry's operationId — promoteIncident pinned the new report's id to
+    // the operationId, so this exact crashed attempt is the one that
+    // inserted it. Replays as 201, not 200 (finding: the recover callback
+    // used to hard-code 200 here, misreporting a genuine creation as an
+    // already-existing conflict).
+    vi.mocked(recoverPromotedReport).mockResolvedValue({ ...draft, id: "op-1" });
+    await expect(options.recover({ operationId: "op-1" })).resolves.toEqual({
+      status: 201,
+      body: objectEnvelope("StatusReport", { ...draft, id: "op-1" }, context.requestId),
+    });
+    expect(recoverPromotedReport).toHaveBeenCalledWith("inc-1");
+
+    // Recovery hit, non-matching id: some other operation created the
+    // report — a concurrent promote that won the originIncidentId race, or
+    // one that already completed before this key was ever used. Replays as
+    // 200, created:false semantics.
     vi.mocked(recoverPromotedReport).mockResolvedValue(draft);
     await expect(options.recover({ operationId: "op-1" })).resolves.toEqual({
       status: 200,
       body: objectEnvelope("StatusReport", draft, context.requestId),
     });
-    expect(recoverPromotedReport).toHaveBeenCalledWith("inc-1");
 
     // Recovery miss: no report exists yet for this incident (genuine crash
     // before the create committed) — fall through so work() reruns to

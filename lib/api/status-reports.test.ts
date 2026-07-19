@@ -386,7 +386,7 @@ describe("createStatusReport", () => {
     }, dependencies(store))).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
     // A valid window still succeeds.
     await expect(createStatusReport({
-      ...validCreate, type: "maintenance",
+      ...validCreate, type: "maintenance", affected: [],
       startsAt: "2026-07-19T00:00:00.000Z", endsAt: "2026-07-19T02:00:00.000Z",
       update: { status: "scheduled", markdown: "Planned." },
     }, dependencies(store))).resolves.toMatchObject({ startsAt: "2026-07-19T00:00:00.000Z" });
@@ -405,10 +405,45 @@ describe("createStatusReport", () => {
 
     // An endsAt after the defaulted startsAt still succeeds.
     await expect(createStatusReport({
-      ...validCreate, type: "maintenance",
+      ...validCreate, type: "maintenance", affected: [],
       endsAt: "2026-07-18T14:00:00.000Z",
       update: { status: "scheduled", markdown: "Planned." },
     }, dependencies(store))).resolves.toMatchObject({ startsAt: NOW.toISOString() });
+  });
+
+  it("rejects endsAt on an incident report (finding: incidents have no scheduled window; an endsAt classified them as ongoing forever yet ranked as an ended row in the public cap)", async () => {
+    const store = memoryStore();
+    await expect(createStatusReport({
+      ...validCreate, endsAt: "2026-07-19T00:00:00.000Z",
+    }, dependencies(store))).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    // An explicit null is a no-op, not a window, and still succeeds.
+    await expect(createStatusReport({
+      ...validCreate, endsAt: null,
+    }, dependencies(store))).resolves.toMatchObject({ endsAt: null });
+  });
+
+  it("rejects an affected impact that doesn't match the report type (finding: a non-UI client could pair impact \"maintenance\" with an incident, or \"down\" with a maintenance report, rendering a contradictory public label)", async () => {
+    const store = memoryStore();
+    await expect(createStatusReport({
+      ...validCreate, affected: [{ monitorId: "api-prod", impact: "maintenance" }],
+    }, dependencies(store))).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    await expect(createStatusReport({
+      ...validCreate, type: "maintenance",
+      affected: [{ monitorId: "api-prod", impact: "down" }],
+      update: { status: "scheduled", markdown: "Planned." },
+    }, dependencies(store))).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    // Degraded is valid for both types; maintenance's own impact is valid too.
+    await expect(createStatusReport({
+      ...validCreate, affected: [{ monitorId: "api-prod", impact: "degraded" }],
+    }, dependencies(store))).resolves.toMatchObject({ affected: [expect.objectContaining({ impact: "degraded" })] });
+    await expect(createStatusReport({
+      ...validCreate, type: "maintenance",
+      affected: [{ monitorId: "api-prod", impact: "maintenance" }],
+      update: { status: "scheduled", markdown: "Planned." },
+    }, dependencies(store))).resolves.toMatchObject({ affected: [expect.objectContaining({ impact: "maintenance" })] });
   });
 });
 
@@ -631,7 +666,7 @@ describe("updateStatusReport", () => {
     const store = memoryStore();
     const deps = dependencies(store);
     const created = await createStatusReport({
-      ...validCreate, type: "maintenance",
+      ...validCreate, type: "maintenance", affected: [],
       startsAt: "2026-07-19T00:00:00.000Z", endsAt: "2026-07-19T02:00:00.000Z",
       update: { status: "scheduled", markdown: "Planned." },
     }, deps);
@@ -650,6 +685,46 @@ describe("updateStatusReport", () => {
     await expect(updateStatusReport(created.id, {
       startsAt: "2026-07-19T01:00:00.000Z",
     }, deps)).resolves.toMatchObject({ startsAt: "2026-07-19T01:00:00.000Z" });
+  });
+
+  it("rejects a patch adding endsAt to an incident report (finding: incidents have no scheduled window)", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const created = await createStatusReport(validCreate, deps);
+    await expect(updateStatusReport(created.id, {
+      endsAt: "2026-07-19T00:00:00.000Z",
+    }, deps)).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    // Clearing (explicit null) is a no-op, not a window, and still succeeds.
+    await expect(updateStatusReport(created.id, { endsAt: null }, deps))
+      .resolves.toMatchObject({ endsAt: null });
+
+    // A maintenance report is unaffected — it may still set endsAt.
+    const maintenance = await createStatusReport({
+      ...validCreate, type: "maintenance", affected: [],
+      startsAt: "2026-07-19T00:00:00.000Z",
+      update: { status: "scheduled", markdown: "Planned." },
+    }, deps);
+    await expect(updateStatusReport(maintenance.id, {
+      endsAt: "2026-07-19T02:00:00.000Z",
+    }, deps)).resolves.toMatchObject({ endsAt: "2026-07-19T02:00:00.000Z" });
+  });
+
+  it("rejects a patch replacing affected with an impact that doesn't match the report type", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const created = await createStatusReport(validCreate, deps);
+    await expect(updateStatusReport(created.id, {
+      affected: [{ monitorId: "web", impact: "maintenance" }],
+    }, deps)).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    const maintenance = await createStatusReport({
+      ...validCreate, type: "maintenance", affected: [],
+      update: { status: "scheduled", markdown: "Planned." },
+    }, deps);
+    await expect(updateStatusReport(maintenance.id, {
+      affected: [{ monitorId: "web", impact: "down" }],
+    }, deps)).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
   });
 });
 
@@ -773,6 +848,16 @@ describe("promoteIncident", () => {
     const store = memoryStore();
     await expect(promoteIncident("missing", dependencies(store)))
       .rejects.toMatchObject({ code: "INCIDENT_NOT_FOUND" });
+  });
+
+  it("pins the new report's id to dependencies.reportId instead of drawing one from newId() (mirrors createStatusReport: the route sets this to the idempotency operationId so a retry after a crash mid-request can recover the row by id)", async () => {
+    const store = storeWithIncident();
+    const { report, created } = await promoteIncident("inc-1", { ...dependencies(store), reportId: "op-pinned" });
+    expect(created).toBe(true);
+    expect(report.id).toBe("op-pinned");
+    expect(report.affected[0]).toMatchObject({ monitorId: "api-prod" });
+    expect(store.reports.get("op-pinned")).toBeDefined();
+    expect([...store.updates.values()].some((row) => row.reportId === "op-pinned")).toBe(true);
   });
 
   describe("recoverPromotedReport (finding: promote shipped with no recover callback; promoteIncident is already safe to rerun via the partial unique index, but recovery lets a retry short-circuit at the database instead of re-validating the incident and re-serializing fresh values)", () => {

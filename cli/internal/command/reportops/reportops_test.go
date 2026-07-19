@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -24,6 +25,35 @@ func run(t *testing.T, d Dependencies, args ...string) error {
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
 	return cmd.Execute()
+}
+
+// TestReportGroupScopes audits every report subcommand's advertised scope
+// against what it actually calls (finding: resolve GETs the report — reports:read
+// — before POSTing its closing update — reports:write — but only advertised
+// reports:write). list/get are pure reads; create/update/post/edit-update/
+// delete/publish never GET before mutating, so reports:write alone is correct
+// for them.
+func TestReportGroupScopes(t *testing.T) {
+	cmd := NewGroup(Dependencies{})
+	want := map[string]string{
+		"list":        "reports:read",
+		"get":         "reports:read",
+		"create":      "reports:write",
+		"update":      "reports:write",
+		"post":        "reports:write",
+		"edit-update": "reports:write",
+		"delete":      "reports:write",
+		"resolve":     "reports:read,reports:write",
+		"publish":     "reports:write",
+	}
+	got := map[string]string{}
+	for _, child := range cmd.Commands() {
+		name := strings.Fields(child.Use)[0]
+		got[name] = child.Annotations["requiredScope"]
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("scopes = %#v, want %#v", got, want)
+	}
 }
 
 func TestListSendsFiltersAndPaginates(t *testing.T) {

@@ -27,17 +27,27 @@ export async function POST(request: Request, { params }: { params: Promise<{ inc
       // but recovering lets the retry short-circuit at a single point lookup
       // instead of re-validating the incident and re-serializing fresh
       // values on every replay. Returns the existing report for this
-      // incident (200, created:false semantics — mirroring how a genuine
-      // promote conflict already responds), or null when no report exists
-      // yet so work() reruns to create it.
-      recover: async () => {
+      // incident, or null when no report exists yet so work() reruns to
+      // create it.
+      //
+      // created vs. existing is recoverable via the pinned id: promoteIncident
+      // pins its new report's id to the idempotency operationId (mirroring
+      // createStatusReport), and claimStale reuses the SAME record id across a
+      // stale reclaim. So if the recovered report's id equals THIS retry's
+      // operationId, this exact crashed attempt is the one that inserted it
+      // (201); any other id means a different operation created it — a
+      // concurrent promote that won the race, or one that already completed
+      // (200).
+      recover: async ({ operationId }) => {
         const recovered = await recoverPromotedReport(incidentId);
-        return recovered ? { status: 200, body: objectEnvelope("StatusReport", recovered, context.requestId) } : null;
+        if (!recovered) return null;
+        const status = recovered.id === operationId ? 201 : 200;
+        return { status, body: objectEnvelope("StatusReport", recovered, context.requestId) };
       },
       rerunAfterRecoveryMiss: false,
-      work: async () => {
+      work: async ({ operationId }) => {
         try {
-          const { report, created } = await promoteIncident(incidentId);
+          const { report, created } = await promoteIncident(incidentId, { reportId: operationId });
           return { status: created ? 201 : 200, body: objectEnvelope("StatusReport", report, context.requestId) };
         } catch (error) {
           // INCIDENT_NOT_FOUND is a deterministic outcome of the CURRENT

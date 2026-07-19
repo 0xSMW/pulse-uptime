@@ -267,6 +267,31 @@ describe("ReportEditor edit mode", () => {
     expect("publishedAt" in body).toBe(false);
   });
 
+  it("omits status and markdown from the PATCH when only publishedAt changed (finding: an unchanged page-load status/markdown clobbers a concurrent edit)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(okEnvelope(report));
+    vi.stubGlobal("fetch", fetchMock);
+    renderEditor(report);
+    const row = screen.getByText("Watching recovery.").closest("li")!;
+    fireEvent.click(within(row).getByRole("button", { name: "Edit" }));
+    // Moves publishedAt later but still well before u2 (resolved) — no state
+    // flip, so no confirmation gate to click through first.
+    fireEvent.change(screen.getByLabelText("Published at", { selector: "#edit-published-u1" }), {
+      target: { value: "2026-07-18T11:00" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save Update" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/status-reports/rep-1/updates/u1",
+        expect.objectContaining({ method: "PATCH" }),
+      );
+    });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect("status" in body).toBe(false);
+    expect("markdown" in body).toBe(false);
+    expect(typeof body.publishedAt).toBe("string");
+  });
+
   it("omits affected from the PATCH when only the title changed", async () => {
     const fetchMock = vi.fn().mockResolvedValue(okEnvelope(report));
     vi.stubGlobal("fetch", fetchMock);
@@ -320,6 +345,25 @@ describe("ReportEditor edit mode", () => {
     const body = JSON.parse(String(init.body)) as Record<string, unknown>;
     expect("startsAt" in body).toBe(true);
     expect(typeof body.startsAt).toBe("string");
+  });
+
+  it("omits title from the PATCH when only affected changed (finding: an unchanged page-load title clobbers a concurrent title edit)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(okEnvelope(report));
+    vi.stubGlobal("fetch", fetchMock);
+    renderEditor(report);
+    fireEvent.click(screen.getByLabelText("Impact for Marketing site"));
+    fireEvent.click(await screen.findByRole("option", { name: "Degraded" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/status-reports/rep-1",
+        expect.objectContaining({ method: "PATCH" }),
+      );
+    });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect("title" in body).toBe(false);
+    expect(body.affected).toBeDefined();
   });
 
   it("still sends the full affected replacement when the impact picker changed", async () => {

@@ -230,8 +230,13 @@ export function ReportEditor({ report, monitors }: { report: ReportData | null; 
       // — only send them when the input actually differs from the baseline.
       const startsAtChanged = startsAt !== baseline.startsAt;
       const endsAtChanged = type === "maintenance" && endsAt !== baseline.endsAt;
+      // No If-Match on report edits (last-writer-wins): sending the
+      // page-load title on an affected- or window-only save would clobber a
+      // title another session changed meanwhile (finding) — only send it
+      // when it actually changed from the loaded baseline.
+      const titleChanged = title.trim() !== baseline.title;
       const body = {
-        title: title.trim(),
+        ...(titleChanged ? { title: title.trim() } : {}),
         ...(startsAtChanged ? { startsAt: fromDatetimeLocal(startsAt)! } : {}),
         ...(endsAtChanged ? { endsAt: endsAt.trim() ? fromDatetimeLocal(endsAt)! : null } : {}),
         // Only send affected when it actually changed: the service treats
@@ -241,12 +246,16 @@ export function ReportEditor({ report, monitors }: { report: ReportData | null; 
         // save (e.g. after a monitor was renamed or moved groups).
         ...(affectedDirty ? { affected: affectedBody() } : {}),
       };
+      if (Object.keys(body).length === 0) {
+        setBaseline({ title: title.trim(), startsAt, endsAt, impacts });
+        return;
+      }
       await apiRequest(
         `/api/v1/status-reports/${encodeURIComponent(report.id)}`,
         { method: "PATCH", body: JSON.stringify(body) },
         true,
       );
-      setBaseline({ title, startsAt, endsAt, impacts });
+      setBaseline({ title: title.trim(), startsAt, endsAt, impacts });
       setMessage({ text: "Report saved", tone: "info" });
       router.refresh();
     } catch (cause) {
@@ -329,6 +338,12 @@ export function ReportEditor({ report, monitors }: { report: ReportData | null; 
       setEditing({ ...editing, error: "Enter a valid time" });
       return;
     }
+    // Same class as the publishedAt fix above: no If-Match on report-update
+    // edits, so sending the page-load status/markdown on a publishedAt-only
+    // edit would clobber a concurrent change to either field (finding) —
+    // only send each when it actually changed from the loaded update.
+    const statusChanged = !original || editing.status !== original.status;
+    const markdownChanged = !original || editing.markdown !== original.markdown;
     // §3.1 state-change warning: an edited timestamp or status that flips the
     // report between Ongoing and Resolved needs an explicit second confirmation.
     const flip = stateFlipDirection(report.updates, {
@@ -340,6 +355,10 @@ export function ReportEditor({ report, monitors }: { report: ReportData | null; 
       setEditing({ ...editing, warning: flip, error: "" });
       return;
     }
+    if (!statusChanged && !markdownChanged && !publishedAtChanged) {
+      setEditing(null);
+      return;
+    }
     setBusy(`edit:${editing.id}`);
     setMessage(null);
     try {
@@ -348,8 +367,8 @@ export function ReportEditor({ report, monitors }: { report: ReportData | null; 
         {
           method: "PATCH",
           body: JSON.stringify({
-            status: editing.status,
-            markdown: editing.markdown,
+            ...(statusChanged ? { status: editing.status } : {}),
+            ...(markdownChanged ? { markdown: editing.markdown } : {}),
             ...(publishedAtChanged && publishedAt ? { publishedAt } : {}),
           }),
         },

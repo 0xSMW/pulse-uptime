@@ -500,7 +500,10 @@ func newResolveCommand(d Dependencies) *cobra.Command {
 		Short:       "Resolve a status report",
 		Long:        "Post the closing update for a report: resolved for incidents, completed for\nmaintenance windows. The report type is read from the service first.",
 		Args:        cobra.ExactArgs(1),
-		Annotations: annotations("reports:write"),
+		// GETs the report (reports:read) before POSTing its closing update
+		// (reports:write) — the only reportops subcommand that reads before
+		// it mutates, so it must advertise both scopes.
+		Annotations: annotations("reports:read,reports:write"),
 		Example:     "pulsectl report resolve rep_123 --message \"Error rates returned to normal.\"",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var doc Envelope

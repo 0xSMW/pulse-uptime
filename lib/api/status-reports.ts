@@ -270,10 +270,11 @@ export type StatusReportsDependencies = {
   now?: () => Date;
   newId?: () => string;
   /**
-   * Pins createStatusReport's report id instead of drawing one from newId().
-   * The POST route sets this to the idempotency operationId so a retry after
-   * a crash mid-request can recover the row by id rather than re-running the
-   * callback with a fresh random id and creating a duplicate report.
+   * Pins createStatusReport's (or promoteIncident's) report id instead of
+   * drawing one from newId(). The POST route sets this to the idempotency
+   * operationId so a retry after a crash mid-request can recover the row by
+   * id rather than re-running the callback with a fresh random id and
+   * creating a duplicate report.
    */
   reportId?: string;
   /** Same idea as reportId, for addReportUpdate's new update row. */
@@ -420,6 +421,52 @@ function assertStatusMatchesType(type: StatusReportType, status: StatusReportUpd
       `Update status must be one of ${allowed.join(", ")} for ${type} reports`,
       { status },
     );
+  }
+}
+
+/**
+ * Per-type impact vocabulary, mirroring the dashboard editor's own picker
+ * (impactOptions in components/incidents/report-status.ts): incidents offer
+ * down/degraded, maintenance windows offer maintenance/degraded — neither
+ * type exposes the other's exclusive impact. Enforced here too so a non-UI
+ * client (API/CLI) can't persist a contradictory pairing, e.g. an incident
+ * report with impact "maintenance" or a maintenance report with impact
+ * "down", which would render a nonsensical public label.
+ */
+const IMPACT_BY_TYPE: Record<StatusReportType, readonly StatusReportImpact[]> = {
+  incident: ["down", "degraded"],
+  maintenance: ["maintenance", "degraded"],
+};
+
+function assertAffectedMatchesType(
+  type: StatusReportType,
+  entries: ReadonlyArray<{ monitorId: string; impact: StatusReportImpact }>,
+) {
+  const allowed = IMPACT_BY_TYPE[type];
+  for (const entry of entries) {
+    if (!allowed.includes(entry.impact)) {
+      throw new StatusReportError(
+        "VALIDATION_ERROR",
+        `Affected impact must be one of ${allowed.join(", ")} for ${type} reports`,
+        { monitorId: entry.monitorId, impact: entry.impact },
+      );
+    }
+  }
+}
+
+/**
+ * Incidents have no scheduled window — only maintenance reports do. Rejecting
+ * endsAt on an incident at the boundary (rather than merely ignoring it) keeps
+ * classifyPublicReport's maintenance-only window_ended demotion correct by
+ * construction: an incident can never carry an endsAt for getPublicReportRows'
+ * ended-window ORDER BY bucket to misclassify, so a still-ongoing incident can
+ * never be pushed past the public 100-row cap by a bucket it should never be
+ * in (finding: an incident with endsAt in the past stayed "ongoing" forever
+ * per classifyPublicReport, yet ranked as an ended row in the SQL cap).
+ */
+function assertNoIncidentWindow(type: StatusReportType, endsAt: Date | null | undefined) {
+  if (type === "incident" && endsAt != null) {
+    throw new StatusReportError("VALIDATION_ERROR", "endsAt is not allowed for incident reports", { type });
   }
 }
 
@@ -638,6 +685,8 @@ export async function createStatusReport(
   const newId = dependencies.newId ?? (() => crypto.randomUUID());
   const parsed = parseOrThrow(createSchema, input);
   assertStatusMatchesType(parsed.type, parsed.update.status);
+  assertNoIncidentWindow(parsed.type, parsed.endsAt);
+  assertAffectedMatchesType(parsed.type, parsed.affected ?? []);
 
   // Validate against the EFFECTIVE startsAt (the explicit value, or the `now`
   // default applied below) — an omitted startsAt must not let an endsAt in
@@ -706,6 +755,13 @@ export async function updateStatusReport(
   const parsed = parseOrThrow(patchSchema, input);
   const existing = await store.getReport(id);
   if (!existing) throw new StatusReportError("REPORT_NOT_FOUND", "Status report was not found");
+  // A patch can't change `type` (it's not a patchable field), so the
+  // existing report's type governs both checks below. Only the CALLER'S
+  // own endsAt is checked (not the merged/effective value) — a title- or
+  // affected-only patch must not start failing because of pre-existing
+  // data, only a patch that itself tries to add a window to an incident.
+  assertNoIncidentWindow(existing.type, parsed.endsAt);
+  if (parsed.affected !== undefined) assertAffectedMatchesType(existing.type, parsed.affected);
 
   // A partial patch touching only one bound must still validate against the
   // EFFECTIVE other bound (the existing report's, when the patch leaves it
@@ -1041,7 +1097,7 @@ export async function promoteIncident(
   const incident = await store.findIncident(incidentId);
   if (!incident) throw new StatusReportError("INCIDENT_NOT_FOUND", "Incident was not found");
 
-  const reportId = newId();
+  const reportId = dependencies.reportId ?? newId();
   const cause = publicIncidentCause(incident.openingStatusCode);
   const update: StatusReportUpdateRow = {
     id: newId(),
@@ -1086,11 +1142,16 @@ export async function promoteIncident(
  * — but the retry still reached the database, re-validated the incident, and
  * re-serialized fresh values on every replay instead of short-circuiting at
  * recovery like the report family's other mutations do). Returns the
- * existing report for this incident (created:false semantics — the actual
- * creation already happened, whether by this crashed attempt or a concurrent
- * one; the partial unique index guarantees at most one row per incident), or
- * null when no report exists yet for this incident so work() reruns to
- * create it.
+ * existing report for this incident, or null when no report exists yet for
+ * this incident so work() reruns to create it.
+ *
+ * The route distinguishes created (201) from already-existing (200) by
+ * comparing the recovered report's id to the idempotency operationId:
+ * promoteIncident pins its new report's id to dependencies.reportId (the
+ * operationId), and claimStale reuses the SAME record id across a stale
+ * reclaim, so a match here means THIS crashed attempt inserted the row; a
+ * mismatch means some other operation (a concurrent promote, or one that
+ * already completed) created it.
  */
 export async function recoverPromotedReport(
   incidentId: string,
