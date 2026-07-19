@@ -63,9 +63,12 @@ export async function mutateConfig(principalKey: string, mutator: (config: Monit
     const now = new Date();
     const destructive = evaluateDestructiveChange(exportDeclarativeConfig(current.config), exportDeclarativeConfig(target));
     if (destructive.required) await tx.insert(configChangeApprovals).values({ id: randomUUID(), targetConfigHash: hash, action: "bulk_archive", createdByPrincipal: principalKey, createdAt: now, expiresAt: new Date(now.getTime() + 600_000), consumedAt: now });
-    await writeEdgeConfig(target);
     await tx.insert(monitoringConfigSnapshots).values({ id: randomUUID(), configVersion: target.configVersion, configHash: hash, configJson: target, status: "accepted", source: "api", seenAt: now, acceptedAt: now });
     await synchronizeRegistry(tx, target, hash, now);
+    // writeEdgeConfig is an external HTTP call and cannot be rolled back, so it runs last,
+    // after every statement in this transaction that could still abort it. Only the
+    // caller's completion write and commit remain between it and durability.
+    await writeEdgeConfig(target);
     return target;
   });
 }

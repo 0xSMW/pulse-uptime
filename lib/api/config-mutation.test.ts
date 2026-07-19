@@ -3,16 +3,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/scheduler/registry-sync", () => ({ synchronizeRegistry: vi.fn() }));
 
-/** A fake DatabaseHandle whose select chain always resolves to `row`, and whose `.transaction` runs `run` against itself (mirroring a real handle/tx sharing one connection). */
+/** A fake DatabaseHandle whose select chain always resolves to `row`, whose insert chain resolves to undefined, and whose `.transaction` runs `run` against itself (mirroring a real handle/tx sharing one connection). */
 function makeHandle(row: unknown) {
-  const chain: Record<string, unknown> = {};
-  chain.from = vi.fn(() => chain);
-  chain.where = vi.fn(() => chain);
-  chain.orderBy = vi.fn(() => chain);
-  chain.limit = vi.fn(async () => [row]);
+  const selectChain: Record<string, unknown> = {};
+  selectChain.from = vi.fn(() => selectChain);
+  selectChain.where = vi.fn(() => selectChain);
+  selectChain.orderBy = vi.fn(() => selectChain);
+  selectChain.limit = vi.fn(async () => [row]);
+  const insertChain: Record<string, unknown> = { values: vi.fn(async () => undefined) };
   const handle: Record<string, unknown> = {
     execute: vi.fn(async () => undefined),
-    select: vi.fn(() => chain),
+    select: vi.fn(() => selectChain),
+    insert: vi.fn(() => insertChain),
   };
   handle.transaction = vi.fn(async (run: (tx: unknown) => unknown) => run(handle));
   return handle;
@@ -23,6 +25,7 @@ vi.mock("@/lib/db/client", () => ({ db: defaultHandle }));
 
 import { DEFAULT_MONITOR_SETTINGS, hashMonitoringConfig, type MonitoringConfig } from "@/lib/config";
 import type { DatabaseHandle } from "@/lib/db/client";
+import { synchronizeRegistry as mockSynchronizeRegistry } from "@/lib/scheduler/registry-sync";
 
 import { mutateConfig } from "./config-mutation";
 
@@ -33,6 +36,7 @@ const ROW = { configJson: CONFIG, configHash: HASH };
 describe("mutateConfig handle threading", () => {
   beforeEach(() => {
     vi.mocked(defaultHandle.transaction).mockReset();
+    vi.mocked(mockSynchronizeRegistry).mockReset();
   });
 
   it("opens the transaction on the default db handle when none is given", async () => {
@@ -68,5 +72,23 @@ describe("mutateConfig handle threading", () => {
     const failure = new Error("mutator rejected this change");
 
     await expect(mutateConfig("human:1", () => { throw failure; }, handle)).rejects.toThrow(failure);
+  });
+
+  it("does not call Edge Config when synchronizeRegistry fails (finding: writeEdgeConfig is not rollbackable, so it must run after every DB statement that can still abort the transaction)", async () => {
+    const handle = makeHandle(ROW) as unknown as DatabaseHandle;
+    const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(new Response(null, { status: 200 }));
+    process.env.EDGE_CONFIG_ID = "ecfg_test";
+    process.env.VERCEL_API_TOKEN = "test-token";
+    vi.mocked(mockSynchronizeRegistry).mockRejectedValueOnce(new Error("registry sync failed"));
+
+    const mutator = (config: MonitoringConfig) => ({ ...config, settings: { ...config.settings, concurrency: config.settings.concurrency + 1 } });
+
+    await expect(mutateConfig("human:1", mutator, handle)).rejects.toThrow("registry sync failed");
+    expect(mockSynchronizeRegistry).toHaveBeenCalledOnce();
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    fetchSpy.mockRestore();
+    delete process.env.EDGE_CONFIG_ID;
+    delete process.env.VERCEL_API_TOKEN;
   });
 });
