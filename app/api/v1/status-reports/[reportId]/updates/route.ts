@@ -1,5 +1,5 @@
 import { authorize, isApiResponse } from "@/lib/api/middleware";
-import { revalidateStatusReportPaths, runStatusReportMutation, statusReportRouteError } from "@/lib/api/status-report-http";
+import { collectStatusReportPaths, runStatusReportMutation, statusReportRouteError } from "@/lib/api/status-report-http";
 import { addReportUpdate, createDatabaseStatusReportsStore } from "@/lib/api/status-reports";
 
 export async function POST(request: Request, { params }: { params: Promise<{ reportId: string }> }) {
@@ -20,8 +20,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ rep
     work: async (tx, { operationId }) => {
       const store = createDatabaseStatusReportsStore(tx);
       const report = await addReportUpdate(reportId, body, { updateId: operationId, store });
-      await revalidateStatusReportPaths(report, [], store);
-      return { status: 201, kind: "StatusReport", data: report };
+      const revalidatePaths = await collectStatusReportPaths(report, [], store);
+      return { status: 201, kind: "StatusReport", data: report, revalidatePaths };
     },
   });
 }

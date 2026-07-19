@@ -1,0 +1,1 @@
+ALTER TABLE "api_idempotency" ADD COLUMN "protocol" integer DEFAULT 0 NOT NULL;

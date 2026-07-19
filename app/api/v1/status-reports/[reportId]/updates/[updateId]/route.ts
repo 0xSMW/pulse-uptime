@@ -1,5 +1,5 @@
 import { authorize, isApiResponse } from "@/lib/api/middleware";
-import { revalidateStatusReportPaths, runStatusReportMutation, statusReportRouteError } from "@/lib/api/status-report-http";
+import { collectStatusReportPaths, runStatusReportMutation, statusReportRouteError } from "@/lib/api/status-report-http";
 import { createDatabaseStatusReportsStore, deleteReportUpdate, editReportUpdate } from "@/lib/api/status-reports";
 
 type Params = { params: Promise<{ reportId: string; updateId: string }> };
@@ -22,8 +22,8 @@ export async function PATCH(request: Request, { params }: Params) {
     work: async (tx) => {
       const store = createDatabaseStatusReportsStore(tx);
       const report = await editReportUpdate(reportId, updateId, body, { store });
-      await revalidateStatusReportPaths(report, [], store);
-      return { status: 200, kind: "StatusReport", data: report };
+      const revalidatePaths = await collectStatusReportPaths(report, [], store);
+      return { status: 200, kind: "StatusReport", data: report, revalidatePaths };
     },
   });
 }
@@ -40,8 +40,8 @@ export async function DELETE(request: Request, { params }: Params) {
     work: async (tx) => {
       const store = createDatabaseStatusReportsStore(tx);
       const report = await deleteReportUpdate(reportId, updateId, { store });
-      await revalidateStatusReportPaths(report, [], store);
-      return { status: 200, kind: "StatusReport", data: report };
+      const revalidatePaths = await collectStatusReportPaths(report, [], store);
+      return { status: 200, kind: "StatusReport", data: report, revalidatePaths };
     },
   });
 }

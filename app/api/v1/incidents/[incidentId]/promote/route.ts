@@ -17,7 +17,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ inc
     context,
     routeKey: `/api/v1/incidents/${incidentId}/promote`,
     body: {},
-    // No revalidateStatusReportPaths call in work() below: promotion always
+    // No revalidatePaths from work() below: promotion always
     // creates a DRAFT (publishedAt: null), which is invisible on every
     // public route, so there is nothing to revalidate.
     work: async (tx, { operationId }) => {

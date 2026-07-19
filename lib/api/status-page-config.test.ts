@@ -265,6 +265,11 @@ class MemoryPersistence implements IdempotencyPersistence {
     return id;
   }
 
+  async lockOwner() {
+    // The real persistence takes a FOR UPDATE lock on the owner record. These
+    // single-threaded tests never contend, so the lock is a no-op here.
+  }
+
   async transaction<R>(run: (tx: DatabaseHandle) => Promise<R>) {
     return await run("stub-tx" as unknown as DatabaseHandle);
   }
