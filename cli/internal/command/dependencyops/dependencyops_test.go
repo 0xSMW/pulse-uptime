@@ -153,8 +153,8 @@ func TestListSendsCursorAndLimitAndRendersTable(t *testing.T) {
 		setListResult(t, r.Result, []string{dep1, dep2}, nil)
 		return nil
 	}}
-	var stdout bytes.Buffer
-	cmd := NewGroup(Dependencies{Client: client, Out: &stdout, Format: func() string { return "table" }})
+	var stdout, stderr bytes.Buffer
+	cmd := NewGroup(Dependencies{Client: client, Out: &stdout, Err: &stderr, Format: func() string { return "table" }})
 	cmd.SetArgs([]string{"list", "--cursor", "start"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
@@ -168,6 +168,56 @@ func TestListSendsCursorAndLimitAndRendersTable(t *testing.T) {
 	}
 	if !strings.Contains(out, "DEGRADED\tStripe API\tStripe\tElevated error rates\t2026-07-19T00:00:00Z") {
 		t.Fatalf("missing degraded row: %q", out)
+	}
+	// Provider reported caption belongs on stderr, never inside the piped table data.
+	if strings.Contains(out, "provider reported") {
+		t.Fatalf("caption leaked into stdout table data: %q", out)
+	}
+	if !strings.Contains(stderr.String(), "provider reported") {
+		t.Fatalf("missing provider reported caption on stderr: %q", stderr.String())
+	}
+}
+
+func TestListTSVKeepsCaptionOffStdout(t *testing.T) {
+	dep1 := `{"id":"dep-1","catalogId":"vercel_runtime","name":"Vercel Runtime","provider":"Vercel","state":"OPERATIONAL","providerUpdatedAt":null,"activeIncidentTitle":null}`
+	client := &fakeClient{do: func(r Request) error {
+		setListResult(t, r.Result, []string{dep1}, nil)
+		return nil
+	}}
+	var stdout, stderr bytes.Buffer
+	cmd := NewGroup(Dependencies{Client: client, Out: &stdout, Err: &stderr, Format: func() string { return "tsv" }})
+	cmd.SetArgs([]string{"list"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "OPERATIONAL\tVercel Runtime\tVercel\t\t") {
+		t.Fatalf("missing tsv row: %q", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "provider reported") {
+		t.Fatalf("caption leaked into tsv stdout: %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "provider reported") {
+		t.Fatalf("missing provider reported caption on stderr: %q", stderr.String())
+	}
+}
+
+func TestListJSONHasNoProviderReportedCaption(t *testing.T) {
+	dep1 := `{"id":"dep-1","catalogId":"vercel_runtime","name":"Vercel Runtime","provider":"Vercel","state":"OPERATIONAL","providerUpdatedAt":null,"activeIncidentTitle":null}`
+	client := &fakeClient{do: func(r Request) error {
+		setListResult(t, r.Result, []string{dep1}, nil)
+		return nil
+	}}
+	var stdout, stderr bytes.Buffer
+	cmd := NewGroup(Dependencies{Client: client, Out: &stdout, Err: &stderr, Format: func() string { return "json" }})
+	cmd.SetArgs([]string{"list"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stdout.String(), "provider reported") || strings.Contains(stderr.String(), "provider reported") {
+		t.Fatalf("json output must stay pure data: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"kind": "DependencyList"`) {
+		t.Fatalf("output = %q", stdout.String())
 	}
 }
 
@@ -245,6 +295,7 @@ func TestGetEscapesIDAndRendersDetail(t *testing.T) {
 	out := stdout.String()
 	for _, want := range []string{
 		"State         DEGRADED",
+		"Source        Provider reported",
 		"Provider      Vercel",
 		"Component     Vercel Runtime",
 		"Region        us-east-1",
@@ -262,6 +313,43 @@ func TestGetEscapesIDAndRendersDetail(t *testing.T) {
 	}
 	if strings.Contains(out, "Past incident") {
 		t.Errorf("resolved incident should be trimmed from human output: %s", out)
+	}
+}
+
+func TestGetJSONOutputUnaffectedByProviderReportedLabel(t *testing.T) {
+	detail := `{"id":"dep-1","catalogId":"vercel_runtime","name":"Vercel Runtime","provider":"Vercel","state":"DEGRADED"}`
+	client := &fakeClient{do: func(r Request) error {
+		doc := r.Result.(*Envelope)
+		*doc = Envelope{APIVersion: "v1", Kind: "Dependency", Data: json.RawMessage(detail)}
+		return nil
+	}}
+	var stdout bytes.Buffer
+	cmd := NewGroup(Dependencies{Client: client, Out: &stdout, Format: func() string { return "json" }})
+	cmd.SetArgs([]string{"get", "dep-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var envelope Envelope
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatalf("output is not valid json: %v", err)
+	}
+	var got, want map[string]any
+	if err := json.Unmarshal(envelope.Data, &got); err != nil {
+		t.Fatalf("data is not valid json: %v", err)
+	}
+	if err := json.Unmarshal([]byte(detail), &want); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("json data must pass through unchanged: got %#v, want %#v", got, want)
+	}
+	for key, value := range want {
+		if got[key] != value {
+			t.Errorf("field %s = %#v, want %#v", key, got[key], value)
+		}
+	}
+	if strings.Contains(stdout.String(), "Provider reported") {
+		t.Fatalf("json output must stay pure data: %q", stdout.String())
 	}
 }
 

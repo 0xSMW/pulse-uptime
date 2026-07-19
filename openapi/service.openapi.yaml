@@ -3434,24 +3434,96 @@
           }
         }
       },
+      "DependencyState": {
+        "type": "string",
+        "enum": ["OPERATIONAL", "DEGRADED", "OUTAGE", "MAINTENANCE", "UNKNOWN"],
+        "description": "Provider-reported state normalized by Pulse. Reflects the upstream status feed, not an independent Pulse check."
+      },
+      "DependencyTimelineBucket": {
+        "type": "object",
+        "required": ["start", "state"],
+        "properties": {
+          "start": {"type": "string", "format": "date-time"},
+          "state": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/DependencyState"},
+              {"type": "null"}
+            ],
+            "description": "Null before the dependency existed for this bucket."
+          }
+        }
+      },
+      "DependencyIncidentUpdate": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["state", "bodyText", "createdAt", "updatedAt"],
+        "properties": {
+          "state": {"type": "string"},
+          "bodyText": {"type": "string"},
+          "createdAt": {"type": "string", "format": "date-time"},
+          "updatedAt": {"type": "string", "format": "date-time"}
+        }
+      },
+      "DependencyIncident": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["id", "title", "state", "impact", "startedAt", "resolvedAt", "providerUpdatedAt", "canonicalUrl", "updates"],
+        "properties": {
+          "id": {"type": "string"},
+          "title": {"type": "string"},
+          "state": {"type": "string", "description": "Provider-reported incident state, e.g. investigating, identified, resolved."},
+          "impact": {"type": ["string", "null"]},
+          "startedAt": {"type": "string", "format": "date-time"},
+          "resolvedAt": {"type": ["string", "null"], "format": "date-time"},
+          "providerUpdatedAt": {"type": "string", "format": "date-time"},
+          "canonicalUrl": {"type": ["string", "null"]},
+          "updates": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/DependencyIncidentUpdate"}
+          }
+        }
+      },
       "Dependency": {
         "type": "object",
         "additionalProperties": true,
-        "required": ["id", "catalogId", "name", "provider", "state"],
+        "description": "Full dependency detail returned by get, install, and update. State and incidents are provider reported: they reflect the upstream status feed, not an independent Pulse check.",
+        "required": [
+          "id", "catalogId", "scopeId", "name", "description", "category", "provider",
+          "componentLabel", "sourceScopeNote", "notificationsEnabled", "createdAt",
+          "state", "checking", "stateStartedAt", "providerUpdatedAt", "observedAt",
+          "lastSuccessfulPollAt", "canonicalUrl", "incidents", "timeline24h", "timeline7d"
+        ],
         "properties": {
           "id": {"type": "string", "format": "uuid"},
           "catalogId": {"type": "string"},
           "scopeId": {"type": ["string", "null"]},
           "name": {"type": "string"},
-          "provider": {"type": "string"},
+          "description": {"type": "string"},
           "category": {"type": "string"},
-          "state": {
-            "type": "string",
-            "enum": ["OPERATIONAL", "DEGRADED", "OUTAGE", "MAINTENANCE", "UNKNOWN"]
-          },
-          "checking": {"type": "boolean"},
+          "provider": {"type": "string"},
+          "componentLabel": {"type": ["string", "null"]},
+          "sourceScopeNote": {"type": ["string", "null"]},
           "notificationsEnabled": {"type": "boolean"},
-          "canonicalUrl": {"type": ["string", "null"]}
+          "createdAt": {"type": "string", "format": "date-time"},
+          "state": {"$ref": "#/components/schemas/DependencyState"},
+          "checking": {"type": "boolean"},
+          "stateStartedAt": {"type": "string", "format": "date-time"},
+          "providerUpdatedAt": {"type": ["string", "null"], "format": "date-time"},
+          "observedAt": {"type": "string", "format": "date-time"},
+          "lastSuccessfulPollAt": {"type": ["string", "null"], "format": "date-time"},
+          "canonicalUrl": {"type": "string"},
+          "incidents": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/DependencyIncident"}
+          },
+          "timeline24h": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/DependencyTimelineBucket"}
+          },
+          "timeline7d": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/DependencyTimelineBucket"}
+          }
         }
       },
       "DependencyEnvelope": {
@@ -3464,6 +3536,31 @@
           "meta": {"$ref": "#/components/schemas/Meta"}
         }
       },
+      "DependencyListItem": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Dashboard row for the installed-dependency list. State is provider reported: it reflects the upstream status feed, not an independent Pulse check.",
+        "required": [
+          "id", "catalogId", "scopeId", "name", "provider", "category", "state",
+          "checking", "providerUpdatedAt", "activeIncidentTitle", "timeline24h"
+        ],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "catalogId": {"type": "string"},
+          "scopeId": {"type": ["string", "null"]},
+          "name": {"type": "string"},
+          "provider": {"type": "string"},
+          "category": {"type": "string"},
+          "state": {"$ref": "#/components/schemas/DependencyState"},
+          "checking": {"type": "boolean"},
+          "providerUpdatedAt": {"type": ["string", "null"], "format": "date-time"},
+          "activeIncidentTitle": {"type": ["string", "null"]},
+          "timeline24h": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/DependencyTimelineBucket"}
+          }
+        }
+      },
       "DependencyListEnvelope": {
         "type": "object",
         "required": ["apiVersion", "kind", "data", "meta"],
@@ -3472,7 +3569,7 @@
           "kind": {"const": "DependencyList"},
           "data": {
             "type": "array",
-            "items": {"$ref": "#/components/schemas/Dependency"}
+            "items": {"$ref": "#/components/schemas/DependencyListItem"}
           },
           "meta": {"$ref": "#/components/schemas/ListMeta"}
         }
@@ -3495,15 +3592,66 @@
           "meta": {"$ref": "#/components/schemas/Meta"}
         }
       },
+      "DependencyScope": {
+        "description": "A preset's scope requirement. required_options ships a fixed validated list; discovered_children and discovered_locations carry their own required flag.",
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "options"],
+            "properties": {
+              "kind": {"const": "required_options"},
+              "options": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["id", "label"],
+                  "properties": {
+                    "id": {"type": "string"},
+                    "label": {"type": "string"}
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "groupId", "required"],
+            "properties": {
+              "kind": {"const": "discovered_children"},
+              "groupId": {"type": "string"},
+              "required": {"type": "boolean"}
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "required"],
+            "properties": {
+              "kind": {"const": "discovered_locations"},
+              "required": {"type": "boolean"}
+            }
+          }
+        ]
+      },
       "DependencyCatalogPreset": {
         "type": "object",
         "additionalProperties": true,
-        "required": ["id", "name", "provider", "enabled", "validated", "installed"],
+        "required": ["id", "name", "provider", "description", "scope", "sourceScopeNote", "enabled", "validated", "installed"],
         "properties": {
           "id": {"type": "string"},
           "name": {"type": "string"},
           "provider": {"type": "string"},
           "description": {"type": "string"},
+          "scope": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/DependencyScope"},
+              {"type": "null"}
+            ]
+          },
+          "sourceScopeNote": {"type": ["string", "null"]},
           "enabled": {"type": "boolean"},
           "validated": {"type": "boolean"},
           "installed": {"type": "boolean"},

@@ -471,6 +471,12 @@ func renderCatalog(d Dependencies, format string, doc Envelope) error {
 	return nil
 }
 
+// dependencyStateCaption clarifies that STATE reflects the provider's own
+// status feed, not an independent Pulse check, per the Provider reported
+// labeling rule. It goes to stderr so it never lands in piped table or tsv
+// data.
+const dependencyStateCaption = "Note: dependency state is provider reported, not a Pulse check."
+
 func renderList(d Dependencies, format string, doc ListEnvelope) error {
 	switch format {
 	case "json":
@@ -485,6 +491,7 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 	case "yaml":
 		return yamlValue(d.Out, doc)
 	case "tsv":
+		fmt.Fprintln(d.Err, dependencyStateCaption)
 		for _, raw := range doc.Data {
 			var dep Dependency
 			if json.Unmarshal(raw, &dep) == nil {
@@ -495,6 +502,7 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 		}
 		return nil
 	default:
+		fmt.Fprintln(d.Err, dependencyStateCaption)
 		fmt.Fprintln(d.Out, "STATE\tNAME\tPROVIDER\tINCIDENT\tUPDATED")
 		for _, raw := range doc.Data {
 			var dep Dependency
@@ -547,6 +555,7 @@ func renderDetail(d Dependencies, format string, doc Envelope) error {
 func renderDetailHuman(w io.Writer, detail DependencyDetail) {
 	fmt.Fprintf(w, "ID            %s\n", output.SanitizeDisplay(detail.ID))
 	fmt.Fprintf(w, "State         %s\n", output.SanitizeDisplay(detail.State))
+	fmt.Fprintln(w, "Source        Provider reported")
 	fmt.Fprintf(w, "Provider      %s\n", output.SanitizeDisplay(detail.Provider))
 	fmt.Fprintf(w, "Component     %s\n", output.SanitizeDisplay(detail.Name))
 	fmt.Fprintf(w, "Region        %s\n", output.SanitizeDisplay(value(detail.ComponentLabel)))
