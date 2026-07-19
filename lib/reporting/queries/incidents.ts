@@ -2,6 +2,7 @@ import { desc, eq, inArray, isNotNull, isNull, sql as dsql } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 import { incidents, monitorRegistry, notificationOutbox } from "@/lib/db/schema";
+import { listOverlappingDependencyIncidents } from "@/lib/dependencies/overlap";
 
 export type IncidentFilter = "all" | "ongoing" | "resolved";
 
@@ -168,6 +169,10 @@ export async function getIncidentDetail(id: string) {
   ].filter((event): event is NonNullable<typeof event> => event !== null)
     .map((event) => ({ type: event.type, at: event.at.toISOString() }));
 
+  // Neutral timing context only: never a causal claim. See
+  // Docs/DEPENDENCY-MONITORING.md "Incident correlation".
+  const overlaps = await listOverlappingDependencyIncidents({ openedAt: row.openedAt, resolvedAt: row.resolvedAt });
+
   return {
     id: row.id,
     monitorId: row.monitorId,
@@ -179,5 +184,6 @@ export async function getIncidentDetail(id: string) {
     status: row.openingStatusCode?.toString() ?? null,
     notificationSummary: summarizeNotifications(notifications.map((notification) => ({ incidentId: id, status: notification.status }))),
     events,
+    overlaps,
   };
 }

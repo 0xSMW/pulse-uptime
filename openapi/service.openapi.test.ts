@@ -38,6 +38,10 @@ const expectedOperations = [
   "POST /api/v1/status-reports/{reportId}/publish", "POST /api/v1/status-reports/{reportId}/updates",
   "PATCH /api/v1/status-reports/{reportId}/updates/{updateId}", "DELETE /api/v1/status-reports/{reportId}/updates/{updateId}",
   "POST /api/v1/incidents/{incidentId}/promote",
+  "GET /api/v1/dependency-catalog",
+  "GET /api/v1/dependencies", "POST /api/v1/dependencies",
+  "GET /api/v1/dependencies/{dependencyId}", "PATCH /api/v1/dependencies/{dependencyId}", "DELETE /api/v1/dependencies/{dependencyId}",
+  "POST /api/v1/dependencies/{dependencyId}/refresh",
 ];
 
 describe("committed OpenAPI v1 source", () => {

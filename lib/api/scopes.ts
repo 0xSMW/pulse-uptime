@@ -9,6 +9,8 @@ export const API_SCOPES = [
   "status:read",
   "reports:read",
   "reports:write",
+  "dependencies:read",
+  "dependencies:write",
 ] as const;
 
 export type ApiScope = (typeof API_SCOPES)[number];

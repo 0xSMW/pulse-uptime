@@ -7,6 +7,7 @@ import { useState } from "react";
 import type { LatencyPoint } from "@/components/charts/latency-chart";
 import { LazyLatencyChart } from "@/components/charts/lazy-latency-chart";
 import { useTimezone } from "@/components/dashboard/timezone-provider";
+import type { DependencyIncidentOverlap } from "@/components/incidents/types";
 import { StatusBadge } from "@/components/monitors/status-badge";
 import { MonitorActions, MonitorEditButton } from "@/components/monitors/monitor-actions";
 import { StatusDot, type MonitorState } from "@/components/monitors/status-dot";
@@ -56,6 +57,7 @@ export type MonitorDetailData = {
     resolvedAt: string | null;
     durationSeconds: number;
     openingFailure: string;
+    overlaps: DependencyIncidentOverlap[];
   } | null;
   recentIncidents: Array<{
     id: string;

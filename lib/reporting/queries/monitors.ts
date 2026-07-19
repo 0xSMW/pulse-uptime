@@ -11,6 +11,7 @@ import {
 } from "@/lib/db/schema";
 import { DEFAULT_MONITOR_VALUES } from "@/lib/config/defaults";
 import { validateMonitoringConfig, type MonitorConfig } from "@/lib/config";
+import { listOverlappingDependencyIncidents } from "@/lib/dependencies/overlap";
 
 import { buildRollupTimeline, summarizeRollupCoverage } from "./timeline";
 
@@ -160,6 +161,17 @@ export async function getMonitorDetail(id: string) {
     openingFailure: openingFailure(incident.openingErrorCode, incident.openingStatusCode),
   }));
 
+  // Neutral timing context only, for the active or recently resolved
+  // incident: never a causal claim. See Docs/DEPENDENCY-MONITORING.md
+  // "Incident correlation".
+  const latestIncidentRow = recentIncidents[0] && (
+    recentIncidents[0].resolvedAt === null ||
+    recentIncidents[0].resolvedAt.getTime() >= now.getTime() - 86_400_000
+  ) ? recentIncidents[0] : null;
+  const latestIncidentOverlaps = latestIncidentRow
+    ? await listOverlappingDependencyIncidents({ openedAt: latestIncidentRow.openedAt, resolvedAt: latestIncidentRow.resolvedAt })
+    : [];
+
   return {
     id: monitor.id,
     name: monitor.name,
@@ -212,16 +224,14 @@ export async function getMonitorDetail(id: string) {
       d7: responsePoints(rollups7d),
       d30: responsePoints(rollups30d),
     },
-    latestIncident: recentIncidents[0] && (
-      recentIncidents[0].resolvedAt === null ||
-      recentIncidents[0].resolvedAt.getTime() >= now.getTime() - 86_400_000
-    ) ? {
-      id: recentIncidents[0].id,
-      state: recentIncidents[0].resolvedAt ? "RESOLVED" as const : "ONGOING" as const,
-      openedAt: recentIncidents[0].openedAt.toISOString(),
-      resolvedAt: recentIncidents[0].resolvedAt?.toISOString() ?? null,
-      durationSeconds: secondsBetween(recentIncidents[0].openedAt, recentIncidents[0].resolvedAt ?? now),
-      openingFailure: openingFailure(recentIncidents[0].openingErrorCode, recentIncidents[0].openingStatusCode),
+    latestIncident: latestIncidentRow ? {
+      id: latestIncidentRow.id,
+      state: latestIncidentRow.resolvedAt ? "RESOLVED" as const : "ONGOING" as const,
+      openedAt: latestIncidentRow.openedAt.toISOString(),
+      resolvedAt: latestIncidentRow.resolvedAt?.toISOString() ?? null,
+      durationSeconds: secondsBetween(latestIncidentRow.openedAt, latestIncidentRow.resolvedAt ?? now),
+      openingFailure: openingFailure(latestIncidentRow.openingErrorCode, latestIncidentRow.openingStatusCode),
+      overlaps: latestIncidentOverlaps,
     } : null,
     recentIncidents: mappedIncidents,
     recentChecks: rollups24h.slice(-20).toReversed().map((rollup) => ({

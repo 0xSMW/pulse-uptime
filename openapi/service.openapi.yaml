@@ -47,6 +47,9 @@
     },
     {
       "name": "Status reports"
+    },
+    {
+      "name": "Dependencies"
     }
   ],
   "paths": {
@@ -428,6 +431,227 @@
           "403": {"$ref": "#/components/responses/ScopeDenied"},
           "404": {"$ref": "#/components/responses/NotFound"},
           "409": {"$ref": "#/components/responses/Conflict"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      }
+    },
+    "/api/v1/dependency-catalog": {
+      "get": {
+        "operationId": "listDependencyCatalog",
+        "tags": ["Dependencies"],
+        "summary": "List the dependency catalog",
+        "description": "Validated presets grouped by category, with installed markers so the add sheet can block duplicates. Never returns provider credentials.",
+        "x-required-scopes": ["dependencies:read"],
+        "security": [
+          {"bearerAuth": []},
+          {"humanSession": []}
+        ],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"}
+        ],
+        "responses": {
+          "200": {
+            "description": "Catalog grouped by category",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/DependencyCatalogEnvelope"}
+              }
+            }
+          },
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      }
+    },
+    "/api/v1/dependencies": {
+      "get": {
+        "operationId": "listDependencies",
+        "tags": ["Dependencies"],
+        "summary": "List installed dependencies",
+        "description": "Current provider-reported state, active incident title, provider updated time, and a 24-hour observation timeline for each installed dependency.",
+        "x-required-scopes": ["dependencies:read"],
+        "security": [
+          {"bearerAuth": []},
+          {"humanSession": []}
+        ],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"}
+        ],
+        "responses": {
+          "200": {
+            "description": "Dependency page",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/DependencyListEnvelope"}
+              }
+            }
+          },
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      },
+      "post": {
+        "operationId": "installDependency",
+        "tags": ["Dependencies"],
+        "summary": "Install a dependency",
+        "description": "One-click install from a catalog preset. Accepts only presetId, an optional catalog-defined scopeId, and notification settings; never a source URL or upstream component ID.",
+        "x-required-scopes": ["dependencies:write"],
+        "security": [
+          {"bearerAuth": []},
+          {"humanSession": []}
+        ],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/DependencyCreate"}
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Installed dependency",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/DependencyEnvelope"}
+              }
+            }
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      }
+    },
+    "/api/v1/dependencies/{dependencyId}": {
+      "parameters": [
+        {"$ref": "#/components/parameters/DependencyId"}
+      ],
+      "get": {
+        "operationId": "getDependency",
+        "tags": ["Dependencies"],
+        "summary": "Get dependency detail",
+        "description": "Current state, incidents with updates, 24-hour and seven-day observation timelines, selected component and region, feed health, and notification setting.",
+        "x-required-scopes": ["dependencies:read"],
+        "security": [
+          {"bearerAuth": []},
+          {"humanSession": []}
+        ],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"}
+        ],
+        "responses": {
+          "200": {
+            "description": "Dependency detail",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/DependencyEnvelope"}
+              }
+            }
+          },
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      },
+      "patch": {
+        "operationId": "updateDependency",
+        "tags": ["Dependencies"],
+        "summary": "Update dependency notification setting",
+        "description": "notificationsEnabled only. Dependency notifications are configured independently from endpoint-monitor notifications.",
+        "x-required-scopes": ["dependencies:write"],
+        "security": [
+          {"bearerAuth": []},
+          {"humanSession": []}
+        ],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/DependencyUpdate"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated dependency",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/DependencyEnvelope"}
+              }
+            }
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      },
+      "delete": {
+        "operationId": "removeDependency",
+        "tags": ["Dependencies"],
+        "summary": "Remove a dependency",
+        "description": "Soft removal: closes the open state interval. History is preserved for prior incident overlap context.",
+        "x-required-scopes": ["dependencies:write"],
+        "security": [
+          {"bearerAuth": []},
+          {"humanSession": []}
+        ],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "responses": {
+          "204": {"description": "Dependency removed"},
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      }
+    },
+    "/api/v1/dependencies/{dependencyId}/refresh": {
+      "post": {
+        "operationId": "refreshDependency",
+        "tags": ["Dependencies"],
+        "summary": "Request an immediate refresh",
+        "description": "Sets the dependency's source next_poll_at to now; the dependency cron performs the fetch. Never fetches inline.",
+        "x-required-scopes": ["dependencies:write"],
+        "security": [
+          {"bearerAuth": []},
+          {"humanSession": []}
+        ],
+        "parameters": [
+          {"$ref": "#/components/parameters/DependencyId"},
+          {"$ref": "#/components/parameters/RequestId"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "responses": {
+          "202": {
+            "description": "Refresh scheduled",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/DependencyRefreshEnvelope"}
+              }
+            }
+          },
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "404": {"$ref": "#/components/responses/NotFound"},
           "429": {"$ref": "#/components/responses/RateLimited"}
         }
       }
@@ -2121,6 +2345,15 @@
           "type": "string"
         }
       },
+      "DependencyId": {
+        "name": "dependencyId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
       "IncidentId": {
         "name": "incidentId",
         "in": "path",
@@ -2481,7 +2714,9 @@
           "tokens:manage",
           "status:read",
           "reports:read",
-          "reports:write"
+          "reports:write",
+          "dependencies:read",
+          "dependencies:write"
         ]
       },
       "Meta": {
@@ -3197,6 +3432,133 @@
           "meta": {
             "$ref": "#/components/schemas/ListMeta"
           }
+        }
+      },
+      "Dependency": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["id", "catalogId", "name", "provider", "state"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "catalogId": {"type": "string"},
+          "scopeId": {"type": ["string", "null"]},
+          "name": {"type": "string"},
+          "provider": {"type": "string"},
+          "category": {"type": "string"},
+          "state": {
+            "type": "string",
+            "enum": ["OPERATIONAL", "DEGRADED", "OUTAGE", "MAINTENANCE", "UNKNOWN"]
+          },
+          "checking": {"type": "boolean"},
+          "notificationsEnabled": {"type": "boolean"},
+          "canonicalUrl": {"type": ["string", "null"]}
+        }
+      },
+      "DependencyEnvelope": {
+        "type": "object",
+        "required": ["apiVersion", "kind", "data", "meta"],
+        "properties": {
+          "apiVersion": {"$ref": "#/components/schemas/ApiVersion"},
+          "kind": {"const": "Dependency"},
+          "data": {"$ref": "#/components/schemas/Dependency"},
+          "meta": {"$ref": "#/components/schemas/Meta"}
+        }
+      },
+      "DependencyListEnvelope": {
+        "type": "object",
+        "required": ["apiVersion", "kind", "data", "meta"],
+        "properties": {
+          "apiVersion": {"$ref": "#/components/schemas/ApiVersion"},
+          "kind": {"const": "DependencyList"},
+          "data": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/Dependency"}
+          },
+          "meta": {"$ref": "#/components/schemas/ListMeta"}
+        }
+      },
+      "DependencyRefreshEnvelope": {
+        "type": "object",
+        "required": ["apiVersion", "kind", "data", "meta"],
+        "properties": {
+          "apiVersion": {"$ref": "#/components/schemas/ApiVersion"},
+          "kind": {"const": "DependencyRefresh"},
+          "data": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["id", "refreshing"],
+            "properties": {
+              "id": {"type": "string", "format": "uuid"},
+              "refreshing": {"type": "boolean"}
+            }
+          },
+          "meta": {"$ref": "#/components/schemas/Meta"}
+        }
+      },
+      "DependencyCatalogPreset": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["id", "name", "provider", "enabled", "validated", "installed"],
+        "properties": {
+          "id": {"type": "string"},
+          "name": {"type": "string"},
+          "provider": {"type": "string"},
+          "description": {"type": "string"},
+          "enabled": {"type": "boolean"},
+          "validated": {"type": "boolean"},
+          "installed": {"type": "boolean"},
+          "installedScopeIds": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
+        }
+      },
+      "DependencyCatalogCategory": {
+        "type": "object",
+        "required": ["category", "presets"],
+        "properties": {
+          "category": {"type": "string"},
+          "presets": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/DependencyCatalogPreset"}
+          }
+        }
+      },
+      "DependencyCatalogEnvelope": {
+        "type": "object",
+        "required": ["apiVersion", "kind", "data", "meta"],
+        "properties": {
+          "apiVersion": {"$ref": "#/components/schemas/ApiVersion"},
+          "kind": {"const": "DependencyCatalog"},
+          "data": {
+            "type": "object",
+            "required": ["categories"],
+            "properties": {
+              "categories": {
+                "type": "array",
+                "items": {"$ref": "#/components/schemas/DependencyCatalogCategory"}
+              }
+            }
+          },
+          "meta": {"$ref": "#/components/schemas/Meta"}
+        }
+      },
+      "DependencyCreate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["presetId"],
+        "properties": {
+          "presetId": {"type": "string", "minLength": 1},
+          "scopeId": {"type": "string", "minLength": 1},
+          "notificationsEnabled": {"type": "boolean"}
+        }
+      },
+      "DependencyUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["notificationsEnabled"],
+        "properties": {
+          "notificationsEnabled": {"type": "boolean"}
         }
       },
       "StatusEnvelope": {
