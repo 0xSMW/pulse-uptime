@@ -4,6 +4,10 @@
 import { randomUUID, randomBytes } from "node:crypto";
 import { sql as dsql } from "drizzle-orm";
 
+import { hashMonitoringConfig } from "../../../lib/config/canonical";
+import { DEFAULT_MONITOR_SETTINGS } from "../../../lib/config/defaults";
+import type { MonitoringConfig } from "../../../lib/config/schema";
+import { validateMonitoringConfig } from "../../../lib/config/validation";
 import * as schema from "../../../lib/db/schema";
 import type { GatedConnection } from "./db-connection";
 import { mulberry32, pick, intBetween } from "./rng";
@@ -419,14 +423,25 @@ async function insertRollups(conn: GatedConnection, plan: MonitorPlan[]): Promis
   return { metricRollupCount, dailyRollupCount };
 }
 
-async function insertConfigAndOperations(conn: GatedConnection, plan: MonitorPlan[]): Promise<void> {
-  const { db } = conn;
-  const rand = mulberry32(SEED + 4);
-  const groups = GROUP_NAMES.map((name) => ({ id: `qh-group-${name.toLowerCase().replace(/\s+/g, "-")}`, name }));
-  const configJson = {
-    version: 1,
+export type FixtureConfigMonitor = Pick<MonitorPlan, "id" | "name" | "url" | "groupName" | "enabled">;
+
+// Build accepted snapshots with production validation and hashing.
+export function buildAcceptedFixtureConfig(
+  plan: FixtureConfigMonitor[],
+  rand: () => number = mulberry32(SEED + 4),
+): { config: MonitoringConfig; configHash: string } {
+  const groups = GROUP_NAMES.map((name) => ({
+    id: `qh-group-${name.toLowerCase().replace(/\s+/g, "-")}`,
+    name,
+  }));
+  const config = validateMonitoringConfig({
+    schemaVersion: 2,
+    configVersion: 1,
+    settings: {
+      ...DEFAULT_MONITOR_SETTINGS,
+      defaultRecipients: [`oncall@${FIXTURE_EMAIL_DOMAIN}`],
+    },
     groups,
-    settings: { defaultRecipients: [`oncall@${FIXTURE_EMAIL_DOMAIN}`] },
     monitors: plan.map((monitor) => ({
       id: monitor.id,
       name: monitor.name,
@@ -441,14 +456,21 @@ async function insertConfigAndOperations(conn: GatedConnection, plan: MonitorPla
       failureThreshold: 2,
       recoveryThreshold: 2,
     })),
-  };
+  });
+  return { config, configHash: hashMonitoringConfig(config) };
+}
+
+async function insertConfigAndOperations(conn: GatedConnection, plan: MonitorPlan[]): Promise<void> {
+  const { db } = conn;
+  const rand = mulberry32(SEED + 4);
+  const { config, configHash } = buildAcceptedFixtureConfig(plan, rand);
   const acceptedAt = new Date(NOW.getTime() - 3_600_000);
   await db.insert(schema.monitoringConfigSnapshots).values([
     {
       id: randomUUID(),
-      configVersion: 1,
-      configHash: "qh-fixture-config-hash",
-      configJson,
+      configVersion: config.configVersion,
+      configHash,
+      configJson: config,
       status: "accepted",
       rejectionReason: null,
       source: "qh-fixture",
@@ -459,7 +481,7 @@ async function insertConfigAndOperations(conn: GatedConnection, plan: MonitorPla
       id: randomUUID(),
       configVersion: 0,
       configHash: "qh-fixture-config-hash-rejected",
-      configJson: { ...configJson, monitors: [] },
+      configJson: { ...config, monitors: [] },
       status: "rejected",
       rejectionReason: "qh-fixture synthetic rejection",
       source: "qh-fixture",
@@ -470,7 +492,7 @@ async function insertConfigAndOperations(conn: GatedConnection, plan: MonitorPla
 
   await db.insert(schema.configChangeApprovals).values([{
     id: randomUUID(),
-    targetConfigHash: "qh-fixture-config-hash",
+    targetConfigHash: configHash,
     action: "bulk_archive",
     createdByPrincipal: "qh-fixture",
     createdAt: new Date(NOW.getTime() - 1_800_000),
@@ -484,9 +506,9 @@ async function insertConfigAndOperations(conn: GatedConnection, plan: MonitorPla
     requestId: `qh-fixture-req-${index}`,
     idempotencyKey: `qh-fixture-idem-${index}`,
     baseConfigHash: "qh-fixture-config-hash-base",
-    targetConfigHash: "qh-fixture-config-hash",
+    targetConfigHash: configHash,
     planHash: `qh-fixture-plan-${index}`,
-    desiredConfig: configJson,
+    desiredConfig: config,
     diffJson: { fixture: true },
     state: pick(rand, ["written", "accepted", "rejected", "failed"] as const),
     edgeConfigVersion: index,

@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { getTableColumns } from "drizzle-orm";
 
+import { hashMonitoringConfig } from "../../../lib/config/canonical";
+import { validateMonitoringConfig } from "../../../lib/config/validation";
 import * as schema from "../../../lib/db/schema";
-import { CHUNK_SIZE, insertMaintenanceAndScheduler } from "../src/fixtures";
+import { CHUNK_SIZE, buildAcceptedFixtureConfig, insertMaintenanceAndScheduler } from "../src/fixtures";
 import type { GatedConnection } from "../src/db-connection";
+import { FIXTURE_EMAIL_DOMAIN, FIXTURE_URL_DOMAIN, GROUP_NAMES, MONITOR_COUNT, monitorId } from "../src/fixture-constants";
 
 const POSTGRES_MAX_BIND_PARAMETERS = 65_535;
 
@@ -41,6 +44,59 @@ function buildPlan(count: number) {
     };
   });
 }
+
+describe("buildAcceptedFixtureConfig", () => {
+  it("validates and hashes a seeded accepted monitoring config with production contracts", () => {
+    const plan = Array.from({ length: 5 }, (_, zeroBased) => {
+      const index = zeroBased + 1;
+      const id = monitorId(index);
+      return {
+        id,
+        name: `Fixture Monitor ${index}`,
+        url: `https://${id}.${FIXTURE_URL_DOMAIN}/health`,
+        groupName: zeroBased % 2 === 0 ? GROUP_NAMES[0]! : null,
+        enabled: true,
+      };
+    });
+
+    const { config, configHash } = buildAcceptedFixtureConfig(plan);
+    const revalidated = validateMonitoringConfig(config);
+
+    expect(revalidated.schemaVersion).toBe(2);
+    expect(revalidated.configVersion).toBe(1);
+    expect(revalidated.settings).toMatchObject({
+      concurrency: expect.any(Number),
+      defaultTimeoutMs: expect.any(Number),
+      defaultFailureThreshold: expect.any(Number),
+      defaultRecoveryThreshold: expect.any(Number),
+      defaultRecipients: [`oncall@${FIXTURE_EMAIL_DOMAIN}`],
+      userAgent: expect.any(String),
+    });
+    expect(revalidated.monitors).toHaveLength(5);
+    expect(new Set(revalidated.groups.map((group) => group.name))).toEqual(new Set(GROUP_NAMES));
+    expect(configHash).toBe(hashMonitoringConfig(revalidated));
+    expect(configHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
+
+  it("accepts the full 100-monitor fixture shape under the production size limit", () => {
+    const plan = Array.from({ length: MONITOR_COUNT }, (_, zeroBased) => {
+      const index = zeroBased + 1;
+      const id = monitorId(index);
+      return {
+        id,
+        name: `Fixture Monitor ${index}`,
+        url: `https://${id}.${FIXTURE_URL_DOMAIN}/health`,
+        groupName: zeroBased % 10 === 0 ? null : GROUP_NAMES[zeroBased % GROUP_NAMES.length]!,
+        // Two archived-style disabled rows keep active count under the hard max.
+        enabled: index <= MONITOR_COUNT - 2,
+      };
+    });
+
+    const { config, configHash } = buildAcceptedFixtureConfig(plan);
+    expect(validateMonitoringConfig(config).monitors).toHaveLength(MONITOR_COUNT);
+    expect(configHash).toBe(hashMonitoringConfig(config));
+  });
+});
 
 describe("insertMaintenanceAndScheduler", () => {
   it("produces exactly 60 check_batches rows and 60 atomic_minute_commits rows", async () => {

@@ -26,6 +26,13 @@ async function main() {
   const { baseline, candidate } = parseArgs(process.argv.slice(2));
   const report = compareArtifacts(loadArtifact(baseline), loadArtifact(candidate), DEFAULT_THRESHOLDS);
   console.log(JSON.stringify(report, null, 2));
+  if (report.hasFixtureMismatch) {
+    console.error("[compare-artifacts] fixture metadata mismatch between baseline and candidate:");
+    for (const reason of report.fixtureMismatchReasons) {
+      console.error(`  - ${reason}`);
+    }
+    process.exitCode = 1;
+  }
   if (report.hasRegression) {
     console.error("[compare-artifacts] regression(s) detected — see reasons above.");
     process.exitCode = 1;
@@ -39,7 +46,7 @@ async function main() {
     process.exitCode = 1;
   }
   if (report.passed) {
-    console.error("[compare-artifacts] no regressions, missing cases, or row-count changes detected.");
+    console.error("[compare-artifacts] no regressions, missing cases, row-count changes, or fixture mismatches detected.");
   }
 }
 

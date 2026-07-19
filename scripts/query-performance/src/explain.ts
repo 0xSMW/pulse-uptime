@@ -49,6 +49,8 @@ interface RawPlanNode {
   "Actual Loops"?: number;
   "Shared Hit Blocks"?: number;
   "Shared Read Blocks"?: number;
+  "Shared Dirtied Blocks"?: number;
+  "Shared Written Blocks"?: number;
   "Plans"?: RawPlanNode[];
 }
 
@@ -71,6 +73,24 @@ function flattenNodes(node: RawPlanNode, out: PlanNodeSummary[] = []): PlanNodeS
   return out;
 }
 
+// Root buffer counters already include child activity.
+export function sampleFromExplainOutput(output: RawExplainOutput): ExplainSample {
+  const root = output.Plan;
+  const nodes = flattenNodes(root);
+  return {
+    totalTimeMs: output["Planning Time"] + output["Execution Time"],
+    planningTimeMs: output["Planning Time"],
+    executionTimeMs: output["Execution Time"],
+    sharedHitBlocks: root["Shared Hit Blocks"] ?? 0,
+    sharedReadBlocks: root["Shared Read Blocks"] ?? 0,
+    sharedDirtiedBlocks: root["Shared Dirtied Blocks"] ?? 0,
+    sharedWrittenBlocks: root["Shared Written Blocks"] ?? 0,
+    rootRows: root["Actual Rows"] ?? 0,
+    nodeCount: nodes.length,
+    topNodes: nodes.slice(0, 5),
+  };
+}
+
 // Drizzle configures the shared client for pre-serialized values. Raw
 // `sql.unsafe()` calls bypass Drizzle, so Date parameters use ISO strings.
 function serializeParam(value: unknown): unknown {
@@ -83,19 +103,7 @@ async function explainOnce(sql: postgres.TransactionSql, query: ResolvedQuery): 
   const first = rows[0] as unknown as { "QUERY PLAN": [RawExplainOutput] } | undefined;
   const output = first?.["QUERY PLAN"]?.[0];
   if (!output) throw new Error(`EXPLAIN returned no plan for query: ${query.text.slice(0, 80)}...`);
-  const nodes = flattenNodes(output.Plan);
-  return {
-    totalTimeMs: output["Planning Time"] + output["Execution Time"],
-    planningTimeMs: output["Planning Time"],
-    executionTimeMs: output["Execution Time"],
-    sharedHitBlocks: nodes.reduce((sum, node) => sum + node.sharedHitBlocks, 0),
-    sharedReadBlocks: nodes.reduce((sum, node) => sum + node.sharedReadBlocks, 0),
-    sharedDirtiedBlocks: 0,
-    sharedWrittenBlocks: 0,
-    rootRows: output.Plan["Actual Rows"] ?? 0,
-    nodeCount: nodes.length,
-    topNodes: nodes.slice(0, 5),
-  };
+  return sampleFromExplainOutput(output);
 }
 
 async function runInRolledBackTransaction<T>(sql: postgres.Sql, fn: (tx: postgres.TransactionSql) => Promise<T>): Promise<T> {

@@ -32,14 +32,22 @@ function result(name: string, samples: ExplainSample[]): QueryCaseResult {
   };
 }
 
-function artifact(label: string, results: QueryCaseResult[]): Artifact {
+function emptyCardinalities(): Artifact["fixture"]["cardinalities"] {
+  return {} as Artifact["fixture"]["cardinalities"];
+}
+
+function artifact(
+  label: string,
+  results: QueryCaseResult[],
+  fixture: Artifact["fixture"] = { version: 1, cardinalities: emptyCardinalities() },
+): Artifact {
   return {
     schemaVersion: 1,
     label,
     createdAt: new Date(0).toISOString(),
     projectId: "test-project",
     regionId: "test-region",
-    fixture: { version: 1, cardinalities: {} as Artifact["fixture"]["cardinalities"] },
+    fixture,
     run: { warmupCount: 1, repeatCount: samplesCount(results) },
     results,
     excluded: [],
@@ -177,6 +185,103 @@ describe("compareArtifacts", () => {
     expect(byName.get("case-b")!.verdict).toBe("missing-in-baseline");
     expect(report.hasMissingCases).toBe(false);
     expect(report.hasRowCountChanges).toBe(false);
+    expect(report.passed).toBe(true);
+  });
+
+  it("fails when fixture versions differ even if all cases pass", () => {
+    const baseline = artifact("baseline", [result("case-a", [sample()])], {
+      version: 1,
+      cardinalities: emptyCardinalities(),
+    });
+    const candidate = artifact("candidate", [result("case-a", [sample()])], {
+      version: 2,
+      cardinalities: emptyCardinalities(),
+    });
+    const report = compareArtifacts(baseline, candidate);
+    expect(report.hasFixtureMismatch).toBe(true);
+    expect(report.hasRegression).toBe(false);
+    expect(report.passed).toBe(false);
+    expect(report.fixtureMismatchReasons.some((reason) => reason.includes("Fixture version differs"))).toBe(true);
+  });
+
+  it("fails when a cardinality key is missing from the candidate", () => {
+    const baseline = artifact("baseline", [result("case-a", [sample()])], {
+      version: 1,
+      cardinalities: { monitor_registry: 100 } as Artifact["fixture"]["cardinalities"],
+    });
+    const candidate = artifact("candidate", [result("case-a", [sample()])], {
+      version: 1,
+      cardinalities: emptyCardinalities(),
+    });
+    const report = compareArtifacts(baseline, candidate);
+    expect(report.hasFixtureMismatch).toBe(true);
+    expect(report.passed).toBe(false);
+    expect(
+      report.fixtureMismatchReasons.some((reason) =>
+        reason.includes('Cardinality key "monitor_registry" is missing from the candidate'),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails when a cardinality key is extra in the candidate", () => {
+    const baseline = artifact("baseline", [result("case-a", [sample()])], {
+      version: 1,
+      cardinalities: emptyCardinalities(),
+    });
+    const candidate = artifact("candidate", [result("case-a", [sample()])], {
+      version: 1,
+      cardinalities: { monitor_registry: 100 } as Artifact["fixture"]["cardinalities"],
+    });
+    const report = compareArtifacts(baseline, candidate);
+    expect(report.hasFixtureMismatch).toBe(true);
+    expect(report.passed).toBe(false);
+    expect(
+      report.fixtureMismatchReasons.some((reason) =>
+        reason.includes('Cardinality key "monitor_registry" is extra in the candidate'),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails when a cardinality value differs", () => {
+    const baseline = artifact("baseline", [result("case-a", [sample()])], {
+      version: 1,
+      cardinalities: { monitor_registry: 100 } as Artifact["fixture"]["cardinalities"],
+    });
+    const candidate = artifact("candidate", [result("case-a", [sample()])], {
+      version: 1,
+      cardinalities: { monitor_registry: 200 } as Artifact["fixture"]["cardinalities"],
+    });
+    const report = compareArtifacts(baseline, candidate);
+    expect(report.hasFixtureMismatch).toBe(true);
+    expect(report.passed).toBe(false);
+    expect(
+      report.fixtureMismatchReasons.some((reason) =>
+        reason.includes('Cardinality for "monitor_registry" differs') &&
+        reason.includes("100") &&
+        reason.includes("200"),
+      ),
+    ).toBe(true);
+  });
+
+  it("passes fixture checks when version and cardinalities match", () => {
+    const fixture: Artifact["fixture"] = {
+      version: 2,
+      cardinalities: {
+        monitor_registry: 100,
+        monitor_state: 100,
+      } as Artifact["fixture"]["cardinalities"],
+    };
+    const baseline = artifact("baseline", [result("case-a", [sample()])], fixture);
+    const candidate = artifact("candidate", [result("case-a", [sample()])], {
+      version: 2,
+      cardinalities: {
+        monitor_registry: 100,
+        monitor_state: 100,
+      } as Artifact["fixture"]["cardinalities"],
+    });
+    const report = compareArtifacts(baseline, candidate);
+    expect(report.hasFixtureMismatch).toBe(false);
+    expect(report.fixtureMismatchReasons).toEqual([]);
     expect(report.passed).toBe(true);
   });
 });

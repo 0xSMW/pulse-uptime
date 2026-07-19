@@ -73,6 +73,41 @@ describe("dashboard monitor incident join", () => {
   });
 });
 
+describe("dashboard uptime window fixture anchor", () => {
+  it("anchors the 24h window to ctx.now", () => {
+    // Use an off-grid fixture time outside the current benchmark window.
+    const fixtureNow = new Date("2024-06-15T12:37:45.123Z");
+    const ctx: SampleContext = { ...FAKE_SAMPLE_CONTEXT, now: fixtureNow };
+    const built = findCase("dashboard-monitors-uptime24h").build(fakeConnection(), ctx);
+
+    // The query binds start, end, then start again for the coalesce fallback.
+    const expectedStartIso = "2024-06-14T12:30:00.000Z";
+    const expectedEndIso = "2024-06-15T12:30:00.000Z";
+    expect(built.params).toHaveLength(3);
+    expect(built.params.every((param) => param instanceof Date)).toBe(true);
+    expect((built.params[0] as Date).toISOString()).toBe(expectedStartIso);
+    expect((built.params[1] as Date).toISOString()).toBe(expectedEndIso);
+    expect((built.params[2] as Date).toISOString()).toBe(expectedStartIso);
+  });
+});
+
+describe("monitor detail recent incidents", () => {
+  it("binds the incident-bearing monitor when present", () => {
+    const ctx: SampleContext = {
+      ...FAKE_SAMPLE_CONTEXT,
+      incidentMonitorId: "qh-monitor-incident-owner",
+    };
+    const built = findCase("monitor-detail-recent-incidents").build(fakeConnection(), ctx);
+    expect(built.params[0]).toBe("qh-monitor-incident-owner");
+  });
+
+  it("falls back to the first monitor when incidentMonitorId is null", () => {
+    const ctx: SampleContext = { ...FAKE_SAMPLE_CONTEXT, incidentMonitorId: null };
+    const built = findCase("monitor-detail-recent-incidents").build(fakeConnection(), ctx);
+    expect(built.params[0]).toBe(ctx.monitorIds[0]);
+  });
+});
+
 describe("monitor detail rollup windows", () => {
   it("names the 15m case for its seven day scan window", () => {
     const names = queryCases.map((entry) => entry.name);

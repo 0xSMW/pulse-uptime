@@ -1,6 +1,13 @@
+import { resolve, sep } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
-import { assertBenchmarkableState, parseArgs } from "../src/run-benchmark";
+import {
+  assertBenchmarkableState,
+  assertSafeArtifactLabel,
+  parseArgs,
+  resolveArtifactPath,
+} from "../src/run-benchmark";
 import { FIXTURE_VERSION } from "../src/fixture-constants";
 import type { RetainedStateProof } from "../src/verify-state";
 
@@ -84,5 +91,55 @@ describe("parseArgs", () => {
 
   it("rejects an empty --warmup value", () => {
     expect(() => parseArgs(["--warmup="])).toThrow(/warmup must be a positive integer/i);
+  });
+
+  it("rejects a --label with path separators", () => {
+    expect(() => parseArgs(["--label=../escape"])).toThrow(/path separators/i);
+  });
+});
+
+describe("assertSafeArtifactLabel", () => {
+  it("accepts safe labels used by the CLI defaults and common candidates", () => {
+    expect(() => assertSafeArtifactLabel("baseline")).not.toThrow();
+    expect(() => assertSafeArtifactLabel("candidate")).not.toThrow();
+    expect(() => assertSafeArtifactLabel("candidate-v2")).not.toThrow();
+  });
+
+  it("rejects slash traversal and nested path components", () => {
+    expect(() => assertSafeArtifactLabel("../outside")).toThrow(/path separators|absolute/i);
+    expect(() => assertSafeArtifactLabel("foo/bar")).toThrow(/path separators|absolute/i);
+    expect(() => assertSafeArtifactLabel("foo/../../etc")).toThrow(/path separators|absolute/i);
+  });
+
+  it("rejects absolute paths", () => {
+    expect(() => assertSafeArtifactLabel("/tmp/evil")).toThrow(/path separators|absolute/i);
+  });
+
+  it("rejects backslashes", () => {
+    expect(() => assertSafeArtifactLabel("..\\outside")).toThrow(/path separators|absolute/i);
+    expect(() => assertSafeArtifactLabel("foo\\bar")).toThrow(/path separators|absolute/i);
+  });
+});
+
+describe("resolveArtifactPath", () => {
+  const createdAt = "2026-01-01T00:00:00.000Z";
+  const artifactsDir = resolve(import.meta.dirname, "..", "artifacts");
+
+  it("places safe labels under the artifacts directory and preserves the label in the basename", () => {
+    const path = resolveArtifactPath("baseline", createdAt);
+    expect(path.startsWith(artifactsDir + sep)).toBe(true);
+    expect(path.endsWith(`baseline-${createdAt.replace(/[:.]/g, "-")}.json`)).toBe(true);
+  });
+
+  it("rejects slash traversal before any path is returned", () => {
+    expect(() => resolveArtifactPath("../outside", createdAt)).toThrow(/path separators|absolute/i);
+  });
+
+  it("rejects absolute paths before any path is returned", () => {
+    expect(() => resolveArtifactPath("/tmp/evil", createdAt)).toThrow(/path separators|absolute/i);
+  });
+
+  it("rejects backslashes before any path is returned", () => {
+    expect(() => resolveArtifactPath("..\\outside", createdAt)).toThrow(/path separators|absolute/i);
   });
 });

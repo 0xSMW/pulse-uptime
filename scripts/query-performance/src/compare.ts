@@ -65,13 +65,60 @@ export interface ComparisonReport {
   hasMissingCases: boolean;
   // True when a root row count differs between artifacts.
   hasRowCountChanges: boolean;
-  // True when no regression, missing candidate case, or row count change exists.
+  // True when fixture version or cardinalities differ between artifacts.
+  hasFixtureMismatch: boolean;
+  // Human-readable reasons for any fixture metadata mismatch.
+  fixtureMismatchReasons: string[];
+  // True when no regression, missing candidate case, row count change, or fixture mismatch exists.
   passed: boolean;
 }
 
 function pctDelta(baselineValue: number, candidateValue: number): number | null {
   if (baselineValue === 0) return candidateValue === 0 ? 0 : null;
   return ((candidateValue - baselineValue) / baselineValue) * 100;
+}
+
+// Reject comparisons across different fixture versions or cardinalities.
+function compareFixtureMetadata(
+  baseline: Artifact["fixture"],
+  candidate: Artifact["fixture"],
+): { hasFixtureMismatch: boolean; fixtureMismatchReasons: string[] } {
+  const reasons: string[] = [];
+
+  if (baseline.version !== candidate.version) {
+    reasons.push(
+      `Fixture version differs (baseline ${baseline.version} -> candidate ${candidate.version}).`,
+    );
+  }
+
+  const baselineKeys = Object.keys(baseline.cardinalities);
+  const candidateKeys = Object.keys(candidate.cardinalities);
+  const allKeys = [...new Set([...baselineKeys, ...candidateKeys])].sort();
+
+  for (const key of allKeys) {
+    const inBaseline = Object.prototype.hasOwnProperty.call(baseline.cardinalities, key);
+    const inCandidate = Object.prototype.hasOwnProperty.call(candidate.cardinalities, key);
+    if (inBaseline && !inCandidate) {
+      reasons.push(`Cardinality key "${key}" is missing from the candidate fixture.`);
+      continue;
+    }
+    if (!inBaseline && inCandidate) {
+      reasons.push(`Cardinality key "${key}" is extra in the candidate fixture.`);
+      continue;
+    }
+    const baselineValue = baseline.cardinalities[key as keyof typeof baseline.cardinalities];
+    const candidateValue = candidate.cardinalities[key as keyof typeof candidate.cardinalities];
+    if (baselineValue !== candidateValue) {
+      reasons.push(
+        `Cardinality for "${key}" differs (baseline ${baselineValue} -> candidate ${candidateValue}).`,
+      );
+    }
+  }
+
+  return {
+    hasFixtureMismatch: reasons.length > 0,
+    fixtureMismatchReasons: reasons,
+  };
 }
 
 function compareCase(
@@ -152,6 +199,11 @@ export function compareArtifacts(
   candidate: Artifact,
   thresholds: Thresholds = DEFAULT_THRESHOLDS,
 ): ComparisonReport {
+  const { hasFixtureMismatch, fixtureMismatchReasons } = compareFixtureMetadata(
+    baseline.fixture,
+    candidate.fixture,
+  );
+
   const baselineByName = new Map(baseline.results.map((result) => [result.name, result]));
   const candidateByName = new Map(candidate.results.map((result) => [result.name, result]));
   const names = [...new Set([...baselineByName.keys(), ...candidateByName.keys()])].sort();
@@ -170,6 +222,8 @@ export function compareArtifacts(
     hasRegression,
     hasMissingCases,
     hasRowCountChanges,
-    passed: !hasRegression && !hasMissingCases && !hasRowCountChanges,
+    hasFixtureMismatch,
+    fixtureMismatchReasons,
+    passed: !hasRegression && !hasMissingCases && !hasRowCountChanges && !hasFixtureMismatch,
   };
 }

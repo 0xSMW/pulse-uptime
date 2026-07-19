@@ -2,7 +2,7 @@
 // Writes a redacted artifact to an ignored directory.
 
 import { mkdirSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { isAbsolute, resolve, sep } from "node:path";
 
 import { withConnection } from "./db-connection";
 import { runQueryCase } from "./explain";
@@ -18,6 +18,35 @@ export interface RunBenchmarkOptions {
   label: string;
   warmupCount: number;
   repeatCount: number;
+}
+
+// Reject labels that could escape the artifact directory.
+export function assertSafeArtifactLabel(label: string): void {
+  if (label.length === 0) {
+    throw new Error("Usage: --label must be a non-empty name without path separators.");
+  }
+  if (label.includes("\0")) {
+    throw new Error(`Usage: --label must not contain null bytes (got ${JSON.stringify(label)}).`);
+  }
+  if (label.includes("/") || label.includes("\\") || isAbsolute(label)) {
+    throw new Error(
+      `Usage: --label must not contain path separators or be absolute (got ${JSON.stringify(label)}).`,
+    );
+  }
+}
+
+// Resolve the artifact path and enforce directory containment.
+export function resolveArtifactPath(label: string, createdAt: string): string {
+  assertSafeArtifactLabel(label);
+  const fileName = `${label}-${createdAt.replace(/[:.]/g, "-")}.json`;
+  const artifactPath = resolve(ARTIFACTS_DIR, fileName);
+  const rootWithSep = ARTIFACTS_DIR.endsWith(sep) ? ARTIFACTS_DIR : ARTIFACTS_DIR + sep;
+  if (!artifactPath.startsWith(rootWithSep)) {
+    throw new Error(
+      `Artifact path escaped artifacts directory (label ${JSON.stringify(label)} resolved to ${artifactPath}).`,
+    );
+  }
+  return artifactPath;
 }
 
 // Rejects benchmark runs when retained state does not match the recorded fixture.
@@ -42,6 +71,7 @@ export function assertBenchmarkableState(proof: RetainedStateProof): void {
 }
 
 export async function runBenchmark(options: RunBenchmarkOptions): Promise<{ artifact: Artifact; artifactPath: string }> {
+  assertSafeArtifactLabel(options.label);
   const proof = await verifyRetainedState();
   assertBenchmarkableState(proof);
   const cardinalities = Object.fromEntries(
@@ -73,8 +103,7 @@ export async function runBenchmark(options: RunBenchmarkOptions): Promise<{ arti
   });
 
   mkdirSync(ARTIFACTS_DIR, { recursive: true });
-  const fileName = `${options.label}-${artifact.createdAt.replace(/[:.]/g, "-")}.json`;
-  const artifactPath = resolve(ARTIFACTS_DIR, fileName);
+  const artifactPath = resolveArtifactPath(options.label, artifact.createdAt);
   writeFileSync(artifactPath, JSON.stringify(artifact, null, 2) + "\n", { mode: 0o600 });
   return { artifact, artifactPath };
 }
@@ -95,8 +124,10 @@ export function parseArgs(argv: string[]): RunBenchmarkOptions {
     const match = /^--([a-zA-Z-]+)=(.*)$/.exec(arg);
     if (match) flags.set(match[1]!, match[2]!);
   }
+  const label = flags.get("label") ?? "baseline";
+  assertSafeArtifactLabel(label);
   return {
-    label: flags.get("label") ?? "baseline",
+    label,
     warmupCount: parsePositiveInt(flags.get("warmup"), "warmup", 2),
     repeatCount: parsePositiveInt(flags.get("repeat"), "repeat", 5),
   };

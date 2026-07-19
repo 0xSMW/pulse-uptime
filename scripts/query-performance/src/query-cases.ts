@@ -40,8 +40,9 @@ export const queryCases: QueryCase[] = [
     description: "Dashboard monitor list with the rollup+raw-check blended 24h uptime subquery and the active-incident left join production performs alongside it.",
     source: "lib/monitoring/queries.ts:35-117 (listDashboardMonitors)",
     mutating: false,
-    build: (conn) => {
-      const end15m = new Date();
+    build: (conn, ctx) => {
+      // Use fixture time so plans read seeded rollups.
+      const end15m = new Date(ctx.now);
       end15m.setUTCMinutes(Math.floor(end15m.getUTCMinutes() / 15) * 15, 0, 0);
       const start15m = new Date(end15m.getTime() - 86_400_000);
       return toSQL(conn.db.select({
@@ -159,10 +160,14 @@ export const queryCases: QueryCase[] = [
     description: "Most recent 5 incidents for a single monitor's detail page.",
     source: "lib/reporting/queries/monitors.ts:getMonitorDetail",
     mutating: false,
-    build: (conn, ctx) => toSQL(conn.db.select().from(schema.incidents)
-      .where(eq(schema.incidents.monitorId, ctx.monitorIds[0]!))
-      .orderBy(desc(schema.incidents.openedAt))
-      .limit(5)),
+    build: (conn, ctx) => {
+      // Use the seeded incident owner when available.
+      const monitorId = ctx.incidentMonitorId ?? ctx.monitorIds[0]!;
+      return toSQL(conn.db.select().from(schema.incidents)
+        .where(eq(schema.incidents.monitorId, monitorId))
+        .orderBy(desc(schema.incidents.openedAt))
+        .limit(5));
+    },
   },
   {
     name: "monitor-detail-accepted-config",
