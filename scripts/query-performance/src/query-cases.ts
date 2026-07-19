@@ -217,14 +217,20 @@ export const queryCases: QueryCase[] = [
     description: "Bulk sent/dead/unsent aggregate for a page of incidents (avoids N+1 outbox scans).",
     source: "lib/reporting/queries/incidents.ts:listIncidents",
     mutating: false,
-    build: (conn, ctx) => toSQL(conn.db.select({
-      incidentId: schema.notificationOutbox.incidentId,
-      sentCount: dsql<number>`count(*) filter (where ${schema.notificationOutbox.status} = 'sent')`.mapWith(Number),
-      anyDead: dsql<boolean>`bool_or(${schema.notificationOutbox.status} = 'dead')`,
-      anyUnsent: dsql<boolean>`bool_or(${schema.notificationOutbox.status} <> 'sent')`,
-    }).from(schema.notificationOutbox)
-      .where(inArray(schema.notificationOutbox.incidentId, ctx.ongoingIncidentId ? [ctx.ongoingIncidentId] : ["00000000-0000-0000-0000-000000000000"]))
-      .groupBy(schema.notificationOutbox.incidentId)),
+    build: (conn, ctx) => {
+      // Bind every listed incident ID, or a sentinel for an empty page.
+      const incidentIds = ctx.incidentIds.length > 0
+        ? ctx.incidentIds
+        : ["00000000-0000-0000-0000-000000000000"];
+      return toSQL(conn.db.select({
+        incidentId: schema.notificationOutbox.incidentId,
+        sentCount: dsql<number>`count(*) filter (where ${schema.notificationOutbox.status} = 'sent')`.mapWith(Number),
+        anyDead: dsql<boolean>`bool_or(${schema.notificationOutbox.status} = 'dead')`,
+        anyUnsent: dsql<boolean>`bool_or(${schema.notificationOutbox.status} <> 'sent')`,
+      }).from(schema.notificationOutbox)
+        .where(inArray(schema.notificationOutbox.incidentId, incidentIds))
+        .groupBy(schema.notificationOutbox.incidentId));
+    },
   },
   {
     name: "incident-detail-lookup",

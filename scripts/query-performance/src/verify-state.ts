@@ -40,6 +40,10 @@ const TABLE_CHECKS: TableCheck[] = [
   { table: "api_rate_limit_buckets", countSql: `select count(*)::int n from api_rate_limit_buckets where principal_key = 'qh-fixture'`, taggedCountSql: `select count(*)::int n from api_rate_limit_buckets where principal_key = 'qh-fixture'` },
 ];
 
+// Count accepted snapshots outside fixture ownership.
+export const ACCEPTED_CONFIG_NON_FIXTURE_RESIDUE_SQL =
+  `select count(*)::int n from monitoring_config_snapshots where status = 'accepted' and source is distinct from 'qh-fixture'`;
+
 export interface TableVerification {
   table: string;
   expected: number;
@@ -55,10 +59,31 @@ export interface RetainedStateProof {
   seededAt: string | null;
   monitorCountExpected: number;
   monitorCountUntaggedResidue: number;
+  acceptedConfigNonFixtureResidue: number;
   tables: TableVerification[];
   allMatch: boolean;
   allNonZero: boolean;
   safeScope: boolean;
+}
+
+// Safe scope excludes untagged monitors and non-fixture accepted snapshots.
+export function evaluateSafeScope(input: {
+  monitorCountUntaggedResidue: number;
+  acceptedConfigNonFixtureResidue: number;
+}): boolean {
+  return input.monitorCountUntaggedResidue === 0
+    && input.acceptedConfigNonFixtureResidue === 0;
+}
+
+// Apply the same proof gate as the CLI.
+export function passesRetainedStateCliGate(proof: Pick<
+  RetainedStateProof,
+  "allMatch" | "allNonZero" | "safeScope" | "fixtureVersion"
+>): boolean {
+  return proof.allMatch
+    && proof.allNonZero
+    && proof.safeScope
+    && proof.fixtureVersion === FIXTURE_VERSION;
 }
 
 export async function verifyRetainedState(): Promise<RetainedStateProof> {
@@ -84,9 +109,13 @@ export async function verifyRetainedState(): Promise<RetainedStateProof> {
       });
     }
 
-    const [[untagged]] = await Promise.all([
+    const [[untagged], [acceptedNonFixture]] = await Promise.all([
       conn.sql<Array<{ n: number }>>`select count(*)::int n from monitor_registry where id not like 'qh-%'`,
+      conn.sql.unsafe<Array<{ n: number }>>(ACCEPTED_CONFIG_NON_FIXTURE_RESIDUE_SQL),
     ]);
+
+    const monitorCountUntaggedResidue = untagged?.n ?? 0;
+    const acceptedConfigNonFixtureResidue = acceptedNonFixture?.n ?? 0;
 
     return {
       projectId: conn.project.projectId,
@@ -94,11 +123,15 @@ export async function verifyRetainedState(): Promise<RetainedStateProof> {
       fixtureVersion: marker?.version ?? null,
       seededAt: marker?.seeded_at ? new Date(marker.seeded_at).toISOString() : null,
       monitorCountExpected: MONITOR_COUNT,
-      monitorCountUntaggedResidue: untagged?.n ?? 0,
+      monitorCountUntaggedResidue,
+      acceptedConfigNonFixtureResidue,
       tables,
       allMatch: tables.every((entry) => entry.matches),
       allNonZero: tables.every((entry) => entry.nonZero),
-      safeScope: (untagged?.n ?? 0) === 0,
+      safeScope: evaluateSafeScope({
+        monitorCountUntaggedResidue,
+        acceptedConfigNonFixtureResidue,
+      }),
     };
   });
 }
@@ -106,7 +139,7 @@ export async function verifyRetainedState(): Promise<RetainedStateProof> {
 async function main() {
   const proof = await verifyRetainedState();
   console.log(JSON.stringify(proof, null, 2));
-  if (!proof.allMatch || !proof.allNonZero || !proof.safeScope || proof.fixtureVersion !== FIXTURE_VERSION) {
+  if (!passesRetainedStateCliGate(proof)) {
     console.error("[verify-state] retained-state verification FAILED");
     process.exitCode = 1;
   } else {

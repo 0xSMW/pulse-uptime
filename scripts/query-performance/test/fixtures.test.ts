@@ -4,9 +4,17 @@ import { getTableColumns } from "drizzle-orm";
 import { hashMonitoringConfig } from "../../../lib/config/canonical";
 import { validateMonitoringConfig } from "../../../lib/config/validation";
 import * as schema from "../../../lib/db/schema";
-import { CHUNK_SIZE, buildAcceptedFixtureConfig, insertMaintenanceAndScheduler } from "../src/fixtures";
+import {
+  CHUNK_SIZE,
+  STALE_CLAIM_CUTOFF_MS,
+  STALE_SENDING_CLAIM_AGE_MS,
+  buildAcceptedFixtureConfig,
+  buildNotificationOutboxRows,
+  insertMaintenanceAndScheduler,
+} from "../src/fixtures";
 import type { GatedConnection } from "../src/db-connection";
 import { FIXTURE_EMAIL_DOMAIN, FIXTURE_URL_DOMAIN, GROUP_NAMES, MONITOR_COUNT, monitorId } from "../src/fixture-constants";
+import { mulberry32 } from "../src/rng";
 
 const POSTGRES_MAX_BIND_PARAMETERS = 65_535;
 
@@ -44,6 +52,134 @@ function buildPlan(count: number) {
     };
   });
 }
+
+describe("buildNotificationOutboxRows", () => {
+  const now = new Date("2026-01-15T12:00:00.000Z");
+
+  function sampleIncidents() {
+    return [
+      {
+        id: "11111111-1111-1111-1111-111111111111",
+        monitorId: "qh-monitor-0001",
+        openedAt: new Date(now.getTime() - 3_600_000),
+        resolvedAt: new Date(now.getTime() - 1_800_000),
+      },
+      {
+        id: "22222222-2222-2222-2222-222222222222",
+        monitorId: "qh-monitor-0002",
+        openedAt: new Date(now.getTime() - 7_200_000),
+        resolvedAt: null,
+      },
+      {
+        id: "33333333-3333-3333-3333-333333333333",
+        monitorId: "qh-monitor-0003",
+        openedAt: new Date(now.getTime() - 86_400_000),
+        resolvedAt: new Date(now.getTime() - 85_000_000),
+      },
+      {
+        id: "44444444-4444-4444-4444-444444444444",
+        monitorId: "qh-monitor-0004",
+        openedAt: new Date(now.getTime() - 172_800_000),
+        resolvedAt: null,
+      },
+      {
+        id: "55555555-5555-5555-5555-555555555555",
+        monitorId: "qh-monitor-0005",
+        openedAt: new Date(now.getTime() - 259_200_000),
+        resolvedAt: new Date(now.getTime() - 258_000_000),
+      },
+    ];
+  }
+
+  it("always seeds at least one stale sending row with a valid claim pair", () => {
+    const claimToken = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const rows = buildNotificationOutboxRows(sampleIncidents(), {
+      now,
+      rand: mulberry32(0x51485f33),
+      createId: () => "00000000-0000-0000-0000-000000000001",
+      createClaimToken: () => claimToken,
+    });
+
+    const staleSending = rows.filter((row) => row.status === "sending");
+    expect(staleSending.length).toBeGreaterThanOrEqual(1);
+
+    for (const row of staleSending) {
+      expect(row.claimToken).toBe(claimToken);
+      expect(row.claimedAt).toBeInstanceOf(Date);
+      expect(row.claimedAt!.getTime()).toBe(now.getTime() - STALE_SENDING_CLAIM_AGE_MS);
+      expect(row.claimedAt!.getTime()).toBeLessThan(now.getTime() - STALE_CLAIM_CUTOFF_MS);
+      expect(row.attemptCount).toBeGreaterThanOrEqual(1);
+      expect(row.sentAt).toBeNull();
+      expect(row.providerMessageId).toBeNull();
+      expect(row.lastError).toBeNull();
+    }
+  });
+
+  it("pairs claim fields and keeps non-sending statuses claim-free", () => {
+    const rows = buildNotificationOutboxRows(sampleIncidents(), {
+      now,
+      rand: mulberry32(0x51485f33),
+    });
+
+    expect(rows.length).toBe(8);
+    for (const row of rows) {
+      const claimNull = row.claimToken == null;
+      const claimedAtNull = row.claimedAt == null;
+      expect(claimNull).toBe(claimedAtNull);
+      if (row.status === "sending") {
+        expect(claimNull).toBe(false);
+      } else {
+        expect(claimNull).toBe(true);
+      }
+    }
+
+    const statuses = new Set(rows.map((row) => row.status));
+    expect(statuses.has("sending")).toBe(true);
+    // Preserve another terminal or retryable status.
+    expect(statuses.has("sent") || statuses.has("pending") || statuses.has("failed") || statuses.has("dead")).toBe(true);
+  });
+
+  it("preserves one-event-per-incident cardinality after the stale sending assignment", () => {
+    const incidents = sampleIncidents();
+    const expectedEvents = incidents.reduce(
+      (sum, incident) => sum + 1 + (incident.resolvedAt ? 1 : 0),
+      0,
+    );
+    const rows = buildNotificationOutboxRows(incidents, {
+      now,
+      rand: mulberry32(7),
+    });
+    expect(rows).toHaveLength(expectedEvents);
+  });
+
+  it("makes every pending and failed row due at the fixture clock", () => {
+    const rows = buildNotificationOutboxRows(sampleIncidents(), {
+      now,
+      rand: mulberry32(0x51485f33),
+    });
+
+    const retryable = rows.filter((row) => row.status === "pending" || row.status === "failed");
+    expect(retryable.length).toBeGreaterThan(0);
+    for (const row of retryable) {
+      expect(row.nextAttemptAt.getTime()).toBeLessThanOrEqual(now.getTime());
+    }
+  });
+
+  it("guarantees at least one due claim-eligible row for CLAIM_NOTIFICATIONS_SQL", () => {
+    // Use a fixed seed for deterministic status coverage.
+    const rows = buildNotificationOutboxRows(sampleIncidents(), {
+      now,
+      rand: mulberry32(0x51485f33),
+    });
+
+    const claimEligible = rows.filter(
+      (row) =>
+        (row.status === "pending" || row.status === "failed") &&
+        row.nextAttemptAt.getTime() <= now.getTime(),
+    );
+    expect(claimEligible.length).toBeGreaterThanOrEqual(1);
+  });
+});
 
 describe("buildAcceptedFixtureConfig", () => {
   it("validates and hashes a seeded accepted monitoring config with production contracts", () => {

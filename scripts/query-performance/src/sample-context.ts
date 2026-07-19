@@ -1,6 +1,6 @@
 // Load representative IDs and the fixture clock once per benchmark run.
 
-import { asc, isNull, isNotNull } from "drizzle-orm";
+import { asc, desc, eq, isNull, isNotNull } from "drizzle-orm";
 
 import * as schema from "../../../lib/db/schema";
 import type { GatedConnection } from "./db-connection";
@@ -10,6 +10,8 @@ export interface SampleContext {
   now: Date;
   monitorIds: string[];
   groupSlug: string;
+  // Incident IDs in production list order, capped at 100.
+  incidentIds: string[];
   ongoingIncidentId: string | null;
   resolvedIncidentId: string | null;
   incidentMonitorId: string | null;
@@ -26,6 +28,13 @@ export async function loadSampleContext(conn: GatedConnection): Promise<SampleCo
   if (monitors.length === 0) {
     throw new Error("Fixture has no monitors — run the seed-fixture command before benchmarking.");
   }
+
+  // Match the production join, ordering, and 100-row limit.
+  const listedIncidents = await db.select({ id: schema.incidents.id })
+    .from(schema.incidents)
+    .innerJoin(schema.monitorRegistry, eq(schema.monitorRegistry.id, schema.incidents.monitorId))
+    .orderBy(desc(schema.incidents.openedAt))
+    .limit(100);
 
   const [ongoing] = await db.select({ id: schema.incidents.id, monitorId: schema.incidents.monitorId })
     .from(schema.incidents)
@@ -52,6 +61,7 @@ export async function loadSampleContext(conn: GatedConnection): Promise<SampleCo
     now,
     monitorIds: monitors.map((monitor) => monitor.id),
     groupSlug: "api",
+    incidentIds: listedIncidents.map((incident) => incident.id),
     ongoingIncidentId: ongoing?.id ?? null,
     resolvedIncidentId: resolved?.id ?? null,
     incidentMonitorId: ongoing?.monitorId ?? null,

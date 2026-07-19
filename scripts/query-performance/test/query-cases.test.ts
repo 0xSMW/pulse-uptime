@@ -26,10 +26,17 @@ const FAKE_SAMPLE_CONTEXT: SampleContext = {
   now: new Date("2026-01-01T00:00:00Z"),
   monitorIds: Array.from({ length: 10 }, (_, index) => `qh-monitor-${String(index + 1).padStart(4, "0")}`),
   groupSlug: "api",
+  incidentIds: [
+    "00000000-0000-0000-0000-000000000001",
+    "00000000-0000-0000-0000-000000000002",
+    "00000000-0000-0000-0000-000000000003",
+  ],
   ongoingIncidentId: "00000000-0000-0000-0000-000000000001",
   resolvedIncidentId: "00000000-0000-0000-0000-000000000002",
   incidentMonitorId: "qh-monitor-0001",
 };
+
+const EMPTY_INCIDENT_SENTINEL = "00000000-0000-0000-0000-000000000000";
 
 function fakeConnection(): GatedConnection {
   const sql = postgres("postgres://test:test@0.0.0.0:1/test-never-connects", { max: 1 });
@@ -105,6 +112,30 @@ describe("monitor detail recent incidents", () => {
     const ctx: SampleContext = { ...FAKE_SAMPLE_CONTEXT, incidentMonitorId: null };
     const built = findCase("monitor-detail-recent-incidents").build(fakeConnection(), ctx);
     expect(built.params[0]).toBe(ctx.monitorIds[0]);
+  });
+});
+
+describe("incidents notification summary", () => {
+  it("binds every listed incident ID in the IN predicate", () => {
+    const incidentIds = [
+      "00000000-0000-0000-0000-0000000000aa",
+      "00000000-0000-0000-0000-0000000000bb",
+      "00000000-0000-0000-0000-0000000000cc",
+    ];
+    const ctx: SampleContext = { ...FAKE_SAMPLE_CONTEXT, incidentIds };
+    const built = findCase("incidents-notification-summary").build(fakeConnection(), ctx);
+
+    for (const id of incidentIds) {
+      expect(built.params).toContain(id);
+    }
+    expect(built.params.filter((param) => typeof param === "string" && param.startsWith("00000000-"))).toEqual(incidentIds);
+  });
+
+  it("uses the deterministic sentinel when no incidents exist", () => {
+    const ctx: SampleContext = { ...FAKE_SAMPLE_CONTEXT, incidentIds: [] };
+    const built = findCase("incidents-notification-summary").build(fakeConnection(), ctx);
+    expect(built.params).toContain(EMPTY_INCIDENT_SENTINEL);
+    expect(built.params.filter((param) => param === EMPTY_INCIDENT_SENTINEL)).toHaveLength(1);
   });
 });
 

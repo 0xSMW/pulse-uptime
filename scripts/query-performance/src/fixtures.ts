@@ -33,6 +33,10 @@ const ROLLUP_HOUR_DAYS = 31;
 const ROLLUP_DAY_DAYS = 91;
 const DAILY_ROLLUP_DAYS = 30;
 const SCHEDULER_BATCH_MINUTES = 60;
+// Use the production five-minute stale-claim window.
+export const STALE_CLAIM_CUTOFF_MS = 5 * 60_000;
+// Make seeded sending claims stale enough for reconciliation.
+export const STALE_SENDING_CLAIM_AGE_MS = 10 * 60_000;
 // The widest rows bind 18 parameters each. A 2,500-row chunk binds 45,000
 // within Postgres's 65,535 parameter limit.
 export const CHUNK_SIZE = 2_500;
@@ -196,6 +200,71 @@ async function insertMonitors(conn: GatedConnection, plan: MonitorPlan[]): Promi
 
 interface IncidentPlan { id: string; monitorId: string; openedAt: Date; resolvedAt: Date | null; openingStatusCode: number | null; openingErrorCode: string | null; firstFailureAt: Date; firstSuccessAt: Date | null; }
 
+export type OutboxIncidentSeed = Pick<IncidentPlan, "id" | "monitorId" | "openedAt" | "resolvedAt">;
+export type NotificationOutboxFixtureRow = typeof schema.notificationOutbox.$inferInsert;
+
+// Build outbox rows for seeding and offline tests.
+export function buildNotificationOutboxRows(
+  incidents: readonly OutboxIncidentSeed[],
+  options: {
+    now: Date;
+    rand: () => number;
+    createId?: () => string;
+    createClaimToken?: () => string;
+  },
+): NotificationOutboxFixtureRow[] {
+  const createId = options.createId ?? randomUUID;
+  const createClaimToken = options.createClaimToken ?? randomUUID;
+  const { now, rand } = options;
+  const outboxRows: NotificationOutboxFixtureRow[] = [];
+
+  for (const incident of incidents) {
+    const events: { type: string; at: Date }[] = [{ type: "incident.opened", at: incident.openedAt }];
+    if (incident.resolvedAt) events.push({ type: "incident.resolved", at: incident.resolvedAt });
+    for (const event of events) {
+      const statusRoll = rand();
+      // Assign sending status after building the random status mix.
+      const status = statusRoll < 0.7 ? "sent" : statusRoll < 0.85 ? "pending" : statusRoll < 0.95 ? "failed" : "dead";
+      outboxRows.push({
+        id: createId(),
+        incidentId: incident.id,
+        monitorId: incident.monitorId,
+        eventType: event.type,
+        recipient: `oncall@${FIXTURE_EMAIL_DOMAIN}`,
+        idempotencyKey: `${incident.id}:${event.type}`,
+        payload: { fixture: true, eventType: event.type },
+        status,
+        attemptCount: status === "sent" ? 1 : intBetween(rand, 0, 3),
+        // Keep retryable rows due at the fixture clock.
+        nextAttemptAt: status === "pending" || status === "failed" ? now : event.at,
+        claimToken: null,
+        claimedAt: null,
+        providerMessageId: status === "sent" ? `qh-fixture-msg-${createId()}` : null,
+        lastError: status === "failed" || status === "dead" ? "qh-fixture synthetic delivery failure" : null,
+        sentAt: status === "sent" ? event.at : null,
+        createdAt: event.at,
+        updatedAt: event.at,
+      });
+    }
+  }
+
+  // Convert a sent row to preserve retryable and terminal coverage.
+  if (outboxRows.length > 0) {
+    const target = outboxRows.find((row) => row.status === "sent") ?? outboxRows[0]!;
+    const claimedAt = new Date(now.getTime() - STALE_SENDING_CLAIM_AGE_MS);
+    target.status = "sending";
+    target.claimToken = createClaimToken();
+    target.claimedAt = claimedAt;
+    target.attemptCount = Math.max(1, target.attemptCount ?? 0);
+    target.providerMessageId = null;
+    target.lastError = null;
+    target.sentAt = null;
+    target.updatedAt = claimedAt;
+  }
+
+  return outboxRows;
+}
+
 async function insertChecksIncidentsAndOutbox(
   conn: GatedConnection,
   plan: MonitorPlan[],
@@ -290,34 +359,7 @@ async function insertChecksIncidentsAndOutbox(
     })));
   }
 
-  const outboxRows: (typeof schema.notificationOutbox.$inferInsert)[] = [];
-  for (const incident of incidentPlans) {
-    const events: { type: string; at: Date }[] = [{ type: "incident.opened", at: incident.openedAt }];
-    if (incident.resolvedAt) events.push({ type: "incident.resolved", at: incident.resolvedAt });
-    for (const event of events) {
-      const statusRoll = rand();
-      const status = statusRoll < 0.7 ? "sent" : statusRoll < 0.85 ? "pending" : statusRoll < 0.95 ? "failed" : "dead";
-      outboxRows.push({
-        id: randomUUID(),
-        incidentId: incident.id,
-        monitorId: incident.monitorId,
-        eventType: event.type,
-        recipient: `oncall@${FIXTURE_EMAIL_DOMAIN}`,
-        idempotencyKey: `${incident.id}:${event.type}`,
-        payload: { fixture: true, eventType: event.type },
-        status,
-        attemptCount: status === "sent" ? 1 : intBetween(rand, 0, 3),
-        nextAttemptAt: status === "pending" || status === "failed" ? new Date(NOW.getTime() + 60_000) : event.at,
-        claimToken: null,
-        claimedAt: null,
-        providerMessageId: status === "sent" ? `qh-fixture-msg-${randomUUID()}` : null,
-        lastError: status === "failed" || status === "dead" ? "qh-fixture synthetic delivery failure" : null,
-        sentAt: status === "sent" ? event.at : null,
-        createdAt: event.at,
-        updatedAt: event.at,
-      });
-    }
-  }
+  const outboxRows = buildNotificationOutboxRows(incidentPlans, { now: NOW, rand });
   for (const rows of chunk(outboxRows, CHUNK_SIZE)) await db.insert(schema.notificationOutbox).values(rows);
 
   return { incidentCount: incidentPlans.length, outboxCount: outboxRows.length, checkCount: totalChecks };

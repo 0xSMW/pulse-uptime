@@ -19,6 +19,7 @@ function validProof(overrides: Partial<RetainedStateProof> = {}): RetainedStateP
     seededAt: new Date(0).toISOString(),
     monitorCountExpected: 100,
     monitorCountUntaggedResidue: 0,
+    acceptedConfigNonFixtureResidue: 0,
     tables: [{ table: "monitor_registry", expected: 100, actual: 100, matches: true, nonZero: true }],
     allMatch: true,
     allNonZero: true,
@@ -56,9 +57,14 @@ describe("assertBenchmarkableState", () => {
     expect(() => assertBenchmarkableState(proof)).toThrow(/zero-row/i);
   });
 
-  it("refuses when untagged rows are in scope (reset could touch data outside the fixture tag)", () => {
+  it("refuses when untagged monitor rows are in scope", () => {
     const proof = validProof({ safeScope: false, monitorCountUntaggedResidue: 3 });
-    expect(() => assertBenchmarkableState(proof)).toThrow(/untagged/i);
+    expect(() => assertBenchmarkableState(proof)).toThrow(/outside fixture scope/i);
+  });
+
+  it("refuses when non-fixture accepted snapshots are in scope", () => {
+    const proof = validProof({ safeScope: false, acceptedConfigNonFixtureResidue: 1 });
+    expect(() => assertBenchmarkableState(proof)).toThrow(/outside fixture scope/i);
   });
 });
 

@@ -28,6 +28,11 @@ const FAKE_SAMPLE_CONTEXT: SampleContext = {
   now: new Date("2026-01-01T00:00:00Z"),
   monitorIds: Array.from({ length: 10 }, (_, index) => `qh-monitor-${String(index + 1).padStart(4, "0")}`),
   groupSlug: "api",
+  incidentIds: [
+    "00000000-0000-0000-0000-000000000001",
+    "00000000-0000-0000-0000-000000000002",
+    "00000000-0000-0000-0000-000000000003",
+  ],
   ongoingIncidentId: "00000000-0000-0000-0000-000000000001",
   resolvedIncidentId: "00000000-0000-0000-0000-000000000002",
   incidentMonitorId: "qh-monitor-0001",

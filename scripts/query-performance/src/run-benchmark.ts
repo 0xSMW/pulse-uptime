@@ -66,7 +66,7 @@ export function assertBenchmarkableState(proof: RetainedStateProof): void {
     throw new Error("Retained-state verification found zero-row fixture tables — reseed before benchmarking.");
   }
   if (!proof.safeScope) {
-    throw new Error("Retained-state verification found untagged monitor rows in scope — refusing to benchmark.");
+    throw new Error("Retained-state verification found data outside fixture scope. Refusing to benchmark.");
   }
 }
 
