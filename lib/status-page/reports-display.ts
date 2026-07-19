@@ -110,17 +110,27 @@ export function reportBannerTier(
  * §3.6 overall state: machine states derive the existing
  * empty/operational/investigating/outage tiers; published ongoing reports feed
  * additional degraded/maintenance/outage tiers; the reddest wins.
+ *
+ * "empty" only when there are NEITHER monitors NOR ongoing reports (finding: a
+ * page with zero enabled monitors used to short-circuit to "empty" before
+ * ever looking at ongoingReports, hiding a manually authored — or
+ * promoted-then-archived-monitor — ongoing outage/maintenance report behind a
+ * neutral banner). With no monitors but at least one ongoing report, the
+ * machine-derived floor is "operational" so the report's own tier (degraded /
+ * maintenance / outage) is free to raise it.
  */
 export function deriveOverallState(
   machineStates: readonly string[],
   ongoingReports: ReadonlyArray<Pick<PublicReportEntry, "type" | "affected">>,
 ): PublicOverallState {
-  if (machineStates.length === 0) return "empty";
-  let overall: PublicOverallState = machineStates.includes("DOWN")
-    ? "outage"
-    : machineStates.some((state) => state === "VERIFYING_DOWN" || state === "VERIFYING_UP")
-      ? "investigating"
-      : "operational";
+  if (machineStates.length === 0 && ongoingReports.length === 0) return "empty";
+  let overall: PublicOverallState = machineStates.length === 0
+    ? "operational"
+    : machineStates.includes("DOWN")
+      ? "outage"
+      : machineStates.some((state) => state === "VERIFYING_DOWN" || state === "VERIFYING_UP")
+        ? "investigating"
+        : "operational";
   for (const report of ongoingReports) {
     overall = worse(overall, reportBannerTier(report));
   }

@@ -70,8 +70,14 @@ describe("deriveOverallState", () => {
     expect(deriveOverallState(["UP", "DOWN"], [])).toBe("outage");
   });
 
-  it("stays empty with no monitors regardless of reports", () => {
-    expect(deriveOverallState([], [report({ affected: [{ monitorId: "a", impact: "down" }] })])).toBe("empty");
+  it("stays empty only when there are neither monitors nor ongoing reports", () => {
+    expect(deriveOverallState([], [])).toBe("empty");
+  });
+
+  it("folds an ongoing report's tier in even with zero monitors (finding: used to stay \"empty\" regardless of reports, hiding an ongoing outage/maintenance report authored on a page with no enabled monitors)", () => {
+    expect(deriveOverallState([], [report({ affected: [{ monitorId: "a", impact: "down" }] })])).toBe("outage");
+    expect(deriveOverallState([], [report({ affected: [{ monitorId: "a", impact: "degraded" }] })])).toBe("degraded");
+    expect(deriveOverallState([], [report({ type: "maintenance", affected: [{ monitorId: "a", impact: "maintenance" }] })])).toBe("maintenance");
   });
 
   it("yields Degraded Performance from a degraded-impact report over all-UP machines", () => {

@@ -322,6 +322,9 @@ async function loadPublicStatus(group?: string) {
         id: incident.id,
         monitorName: incident.monitorName,
         openedAt: incident.openedAt.toISOString(),
+        // Always non-null here: query 3 above filters isNotNull(resolvedAt).
+        // The `?? now` fallback only satisfies the nullable column type.
+        resolvedAt: (incident.resolvedAt ?? now).toISOString(),
         durationSeconds: Math.max(0, Math.floor(((incident.resolvedAt?.getTime() ?? now.getTime()) - incident.openedAt.getTime()) / 1_000)),
       })),
       config.minIncidentSeconds,

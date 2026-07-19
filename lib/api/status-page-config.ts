@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 import { adminUsers, images, statusPageConfig } from "@/lib/db/schema";
@@ -14,17 +14,24 @@ import {
 /**
  * Store-injection service for the dedicated single-row status page
  * configuration (§2.1). Writes are optimistic-concurrency guarded: every PUT
- * carries the ETag captured on read, derived from updatedAt.
+ * carries the ETag captured on read, derived from a monotonic `version`
+ * counter (NOT updatedAt — finding: two writes landing in the same
+ * millisecond used to produce identical updatedAt-derived ETags, so a client
+ * holding the pre-write If-Match could pass the precondition after another
+ * save and clobber it). `version` increments by exactly 1 on every successful
+ * write, and the conditional UPDATE compares If-Match against the CURRENT
+ * version — so a stale If-Match still 412s even within the same millisecond.
  *
  * Name seeding mechanic: the migration seeds row 1 with name NULL and
- * updatedAt NULL. The read path coalesces NULL name to
+ * updatedAt NULL (version 0). The read path coalesces NULL name to
  * NEXT_PUBLIC_STATUS_PAGE_NAME (trimmed) and then the historical runtime
  * literal "System Status", and never persists the coalesced value — the first
  * successful PUT is the first write, so env-configured deployments keep their
- * title with no magic markers.
+ * title with no magic markers. Version 0 (the seed/unwritten state) still
+ * produces the historical "0" ETag.
  */
 
-export type StatusPageConfigData = StatusPageConfigDocument & { updatedAt: string | null };
+export type StatusPageConfigData = StatusPageConfigDocument & { updatedAt: string | null; version: number };
 
 export class StatusPageConfigError extends Error {
   constructor(
@@ -41,19 +48,19 @@ export class StatusPageConfigError extends Error {
   }
 }
 
-/** Quoted millisecond timestamp; `"0"` marks the never-updated seed row. */
-export function statusPageConfigEtag(updatedAt: Date | null): string {
-  return `"${updatedAt === null ? 0 : updatedAt.getTime()}"`;
+/** Quoted version counter; `"0"` marks the never-updated seed row. */
+export function statusPageConfigEtag(version: number): string {
+  return `"${version}"`;
 }
 
-export type StatusPageConfigRow = StatusPageConfigDocument & { updatedAt: Date | null };
+export type StatusPageConfigRow = StatusPageConfigDocument & { updatedAt: Date | null; version: number };
 
 export interface StatusPageConfigStore {
   read(): Promise<(Omit<StatusPageConfigRow, "name"> & { name: string | null }) | null>;
-  /** Conditional single-row update; false when updatedAt no longer matches. */
+  /** Conditional single-row update; false when version no longer matches expectedVersion. */
   write(input: {
     document: StatusPageConfigDocument;
-    expectedUpdatedAt: Date | null;
+    expectedVersion: number;
     now: Date;
   }): Promise<boolean>;
   findImageKinds(ids: readonly string[]): Promise<Array<{ id: string; kind: string }>>;
@@ -93,7 +100,7 @@ export async function getStatusPageConfig(
   }
   return {
     data: present(row, dependencies.env ?? process.env),
-    etag: statusPageConfigEtag(row.updatedAt),
+    etag: statusPageConfigEtag(row.version),
   };
 }
 
@@ -123,7 +130,7 @@ export async function putStatusPageConfig(
   if (!current) {
     throw new StatusPageConfigError("CONFIG_UNAVAILABLE", "The status page configuration row is missing; run database migrations");
   }
-  if (statusPageConfigEtag(current.updatedAt) !== ifMatchEtag.trim()) {
+  if (statusPageConfigEtag(current.version) !== ifMatchEtag.trim()) {
     throw new StatusPageConfigError("PRECONDITION_FAILED", "The status page configuration changed since it was read");
   }
 
@@ -142,7 +149,8 @@ export async function putStatusPageConfig(
   }
 
   const now = dependencies.now?.() ?? new Date();
-  const written = await store.write({ document, expectedUpdatedAt: current.updatedAt, now });
+  const nextVersion = current.version + 1;
+  const written = await store.write({ document, expectedVersion: current.version, now });
   if (!written) {
     throw new StatusPageConfigError("PRECONDITION_FAILED", "The status page configuration changed since it was read");
   }
@@ -161,8 +169,8 @@ export async function putStatusPageConfig(
   }
 
   return {
-    data: present({ ...document, updatedAt: now }, dependencies.env ?? process.env),
-    etag: statusPageConfigEtag(now),
+    data: present({ ...document, updatedAt: now, version: nextVersion }, dependencies.env ?? process.env),
+    etag: statusPageConfigEtag(nextVersion),
   };
 }
 
@@ -187,6 +195,7 @@ const configSelection = {
   minIncidentSeconds: statusPageConfig.minIncidentSeconds,
   timezone: statusPageConfig.timezone,
   updatedAt: statusPageConfig.updatedAt,
+  version: statusPageConfig.version,
 };
 
 export const databaseStatusPageConfigStore: StatusPageConfigStore = {
@@ -199,15 +208,18 @@ export const databaseStatusPageConfigStore: StatusPageConfigStore = {
       navLinks: (row.navLinks ?? []) as StatusPageNavLink[],
     };
   },
-  async write({ document, expectedUpdatedAt, now }) {
+  // The conditional UPDATE compares against the CURRENT version (not
+  // updatedAt), incrementing it in the same statement — so a stale If-Match
+  // still fails even when two writes land in the same millisecond. The seed
+  // row's version defaults to 0, so no separate "never written" branch is
+  // needed the way the old updatedAt-IS-NULL special case required.
+  async write({ document, expectedVersion, now }) {
     const rows = await db
       .update(statusPageConfig)
-      .set({ ...document, updatedAt: now })
+      .set({ ...document, updatedAt: now, version: sql`${statusPageConfig.version} + 1` })
       .where(and(
         eq(statusPageConfig.id, 1),
-        expectedUpdatedAt === null
-          ? isNull(statusPageConfig.updatedAt)
-          : eq(statusPageConfig.updatedAt, expectedUpdatedAt),
+        eq(statusPageConfig.version, expectedVersion),
       ))
       .returning({ id: statusPageConfig.id });
     return rows.length > 0;

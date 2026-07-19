@@ -4237,7 +4237,7 @@
       "StatusPageConfig": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["name", "layout", "theme", "logoLightImageId", "logoDarkImageId", "faviconImageId", "homepageUrl", "contactUrl", "navLinks", "googleTagId", "customCss", "customHead", "announcementEnabled", "announcementMarkdown", "historyDays", "uptimeDecimals", "unknownAsOperational", "minIncidentSeconds", "timezone"],
+        "required": ["name", "layout", "theme", "logoLightImageId", "logoDarkImageId", "faviconImageId", "homepageUrl", "contactUrl", "navLinks", "googleTagId", "customCss", "customHead", "announcementEnabled", "announcementMarkdown", "historyDays", "uptimeDecimals", "unknownAsOperational", "minIncidentSeconds", "timezone", "version"],
         "properties": {
           "name": {"type": "string", "minLength": 1, "maxLength": 80},
           "layout": {"enum": ["vertical", "horizontal"]},
@@ -4258,7 +4258,8 @@
           "unknownAsOperational": {"type": "boolean"},
           "minIncidentSeconds": {"type": "integer", "minimum": 0, "maximum": 604800, "description": "Hides resolved blips shorter than this from incident history only"},
           "timezone": {"type": ["string", "null"], "description": "IANA time zone; null renders UTC"},
-          "updatedAt": {"type": ["string", "null"], "format": "date-time", "readOnly": true, "description": "Drives the ETag; ignored when sent on PUT"}
+          "updatedAt": {"type": ["string", "null"], "format": "date-time", "readOnly": true, "description": "Last write time, for display only; ignored when sent on PUT"},
+          "version": {"type": "integer", "minimum": 0, "readOnly": true, "description": "Monotonic optimistic-concurrency counter; drives the ETag (as a quoted string) and is ignored when sent on PUT"}
         }
       },
       "StatusPageConfigEnvelope": {

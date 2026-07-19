@@ -465,6 +465,11 @@ export const statusPageConfig = pgTable("status_page_config", {
   minIncidentSeconds: integer("min_incident_seconds").notNull().default(0),
   timezone: text("timezone"),
   updatedAt: timestamptz("updated_at"),
+  // Monotonic optimistic-concurrency counter (finding: the ETag used to be
+  // derived from updatedAt.getTime() alone, so two writes landing in the same
+  // millisecond produced identical ETags and a stale If-Match could pass).
+  // Incremented on every write; the ETag is derived from this instead.
+  version: integer("version").notNull().default(0),
 }, (table) => [
   check("status_page_config_single_row", sql`${table.id} = 1`),
   check("status_page_config_layout", sql`${table.layout} in ('vertical', 'horizontal')`),

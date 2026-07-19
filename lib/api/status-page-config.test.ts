@@ -18,6 +18,7 @@ const LOGO_DARK_ID = "22222222-2222-4222-8222-222222222222";
 const FAVICON_ID = "33333333-3333-4333-8333-333333333333";
 
 const UPDATED_AT = new Date("2026-07-18T00:00:00.000Z");
+const CURRENT_VERSION = 3;
 
 function document(overrides: Partial<StatusPageConfigDocument> = {}): StatusPageConfigDocument {
   return {
@@ -46,7 +47,7 @@ function document(overrides: Partial<StatusPageConfigDocument> = {}): StatusPage
 
 function fakeStore(overrides: Partial<StatusPageConfigStore> = {}): StatusPageConfigStore {
   return {
-    read: vi.fn().mockResolvedValue({ ...document(), updatedAt: UPDATED_AT }),
+    read: vi.fn().mockResolvedValue({ ...document(), updatedAt: UPDATED_AT, version: CURRENT_VERSION }),
     write: vi.fn().mockResolvedValue(true),
     findImageKinds: vi.fn().mockResolvedValue([]),
     deleteUnreferencedImages: vi.fn().mockResolvedValue(0),
@@ -55,23 +56,25 @@ function fakeStore(overrides: Partial<StatusPageConfigStore> = {}): StatusPageCo
 }
 
 describe("statusPageConfigEtag", () => {
-  it("derives a quoted millisecond timestamp with a zero seed marker", () => {
-    expect(statusPageConfigEtag(null)).toBe('"0"');
-    expect(statusPageConfigEtag(UPDATED_AT)).toBe(`"${UPDATED_AT.getTime()}"`);
+  it("derives a quoted version counter with a zero seed marker", () => {
+    expect(statusPageConfigEtag(0)).toBe('"0"');
+    expect(statusPageConfigEtag(CURRENT_VERSION)).toBe(`"${CURRENT_VERSION}"`);
   });
 });
 
 describe("getStatusPageConfig", () => {
-  it("returns the stored document with its ETag", async () => {
+  it("returns the stored document with its version-derived ETag", async () => {
     const store = fakeStore();
     const result = await getStatusPageConfig({ store, env: {} });
-    expect(result.etag).toBe(`"${UPDATED_AT.getTime()}"`);
+    expect(result.etag).toBe(`"${CURRENT_VERSION}"`);
     expect(result.data.name).toBe("Acme Status");
     expect(result.data.updatedAt).toBe(UPDATED_AT.toISOString());
   });
 
-  it("coalesces a NULL seeded name to the env var, then the runtime literal", async () => {
-    const seeded = fakeStore({ read: vi.fn().mockResolvedValue({ ...document(), name: null, updatedAt: null }) });
+  it("coalesces a NULL seeded name to the env var, then the runtime literal, at seed version 0", async () => {
+    const seeded = fakeStore({
+      read: vi.fn().mockResolvedValue({ ...document(), name: null, updatedAt: null, version: 0 }),
+    });
     const withEnv = await getStatusPageConfig({ store: seeded, env: { NEXT_PUBLIC_STATUS_PAGE_NAME: "  Env Status  " } });
     expect(withEnv.data.name).toBe("Env Status");
     expect(withEnv.data.updatedAt).toBeNull();
@@ -82,7 +85,7 @@ describe("getStatusPageConfig", () => {
   });
 
   it("never persists the coalesced name", async () => {
-    const store = fakeStore({ read: vi.fn().mockResolvedValue({ ...document(), name: null, updatedAt: null }) });
+    const store = fakeStore({ read: vi.fn().mockResolvedValue({ ...document(), name: null, updatedAt: null, version: 0 }) });
     await getStatusPageConfig({ store, env: { NEXT_PUBLIC_STATUS_PAGE_NAME: "Env Status" } });
     expect(store.write).not.toHaveBeenCalled();
   });
@@ -94,7 +97,7 @@ describe("getStatusPageConfig", () => {
 });
 
 describe("putStatusPageConfig", () => {
-  const etag = `"${UPDATED_AT.getTime()}"`;
+  const etag = `"${CURRENT_VERSION}"`;
 
   it("validates the document before touching the store", async () => {
     const store = fakeStore();
@@ -130,7 +133,7 @@ describe("putStatusPageConfig", () => {
       .rejects.toMatchObject({ code: "IMAGE_REFERENCE_INVALID", details: { field: "faviconImageId" } });
   });
 
-  it("writes conditionally on the previous updatedAt and returns the new ETag", async () => {
+  it("writes conditionally on the previous version and returns the incremented ETag", async () => {
     const store = fakeStore({
       findImageKinds: vi.fn().mockResolvedValue([{ id: LOGO_LIGHT_ID, kind: "logo-light" }]),
     });
@@ -141,10 +144,60 @@ describe("putStatusPageConfig", () => {
       etag,
       { store, now: () => now, env: {} },
     );
-    expect(store.write).toHaveBeenCalledWith({ document: next, expectedUpdatedAt: UPDATED_AT, now });
-    expect(result.etag).toBe(`"${now.getTime()}"`);
+    expect(store.write).toHaveBeenCalledWith({ document: next, expectedVersion: CURRENT_VERSION, now });
+    expect(result.etag).toBe(`"${CURRENT_VERSION + 1}"`);
     expect(result.data.name).toBe("Renamed");
     expect(result.data.updatedAt).toBe(now.toISOString());
+    expect(result.data.version).toBe(CURRENT_VERSION + 1);
+  });
+
+  // finding: the ETag used to be derived from updatedAt.getTime() alone, so
+  // two writes landing in the same millisecond produced identical ETags and a
+  // client holding the pre-write If-Match could pass the precondition after
+  // another save and clobber it (lost update). The version counter advances
+  // by exactly 1 per write regardless of wall-clock time, so same-instant
+  // writes always get distinct ETags.
+  it("advances the ETag on every write even when two writes land in the same millisecond", async () => {
+    let version = CURRENT_VERSION;
+    const store = fakeStore({
+      read: vi.fn(() => Promise.resolve({ ...document(), updatedAt: UPDATED_AT, version })),
+      write: vi.fn(() => {
+        version += 1;
+        return Promise.resolve(true);
+      }),
+    });
+    const sameInstant = new Date("2026-07-18T09:30:00.000Z");
+
+    const first = await putStatusPageConfig(document({ name: "First" }), etag, { store, now: () => sameInstant, env: {} });
+    expect(first.etag).toBe(`"${CURRENT_VERSION + 1}"`);
+
+    const second = await putStatusPageConfig(document({ name: "Second" }), first.etag, { store, now: () => sameInstant, env: {} });
+    expect(second.etag).toBe(`"${CURRENT_VERSION + 2}"`);
+    expect(second.etag).not.toBe(first.etag);
+  });
+
+  // The conditional UPDATE compares against the CURRENT version, so a stale
+  // If-Match from before the same-instant write above still 412s instead of
+  // slipping through on a millisecond-collision.
+  it("412s a stale If-Match even when it would have collided with the current updatedAt millisecond", async () => {
+    const store = fakeStore({
+      read: vi.fn().mockResolvedValue({ ...document(), updatedAt: UPDATED_AT, version: CURRENT_VERSION + 1 }),
+    });
+    const now = new Date("2026-07-18T09:30:00.000Z");
+    await expect(
+      putStatusPageConfig(document(), etag /* stale: version is now CURRENT_VERSION + 1 */, { store, now: () => now }),
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(store.write).not.toHaveBeenCalled();
+  });
+
+  it("keeps the seed/unwritten state at the stable distinct version-0 ETag", async () => {
+    const store = fakeStore({
+      read: vi.fn().mockResolvedValue({ ...document(), name: null, updatedAt: null, version: 0 }),
+    });
+    const now = new Date("2026-07-18T09:30:00.000Z");
+    const result = await putStatusPageConfig(document({ name: "First Save" }), '"0"', { store, now: () => now, env: {} });
+    expect(store.write).toHaveBeenCalledWith({ document: document({ name: "First Save" }), expectedVersion: 0, now });
+    expect(result.etag).toBe('"1"');
   });
 
   it("garbage-collects image rows the new document no longer references", async () => {
@@ -152,6 +205,7 @@ describe("putStatusPageConfig", () => {
       read: vi.fn().mockResolvedValue({
         ...document({ logoLightImageId: LOGO_LIGHT_ID, logoDarkImageId: LOGO_DARK_ID, faviconImageId: FAVICON_ID }),
         updatedAt: UPDATED_AT,
+        version: CURRENT_VERSION,
       }),
       findImageKinds: vi.fn().mockResolvedValue([{ id: LOGO_DARK_ID, kind: "logo-dark" }]),
     });
@@ -161,14 +215,14 @@ describe("putStatusPageConfig", () => {
 
   it("skips GC when references are unchanged and survives GC failures", async () => {
     const unchanged = fakeStore({
-      read: vi.fn().mockResolvedValue({ ...document({ logoLightImageId: LOGO_LIGHT_ID }), updatedAt: UPDATED_AT }),
+      read: vi.fn().mockResolvedValue({ ...document({ logoLightImageId: LOGO_LIGHT_ID }), updatedAt: UPDATED_AT, version: CURRENT_VERSION }),
       findImageKinds: vi.fn().mockResolvedValue([{ id: LOGO_LIGHT_ID, kind: "logo-light" }]),
     });
     await putStatusPageConfig(document({ logoLightImageId: LOGO_LIGHT_ID }), etag, { store: unchanged });
     expect(unchanged.deleteUnreferencedImages).not.toHaveBeenCalled();
 
     const failing = fakeStore({
-      read: vi.fn().mockResolvedValue({ ...document({ logoLightImageId: LOGO_LIGHT_ID }), updatedAt: UPDATED_AT }),
+      read: vi.fn().mockResolvedValue({ ...document({ logoLightImageId: LOGO_LIGHT_ID }), updatedAt: UPDATED_AT, version: CURRENT_VERSION }),
       deleteUnreferencedImages: vi.fn().mockRejectedValue(new Error("db down")),
     });
     await expect(putStatusPageConfig(document(), etag, { store: failing })).resolves.toBeDefined();

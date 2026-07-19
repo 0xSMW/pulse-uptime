@@ -53,7 +53,7 @@ function selectChain(outcome: unknown[] | Error) {
 
 function resolvedConfig() {
   const document = defaultStatusPageDocument();
-  return { data: { ...document, updatedAt: null }, etag: '"0"' };
+  return { data: { ...document, updatedAt: null, version: 0 }, etag: '"0"' };
 }
 
 beforeEach(() => {
@@ -154,6 +154,43 @@ describe("getPublicStatus", () => {
     dbMock.select.mockReturnValue(selectChain(new TypeError("Cannot read properties of undefined")));
 
     await expect(getPublicStatus()).rejects.toThrow(TypeError);
+  });
+
+  it("returns empty overallState with zero monitors and zero reports", async () => {
+    vi.mocked(getStatusPageConfig).mockResolvedValue(resolvedConfig());
+    dbMock.select.mockReturnValue(selectChain([])); // no monitors
+    vi.mocked(getPublicReports).mockResolvedValue({ ongoing: [], upcoming: [], windowEnded: [], resolved: [] });
+
+    const data = await getPublicStatus();
+    expect(data!.overallState).toBe("empty");
+  });
+
+  it("folds an ongoing report's tier into overallState even with zero enabled monitors (finding: deriveOverallState short-circuited to \"empty\" before ever looking at ongoingReports)", async () => {
+    vi.mocked(getStatusPageConfig).mockResolvedValue(resolvedConfig());
+    dbMock.select.mockReturnValue(selectChain([])); // no monitors
+    vi.mocked(getPublicReports).mockResolvedValue({
+      ongoing: [{
+        id: "report-1",
+        type: "incident",
+        title: "Manually authored outage",
+        startsAt: "2026-07-18T10:00:00.000Z",
+        endsAt: null,
+        publishedAt: "2026-07-18T10:00:00.000Z",
+        resolvedAt: null,
+        originIncidentId: null,
+        currentStatus: "investigating",
+        phase: "ongoing",
+        latestUpdate: null,
+        affected: [{ monitorId: "gone", monitorName: "Archived monitor", groupName: null, impact: "degraded" }],
+      }],
+      upcoming: [],
+      windowEnded: [],
+      resolved: [],
+    });
+
+    const data = await getPublicStatus();
+    expect(data!.overallState).toBe("degraded");
+    expect(data!.reports.ongoing).toHaveLength(1);
   });
 
   it("returns null (existing 404 behavior) for a genuinely unknown group when the database is reachable", async () => {

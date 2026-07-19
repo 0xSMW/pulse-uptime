@@ -137,6 +137,35 @@ describe("StatusPageContent", () => {
     expect(html).toContain("GMT-4"); // After DST: EDT (also lastUpdatedAt's own offset)
   });
 
+  it("sorts Recent Incidents by resolved time, not start time (finding: the resolved-reports feed is capped to the 10 most-recently-RESOLVED, so re-sorting the survivors by start time here made the display inconsistent with what the cap actually kept)", () => {
+    const data: PublicStatusData = {
+      ...operationalData,
+      reports: {
+        ...operationalData.reports,
+        // Started long ago but resolved most recently.
+        resolved: [{
+          id: "rep-long-running", type: "incident", title: "Long-running report",
+          startsAt: "2026-01-01T00:00:00.000Z", endsAt: null,
+          publishedAt: "2026-01-01T00:00:00.000Z", resolvedAt: "2026-07-18T12:00:00.000Z",
+          originIncidentId: null, currentStatus: "resolved", phase: "resolved", latestUpdate: null, affected: [],
+        }],
+      },
+      // Started recently but resolved before the report above.
+      recentIncidents: [{
+        id: "inc-recent-start", monitorName: "Legacy Worker", openedAt: "2026-07-18T10:00:00.000Z",
+        resolvedAt: "2026-07-18T10:30:00.000Z", durationSeconds: 1_800,
+      }],
+    };
+    const html = renderToStaticMarkup(<StatusPageContent data={data} />);
+    const reportIndex = html.indexOf("Long-running report");
+    const incidentIndex = html.indexOf("Legacy Worker");
+    expect(reportIndex).toBeGreaterThan(-1);
+    expect(incidentIndex).toBeGreaterThan(-1);
+    // The report resolved LATER (12:00) than the incident (10:30), so it must
+    // render first even though it started far earlier (Jan 1 vs Jul 18).
+    expect(reportIndex).toBeLessThan(incidentIndex);
+  });
+
   it("generalizes the heading and per-row label when a future-dated incident is scheduled (finding: future incidents rendered as maintenance)", () => {
     const data: PublicStatusData = {
       ...operationalData,

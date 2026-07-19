@@ -74,6 +74,7 @@ export type PublicStatusData = {
     id: string;
     monitorName: string;
     openedAt: string;
+    resolvedAt: string;
     durationSeconds: number;
   }>;
 };
@@ -289,27 +290,36 @@ function MaintenanceSchedule({ data, zone }: { data: PublicStatusData; zone: Tim
 }
 
 type RecentHistoryEntry =
-  | { kind: "report"; startMs: number; report: PublicReportEntry }
-  | { kind: "incident"; startMs: number; incident: PublicStatusData["recentIncidents"][number] };
+  | { kind: "report"; resolvedMs: number; report: PublicReportEntry }
+  | { kind: "incident"; resolvedMs: number; incident: PublicStatusData["recentIncidents"][number] };
 
 /**
  * One chronological "Recent Incidents" feed (§3.6): resolved authored reports
- * and un-folded machine incidents interleave by start time, newest first,
+ * and un-folded machine incidents interleave by RESOLVED time, newest first,
  * instead of rendering as two separately sorted blocks.
+ *
+ * Sorted by resolved time, not start time (finding: getPublicReports caps
+ * data.reports.resolved to the PUBLIC_RESOLVED_LIMIT most-recently-RESOLVED
+ * rows — same for data.recentIncidents' query-level ORDER BY resolvedAt DESC
+ * — so re-sorting the survivors by start time here could put a report that
+ * started recently but resolved a while ago ahead of reports the cap already
+ * dropped for resolving later, making the displayed order inconsistent with
+ * what the cap actually kept). Sorting by resolved time here matches the cap
+ * exactly: the feed is genuinely most-recently-resolved-first.
  */
 function mergeRecentHistory(data: PublicStatusData): RecentHistoryEntry[] {
   return [
     ...data.reports.resolved.map<RecentHistoryEntry>((report) => ({
       kind: "report",
-      startMs: Date.parse(report.startsAt),
+      resolvedMs: Date.parse(report.resolvedAt ?? report.startsAt),
       report,
     })),
     ...data.recentIncidents.map<RecentHistoryEntry>((incident) => ({
       kind: "incident",
-      startMs: Date.parse(incident.openedAt),
+      resolvedMs: Date.parse(incident.resolvedAt),
       incident,
     })),
-  ].sort((left, right) => right.startMs - left.startMs);
+  ].sort((left, right) => right.resolvedMs - left.resolvedMs);
 }
 
 function StatusCard({ data, groupView }: { data: PublicStatusData; groupView: boolean }) {
@@ -534,7 +544,8 @@ export function StatusPageContent({
           <ul className="divide-y divide-[var(--border)]" role="list">
             {/* Authored resolved reports (snapshotted names) and the machine
                 incidents not folded into a report, merged into one list sorted
-                by start time descending (§3.6). */}
+                by resolved time descending — matching the resolved-history
+                cap's own ordering (§3.6). */}
             {mergeRecentHistory(data).map((entry) =>
               entry.kind === "report" ? (
                 <li

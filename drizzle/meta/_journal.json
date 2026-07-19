@@ -71,6 +71,13 @@
       "when": 1784389663455,
       "tag": "0009_status_report_perf",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784422733786,
+      "tag": "0010_flowery_thanos",
+      "breakpoints": true
     }
   ]
 }

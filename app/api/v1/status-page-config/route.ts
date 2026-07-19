@@ -45,9 +45,9 @@ function storedConfigError(error: StatusPageConfigError, requestId: string): Sto
   return { status: statusPageConfigErrorStatus(error), body: errorEnvelope(error.code, error.message, requestId, error.details) };
 }
 
-/** Recomputes the ETag from the persisted document; stable across replay. */
+/** Recomputes the ETag from the persisted document's version; stable across replay. */
 function etagFor(data: StatusPageConfigData): string {
-  return statusPageConfigEtag(data.updatedAt === null ? null : new Date(data.updatedAt));
+  return statusPageConfigEtag(data.version);
 }
 
 export async function GET(request: Request) {
