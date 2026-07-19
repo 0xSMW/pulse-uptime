@@ -82,6 +82,90 @@ func TestPollerHonorsPendingAndSlowDown(t *testing.T) {
 	}
 }
 
+func TestClampIntervalBoundsHostileValues(t *testing.T) {
+	// SEC-08: interval:10000000000 seconds overflows time.Duration to a negative
+	// value in the naive form; clamping keeps the cadence bounded.
+	cases := []struct {
+		in   int
+		want time.Duration
+	}{
+		{10000000000, MaxPollInterval},
+		{0, MinPollInterval},
+		{-5, MinPollInterval},
+		{1, MinPollInterval},
+		{5, 5 * time.Second},
+		{1000, MaxPollInterval},
+	}
+	for _, c := range cases {
+		if got := clampInterval(c.in); got != c.want {
+			t.Fatalf("clampInterval(%d) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
+func TestPollBoundsOverflowingInterval(t *testing.T) {
+	now := time.Unix(0, 0)
+	var waits []time.Duration
+	poller := Poller{
+		Now: func() time.Time { return now },
+		Wait: func(_ context.Context, d time.Duration) error {
+			waits = append(waits, d)
+			now = now.Add(d)
+			if len(waits) >= 3 {
+				return context.Canceled
+			}
+			return nil
+		},
+	}
+	authorization := DeviceAuthorization{DeviceCode: "d", UserCode: "u", ExpiresIn: 600, Interval: 10000000000}
+	_, err := poller.Poll(context.Background(), authorization, func(context.Context, DeviceTokenRequest) (DeviceSession, error) {
+		return DeviceSession{}, &DeviceFlowError{Code: AuthorizationPending}
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("poll error = %v, want context.Canceled", err)
+	}
+	if len(waits) == 0 {
+		t.Fatal("expected at least one bounded poll")
+	}
+	for _, w := range waits {
+		if w < MinPollInterval || w > MaxPollInterval {
+			t.Fatalf("poll interval %v is not within [%v, %v]", w, MinPollInterval, MaxPollInterval)
+		}
+	}
+}
+
+func TestValidateVerificationOriginRejectsOffOrigin(t *testing.T) {
+	server := "https://pulse.example.com"
+	// SEC-08 reproduction: verification URLs on an unrelated origin.
+	offOrigin := DeviceAuthorization{
+		DeviceCode:              "d",
+		UserCode:                "u",
+		VerificationURI:         "https://attacker.example/authorize",
+		VerificationURIComplete: "https://attacker.example/authorize?user_code=u",
+	}
+	if err := offOrigin.ValidateVerificationOrigin(server); err == nil {
+		t.Fatal("expected off-origin verification URL to be rejected")
+	}
+	badPath := DeviceAuthorization{
+		DeviceCode:              "d",
+		UserCode:                "u",
+		VerificationURI:         "https://pulse.example.com/evil",
+		VerificationURIComplete: "https://pulse.example.com/evil?user_code=u",
+	}
+	if err := badPath.ValidateVerificationOrigin(server); err == nil {
+		t.Fatal("expected an unexpected verification path to be rejected")
+	}
+	valid := DeviceAuthorization{
+		DeviceCode:              "d",
+		UserCode:                "u",
+		VerificationURI:         "https://pulse.example.com/cli/authorize",
+		VerificationURIComplete: "https://pulse.example.com/cli/authorize?user_code=u",
+	}
+	if err := valid.ValidateVerificationOrigin(server); err != nil {
+		t.Fatalf("expected a same-origin verification URL to pass: %v", err)
+	}
+}
+
 func TestOpenBrowserUsesDirectPlatformCommand(t *testing.T) {
 	var name string
 	var args []string

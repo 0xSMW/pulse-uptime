@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/productos-ai/pulse-uptime/cli/internal/api"
-	"github.com/productos-ai/pulse-uptime/cli/internal/auth"
-	"github.com/productos-ai/pulse-uptime/cli/internal/buildinfo"
+	"github.com/0xSMW/pulse-uptime/cli/internal/api"
+	"github.com/0xSMW/pulse-uptime/cli/internal/auth"
+	"github.com/0xSMW/pulse-uptime/cli/internal/buildinfo"
 )
 
 func TestMeCallsCanonicalEndpointWithHeaders(t *testing.T) {

@@ -39,11 +39,14 @@
           <a href="#cli">CLI</a>
           <a href="#architecture">Architecture</a>
           <a href="./docs.html">Docs</a>
+          <a class="menu-cta button primary" href="https://github.com/0xSMW/pulse-uptime" target="_blank" rel="noreferrer">
+            <svg class="github-mark" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+            Deploy Pulse
+          </a>
         </div>
 
         <div class="nav-actions">
-          <!-- TODO: point at the real repository once it is public -->
-          <a class="icon-button" href="https://github.com/pulse-uptime/pulse" target="_blank" rel="noreferrer" aria-label="View Pulse on GitHub" data-tooltip="View on GitHub">
+          <a class="icon-button" href="https://github.com/0xSMW/pulse-uptime" target="_blank" rel="noreferrer" aria-label="View Pulse on GitHub" data-tooltip="View on GitHub">
             <svg class="github-mark" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
           </a>
           <button class="icon-button" id="theme-toggle" type="button" aria-label="Use light theme" data-tooltip="Light theme">
@@ -64,7 +67,7 @@
           <h1>Own your uptime</h1>
           <p class="lede">Pulse checks your endpoints, opens incidents, and gives people and agents the same control plane</p>
           <div class="hero-actions">
-            <a class="button primary" href="https://github.com/pulse-uptime/pulse" target="_blank" rel="noreferrer">
+            <a class="button primary" href="https://github.com/0xSMW/pulse-uptime" target="_blank" rel="noreferrer">
               <svg class="github-mark" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
               Deploy Pulse
             </a>
@@ -561,32 +564,37 @@
           <div class="connector branch" aria-hidden="true"><i></i><i></i><i></i></div>
           <div class="destination-nodes">
             <button class="system-node" type="button" data-node="neon" data-system="Neon stores incidents, exceptions, and compact rollups">
-              <span class="status-dot up"></span><strong>Neon</strong>
+              <span class="node-index mono">03</span><strong>Neon</strong>
               <span class="node-caption"><small>Durable history</small><small class="caption-hover" aria-hidden="true">View details</small></span>
               <svg class="node-arrow" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" /></svg>
             </button>
             <button class="system-node" type="button" data-node="edge" data-system="Edge Config feeds the scheduler and status page without touching the database">
-              <span class="status-dot up"></span><strong>Edge Config</strong>
+              <span class="node-index mono">04</span><strong>Edge Config</strong>
               <span class="node-caption"><small>Zero-DB reads</small><small class="caption-hover" aria-hidden="true">View details</small></span>
               <svg class="node-arrow" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" /></svg>
             </button>
             <button class="system-node" type="button" data-node="resend" data-system="Resend delivers outage and recovery notifications">
-              <span class="status-dot up"></span><strong>Resend</strong>
+              <span class="node-index mono">05</span><strong>Resend</strong>
               <span class="node-caption"><small>Notifications</small><small class="caption-hover" aria-hidden="true">View details</small></span>
               <svg class="node-arrow" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" /></svg>
             </button>
           </div>
-          <p class="system-description" id="system-description" aria-live="polite">Hover a system for its role — click to zoom in</p>
+          <p class="system-description" id="system-description" aria-live="polite">Hover a system for its role. Click to zoom in</p>
 
           <div class="system-detail" id="system-detail" role="group" aria-label="System detail" hidden>
             <button class="icon-button detail-close" type="button" data-close-detail aria-label="Back to all systems">
               <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="m4 4 8 8M12 4l-8 8" /></svg>
             </button>
-            <p class="app-kicker" id="detail-kicker"></p>
-            <h3 id="detail-title"></h3>
-            <p class="detail-copy" id="detail-copy"></p>
-            <dl class="detail-stats" id="detail-stats"></dl>
-            <p class="detail-flow mono" id="detail-flow"></p>
+            <div class="detail-inner">
+              <div class="detail-text">
+                <p class="app-kicker" id="detail-kicker"></p>
+                <h3 id="detail-title"></h3>
+                <p class="detail-copy" id="detail-copy"></p>
+                <dl class="detail-stats" id="detail-stats"></dl>
+                <p class="detail-flow mono" id="detail-flow"></p>
+              </div>
+              <div class="detail-visual" id="detail-visual" hidden></div>
+            </div>
           </div>
         </div>
 
@@ -605,7 +613,7 @@
           <h2>Deploy monitoring<br />you control</h2>
           <p>One dashboard. One API. One record of what happened.</p>
           <div class="hero-actions centered">
-            <a class="button primary" href="https://github.com/pulse-uptime/pulse" target="_blank" rel="noreferrer">
+            <a class="button primary" href="https://github.com/0xSMW/pulse-uptime" target="_blank" rel="noreferrer">
               <svg class="github-mark" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
               Deploy Pulse
             </a>
@@ -619,7 +627,7 @@
       <div class="shell footer-inner">
         <a class="brand" href="#top"><span class="status-dot up"></span>Pulse</a>
         <p>Open-source uptime monitoring</p>
-        <div><a href="#product">Product</a><a href="#cli">CLI</a><a href="./docs.html">Docs</a><a href="https://github.com/pulse-uptime/pulse" target="_blank" rel="noreferrer">GitHub</a><a href="https://smw.ai" target="_blank" rel="noreferrer">SMW.AI</a></div>
+        <div><a href="#product">Product</a><a href="#cli">CLI</a><a href="./docs.html">Docs</a><a href="https://github.com/0xSMW/pulse-uptime" target="_blank" rel="noreferrer">GitHub</a><a href="https://smw.ai" target="_blank" rel="noreferrer">SMW.AI</a></div>
       </div>
     </footer>
 

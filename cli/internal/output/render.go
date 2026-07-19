@@ -42,15 +42,15 @@ func renderHuman(w io.Writer, value any) error {
 	}
 	switch typed := data.(type) {
 	case []any:
-		return renderRows(w, typed, "  ")
+		return renderRows(w, typed, "  ", SanitizeDisplay)
 	case map[string]any:
 		keys := sortedKeys(typed)
 		for _, key := range keys {
-			fmt.Fprintf(w, "%-18s %s\n", humanLabel(key), scalar(typed[key]))
+			fmt.Fprintf(w, "%-18s %s\n", SanitizeDisplay(humanLabel(key)), SanitizeDisplay(scalar(typed[key])))
 		}
 		return nil
 	default:
-		_, err := fmt.Fprintln(w, scalar(typed))
+		_, err := fmt.Fprintln(w, SanitizeDisplay(scalar(typed)))
 		return err
 	}
 }
@@ -67,19 +67,23 @@ func renderTSV(w io.Writer, value any) error {
 	}
 	switch typed := normalized.(type) {
 	case []any:
-		return renderRows(w, typed, "\t")
+		return renderRows(w, typed, "\t", EscapeTSVField)
 	case map[string]any:
 		for _, key := range sortedKeys(typed) {
-			fmt.Fprintf(w, "%s\t%s\n", key, scalar(typed[key]))
+			fmt.Fprintf(w, "%s\t%s\n", EscapeTSVField(key), EscapeTSVField(scalar(typed[key])))
 		}
 		return nil
 	default:
-		_, err := fmt.Fprintln(w, scalar(typed))
+		_, err := fmt.Fprintln(w, EscapeTSVField(scalar(typed)))
 		return err
 	}
 }
 
-func renderRows(w io.Writer, rows []any, separator string) error {
+// renderRows encodes tabular output. escape defends the render boundary against
+// server-provided control characters: SanitizeDisplay for the terminal and
+// EscapeTSVField for TSV, so an embedded tab, newline, or ESC cannot forge cells
+// or reach the terminal.
+func renderRows(w io.Writer, rows []any, separator string, escape func(string) string) error {
 	if len(rows) == 0 {
 		if separator == "\t" {
 			return nil
@@ -98,14 +102,14 @@ func renderRows(w io.Writer, rows []any, separator string) error {
 	columns := orderedColumns(columnSet)
 	labels := make([]string, len(columns))
 	for i, column := range columns {
-		labels[i] = humanLabel(column)
+		labels[i] = escape(humanLabel(column))
 	}
 	fmt.Fprintln(w, strings.Join(labels, separator))
 	for _, row := range rows {
 		object, _ := row.(map[string]any)
 		values := make([]string, len(columns))
 		for i, column := range columns {
-			values[i] = scalar(object[column])
+			values[i] = escape(scalar(object[column]))
 		}
 		fmt.Fprintln(w, strings.Join(values, separator))
 	}
@@ -173,4 +177,78 @@ func humanLabel(value string) string {
 		out = append(out, r)
 	}
 	return strings.ToUpper(string(out))
+}
+
+// isDisplayControl reports whether r is a control or bidi-override character
+// that must never reach a terminal verbatim: C0 (except ordinary space), DEL,
+// C1, and the Unicode bidirectional embedding/override/isolate controls.
+func isDisplayControl(r rune) bool {
+	switch {
+	case r < 0x20: // C0 controls, including TAB, LF, and CR
+		return true
+	case r == 0x7f: // DEL
+		return true
+	case r >= 0x80 && r <= 0x9f: // C1 controls
+		return true
+	case r >= 0x202a && r <= 0x202e: // LRE, RLE, PDF, LRO, RLO
+		return true
+	case r >= 0x2066 && r <= 0x2069: // LRI, RLI, FSI, PDI
+		return true
+	default:
+		return false
+	}
+}
+
+func escapeControl(b *strings.Builder, r rune) {
+	if r <= 0xff {
+		fmt.Fprintf(b, `\x%02x`, r)
+		return
+	}
+	fmt.Fprintf(b, `\u%04x`, r)
+}
+
+// SanitizeDisplay escapes control and bidi characters in a server-provided
+// string so raw ESC, CR, tab, or newline cannot manipulate the terminal or
+// break single-line column layout. Escaped characters render as \xNN or \uNNNN.
+func SanitizeDisplay(value string) string {
+	if !strings.ContainsFunc(value, isDisplayControl) {
+		return value
+	}
+	var b strings.Builder
+	b.Grow(len(value))
+	for _, r := range value {
+		if isDisplayControl(r) {
+			escapeControl(&b, r)
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// EscapeTSVField encodes a field so an embedded tab or newline cannot forge a
+// new TSV column or row, and so control/bidi characters cannot reach the
+// terminal. Backslash is escaped first to keep the encoding reversible.
+func EscapeTSVField(value string) string {
+	var b strings.Builder
+	b.Grow(len(value))
+	for _, r := range value {
+		switch r {
+		case '\\':
+			b.WriteString(`\\`)
+		case '\t':
+			b.WriteString(`\t`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		default:
+			if isDisplayControl(r) {
+				escapeControl(&b, r)
+				continue
+			}
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }

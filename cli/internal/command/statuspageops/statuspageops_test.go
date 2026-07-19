@@ -126,6 +126,77 @@ func TestGetJSONPreservesEnvelope(t *testing.T) {
 	}
 }
 
+// TestGetSanitizesControlCharsInTableAndTSVButJSONStaysVerbatim covers
+// SEC-07: a server-provided config field (name) carrying an ESC sequence
+// and a raw tab must not reach the terminal unescaped in table or TSV
+// mode, but json is a machine format and must round-trip the server's
+// bytes untouched (through Go's own JSON string escaping, not
+// output.SanitizeDisplay's or output.EscapeTSVField's conventions).
+func TestGetSanitizesControlCharsInTableAndTSVButJSONStaysVerbatim(t *testing.T) {
+	esc := "\x1b[31m"
+	rawName := "Acme Status" + esc + "\tEvil"
+	config := map[string]any{
+		"name": rawName, "layout": "vertical", "theme": "system",
+		"logoLightImageId": nil, "logoDarkImageId": nil, "faviconImageId": nil,
+		"homepageUrl": nil, "contactUrl": nil,
+		"navLinks": []any{}, "googleTagId": nil, "customCss": nil, "customHead": nil,
+		"announcementEnabled": false, "announcementMarkdown": nil,
+		"historyDays": 90, "uptimeDecimals": 2, "unknownAsOperational": false,
+		"minIncidentSeconds": 0, "timezone": nil, "updatedAt": "2026-07-18T00:00:00Z",
+	}
+	encoded, err := json.Marshal(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := transportFunc(func(_ context.Context, _ string, _ string, _ any, _ http.Header, out any) (http.Header, error) {
+		doc := out.(*envelope)
+		doc.APIVersion = "v1"
+		doc.Kind = "StatusPageConfig"
+		doc.Data = json.RawMessage(encoded)
+		response := http.Header{}
+		response.Set("ETag", `W/"abc"`)
+		return response, nil
+	})
+
+	var tableOut bytes.Buffer
+	d := Dependencies{Client: client, Out: &tableOut, Output: func(string) string { return "table" }}
+	if err := run(t, d, "get"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.ContainsAny(tableOut.String(), "\x1b\t") {
+		t.Fatalf("table output leaked a raw control byte: %q", tableOut.String())
+	}
+	wantEscapedTable := "Acme Status" + "\\x1b[31m" + "\\x09" + "Evil"
+	if !strings.Contains(tableOut.String(), wantEscapedTable) {
+		t.Fatalf("table output did not escape the control characters: %q", tableOut.String())
+	}
+
+	var tsvOut bytes.Buffer
+	d = Dependencies{Client: client, Out: &tsvOut, Output: func(string) string { return "tsv" }}
+	if err := run(t, d, "get"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.ContainsAny(tsvOut.String(), "\x1b") {
+		t.Fatalf("tsv output leaked a raw control byte: %q", tsvOut.String())
+	}
+	wantEscapedTSV := "Acme Status" + "\\x1b[31m" + `\t` + "Evil"
+	if !strings.Contains(tsvOut.String(), wantEscapedTSV) {
+		t.Fatalf("tsv output did not escape the control characters: %q", tsvOut.String())
+	}
+
+	var jsonOut bytes.Buffer
+	d = Dependencies{Client: client, Out: &jsonOut, Output: func(string) string { return "table" }}
+	if err := run(t, d, "get", "--json"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(jsonOut.String(), "\\x1b") || strings.Contains(jsonOut.String(), "\\x09") {
+		t.Fatalf("json output must stay verbatim, not run through SanitizeDisplay: %q", jsonOut.String())
+	}
+	if !strings.Contains(jsonOut.String(), "Evil") || !strings.Contains(jsonOut.String(), esc[1:]) {
+		t.Fatalf("json output did not preserve the server's bytes via JSON's own escaping: %q", jsonOut.String())
+	}
+}
+
 func TestSetSendsFullDocumentWithIfMatch(t *testing.T) {
 	var putBody map[string]any
 	var putHeaders http.Header

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/0xSMW/pulse-uptime/cli/internal/output"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -68,6 +69,15 @@ const (
 	ExitInvalidInput = 2
 	ExitOperational  = 4
 	ExitInterrupted  = 130
+)
+
+// Hostile-server pagination bounds. A malicious server that returns a repeating
+// or non-advancing cursor, or an endless stream of pages, must not drive the
+// CLI into an unbounded request loop or memory growth.
+const (
+	maxListPages   = 1000
+	maxListRecords = 100_000
+	maxListBytes   = 64 << 20
 )
 
 type Meta struct {
@@ -478,7 +488,12 @@ func List(ctx context.Context, client Client, o ListOptions) (ListEnvelope, erro
 	remaining := o.Limit
 	auto := o.Machine || o.All
 	result := ListEnvelope{APIVersion: "v1", Kind: "MonitorList", Data: make([]json.RawMessage, 0)}
-	for {
+	seen := seenCursors(o.Cursor)
+	totalBytes := 0
+	for pages := 0; ; pages++ {
+		if pages >= maxListPages {
+			return ListEnvelope{}, pageLimit("server returned more monitor pages than the client will follow")
+		}
 		pageSize := 0
 		if remaining > 0 {
 			pageSize = remaining
@@ -497,7 +512,16 @@ func List(ctx context.Context, client Client, o ListOptions) (ListEnvelope, erro
 		if remaining > 0 && len(accepted) > remaining {
 			accepted = accepted[:remaining]
 		}
+		for _, raw := range accepted {
+			totalBytes += len(raw)
+		}
+		if totalBytes > maxListBytes {
+			return ListEnvelope{}, pageLimit("server exceeded the maximum aggregate response size")
+		}
 		result.Data = append(result.Data, accepted...)
+		if len(result.Data) > maxListRecords {
+			return ListEnvelope{}, pageLimit("server returned more monitors than the client will aggregate")
+		}
 		result.Meta = page.Meta
 		if page.APIVersion != "" {
 			result.APIVersion = page.APIVersion
@@ -515,9 +539,28 @@ func List(ctx context.Context, client Client, o ListOptions) (ListEnvelope, erro
 		if !auto || page.Meta.NextCursor == nil || *page.Meta.NextCursor == "" {
 			break
 		}
-		query.Set("cursor", *page.Meta.NextCursor)
+		next := *page.Meta.NextCursor
+		if _, ok := seen[next]; ok {
+			return ListEnvelope{}, pageLimit("server returned a repeating pagination cursor")
+		}
+		seen[next] = struct{}{}
+		query.Set("cursor", next)
 	}
 	return result, nil
+}
+
+// seenCursors tracks pagination cursors already requested so a server cannot
+// keep the CLI looping on a repeated or non-advancing cursor.
+func seenCursors(initial string) map[string]struct{} {
+	seen := map[string]struct{}{}
+	if initial != "" {
+		seen[initial] = struct{}{}
+	}
+	return seen
+}
+
+func pageLimit(message string) error {
+	return &Error{Exit: ExitOperational, Code: "PAGINATION_LIMIT", Message: message}
 }
 
 func Watch(ctx context.Context, d Dependencies, state string, interval time.Duration) error {
@@ -678,7 +721,7 @@ func renderEnvelope(d Dependencies, format string, doc Envelope) error {
 	case "tsv":
 		var m Monitor
 		if json.Unmarshal(doc.Data, &m) == nil && m.ID != "" {
-			_, e := fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\n", m.ID, m.Name, m.State, m.URL)
+			_, e := fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\n", output.EscapeTSVField(m.ID), output.EscapeTSVField(m.Name), output.EscapeTSVField(m.State), output.EscapeTSVField(m.URL))
 			return e
 		}
 		_, e := fmt.Fprintln(d.Out, string(doc.Data))
@@ -686,7 +729,7 @@ func renderEnvelope(d Dependencies, format string, doc Envelope) error {
 	default:
 		var m Monitor
 		if json.Unmarshal(doc.Data, &m) == nil && m.ID != "" {
-			_, e := fmt.Fprintf(d.Out, "ID       %s\nName     %s\nState    %s\nURL      %s\n", m.ID, m.Name, m.State, m.URL)
+			_, e := fmt.Fprintf(d.Out, "ID       %s\nName     %s\nState    %s\nURL      %s\n", output.SanitizeDisplay(m.ID), output.SanitizeDisplay(m.Name), output.SanitizeDisplay(m.State), output.SanitizeDisplay(m.URL))
 			return e
 		}
 		_, e := fmt.Fprintln(d.Out, string(doc.Data))
@@ -710,7 +753,7 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 		for _, raw := range doc.Data {
 			var m Monitor
 			if json.Unmarshal(raw, &m) == nil {
-				if _, e := fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\n", m.ID, m.Name, m.State, m.URL); e != nil {
+				if _, e := fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\n", output.EscapeTSVField(m.ID), output.EscapeTSVField(m.Name), output.EscapeTSVField(m.State), output.EscapeTSVField(m.URL)); e != nil {
 					return e
 				}
 			}
@@ -727,7 +770,7 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 						uptime = fmt.Sprintf("%.4f%%", f)
 					}
 				}
-				fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\n", m.ID, m.Name, m.State, uptime)
+				fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\n", output.SanitizeDisplay(m.ID), output.SanitizeDisplay(m.Name), output.SanitizeDisplay(m.State), uptime)
 			}
 		}
 		if doc.Meta.NextCursor != nil && *doc.Meta.NextCursor != "" {

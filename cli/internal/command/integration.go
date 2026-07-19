@@ -16,18 +16,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/productos-ai/pulse-uptime/cli/internal/api"
-	"github.com/productos-ai/pulse-uptime/cli/internal/auth"
-	"github.com/productos-ai/pulse-uptime/cli/internal/buildinfo"
-	"github.com/productos-ai/pulse-uptime/cli/internal/command/adminops"
-	"github.com/productos-ai/pulse-uptime/cli/internal/command/configops"
-	"github.com/productos-ai/pulse-uptime/cli/internal/command/groupops"
-	"github.com/productos-ai/pulse-uptime/cli/internal/command/monitorops"
-	"github.com/productos-ai/pulse-uptime/cli/internal/command/readops"
-	"github.com/productos-ai/pulse-uptime/cli/internal/command/reportops"
-	"github.com/productos-ai/pulse-uptime/cli/internal/command/statuspageops"
-	"github.com/productos-ai/pulse-uptime/cli/internal/config"
-	"github.com/productos-ai/pulse-uptime/cli/internal/output"
+	"github.com/0xSMW/pulse-uptime/cli/internal/api"
+	"github.com/0xSMW/pulse-uptime/cli/internal/auth"
+	"github.com/0xSMW/pulse-uptime/cli/internal/buildinfo"
+	"github.com/0xSMW/pulse-uptime/cli/internal/command/adminops"
+	"github.com/0xSMW/pulse-uptime/cli/internal/command/configops"
+	"github.com/0xSMW/pulse-uptime/cli/internal/command/groupops"
+	"github.com/0xSMW/pulse-uptime/cli/internal/command/monitorops"
+	"github.com/0xSMW/pulse-uptime/cli/internal/command/readops"
+	"github.com/0xSMW/pulse-uptime/cli/internal/command/reportops"
+	"github.com/0xSMW/pulse-uptime/cli/internal/command/statuspageops"
+	"github.com/0xSMW/pulse-uptime/cli/internal/config"
+	"github.com/0xSMW/pulse-uptime/cli/internal/output"
 	"github.com/spf13/cobra"
 )
 
@@ -150,6 +150,9 @@ func (a *App) linkInstallation(ctx context.Context, r config.Resolved, noBrowser
 		return "", mapAPIError(err)
 	}
 	if err := started.Data.Validate(); err != nil {
+		return "", cliError(ExitUnexpected, "INVALID_RESPONSE", err.Error())
+	}
+	if err := started.Data.ValidateVerificationOrigin(r.Server); err != nil {
 		return "", cliError(ExitUnexpected, "INVALID_RESPONSE", err.Error())
 	}
 	fmt.Fprintf(a.opts.Err, "Open %s\n\nEnter code: %s\n\nWaiting for approval...\n", started.Data.VerificationURI, started.Data.UserCode)

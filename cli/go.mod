@@ -1,4 +1,4 @@
-module github.com/productos-ai/pulse-uptime/cli
+module github.com/0xSMW/pulse-uptime/cli
 
 go 1.26
 

@@ -173,6 +173,47 @@ func TestGetRendersDetailTimelineAndAffected(t *testing.T) {
 	}
 }
 
+// TestGetTableSanitizesControlCharsButJSONStaysVerbatim covers SEC-07: a
+// server-provided title carrying an ESC sequence and a raw tab must not
+// reach the terminal unescaped in table mode, but json is a machine format
+// and must round-trip the server's bytes untouched (through Go's own JSON
+// string escaping, not output.SanitizeDisplay's \xNN convention).
+func TestGetTableSanitizesControlCharsButJSONStaysVerbatim(t *testing.T) {
+	esc := "\x1b[31m"
+	rawTitle := "API outage" + esc + "\tescalated"
+	client := clientFunc(func(_ context.Context, r Request) error {
+		encodedTitle, _ := json.Marshal(rawTitle)
+		doc := r.Result.(*Envelope)
+		doc.APIVersion = "v1"
+		doc.Kind = "StatusReport"
+		doc.Data = json.RawMessage(`{"id":"rep_1","type":"incident","title":` + string(encodedTitle) + `,"currentStatus":"investigating"}`)
+		return nil
+	})
+
+	var tableOut bytes.Buffer
+	if err := run(t, Dependencies{Client: client, Out: &tableOut, Format: func() string { return "table" }}, "get", "rep_1"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.ContainsAny(tableOut.String(), "\x1b\t") {
+		t.Fatalf("table output leaked a raw control byte: %q", tableOut.String())
+	}
+	wantEscaped := "Title      API outage" + "\\x1b[31m" + "\\x09" + "escalated"
+	if !strings.Contains(tableOut.String(), wantEscaped) {
+		t.Fatalf("table output did not escape the control characters: %q", tableOut.String())
+	}
+
+	var jsonOut bytes.Buffer
+	if err := run(t, Dependencies{Client: client, Out: &jsonOut, Format: func() string { return "json" }}, "get", "rep_1"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(jsonOut.String(), "\\x1b") || strings.Contains(jsonOut.String(), "\\x09") {
+		t.Fatalf("json output must stay verbatim, not run through SanitizeDisplay: %q", jsonOut.String())
+	}
+	if !strings.Contains(jsonOut.String(), "escalated") || !strings.Contains(jsonOut.String(), esc[1:]) {
+		t.Fatalf("json output did not preserve the server's bytes via JSON's own escaping: %q", jsonOut.String())
+	}
+}
+
 func TestCreateSendsInitialUpdateAffectedAndDraft(t *testing.T) {
 	var captured Request
 	client := clientFunc(func(_ context.Context, r Request) error {

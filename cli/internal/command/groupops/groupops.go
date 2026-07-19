@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/0xSMW/pulse-uptime/cli/internal/output"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -197,6 +198,14 @@ func newDeleteCommand(d Dependencies) *cobra.Command {
 	return cmd
 }
 
+// Hostile-server pagination bounds mirror the other list commands so a
+// malicious server cannot drive an unbounded request loop or memory growth.
+const (
+	maxListPages   = 1000
+	maxListRecords = 100_000
+	maxListBytes   = 64 << 20
+)
+
 func List(ctx context.Context, client Client, o ListOptions) (ListEnvelope, error) {
 	if o.Limit < 0 {
 		return ListEnvelope{}, invalid("--limit cannot be negative")
@@ -208,7 +217,15 @@ func List(ctx context.Context, client Client, o ListOptions) (ListEnvelope, erro
 	remaining := o.Limit
 	auto := o.Machine || o.All
 	result := ListEnvelope{APIVersion: "v1", Kind: "GroupList", Data: make([]json.RawMessage, 0)}
-	for {
+	seen := map[string]struct{}{}
+	if o.Cursor != "" {
+		seen[o.Cursor] = struct{}{}
+	}
+	totalBytes := 0
+	for pages := 0; ; pages++ {
+		if pages >= maxListPages {
+			return ListEnvelope{}, pageLimit("server returned more group pages than the client will follow")
+		}
 		if remaining > 0 {
 			pageSize := remaining
 			if pageSize > 100 {
@@ -224,7 +241,16 @@ func List(ctx context.Context, client Client, o ListOptions) (ListEnvelope, erro
 		if remaining > 0 && len(accepted) > remaining {
 			accepted = accepted[:remaining]
 		}
+		for _, raw := range accepted {
+			totalBytes += len(raw)
+		}
+		if totalBytes > maxListBytes {
+			return ListEnvelope{}, pageLimit("server exceeded the maximum aggregate response size")
+		}
 		result.Data = append(result.Data, accepted...)
+		if len(result.Data) > maxListRecords {
+			return ListEnvelope{}, pageLimit("server returned more groups than the client will aggregate")
+		}
 		result.Meta = page.Meta
 		if page.APIVersion != "" {
 			result.APIVersion = page.APIVersion
@@ -241,9 +267,18 @@ func List(ctx context.Context, client Client, o ListOptions) (ListEnvelope, erro
 		if !auto || page.Meta.NextCursor == nil || *page.Meta.NextCursor == "" {
 			break
 		}
-		query.Set("cursor", *page.Meta.NextCursor)
+		next := *page.Meta.NextCursor
+		if _, ok := seen[next]; ok {
+			return ListEnvelope{}, pageLimit("server returned a repeating pagination cursor")
+		}
+		seen[next] = struct{}{}
+		query.Set("cursor", next)
 	}
 	return result, nil
+}
+
+func pageLimit(message string) error {
+	return &Error{Exit: 4, Code: "PAGINATION_LIMIT", Message: message}
 }
 
 func mutateAndRender(ctx context.Context, d Dependencies, method, path string, body any) error {
@@ -283,7 +318,7 @@ func renderEnvelope(d Dependencies, format string, doc Envelope) error {
 	case "tsv":
 		var group Group
 		if json.Unmarshal(doc.Data, &group) == nil && group.ID != "" {
-			_, err := fmt.Fprintf(d.Out, "%s\t%s\t%d\n", group.ID, group.Name, group.MonitorCount)
+			_, err := fmt.Fprintf(d.Out, "%s\t%s\t%d\n", output.EscapeTSVField(group.ID), output.EscapeTSVField(group.Name), group.MonitorCount)
 			return err
 		}
 		_, err := fmt.Fprintln(d.Out, string(doc.Data))
@@ -291,7 +326,7 @@ func renderEnvelope(d Dependencies, format string, doc Envelope) error {
 	default:
 		var group Group
 		if json.Unmarshal(doc.Data, &group) == nil && group.ID != "" {
-			_, err := fmt.Fprintf(d.Out, "ID        %s\nName      %s\nMonitors  %d\n", group.ID, group.Name, group.MonitorCount)
+			_, err := fmt.Fprintf(d.Out, "ID        %s\nName      %s\nMonitors  %d\n", output.SanitizeDisplay(group.ID), output.SanitizeDisplay(group.Name), group.MonitorCount)
 			return err
 		}
 		_, err := fmt.Fprintln(d.Out, string(doc.Data))
@@ -316,7 +351,7 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 		for _, raw := range doc.Data {
 			var group Group
 			if json.Unmarshal(raw, &group) == nil {
-				if _, err := fmt.Fprintf(d.Out, "%s\t%s\t%d\n", group.ID, group.Name, group.MonitorCount); err != nil {
+				if _, err := fmt.Fprintf(d.Out, "%s\t%s\t%d\n", output.EscapeTSVField(group.ID), output.EscapeTSVField(group.Name), group.MonitorCount); err != nil {
 					return err
 				}
 			}
@@ -327,7 +362,7 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 		for _, raw := range doc.Data {
 			var group Group
 			if json.Unmarshal(raw, &group) == nil {
-				fmt.Fprintf(d.Out, "%s\t%s\t%d\n", group.ID, group.Name, group.MonitorCount)
+				fmt.Fprintf(d.Out, "%s\t%s\t%d\n", output.SanitizeDisplay(group.ID), output.SanitizeDisplay(group.Name), group.MonitorCount)
 			}
 		}
 		if doc.Meta.NextCursor != nil && *doc.Meta.NextCursor != "" {

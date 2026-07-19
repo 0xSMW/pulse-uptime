@@ -14,12 +14,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/productos-ai/pulse-uptime/cli/internal/output"
+	"github.com/0xSMW/pulse-uptime/cli/internal/output"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
 
 var SupportedScopes = []string{"config:read", "config:write", "incidents:read", "monitors:read", "monitors:write", "notifications:test", "reports:read", "reports:write", "status:read", "tokens:manage"}
+
+// Hostile-server pagination bounds. A malicious server that returns a repeating
+// or non-advancing cursor, or an endless stream of pages, must not drive the
+// CLI into an unbounded request loop or memory growth.
+const (
+	maxListPages   = 1000
+	maxListRecords = 100_000
+)
 
 type Transport interface {
 	Do(context.Context, string, string, any, http.Header, any) (http.Header, error)
@@ -238,7 +246,14 @@ func tokenList(d Dependencies) *cobra.Command {
 		}
 		var records []any
 		next := cursor
-		for {
+		seen := map[string]struct{}{}
+		if cursor != "" {
+			seen[cursor] = struct{}{}
+		}
+		for pages := 0; ; pages++ {
+			if pages >= maxListPages {
+				return pageLimit("server returned more token pages than the client will follow")
+			}
 			query := url.Values{}
 			if next != "" {
 				query.Set("cursor", next)
@@ -267,6 +282,9 @@ func tokenList(d Dependencies) *cobra.Command {
 				return err
 			}
 			records = append(records, page.Data...)
+			if len(records) > maxListRecords {
+				return pageLimit("server returned more tokens than the client will aggregate")
+			}
 			if limit > 0 && len(records) >= limit {
 				records = records[:limit]
 				break
@@ -275,6 +293,10 @@ func tokenList(d Dependencies) *cobra.Command {
 				break
 			}
 			next = *page.Meta.NextCursor
+			if _, ok := seen[next]; ok {
+				return pageLimit("server returned a repeating pagination cursor")
+			}
+			seen[next] = struct{}{}
 		}
 		return render(d, map[string]any{"apiVersion": "v1", "kind": "TokenList", "data": records}, "table")
 	}}
@@ -413,6 +435,9 @@ func annotations(scope string) map[string]string {
 }
 func invalid(message string) error {
 	return &Error{Exit: 2, Code: "INVALID_ARGUMENT", Message: message}
+}
+func pageLimit(message string) error {
+	return &Error{Exit: 4, Code: "PAGINATION_LIMIT", Message: message}
 }
 func unavailable() error {
 	return &Error{Exit: 1, Code: "CLIENT_UNAVAILABLE", Message: "required integration is unavailable"}

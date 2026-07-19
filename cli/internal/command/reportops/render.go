@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/0xSMW/pulse-uptime/cli/internal/output"
 	"gopkg.in/yaml.v3"
 )
 
@@ -19,26 +20,28 @@ func renderEnvelope(d Dependencies, format string, doc Envelope) error {
 		return yamlValue(d.Out, doc)
 	case "tsv":
 		if doc.Kind == "StatusReportDeleted" {
-			_, err := fmt.Fprintf(d.Out, "%s\tdeleted\n", deletedID(doc))
+			_, err := fmt.Fprintf(d.Out, "%s\tdeleted\n", output.EscapeTSVField(deletedID(doc)))
 			return err
 		}
 		var r Report
 		if json.Unmarshal(doc.Data, &r) == nil && r.ID != "" {
-			_, err := fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\t%s\t%s\n", r.ID, r.Type, stateWord(r), r.CurrentStatus, updated(r), r.Title)
+			_, err := fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\t%s\t%s\n",
+				output.EscapeTSVField(r.ID), output.EscapeTSVField(r.Type), stateWord(r),
+				output.EscapeTSVField(r.CurrentStatus), output.EscapeTSVField(updated(r)), output.EscapeTSVField(r.Title))
 			return err
 		}
-		_, err := fmt.Fprintln(d.Out, string(doc.Data))
+		_, err := fmt.Fprintln(d.Out, output.EscapeTSVField(string(doc.Data)))
 		return err
 	default:
 		if doc.Kind == "StatusReportDeleted" {
-			_, err := fmt.Fprintf(d.Out, "Deleted status report %s\n", deletedID(doc))
+			_, err := fmt.Fprintf(d.Out, "Deleted status report %s\n", output.SanitizeDisplay(deletedID(doc)))
 			return err
 		}
 		var r Report
 		if json.Unmarshal(doc.Data, &r) == nil && r.ID != "" {
 			return renderReportDetail(d.Out, r)
 		}
-		_, err := fmt.Fprintln(d.Out, string(doc.Data))
+		_, err := fmt.Fprintln(d.Out, output.SanitizeDisplay(string(doc.Data)))
 		return err
 	}
 }
@@ -60,7 +63,9 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 		for _, raw := range doc.Data {
 			var r Report
 			if json.Unmarshal(raw, &r) == nil {
-				if _, err := fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\t%s\t%s\n", r.ID, r.Type, stateWord(r), r.CurrentStatus, updated(r), r.Title); err != nil {
+				if _, err := fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\t%s\t%s\n",
+					output.EscapeTSVField(r.ID), output.EscapeTSVField(r.Type), stateWord(r),
+					output.EscapeTSVField(r.CurrentStatus), output.EscapeTSVField(updated(r)), output.EscapeTSVField(r.Title)); err != nil {
 					return err
 				}
 			}
@@ -71,44 +76,48 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 		for _, raw := range doc.Data {
 			var r Report
 			if json.Unmarshal(raw, &r) == nil {
-				fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\t%s\n", stateGlyph(r), r.Title, r.Type, r.CurrentStatus, updated(r))
+				fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\t%s\n",
+					stateGlyph(r), output.SanitizeDisplay(r.Title), output.SanitizeDisplay(r.Type),
+					output.SanitizeDisplay(r.CurrentStatus), output.SanitizeDisplay(updated(r)))
 			}
 		}
 		if doc.Meta.NextCursor != nil && *doc.Meta.NextCursor != "" {
-			fmt.Fprintf(d.Err, "More reports available. Continue with --cursor %s\n", *doc.Meta.NextCursor)
+			fmt.Fprintf(d.Err, "More reports available. Continue with --cursor %s\n", output.SanitizeDisplay(*doc.Meta.NextCursor))
 		}
 		return nil
 	}
 }
 
 func renderReportDetail(w io.Writer, r Report) error {
-	fmt.Fprintf(w, "ID         %s\n", r.ID)
-	fmt.Fprintf(w, "Title      %s\n", r.Title)
-	fmt.Fprintf(w, "Type       %s\n", r.Type)
+	fmt.Fprintf(w, "ID         %s\n", output.SanitizeDisplay(r.ID))
+	fmt.Fprintf(w, "Title      %s\n", output.SanitizeDisplay(r.Title))
+	fmt.Fprintf(w, "Type       %s\n", output.SanitizeDisplay(r.Type))
 	fmt.Fprintf(w, "State      %s\n", stateGlyph(r))
-	fmt.Fprintf(w, "Current    %s\n", dash(r.CurrentStatus))
-	fmt.Fprintf(w, "Starts     %s\n", dash(r.StartsAt))
+	fmt.Fprintf(w, "Current    %s\n", output.SanitizeDisplay(dash(r.CurrentStatus)))
+	fmt.Fprintf(w, "Starts     %s\n", output.SanitizeDisplay(dash(r.StartsAt)))
 	if r.Type == "maintenance" || r.EndsAt != nil {
-		fmt.Fprintf(w, "Ends       %s\n", pointer(r.EndsAt))
+		fmt.Fprintf(w, "Ends       %s\n", output.SanitizeDisplay(pointer(r.EndsAt)))
 	}
-	fmt.Fprintf(w, "Published  %s\n", pointer(r.PublishedAt))
-	fmt.Fprintf(w, "Resolved   %s\n", pointer(r.ResolvedAt))
+	fmt.Fprintf(w, "Published  %s\n", output.SanitizeDisplay(pointer(r.PublishedAt)))
+	fmt.Fprintf(w, "Resolved   %s\n", output.SanitizeDisplay(pointer(r.ResolvedAt)))
 	if r.OriginIncidentID != nil && *r.OriginIncidentID != "" {
-		fmt.Fprintf(w, "Origin     %s\n", *r.OriginIncidentID)
+		fmt.Fprintf(w, "Origin     %s\n", output.SanitizeDisplay(*r.OriginIncidentID))
 	}
 	if len(r.Affected) > 0 {
 		fmt.Fprintln(w, "\nAffected:")
 		fmt.Fprintln(w, "  MONITOR\tNAME\tGROUP\tIMPACT")
 		for _, item := range r.Affected {
-			fmt.Fprintf(w, "  %s\t%s\t%s\t%s\n", item.MonitorID, item.MonitorName, pointer(item.GroupName), item.Impact)
+			fmt.Fprintf(w, "  %s\t%s\t%s\t%s\n",
+				output.SanitizeDisplay(item.MonitorID), output.SanitizeDisplay(item.MonitorName),
+				output.SanitizeDisplay(pointer(item.GroupName)), output.SanitizeDisplay(item.Impact))
 		}
 	}
 	if len(r.Updates) > 0 {
 		fmt.Fprintln(w, "\nUpdates:")
 		for _, update := range r.Updates {
-			fmt.Fprintf(w, "  %s  %s  (%s)\n", dash(update.PublishedAt), update.Status, update.ID)
+			fmt.Fprintf(w, "  %s  %s  (%s)\n", output.SanitizeDisplay(dash(update.PublishedAt)), output.SanitizeDisplay(update.Status), output.SanitizeDisplay(update.ID))
 			for _, line := range strings.Split(strings.TrimRight(update.Markdown, "\n"), "\n") {
-				fmt.Fprintf(w, "    %s\n", line)
+				fmt.Fprintf(w, "    %s\n", output.SanitizeDisplay(line))
 			}
 		}
 	}

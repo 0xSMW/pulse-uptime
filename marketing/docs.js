@@ -273,7 +273,7 @@
     {
       label: "Copy install command",
       hint: "cli",
-      run: () => copyText("go install github.com/productos-ai/pulse-uptime/cli/cmd/pulsectl@latest"),
+      run: () => copyText("go install github.com/0xSMW/pulse-uptime/cli/cmd/pulsectl@latest"),
     },
     {
       label: "Open marketing page",

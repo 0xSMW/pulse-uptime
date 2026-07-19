@@ -8,6 +8,21 @@ export const MAX_CONFIG_BYTES = 55 * 1024;
 const emailSchema = z.string().trim().email();
 const recipientsSchema = z.array(emailSchema).max(20);
 
+// C0/C1 control characters and Unicode bidi controls must never survive into stored
+// display fields: downstream consumers (the CLI's terminal/TSV output, logs) render
+// them verbatim, so an ESC or bidi override in a monitor name becomes ANSI injection
+// or forged tabular rows. Reject them at the trust boundary.
+const DISPLAY_CONTROL_CHARS = /[\u0000-\u001F\u007F-\u009F\u200E\u200F\u202A-\u202E\u2066-\u2069]/;
+
+export function displayName(min: number, max: number) {
+  return z
+    .string()
+    .trim()
+    .min(min)
+    .max(max)
+    .refine((value) => !DISPLAY_CONTROL_CHARS.test(value), "Must not contain control characters");
+}
+
 function isPublicHttpUrl(value: string): boolean {
   try {
     const url = new URL(value);
@@ -66,12 +81,12 @@ export const expectedStatusSchema = z.object({
 
 export const groupConfigSchema = z.object({
   id: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Must be a lowercase slug").min(3).max(64),
-  name: z.string().trim().min(1).max(50),
+  name: displayName(1, 50),
 }).strict();
 
 const monitorFields = {
   id: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Must be a lowercase slug").min(3).max(64),
-  name: z.string().trim().min(1).max(80),
+  name: displayName(1, 80),
   url: z.string().refine(isPublicHttpUrl, "Must be a public HTTP or HTTPS URL"),
   enabled: z.boolean(),
   method: z.enum(["GET", "HEAD"]),
@@ -90,7 +105,7 @@ export const monitorConfigSchema = z.object({
 
 export const legacyMonitorConfigSchema = z.object({
   ...monitorFields,
-  group: z.string().trim().min(1).max(50).nullable(),
+  group: displayName(1, 50).nullable(),
 }).strict();
 
 export const monitoringSettingsSchema = z.object({

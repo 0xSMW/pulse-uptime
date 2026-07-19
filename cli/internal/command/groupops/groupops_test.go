@@ -24,6 +24,25 @@ func (f *fakeClient) Do(_ context.Context, request Request) error {
 	return nil
 }
 
+func TestGroupListRejectsRepeatingCursor(t *testing.T) {
+	// SEC-08: a repeated nextCursor must terminate the loop instead of looping.
+	cycle := "cycle"
+	client := &fakeClient{do: func(r Request) error {
+		doc := r.Result.(*ListEnvelope)
+		doc.APIVersion, doc.Kind = "v1", "GroupList"
+		doc.Data = []json.RawMessage{json.RawMessage(`{"id":"g"}`)}
+		doc.Meta.NextCursor = &cycle
+		return nil
+	}}
+	_, err := List(context.Background(), client, ListOptions{All: true, Machine: true})
+	if err == nil {
+		t.Fatal("expected a repeating cursor to be rejected")
+	}
+	if len(client.requests) > 3 {
+		t.Fatalf("made %d requests before detecting the cycle", len(client.requests))
+	}
+}
+
 func TestGroupTreeAndScopes(t *testing.T) {
 	cmd := NewGroup(Dependencies{})
 	want := map[string]string{"list": "monitors:read", "create": "monitors:write", "rename": "monitors:write", "delete": "monitors:write"}

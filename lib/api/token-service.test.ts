@@ -40,4 +40,27 @@ describe("token request validation", () => {
       expiresAt: "2026-09-01T00:00:00.000Z",
     }, { ...principal, expiresAt: new Date("2026-08-01T00:00:00.000Z") }, now)).toThrow(/cannot outlive/);
   });
+
+  it("forbids machine credentials from delegating tokens:manage", () => {
+    const machine = { type: "api_token", scopes: ["monitors:read", "tokens:manage"], expiresAt: new Date("2026-12-01T00:00:00.000Z") };
+    expect(() => validateTokenInput({
+      name: "Grandchild minter",
+      scopes: ["tokens:manage"],
+      expiresAt: "2026-09-01T00:00:00.000Z",
+    }, machine, now)).toThrow(/cannot delegate the tokens:manage scope/);
+    // The same machine credential may still delegate non-minting scopes.
+    expect(validateTokenInput({
+      name: "Reader",
+      scopes: ["monitors:read"],
+      expiresAt: "2026-09-01T00:00:00.000Z",
+    }, machine, now).scopes).toEqual(["monitors:read"]);
+  });
+
+  it("allows the human administrator to delegate tokens:manage", () => {
+    expect(validateTokenInput({
+      name: "Deploy admin",
+      scopes: ["tokens:manage"],
+      expiresAt: "2026-09-01T00:00:00.000Z",
+    }, { type: "human", scopes: ["monitors:read", "tokens:manage"] }, now).scopes).toEqual(["tokens:manage"]);
+  });
 });

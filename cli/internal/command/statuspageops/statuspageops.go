@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/0xSMW/pulse-uptime/cli/internal/output"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -427,16 +428,16 @@ func renderConfig(w io.Writer, format string, doc envelope) error {
 	case "yaml":
 		return yamlValue(w, doc)
 	case "tsv":
-		return renderFields(w, doc, "\t", false)
+		return renderFields(w, doc, "\t", false, output.EscapeTSVField)
 	default:
-		return renderFields(w, doc, "  ", true)
+		return renderFields(w, doc, "  ", true, output.SanitizeDisplay)
 	}
 }
 
-func renderFields(w io.Writer, doc envelope, separator string, aligned bool) error {
+func renderFields(w io.Writer, doc envelope, separator string, aligned bool, escape func(string) string) error {
 	var config map[string]any
 	if err := json.Unmarshal(doc.Data, &config); err != nil || config == nil {
-		_, err := fmt.Fprintln(w, string(doc.Data))
+		_, err := fmt.Fprintln(w, escape(string(doc.Data)))
 		return err
 	}
 	for _, field := range orderedFields(config) {
@@ -444,7 +445,7 @@ func renderFields(w io.Writer, doc envelope, separator string, aligned bool) err
 		if aligned {
 			label = fmt.Sprintf("%-22s", label)
 		}
-		if _, err := fmt.Fprintf(w, "%s%s%s\n", label, separator, fieldValue(config[field])); err != nil {
+		if _, err := fmt.Fprintf(w, "%s%s%s\n", label, separator, fieldValue(config[field], escape)); err != nil {
 			return err
 		}
 	}
@@ -470,19 +471,26 @@ func orderedFields(config map[string]any) []string {
 	return append(result, rest...)
 }
 
-func fieldValue(value any) string {
+// fieldValue renders one configuration value for display. escape sanitizes
+// server-provided text for the destination: SanitizeDisplay for the terminal
+// (table) and EscapeTSVField for TSV, matching output/render.go's scoping.
+// Booleans and numbers can't carry control characters, so they pass through
+// unescaped; the default branch (e.g. navLinks) JSON-encodes nested
+// label/url strings first and then escapes the encoded text, since
+// encoding/json does not strip bidi-override characters.
+func fieldValue(value any, escape func(string) string) string {
 	switch typed := value.(type) {
 	case nil:
 		return "-"
 	case string:
-		return strings.ReplaceAll(typed, "\n", "\\n")
+		return escape(typed)
 	case bool:
 		return strconv.FormatBool(typed)
 	case float64:
 		return strconv.FormatFloat(typed, 'f', -1, 64)
 	default:
 		encoded, _ := json.Marshal(typed)
-		return string(encoded)
+		return escape(string(encoded))
 	}
 }
 

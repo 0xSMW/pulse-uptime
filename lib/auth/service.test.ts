@@ -33,12 +33,14 @@ function fakeStore(existing = false) {
   return { store, inserts };
 }
 
+const allowBootstrap = () => true;
+
 describe("administrator creation service", () => {
   it("normalizes email and atomically prepares progress and session data", async () => {
     const fake = fakeStore();
     const result = await createOnlyAdmin(
-      { email: " Admin@Example.COM ", password: "correct-horse", passwordConfirmation: "correct-horse" },
-      { store: fake.store, checkReadiness: async () => readiness(), now: () => new Date("2026-07-18T00:00:00Z") },
+      { email: " Admin@Example.COM ", password: "correct-horse", passwordConfirmation: "correct-horse", bootstrapToken: "setup-token" },
+      { store: fake.store, checkReadiness: async () => readiness(), verifyBootstrap: allowBootstrap, now: () => new Date("2026-07-18T00:00:00Z") },
     );
     expect(result.email).toBe("admin@example.com");
     expect(fake.inserts).toHaveLength(1);
@@ -48,8 +50,8 @@ describe("administrator creation service", () => {
   it("rejects the account when core readiness is blocked", async () => {
     const fake = fakeStore();
     await expect(createOnlyAdmin(
-      { email: "admin@example.com", password: "correct-horse", passwordConfirmation: "correct-horse" },
-      { store: fake.store, checkReadiness: async () => readiness({ canContinue: false }) },
+      { email: "admin@example.com", password: "correct-horse", passwordConfirmation: "correct-horse", bootstrapToken: "setup-token" },
+      { store: fake.store, checkReadiness: async () => readiness({ canContinue: false }), verifyBootstrap: allowBootstrap },
     )).rejects.toMatchObject({ code: "NOT_READY" });
     expect(fake.inserts).toHaveLength(0);
   });
@@ -57,9 +59,39 @@ describe("administrator creation service", () => {
   it("rejects a concurrent loser without exposing the administrator", async () => {
     const fake = fakeStore(true);
     await expect(createOnlyAdmin(
-      { email: "second@example.com", password: "correct-horse", passwordConfirmation: "correct-horse" },
-      { store: fake.store, checkReadiness: async () => readiness() },
+      { email: "second@example.com", password: "correct-horse", passwordConfirmation: "correct-horse", bootstrapToken: "setup-token" },
+      { store: fake.store, checkReadiness: async () => readiness(), verifyBootstrap: allowBootstrap },
     )).rejects.toMatchObject({ code: "ADMIN_EXISTS" });
+  });
+
+  it("rejects the claim without a valid bootstrap token and never hashes or inserts", async () => {
+    const fake = fakeStore();
+    let hashed = false;
+    await expect(createOnlyAdmin(
+      { email: "admin@example.com", password: "correct-horse", passwordConfirmation: "correct-horse", bootstrapToken: "wrong" },
+      {
+        store: fake.store,
+        checkReadiness: async () => { hashed = true; return readiness(); },
+        verifyBootstrap: () => false,
+      },
+    )).rejects.toMatchObject({ code: "BOOTSTRAP_REQUIRED" });
+    expect(fake.inserts).toHaveLength(0);
+    // readiness (which the lock reaches only after hashing) must never run.
+    expect(hashed).toBe(false);
+  });
+
+  it("rejects an initialized install before any expensive work", async () => {
+    const fake = fakeStore(true);
+    let readinessChecked = false;
+    await expect(createOnlyAdmin(
+      { email: "second@example.com", password: "correct-horse", passwordConfirmation: "correct-horse", bootstrapToken: "setup-token" },
+      {
+        store: fake.store,
+        checkReadiness: async () => { readinessChecked = true; return readiness(); },
+        verifyBootstrap: allowBootstrap,
+      },
+    )).rejects.toMatchObject({ code: "ADMIN_EXISTS" });
+    expect(readinessChecked).toBe(false);
   });
 });
 
@@ -102,7 +134,7 @@ describe("persistent login rate limiting", () => {
     expect(ipKey).toMatch(/^login-ip:[0-9a-f]+$/);
   });
 
-  it("persists both keys across callers and blocks the sixth attempt", async () => {
+  it("blocks the sixth attempt from one source IP without account-wide buckets", async () => {
     const limiter = persistentLimiter();
     const fake = loginStore();
     const dependencies = {
@@ -117,8 +149,35 @@ describe("persistent login rate limiting", () => {
     }
     await expect(login({ email: "admin@example.com", password: "wrong-password", ip: "203.0.113.7" }, { ...dependencies }))
       .rejects.toMatchObject({ code: "RATE_LIMITED", retryAfterSeconds: 840 });
-    expect(new Set(limiter.seenKeys)).toHaveLength(2);
-    expect(limiter.seenKeys).toHaveLength(12);
+    // Unknown emails never create an account-wide bucket: only the IP key is used.
+    expect(new Set(limiter.seenKeys)).toHaveLength(1);
+    expect(limiter.seenKeys.every((key) => key.startsWith("login-ip:"))).toBe(true);
+    expect(limiter.seenKeys).toHaveLength(6);
+  });
+
+  it("lets a correct password recover from an unblocked IP after the account bucket is exhausted", async () => {
+    const limiter = persistentLimiter();
+    const fake = loginStore({ id: "user-1", passwordDigest: "digest", onboardingCompletedAt: new Date() });
+    const verify: NonNullable<LoginDependencies["verify"]> = async (_digest, password) => password === "correct";
+    const base = {
+      store: fake.store,
+      enforceLimit: limiter.enforce,
+      digestKey: deterministicDigest,
+      verify,
+      createToken: () => ({ raw: "recovered", digest: Buffer.alloc(32, 9) }),
+      now: () => new Date("2026-07-18T00:01:00Z"),
+    };
+    // Six failed attempts, each from a distinct IP so no single IP is blocked; the
+    // known-account email bucket fills and eventually rate-limits further failures.
+    const outcomes: string[] = [];
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      await login({ email: "admin@example.com", password: "wrong", ip: `198.51.100.${attempt}` }, base)
+        .catch((error) => outcomes.push(error.code));
+    }
+    expect(outcomes).toContain("RATE_LIMITED");
+    // A correct password from a fresh, unblocked IP still succeeds.
+    const result = await login({ email: "admin@example.com", password: "correct", ip: "203.0.113.99" }, base);
+    expect(result.token).toBe("recovered");
   });
 
   it("starts a fresh distributed bucket after the fixed window", async () => {

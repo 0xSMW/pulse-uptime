@@ -25,7 +25,7 @@ export class TokenServiceError extends Error {
   }
 }
 
-export function validateTokenInput(input: unknown, principal: { scopes: readonly string[]; expiresAt?: Date }, now = new Date()) {
+export function validateTokenInput(input: unknown, principal: { type?: string; scopes: readonly string[]; expiresAt?: Date }, now = new Date()) {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new TokenServiceError("INVALID_TOKEN", "Token details are required");
   }
@@ -43,6 +43,13 @@ export function validateTokenInput(input: unknown, principal: { scopes: readonly
   const requestedScopes = value.scopes as string[];
   if (new Set(requestedScopes).size !== requestedScopes.length || !canDelegateScopes(principal, requestedScopes)) {
     throw new TokenServiceError("SCOPE_DENIED", "Requested scopes exceed the caller's effective scopes");
+  }
+  // Only the human administrator may delegate the token-management scope. Machine
+  // credentials (api tokens, CLI sessions) cannot mint children that themselves mint
+  // tokens, which bounds any delegation chain to a single level and keeps cascade
+  // revocation of a revoked parent complete.
+  if (principal.type && principal.type !== "human" && requestedScopes.includes("tokens:manage")) {
+    throw new TokenServiceError("SCOPE_DENIED", "Machine credentials cannot delegate the tokens:manage scope");
   }
   if (typeof value.expiresAt !== "string") {
     throw new TokenServiceError("INVALID_TOKEN", "Token expiry is required");
@@ -105,13 +112,22 @@ export async function listApiTokens(input: { cursor: { sort: string; id: string 
 }
 
 export async function revokeApiToken(tokenId: string, now = new Date()): Promise<TokenRecord | null> {
-  const [row] = await db.update(apiTokens).set({ revokedAt: now }).where(and(
-    eq(apiTokens.id, tokenId),
-    isNull(apiTokens.revokedAt),
-  )).returning(tokenSelection);
-  if (row) return serializeToken(row);
-  const [existing] = await db.select(tokenSelection).from(apiTokens).where(eq(apiTokens.id, tokenId)).limit(1);
-  return existing ? serializeToken(existing) : null;
+  return db.transaction(async (tx) => {
+    const [row] = await tx.update(apiTokens).set({ revokedAt: now }).where(and(
+      eq(apiTokens.id, tokenId),
+      isNull(apiTokens.revokedAt),
+    )).returning(tokenSelection);
+    // Cascade to any tokens this token minted so a revoked parent cannot leave a live
+    // descendant foothold. The delegation policy bounds the tree to one level below a
+    // machine credential, so this single sweep covers the whole subtree.
+    await tx.update(apiTokens).set({ revokedAt: now }).where(and(
+      eq(apiTokens.createdByPrincipal, `api_token:${tokenId}`),
+      isNull(apiTokens.revokedAt),
+    ));
+    if (row) return serializeToken(row);
+    const [existing] = await tx.select(tokenSelection).from(apiTokens).where(eq(apiTokens.id, tokenId)).limit(1);
+    return existing ? serializeToken(existing) : null;
+  });
 }
 
 const tokenSelection = {

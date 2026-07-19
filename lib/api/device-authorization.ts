@@ -3,7 +3,7 @@ import "server-only";
 import { and, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
-import { apiIdempotency, cliInstallations, cliSessions, deviceAuthorizations } from "@/lib/db/schema";
+import { apiIdempotency, apiTokens, cliInstallations, cliSessions, deviceAuthorizations } from "@/lib/db/schema";
 
 import type { HumanPrincipal } from "./principal";
 import { ADMINISTRATOR_SCOPES, resolveScopeProfile } from "./scopes";
@@ -282,11 +282,22 @@ export async function revokeCliInstallation(principal: { type: string; id: strin
     const [session] = await tx.select({ installationId: cliSessions.installationId }).from(cliSessions)
       .where(eq(cliSessions.id, principal.id)).limit(1);
     if (!session) return false;
+    const sessions = await tx.select({ id: cliSessions.id }).from(cliSessions)
+      .where(eq(cliSessions.installationId, session.installationId));
     await tx.update(cliInstallations).set({ revokedAt: now }).where(eq(cliInstallations.id, session.installationId));
     await tx.update(cliSessions).set({ revokedAt: now }).where(and(
       eq(cliSessions.installationId, session.installationId),
       isNull(cliSessions.revokedAt),
     ));
+    // Cascade to any API tokens minted by this installation's CLI sessions so removing
+    // the installation cannot leave a live descendant credential behind.
+    const creators = sessions.map((row) => `cli_session:${row.id}`);
+    if (creators.length > 0) {
+      await tx.update(apiTokens).set({ revokedAt: now }).where(and(
+        inArray(apiTokens.createdByPrincipal, creators),
+        isNull(apiTokens.revokedAt),
+      ));
+    }
     return true;
   });
 }

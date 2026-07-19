@@ -7,6 +7,7 @@ import { z } from "zod";
 import { runManualCheck } from "@/lib/checker";
 import {
   createMonitorWithDefaults,
+  displayName,
   hashCanonical,
   monitorConfigSchema,
   type GroupConfig,
@@ -24,10 +25,10 @@ import { decodeCursor, encodeCursor } from "./pagination";
 const idSchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).min(3).max(64);
 const createSchemaBase = z.object({
   id: idSchema,
-  name: z.string().trim().min(1).max(80),
+  name: displayName(1, 80),
   url: z.string(),
   enabled: z.boolean().optional(),
-  group: z.string().trim().min(1).max(50).nullable().optional(),
+  group: displayName(1, 50).nullable().optional(),
   groupId: idSchema.nullable().optional(),
   method: z.enum(["GET", "HEAD"]).optional(),
   intervalMinutes: z.union([z.literal(1), z.literal(5), z.literal(10), z.literal(15)]).optional(),

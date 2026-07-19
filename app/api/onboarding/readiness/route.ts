@@ -1,11 +1,22 @@
 import { NextResponse } from "next/server";
 
+import { getCurrentSession } from "@/lib/auth/session";
+import { hasAdministrator } from "@/lib/auth/service";
 import { checkOnboardingReadiness } from "@/lib/onboarding/readiness";
 
 const limits = new Map<string, { count: number; resetAt: number }>();
 let cache: { expiresAt: number; report: Awaited<ReturnType<typeof checkOnboardingReadiness>> } | null = null;
 
 export async function GET(request: Request) {
+  // The readiness probe performs privileged provider writes (Edge Config, email). Once
+  // the installation is claimed, only the authenticated administrator finishing
+  // onboarding may drive it — anonymous callers are switched off, which removes the
+  // unauthenticated post-bootstrap side-effect path while keeping the onboarding flow
+  // (which can navigate back to this step after the account is created) working.
+  if (await hasAdministrator() && !(await getCurrentSession())) {
+    return NextResponse.json({ error: "Onboarding is already complete" }, { status: 410, headers: { "Cache-Control": "no-store" } });
+  }
+
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
   const now = Date.now();
   const current = limits.get(ip);

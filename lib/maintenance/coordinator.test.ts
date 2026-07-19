@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { performMaintenance } from "./coordinator";
+import { performMaintenance, performSweep, type MaintenanceStore } from "./coordinator";
 
 describe("performMaintenance", () => {
   it("reconciles, compacts mergeable rollups, and uses bounded retention batches", async () => {
@@ -37,6 +37,25 @@ describe("performMaintenance", () => {
     expect(calls.find(([name]) => name === "orphan-images")?.slice(1))
       .toEqual([new Date("2026-07-17T03:15:00Z"), 20, 10_000]);
     expect(summary).toEqual({ staleOutbox: 1, staleCronRuns: 1, rollups: 3, deleted: 10, expired: 5, governorMode: "full" });
+  });
+
+  it("performSweep expires only short-lived rows and sums their counts", async () => {
+    const calls: string[] = [];
+    const count = (name: string, value: number) => async () => { calls.push(name); return value; };
+    const store = {
+      expireRateLimitBuckets: count("rate", 3),
+      expireApiIdempotency: count("idempotency", 2),
+      markDeviceAuthorizationsExpired: count("device-mark", 1),
+      deleteExpiredDeviceAuthorizations: count("device-delete", 4),
+      expireConfigApprovals: count("approvals", 5),
+      deleteRawChecks: count("checks", 999),
+      enforceTelemetryRetention: count("telemetry", 999),
+    } as unknown as MaintenanceStore;
+    const summary = await performSweep(store, new Date("2026-07-18T03:15:00Z"));
+    expect(summary).toEqual({ expired: 15 });
+    // Heavy retention operations are never touched by the frequent sweep.
+    expect(calls).not.toContain("checks");
+    expect(calls).not.toContain("telemetry");
   });
 
   it("stops after the first failed task", async () => {

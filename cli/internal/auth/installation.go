@@ -10,7 +10,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/productos-ai/pulse-uptime/cli/internal/config"
+	"github.com/0xSMW/pulse-uptime/cli/internal/config"
 )
 
 // EnsureInstallation loads or creates the stable, non-secret installation

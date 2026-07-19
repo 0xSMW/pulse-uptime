@@ -380,15 +380,39 @@
   }
 
   const DEP_CATALOG = [
-    { id: "openai_api", name: "OpenAI API", provider: "OpenAI", icon: "openai", group: "Popular" },
-    { id: "vercel_runtime", name: "Vercel Runtime", provider: "Vercel", icon: "vercel", group: "Popular" },
-    { id: "stripe_api", name: "Stripe API", provider: "Stripe", icon: "stripe", group: "Popular" },
-    { id: "cloudflare_cdn", name: "Cloudflare CDN", provider: "Cloudflare", icon: "cloudflare", group: "Popular" },
-    { id: "anthropic_api", name: "Anthropic API", provider: "Anthropic", icon: "anthropic", group: "Popular" },
-    { id: "neon_database", name: "Neon Database", provider: "Neon", icon: "neon", monogram: "N", group: "Data", region: "us-east-1" },
-    { id: "supabase_database", name: "Supabase Database", provider: "Supabase", icon: "supabase", group: "Data" },
-    { id: "upstash_redis", name: "Upstash Redis", provider: "Upstash", icon: "upstash", group: "Data" }
+    { id: "openai_api", name: "OpenAI API", provider: "OpenAI", icon: "openai", group: "AI", popular: true },
+    { id: "chatgpt", name: "ChatGPT", provider: "OpenAI", icon: "openai", group: "AI" },
+    { id: "anthropic_api", name: "Anthropic API", provider: "Anthropic", icon: "anthropic", group: "AI", popular: true },
+    { id: "google_vertex_gemini", name: "Vertex Gemini API", provider: "Google Cloud", icon: "googlecloud", group: "AI" },
+    { id: "vercel_runtime", name: "Vercel Runtime", provider: "Vercel", icon: "vercel", group: "Hosting", popular: true },
+    { id: "vercel_deployments", name: "Vercel Deployments", provider: "Vercel", icon: "vercel", group: "Hosting" },
+    { id: "cloudflare_cdn", name: "Cloudflare CDN", provider: "Cloudflare", icon: "cloudflare", group: "Hosting", popular: true },
+    { id: "cloudflare_workers", name: "Cloudflare Workers", provider: "Cloudflare", icon: "cloudflare", group: "Hosting" },
+    { id: "google_cloud_run", name: "Google Cloud Run", provider: "Google Cloud", icon: "googlecloud", group: "Hosting" },
+    { id: "google_cloud_sql", name: "Google Cloud SQL", provider: "Google Cloud", icon: "googlecloud", group: "Hosting" },
+    { id: "google_cloud_storage", name: "Google Cloud Storage", provider: "Google Cloud", icon: "googlecloud", group: "Hosting" },
+    { id: "workos_authkit", name: "WorkOS AuthKit", provider: "WorkOS", icon: "workos", group: "Auth" },
+    { id: "workos_sso", name: "WorkOS SSO", provider: "WorkOS", icon: "workos", group: "Auth" },
+    { id: "workos_directory_sync", name: "WorkOS Directory Sync", provider: "WorkOS", icon: "workos", group: "Auth" },
+    { id: "clerk_authentication", name: "Clerk Authentication", provider: "Clerk", icon: "clerk", group: "Auth" },
+    { id: "clerk_machine_auth", name: "Clerk Machine Authentication", provider: "Clerk", icon: "clerk", group: "Auth" },
+    { id: "neon_database", name: "Neon Database", provider: "Neon", icon: "neon", group: "Data", region: "us-east-1", dataDefault: true },
+    { id: "supabase_database", name: "Supabase Database", provider: "Supabase", icon: "supabase", group: "Data", dataDefault: true },
+    { id: "supabase_auth", name: "Supabase Authentication", provider: "Supabase", icon: "supabase", group: "Data" },
+    { id: "upstash_redis", name: "Upstash Redis Global", provider: "Upstash", icon: "upstash", group: "Data", dataDefault: true },
+    { id: "upstash_redis_regional", name: "Upstash Redis Regional", provider: "Upstash", icon: "upstash", group: "Data", region: "us-east-1" },
+    { id: "stripe_api", name: "Stripe API", provider: "Stripe", icon: "stripe", group: "Payments", popular: true },
+    { id: "stripe_checkout", name: "Stripe Checkout", provider: "Stripe", icon: "stripe", group: "Payments" },
+    { id: "stripe_webhooks", name: "Stripe Webhooks", provider: "Stripe", icon: "stripe", group: "Payments" },
+    { id: "resend_email_sending", name: "Resend Email Sending", provider: "Resend", icon: "resend", group: "Payments" },
+    { id: "resend_webhooks", name: "Resend Webhooks", provider: "Resend", icon: "resend", group: "Payments" },
+    { id: "postmark_email_delivery", name: "Postmark Email Delivery", provider: "Postmark", icon: "postmark", group: "Payments" },
+    { id: "twilio_messaging", name: "Twilio Messaging", provider: "Twilio", icon: "twilio", group: "Payments" },
+    { id: "github_api", name: "GitHub API", provider: "GitHub", icon: "github", group: "Developer" },
+    { id: "github_actions", name: "GitHub Actions", provider: "GitHub", icon: "github", group: "Developer" }
   ];
+
+  const DEP_GROUP_ORDER = ["AI", "Hosting", "Auth", "Data", "Payments", "Developer"];
 
   const DEP_PROVIDERS = [
     ["OpenAI", "openai"], ["Anthropic", "anthropic"], ["Google Cloud", "googlecloud"],
@@ -469,10 +493,20 @@
     const container = $("#dep-catalog");
     if (!container) return;
     const query = (filter || "").trim().toLowerCase();
-    const groups = ["Popular", "Data"];
-    container.innerHTML = groups.map((group) => {
-      const items = DEP_CATALOG.filter((item) => item.group === group &&
-        (`${item.name} ${item.provider}`.toLowerCase().includes(query)));
+    let sections;
+    if (!query) {
+      sections = [
+        ["Popular", DEP_CATALOG.filter((item) => item.popular)],
+        ["Data", DEP_CATALOG.filter((item) => item.dataDefault)]
+      ];
+    } else {
+      const matches = DEP_CATALOG.filter((item) =>
+        `${item.name} ${item.provider} ${item.group}`.toLowerCase().includes(query));
+      sections = DEP_GROUP_ORDER
+        .map((group) => [group, matches.filter((item) => item.group === group)])
+        .filter(([, items]) => items.length);
+    }
+    container.innerHTML = sections.map(([group, items]) => {
       if (!items.length) return "";
       return `<p class="dep-group">${group}</p>` + items.map((item) => {
         const installed = demo.dependencies.some((dep) => dep.id === item.id);
@@ -1114,35 +1148,104 @@
       title: "Vercel Cron",
       copy: "Fires once per minute and hands Pulse a single packed batch of due checks. No worker fleet, no queue to babysit. Every monitor keeps its own configurable interval, from one minute up.",
       stats: [["Cadence", "1 run / min"], ["Intervals", "1 · 5 · 15 min"], ["Idle compute", "None"]],
-      flow: "Vercel Cron → Pulse"
+      flow: "Vercel Cron → Pulse",
+      visual: `
+        <div class="dv-frame">
+          <div class="dv-head"><span>pulse-uptime · logs</span><span class="dv-live"><span class="status-dot up pulse"></span>Live</span></div>
+          <div class="dv-rows">
+            <div class="dv-row"><time>12:04:00.21</time><span class="dv-ok">200</span><span class="dv-path">/api/cron/check-monitors</span><span class="dv-msg">cron.completed · 3 checks</span></div>
+            <div class="dv-row"><time>12:04:00.19</time><span class="dv-ok">200</span><span class="dv-path">/api/cron/check-dependencies</span><span class="dv-msg">3 sources · 304</span></div>
+            <div class="dv-row"><time>12:03:00.24</time><span class="dv-ok">200</span><span class="dv-path">/api/cron/check-monitors</span><span class="dv-msg">cron.completed · 3 checks</span></div>
+            <div class="dv-row"><time>12:02:00.18</time><span class="dv-ok">200</span><span class="dv-path">/api/cron/check-monitors</span><span class="dv-msg">cron.completed · 3 checks</span></div>
+            <div class="dv-row"><time>12:01:00.22</time><span class="dv-ok">200</span><span class="dv-path">/api/cron/check-monitors</span><span class="dv-msg">cron.completed · 3 checks</span></div>
+          </div>
+        </div>`
     },
     pulse: {
       kicker: "02 · Control plane",
       title: "Pulse",
       copy: "Runs every check, resolves state transitions, opens and closes incidents, and serves the dashboard, API, and CLI from one deployment.",
       stats: [["Checks", "HTTP + latency"], ["States", "Up · Verifying · Down"], ["Interfaces", "UI · API · CLI"]],
-      flow: "Vercel Cron → Pulse → Neon · Edge Config · Resend"
+      flow: "Vercel Cron → Pulse → Neon · Edge Config · Resend",
+      visual: `
+        <div class="dv-duo">
+          <div class="dv-frame dv-browser">
+            <div class="dv-head"><span class="terminal-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>pulse.example.com</span><span class="dv-live"><span class="status-dot up"></span>Up</span></div>
+            <div class="dv-rows">
+              <div class="dv-row"><span class="status-dot up"></span><span class="dv-path">API</span><span class="dv-msg">99.99% · 42 ms</span></div>
+              <div class="dv-row"><span class="status-dot up"></span><span class="dv-path">Web App</span><span class="dv-msg">100% · 36 ms</span></div>
+              <div class="dv-row"><span class="status-dot up"></span><span class="dv-path">Docs</span><span class="dv-msg">99.98% · 58 ms</span></div>
+            </div>
+          </div>
+          <div class="dv-frame dv-terminal">
+            <div class="dv-head"><span class="terminal-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>pulsectl</span></div>
+            <pre class="dv-code"><span class="dv-key">$</span> pulsectl monitor list
+API      <span class="dv-num">UP</span>  42ms
+Web App  <span class="dv-num">UP</span>  36ms
+Docs     <span class="dv-num">UP</span>  58ms
+<span class="dv-key">$</span> <span class="terminal-cursor" aria-hidden="true"></span></pre>
+          </div>
+        </div>`
     },
     neon: {
       kicker: "03 · Durable history",
       title: "Neon",
       copy: "Postgres that keeps the permanent record: incidents, exceptions, and compacted rollups. A storage governor enforces the budget, compacting routine checks so history never outgrows 500 MB.",
       stats: [["Writes", "State transitions"], ["Retention", "Budget-governed"], ["Typical size", "~120 MB"]],
-      flow: "Pulse → Neon"
+      flow: "Pulse → Neon",
+      visual: `
+        <div class="dv-frame">
+          <div class="dv-head"><span>psql · pulse</span><span>\\d</span></div>
+          <pre class="dv-code"><span class="dv-tbl">incidents</span>
+  id             <span class="dv-type">text · pk</span>
+  monitor_id     <span class="dv-type">text · fk</span>
+  opened_at      <span class="dv-type">timestamptz</span>
+  resolved_at    <span class="dv-type">timestamptz</span>
+  cause          <span class="dv-type">text</span>
+
+<span class="dv-tbl">rollups_hourly</span>
+  bucket         <span class="dv-type">timestamptz</span>
+  monitor_id     <span class="dv-type">text · fk</span>
+  checks         <span class="dv-type">integer</span>
+  p50_ms         <span class="dv-type">integer</span></pre>
+        </div>`
     },
     edge: {
       kicker: "04 · Zero-DB reads",
       title: "Edge Config",
       copy: "Holds the monitoring config and latest public state at the edge. The cron runner reads its config here every minute, and the status page reads current state the same way. Neither ever touches the database.",
       stats: [["Scheduler reads", "Every run"], ["Status reads", "Edge-cached"], ["Database hits", "None"]],
-      flow: "Pulse → Edge Config → Scheduler · Status page"
+      flow: "Pulse → Edge Config → Scheduler · Status page",
+      visual: `
+        <div class="dv-frame">
+          <div class="dv-head"><span>edge config · monitoring</span><span>read-only</span></div>
+          <pre class="dv-code">{
+  <span class="dv-key">"configVersion"</span>: <span class="dv-num">42</span>,
+  <span class="dv-key">"monitors"</span>: [
+    { <span class="dv-key">"id"</span>: <span class="dv-str">"api"</span>,  <span class="dv-key">"intervalSeconds"</span>: <span class="dv-num">60</span> },
+    { <span class="dv-key">"id"</span>: <span class="dv-str">"web"</span>,  <span class="dv-key">"intervalSeconds"</span>: <span class="dv-num">300</span> },
+    { <span class="dv-key">"id"</span>: <span class="dv-str">"docs"</span>, <span class="dv-key">"intervalSeconds"</span>: <span class="dv-num">900</span> }
+  ],
+  <span class="dv-key">"publicState"</span>: <span class="dv-str">"operational"</span>
+}</pre>
+        </div>`
     },
     resend: {
       kicker: "05 · Notifications",
       title: "Resend",
       copy: "Delivers one clear email when an outage is confirmed and one when recovery is confirmed. No flapping, no digest noise.",
       stats: [["On outage", "1 alert"], ["On recovery", "1 alert"], ["Flap noise", "None"]],
-      flow: "Pulse → Resend"
+      flow: "Pulse → Resend",
+      visual: `
+        <div class="dv-frame">
+          <div class="dv-head"><span>outbox</span><span>deduplicated</span></div>
+          <div class="dv-rows">
+            <div class="dv-row"><span class="status-dot up"></span><span class="dv-path">API is down</span><span class="dv-msg">team@example.com · 12:04:19 · sent</span></div>
+            <div class="dv-row"><span class="status-dot up"></span><span class="dv-path">API recovered</span><span class="dv-msg">team@example.com · 12:06:20 · sent</span></div>
+            <div class="dv-row"><span class="status-dot verifying"></span><span class="dv-path">Recovery confirmed</span><span class="dv-msg">team@example.com · queued</span></div>
+            <div class="dv-row"><span class="status-dot"></span><span class="dv-path">Daily digest</span><span class="dv-msg">never · not a thing</span></div>
+          </div>
+        </div>`
     }
   };
 
@@ -1160,6 +1263,18 @@
       .map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`)
       .join("");
     $("#detail-flow").textContent = data.flow;
+
+    const inner = $(".detail-inner", systemDetail);
+    const visual = $("#detail-visual");
+    if (data.visual) {
+      visual.innerHTML = data.visual;
+      visual.hidden = false;
+      inner.classList.add("has-visual");
+    } else {
+      visual.innerHTML = "";
+      visual.hidden = true;
+      inner.classList.remove("has-visual");
+    }
 
     detailReturnFocus = button;
     systemDetail.hidden = false;
@@ -1205,7 +1320,9 @@
 
   $("[data-close-detail]").addEventListener("click", closeSystemDetail);
   window.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeSystemDetail();
+    if (event.key !== "Escape") return;
+    closeSystemDetail();
+    if (elements.navLinks.classList.contains("open")) setMenu(false);
   });
 
   $$("[data-system]").forEach((button) => {
@@ -1225,16 +1342,23 @@
 
   elements.themeToggle.addEventListener("click", () => setTheme(demo.theme === "dark" ? "light" : "dark"));
 
-  elements.menuToggle.addEventListener("click", () => {
-    const open = elements.navLinks.classList.toggle("open");
+  function setMenu(open) {
+    elements.navLinks.classList.toggle("open", open);
     elements.menuToggle.setAttribute("aria-expanded", String(open));
     elements.menuToggle.setAttribute("aria-label", open ? "Close navigation" : "Open navigation");
+  }
+
+  elements.menuToggle.addEventListener("click", () => {
+    setMenu(!elements.navLinks.classList.contains("open"));
   });
 
-  $$("a", elements.navLinks).forEach((link) => link.addEventListener("click", () => {
-    elements.navLinks.classList.remove("open");
-    elements.menuToggle.setAttribute("aria-expanded", "false");
-  }));
+  $$("a", elements.navLinks).forEach((link) => link.addEventListener("click", () => setMenu(false)));
+
+  document.addEventListener("click", (event) => {
+    if (!elements.navLinks.classList.contains("open")) return;
+    if (event.target.closest("#nav-links, #menu-toggle")) return;
+    setMenu(false);
+  });
 
   const onScroll = () => elements.header.classList.toggle("scrolled", window.scrollY > 4);
   onScroll();

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/url"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -51,6 +52,48 @@ func TestListAutoPaginationPreservesOrderAndCapsTotal(t *testing.T) {
 	}
 	if got := queries[1].Get("limit"); got != "1" {
 		t.Fatalf("second limit = %q", got)
+	}
+}
+
+func TestListRejectsRepeatingCursor(t *testing.T) {
+	// SEC-08: a server that keeps returning the same nextCursor must not drive an
+	// unbounded request loop; the repeated cursor terminates it quickly.
+	cycle := "cycle"
+	calls := 0
+	client := clientFunc(func(_ context.Context, r Request) error {
+		calls++
+		setListResult(t, r.Result, []string{`{"id":"a"}`}, &cycle)
+		return nil
+	})
+	_, err := List(context.Background(), client, ListOptions{All: true, Machine: true})
+	if err == nil {
+		t.Fatal("expected a repeating cursor to be rejected")
+	}
+	var ce *Error
+	if !errors.As(err, &ce) || ce.Code != "PAGINATION_LIMIT" {
+		t.Fatalf("error = %#v, want PAGINATION_LIMIT", err)
+	}
+	if calls > 3 {
+		t.Fatalf("made %d requests before detecting the cycle", calls)
+	}
+}
+
+func TestListCapsTotalPages(t *testing.T) {
+	// SEC-08: a server that always advances the cursor is still bounded by the
+	// hard page cap rather than looping forever.
+	calls := 0
+	client := clientFunc(func(_ context.Context, r Request) error {
+		calls++
+		next := strconv.Itoa(calls)
+		setListResult(t, r.Result, []string{`{"id":"a"}`}, &next)
+		return nil
+	})
+	_, err := List(context.Background(), client, ListOptions{All: true, Machine: true})
+	if err == nil {
+		t.Fatal("expected the page cap to stop an endless stream")
+	}
+	if calls > maxListPages+1 {
+		t.Fatalf("made %d requests, expected at most %d", calls, maxListPages+1)
 	}
 }
 

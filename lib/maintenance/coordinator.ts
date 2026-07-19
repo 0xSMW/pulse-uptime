@@ -43,6 +43,9 @@ export type MaintenanceSummary = {
 export const RETENTION_BATCH_SIZE = 10_000;
 export const MAINTENANCE_WORK_BUDGET_MS = 45_000;
 export const ORPHAN_IMAGE_KEEP_NEWEST = 20;
+export const SWEEP_WORK_BUDGET_MS = 20_000;
+
+export type SweepSummary = { expired: number };
 
 async function drainBatches(
   operation: (limit: number) => Promise<number>,
@@ -109,6 +112,31 @@ export async function performMaintenance(
     await drainBatches((limit) => store.deleteExpiredDeviceAuthorizations(shortCutoff, limit), nowMs, deadlineAtMs) +
     await drainBatches((limit) => store.expireRateLimitBuckets(now, limit), nowMs, deadlineAtMs);
   return { staleOutbox, staleCronRuns, rollups, deleted, expired, governorMode };
+}
+
+/**
+ * Frequent, low-cost sweep of short-lived rows (rate-limit buckets, idempotency keys,
+ * device authorizations, expired config approvals). These grow fastest and their
+ * cleanup would otherwise queue behind heavy daily telemetry retention. The operations
+ * are idempotent deletes, so this needs no lease: a concurrent double-run only re-deletes
+ * already-expired rows.
+ */
+export async function performSweep(
+  store: MaintenanceStore,
+  now: Date,
+  options: { nowMs?: () => number; deadlineAtMs?: number } = {},
+): Promise<SweepSummary> {
+  const nowMs = options.nowMs ?? Date.now;
+  const deadlineAtMs = options.deadlineAtMs ?? nowMs() + SWEEP_WORK_BUDGET_MS;
+  const shortCutoff = new Date(now.getTime() - 7 * 86_400_000);
+  const consumedApprovalCutoff = new Date(now.getTime() - 30 * 86_400_000);
+  const expired =
+    await drainBatches((limit) => store.expireRateLimitBuckets(now, limit), nowMs, deadlineAtMs) +
+    await drainBatches((limit) => store.expireApiIdempotency(now, limit), nowMs, deadlineAtMs) +
+    await drainBatches((limit) => store.markDeviceAuthorizationsExpired(now, limit), nowMs, deadlineAtMs) +
+    await drainBatches((limit) => store.deleteExpiredDeviceAuthorizations(shortCutoff, limit), nowMs, deadlineAtMs) +
+    await drainBatches((limit) => store.expireConfigApprovals(now, consumedApprovalCutoff, limit), nowMs, deadlineAtMs);
+  return { expired };
 }
 
 export async function runMaintenanceCoordinator(dependencies: {

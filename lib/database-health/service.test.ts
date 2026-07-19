@@ -65,13 +65,18 @@ describe("database health state", () => {
   });
 
   it.each([
-    { providerMetricsAvailable: false },
-    { providerMetricsCapturedAt: new Date("2026-07-16T00:00:00.000Z") },
     { maintenanceHealthy: null },
     { capturedAt: new Date("2026-07-16T00:00:00.000Z") },
     { projected30DayBytes: null },
   ])("uses Unknown for unavailable or stale metrics", (override) => {
     expect(deriveDatabaseHealthState(measurement(override), now)).toBe("UNKNOWN");
+  });
+
+  it("derives health from relation metrics when provider metrics are absent", () => {
+    expect(deriveDatabaseHealthState(measurement({
+      providerMetricsAvailable: false,
+      providerMetricsCapturedAt: null,
+    }), now)).toBe("HEALTHY");
   });
 });
 

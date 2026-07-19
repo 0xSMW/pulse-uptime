@@ -36,6 +36,20 @@ describe("AccessSettings", () => {
     expect(html).toContain("Open Device Approval");
   });
 
+  it("caps visible scope chips and summarizes the overflow", () => {
+    const scopes = ["monitors:read", "monitors:write", "incidents:read", "config:read", "config:write", "notifications:test", "tokens:manage", "status:read"];
+    const wide: AccessSettingsData = {
+      ...data,
+      tokens: [{ ...data.tokens[1]!, scopes }],
+    };
+    const html = renderToStaticMarkup(<TimezoneProvider><AccessSettings data={wide} /></TimezoneProvider>);
+    expect(html).toContain("monitors:read");
+    expect(html).toContain("incidents:read");
+    expect(html).not.toContain(">config:read<");
+    expect(html).toContain(">+5</span>");
+    expect(html).toContain("5 more scopes:");
+  });
+
   it("renders an empty token state", () => {
     const html = renderToStaticMarkup(<TimezoneProvider><AccessSettings data={{ ...data, tokens: [] }} /></TimezoneProvider>);
     expect(html).toContain("No API tokens");

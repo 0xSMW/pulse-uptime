@@ -4,16 +4,29 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"runtime"
+	"strings"
 	"time"
 
-	"github.com/productos-ai/pulse-uptime/cli/internal/config"
+	"github.com/0xSMW/pulse-uptime/cli/internal/config"
 )
 
 const (
 	ScopeProfileAdministrator = "administrator"
 	DeviceClientName          = "pulsectl"
 	SlowDownIncrement         = 5 * time.Second
+
+	// DeviceVerificationPath is the only browser path the CLI will print or open
+	// for device authorization. It must live on the configured server's origin.
+	DeviceVerificationPath = "/cli/authorize"
+
+	// Polling bounds defend against a hostile server that reports an interval or
+	// expiry large enough to overflow time.Duration (going negative and causing a
+	// tight poll loop) or small enough to hammer the token endpoint.
+	MinPollInterval  = 1 * time.Second
+	MaxPollInterval  = 60 * time.Second
+	MaxExpiresWindow = 30 * time.Minute
 )
 
 type DeviceRequest struct {
@@ -58,6 +71,57 @@ func (d DeviceAuthorization) Validate() error {
 		return errors.New("device authorization has an invalid polling lifetime")
 	}
 	return nil
+}
+
+// ValidateVerificationOrigin rejects a browser verification URL that does not
+// share the configured server's origin and expected authorization path, so a
+// hostile server cannot redirect the operator to an unrelated site. Both
+// verificationUri and verificationUriComplete are checked.
+func (d DeviceAuthorization) ValidateVerificationOrigin(server string) error {
+	base, err := url.Parse(server)
+	if err != nil || base.Scheme == "" || base.Host == "" {
+		return errors.New("configured server URL is invalid")
+	}
+	for _, raw := range []string{d.VerificationURI, d.VerificationURIComplete} {
+		if raw == "" {
+			return errors.New("device authorization is missing a verification URL")
+		}
+		u, err := url.Parse(raw)
+		if err != nil {
+			return fmt.Errorf("device authorization verification URL is invalid")
+		}
+		if !strings.EqualFold(u.Scheme, base.Scheme) || !strings.EqualFold(u.Host, base.Host) {
+			return fmt.Errorf("device authorization verification URL is not on the configured server origin")
+		}
+		if u.Path != DeviceVerificationPath {
+			return fmt.Errorf("device authorization verification URL has an unexpected path")
+		}
+	}
+	return nil
+}
+
+// clampInterval bounds the server-provided polling interval to a sane cadence
+// and avoids the time.Duration overflow that a huge seconds value would cause.
+func clampInterval(seconds int) time.Duration {
+	if seconds <= int(MinPollInterval/time.Second) {
+		return MinPollInterval
+	}
+	if seconds >= int(MaxPollInterval/time.Second) {
+		return MaxPollInterval
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+// clampExpiry bounds the authorization lifetime, again avoiding time.Duration
+// overflow from a hostile expiresIn value.
+func clampExpiry(seconds int) time.Duration {
+	if seconds <= 0 {
+		return 0
+	}
+	if seconds >= int(MaxExpiresWindow/time.Second) {
+		return MaxExpiresWindow
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 type DeviceTokenRequest struct {
@@ -117,8 +181,8 @@ func (p Poller) Poll(ctx context.Context, authorization DeviceAuthorization, exc
 	if wait == nil {
 		wait = waitFor
 	}
-	expiresAt := now().Add(time.Duration(authorization.ExpiresIn) * time.Second)
-	interval := time.Duration(authorization.Interval) * time.Second
+	expiresAt := now().Add(clampExpiry(authorization.ExpiresIn))
+	interval := clampInterval(authorization.Interval)
 	for {
 		remaining := expiresAt.Sub(now())
 		if remaining <= 0 || interval > remaining {
@@ -143,6 +207,9 @@ func (p Poller) Poll(ctx context.Context, authorization DeviceAuthorization, exc
 			continue
 		case SlowDown:
 			interval += SlowDownIncrement
+			if interval > MaxPollInterval {
+				interval = MaxPollInterval
+			}
 			continue
 		case AccessDenied, ExpiredToken:
 			return DeviceSession{}, flowErr
