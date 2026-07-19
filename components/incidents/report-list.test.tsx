@@ -39,6 +39,14 @@ describe("ReportList", () => {
     expect(html).not.toContain(">Draft<");
   });
 
+  it("stretches the title link over the row and keeps the actions menu above the overlay (the li is the positioned ancestor, never the ul)", () => {
+    const html = renderList([base]);
+    expect(html).toContain("after:absolute");
+    expect(html).toContain("after:inset-0");
+    expect(html).toContain('class="relative flex items-center gap-4 px-6 py-4 hover:bg-[var(--hover)]"');
+    expect(html).toContain('class="relative z-10 flex items-center gap-2"');
+  });
+
   it("badges drafts and chips maintenance reports", () => {
     const html = renderList([
       {

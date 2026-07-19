@@ -36,8 +36,10 @@ export function ReportRowActions({ reportId, title }: { reportId: string; title:
     }
   }
 
+  // relative z-10 keeps the menu trigger and confirm buttons above the
+  // row's stretched-link overlay so they receive their own clicks.
   return (
-    <span className="flex items-center gap-2">
+    <span className="relative z-10 flex items-center gap-2">
       {confirming ? (
         <>
           <span className="text-xs text-[var(--fg-muted)]">Delete report?</span>

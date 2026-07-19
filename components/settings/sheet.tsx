@@ -1,9 +1,10 @@
 "use client";
 
 import { X } from "lucide-react";
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
+import { PortalContainerContext } from "@/components/ui/portal-container";
 
 export function SheetIconButton({
   label,
@@ -71,6 +72,10 @@ export function Sheet({
   children: ReactNode;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  // Popovers inside the sheet portal into the dialog element itself. The
+  // dialog lives in the top layer, so content portaled to document.body
+  // would paint beneath it and be inert.
+  const [portalHost, setPortalHost] = useState<HTMLDialogElement | null>(null);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -81,7 +86,10 @@ export function Sheet({
 
   return (
     <dialog
-      ref={dialogRef}
+      ref={(node) => {
+        dialogRef.current = node;
+        setPortalHost(node);
+      }}
       aria-labelledby="settings-sheet-title"
       aria-describedby={description ? "settings-sheet-description" : undefined}
       onCancel={(event) => {
@@ -106,7 +114,9 @@ export function Sheet({
           </SheetIconButton>
         </div>
       </header>
-      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-6 py-5">{children}</div>
+      <PortalContainerContext.Provider value={portalHost}>
+        <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-6 py-5">{children}</div>
+      </PortalContainerContext.Provider>
     </dialog>
   );
 }

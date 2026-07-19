@@ -20,8 +20,11 @@ export function ReportList({ reports }: { reports: ReportListRowData[] }) {
     <ul className="divide-y divide-[var(--border)] overflow-hidden rounded-xl border border-[var(--border-strong)] shadow-[var(--card-shadow)]">
       {reports.map((report) => {
         const latest = report.latestUpdate;
+        // relative on the li contains the title link's after:inset-0
+        // overlay, which stretches the click target to the whole row.
+        // List items are reliable containing blocks, unlike table rows.
         return (
-          <li key={report.id} className="flex items-center gap-4 px-6 py-4 hover:bg-[var(--hover)]">
+          <li key={report.id} className="relative flex items-center gap-4 px-6 py-4 hover:bg-[var(--hover)]">
             <StatusDot
               state={reportDotState(report.currentStatus)}
               aria-label={REPORT_STATUS_LABELS[report.currentStatus]}
@@ -30,7 +33,7 @@ export function ReportList({ reports }: { reports: ReportListRowData[] }) {
               <div className="flex flex-wrap items-center gap-2">
                 <Link
                   href={`/incidents/reports/${encodeURIComponent(report.id)}`}
-                  className="truncate text-sm font-medium tracking-[-0.28px] hover:underline"
+                  className="truncate text-sm font-medium tracking-[-0.28px] after:absolute after:inset-0 hover:underline"
                 >
                   {report.title}
                 </Link>
