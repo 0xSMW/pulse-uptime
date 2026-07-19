@@ -41,11 +41,29 @@ export function livePollIsStale(errorCount: number): boolean {
   return errorCount >= LIVE_STALE_AFTER_ERRORS;
 }
 
-// A 404 means the monitor was archived or deleted in another session. The poll
-// stops retrying it, since retries can never recover a gone monitor, and the
-// client refreshes once so the server component resolves to its not-found path.
-export function livePollIsGone(status: number | undefined): boolean {
-  return status === 404;
+// Statuses that no retry can recover. A 404 means the monitor was archived or
+// deleted in another session. A 401 or 403 means the session expired or lost
+// access while the page stayed open. The poll stops retrying and the client
+// refreshes once so the server layout redirects to login or the server
+// component resolves to its not-found path.
+const LIVE_TERMINAL_STATUSES: ReadonlySet<number> = new Set([401, 403, 404]);
+
+export function livePollIsTerminal(status: number | undefined): boolean {
+  return status !== undefined && LIVE_TERMINAL_STATUSES.has(status);
+}
+
+// The live poll recomputes only the h24 and d7 scores, yet its unlock flags span
+// all four ranges. A page held open across the 30 or 90 day activation boundary
+// sees d30 or d90 flip to unlocked with no matching score in the payload. The
+// client keeps the snapshot flags and refreshes once so the server recomputes
+// the full range and its score. Returns true when either long range unlocks past
+// the snapshot, which also advances a paused monitor whose rollup version never
+// moves.
+export function livePollUnlockAdvanced(
+  snapshot: { d30: boolean; d90: boolean },
+  live: { d30: boolean; d90: boolean },
+): boolean {
+  return (live.d30 && !snapshot.d30) || (live.d90 && !snapshot.d90);
 }
 
 // Compact "Updated Ns ago" label. Seconds up to a minute, then whole minutes.

@@ -8,8 +8,9 @@ import {
   LIVE_POLL_STEADY_MS,
   livePollBackoffMs,
   livePollIntervalMs,
-  livePollIsGone,
   livePollIsStale,
+  livePollIsTerminal,
+  livePollUnlockAdvanced,
 } from "./live-poll";
 
 describe("livePollIntervalMs", () => {
@@ -66,16 +67,44 @@ describe("livePollIsStale", () => {
   });
 });
 
-describe("livePollIsGone", () => {
-  it("treats a 404 as gone so the poll stops retrying", () => {
-    expect(livePollIsGone(404)).toBe(true);
+describe("livePollIsTerminal", () => {
+  it("treats a gone monitor and a lost session as terminal so the poll stops retrying", () => {
+    expect(livePollIsTerminal(404)).toBe(true);
+    expect(livePollIsTerminal(401)).toBe(true);
+    expect(livePollIsTerminal(403)).toBe(true);
   });
 
   it("keeps retrying every other failure, including transient server and network errors", () => {
-    expect(livePollIsGone(500)).toBe(false);
-    expect(livePollIsGone(503)).toBe(false);
-    expect(livePollIsGone(429)).toBe(false);
-    expect(livePollIsGone(undefined)).toBe(false);
+    expect(livePollIsTerminal(500)).toBe(false);
+    expect(livePollIsTerminal(503)).toBe(false);
+    expect(livePollIsTerminal(429)).toBe(false);
+    expect(livePollIsTerminal(undefined)).toBe(false);
+  });
+});
+
+describe("livePollUnlockAdvanced", () => {
+  it("advances when a long range unlocks past the snapshot", () => {
+    expect(
+      livePollUnlockAdvanced({ d30: false, d90: false }, { d30: true, d90: false }),
+    ).toBe(true);
+    expect(
+      livePollUnlockAdvanced({ d30: true, d90: false }, { d30: true, d90: true }),
+    ).toBe(true);
+  });
+
+  it("holds steady when the flags match", () => {
+    expect(
+      livePollUnlockAdvanced({ d30: false, d90: false }, { d30: false, d90: false }),
+    ).toBe(false);
+    expect(
+      livePollUnlockAdvanced({ d30: true, d90: true }, { d30: true, d90: true }),
+    ).toBe(false);
+  });
+
+  it("does not advance when the snapshot already leads the poll", () => {
+    expect(
+      livePollUnlockAdvanced({ d30: true, d90: true }, { d30: false, d90: false }),
+    ).toBe(false);
   });
 });
 

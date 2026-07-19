@@ -7,8 +7,9 @@ import useSWR from "swr";
 import {
   livePollBackoffMs,
   livePollIntervalMs,
-  livePollIsGone,
   livePollIsStale,
+  livePollIsTerminal,
+  livePollUnlockAdvanced,
 } from "@/lib/reporting/live-poll";
 import type { MonitorPhase } from "@/lib/reporting/queries/first-run";
 import type { MonitorLiveData } from "@/lib/reporting/queries/live-summary";
@@ -48,14 +49,20 @@ export type MonitorLiveStatus = {
 // rollup bucket appears the whole tree refreshes once to advance them.
 export function useMonitorLive(
   monitorId: string,
-  server: { phase: MonitorPhase; state: MonitorState; rollupVersion: string | null },
+  server: {
+    phase: MonitorPhase;
+    state: MonitorState;
+    rollupVersion: string | null;
+    rangeUnlocked: { d30: boolean; d90: boolean };
+  },
 ): MonitorLiveStatus {
   const router = useRouter();
   const [errorCount, setErrorCount] = useState(0);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [isHidden, setIsHidden] = useState(false);
   const refreshedVersionRef = useRef<string | null>(server.rollupVersion);
-  const goneRef = useRef(false);
+  const terminalRef = useRef(false);
+  const unlockRefreshedRef = useRef(false);
 
   // Track visibility so the indicator can show "Updates paused". SWR stops the
   // interval itself through refreshWhenHidden false.
@@ -84,14 +91,20 @@ export function useMonitorLive(
         setErrorCount(0);
         setUpdatedAt(Date.now());
       },
-      onError: () => setErrorCount((count) => count + 1),
+      onError: (error) => {
+        // A terminal status routes through onErrorRetry to refresh once. It must
+        // not bump the stale counter, or the indicator flashes "Data may be
+        // stale" during the redirect or not-found resolution.
+        if (livePollIsTerminal((error as { status?: number }).status)) return;
+        setErrorCount((count) => count + 1);
+      },
       onErrorRetry: (error, _key, _config, revalidate, { retryCount }) => {
-        // A gone monitor never recovers, so drop the retry and refresh once so
-        // the server component resolves to its not-found path. The guard keeps a
-        // repeated 404 from looping refreshes.
-        if (livePollIsGone((error as { status?: number }).status)) {
-          if (!goneRef.current) {
-            goneRef.current = true;
+        // A terminal status never recovers, so drop the retry and refresh once so
+        // the server layout redirects to login or the server component resolves
+        // to its not-found path. The guard keeps a repeat from looping refreshes.
+        if (livePollIsTerminal((error as { status?: number }).status)) {
+          if (!terminalRef.current) {
+            terminalRef.current = true;
             router.refresh();
           }
           return;
@@ -121,6 +134,30 @@ export function useMonitorLive(
       router.refresh();
     }
   }, [data?.rollupVersion, router]);
+
+  // A poll can cross the 30 or 90 day activation boundary while the page stays
+  // open. The payload flips the unlock flag but carries no d30 or d90 score, so
+  // one guarded refresh has the server recompute the full range. The guard clears
+  // once the snapshot catches up, and this advances a paused monitor whose rollup
+  // version would otherwise never move.
+  const liveD30 = data?.rangeUnlocked.d30;
+  const liveD90 = data?.rangeUnlocked.d90;
+  useEffect(() => {
+    if (liveD30 === undefined || liveD90 === undefined) return;
+    if (
+      livePollUnlockAdvanced(
+        { d30: server.rangeUnlocked.d30, d90: server.rangeUnlocked.d90 },
+        { d30: liveD30, d90: liveD90 },
+      )
+    ) {
+      if (!unlockRefreshedRef.current) {
+        unlockRefreshedRef.current = true;
+        router.refresh();
+      }
+      return;
+    }
+    unlockRefreshedRef.current = false;
+  }, [liveD30, liveD90, server.rangeUnlocked.d30, server.rangeUnlocked.d90, router]);
 
   return {
     data: data ?? null,

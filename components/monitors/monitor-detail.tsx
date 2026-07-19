@@ -309,17 +309,26 @@ export function MonitorDetail({ monitor: snapshot }: { monitor: MonitorDetailDat
     phase: snapshot.firstRun.phase,
     state: snapshot.state,
     rollupVersion: snapshot.rollupVersion,
+    rangeUnlocked: snapshot.rangeUnlocked,
   });
   // Merge the polled fields over the snapshot in place. Charts, timeline
   // buckets, and configuration stay on the snapshot until a rollup refresh
   // advances them through router.refresh. Uptime and coverage merge per range,
   // so the d30 and d90 values the live payload omits fall back to the snapshot.
+  // The d30 and d90 unlock flags also stay on the snapshot, so a live flag never
+  // unlocks a long range whose score did not arrive. The hook refreshes once
+  // when the poll crosses that boundary so the server fills both in together.
   const monitor: MonitorDetailData = live.data
     ? {
         ...snapshot,
         ...live.data,
         uptime: { ...snapshot.uptime, ...live.data.uptime },
         coverage: { ...snapshot.coverage, ...live.data.coverage },
+        rangeUnlocked: {
+          ...live.data.rangeUnlocked,
+          d30: snapshot.rangeUnlocked.d30,
+          d90: snapshot.rangeUnlocked.d90,
+        },
       }
     : snapshot;
   const [availabilityRange, setAvailabilityRange] =
