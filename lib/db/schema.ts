@@ -776,3 +776,193 @@ export const configOperations = pgTable("config_operations", {
       and (${table.failedAt} is null or ${table.failedAt} >= ${table.createdAt})`,
   ),
 ]);
+
+export const dependencyStates = ["OPERATIONAL", "DEGRADED", "OUTAGE", "MAINTENANCE", "UNKNOWN"] as const;
+
+export const dependencyAdapters = [
+  "statuspage_v2",
+  "incidentio_compat",
+  "google_cloud_status",
+  "statusio_public",
+  "sorry_v1",
+] as const;
+
+export const dependencyCategories = ["ai", "hosting", "auth", "data", "payments", "developer"] as const;
+
+// Normalized incident and update lifecycle vocabulary. Adapters map each
+// provider's own status strings (Statuspage's investigating/identified/
+// monitoring/resolved, Sorry's recovering/false_alarm, maintenance's
+// scheduled/in_progress/completed) into this fixed set before storage.
+export const providerIncidentStates = [
+  "investigating",
+  "identified",
+  "monitoring",
+  "resolved",
+  "scheduled",
+  "in_progress",
+  "completed",
+  "recovering",
+  "false_alarm",
+] as const;
+
+export const incidentComponentAssociationKinds = ["explicit", "inferred"] as const;
+
+export const dependencyIncidentMatchKinds = ["component_match", "inferred"] as const;
+
+export const dependencySources = pgTable("dependency_sources", {
+  id: text("id").primaryKey(),
+  providerName: text("provider_name").notNull(),
+  adapter: text("adapter", { enum: dependencyAdapters }).notNull(),
+  currentUrl: text("current_url").notNull(),
+  incidentsUrl: text("incidents_url"),
+  statusPageUrl: text("status_page_url").notNull(),
+  allowedHosts: text("allowed_hosts").array().notNull(),
+  config: jsonb("config").notNull(),
+  catalogVersion: text("catalog_version").notNull(),
+  enabled: boolean("enabled").notNull(),
+  etag: text("etag"),
+  lastModified: text("last_modified"),
+  lastAttemptAt: timestamptz("last_attempt_at"),
+  lastSuccessAt: timestamptz("last_success_at"),
+  providerUpdatedAt: timestamptz("provider_updated_at"),
+  nextPollAt: timestamptz("next_poll_at"),
+  consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+  lastErrorCode: text("last_error_code"),
+  catalogValidatedAt: timestamptz("catalog_validated_at"),
+  catalogValidationError: text("catalog_validation_error"),
+}, (table) => [
+  index("dependency_sources_next_poll")
+    .on(table.nextPollAt)
+    .where(sql`${table.enabled} = true`),
+  check(
+    "dependency_sources_adapter",
+    sql`${table.adapter} in ('statuspage_v2', 'incidentio_compat', 'google_cloud_status', 'statusio_public', 'sorry_v1')`,
+  ),
+  check("dependency_sources_failures_nonnegative", sql`${table.consecutiveFailures} >= 0`),
+]);
+
+export const dependencyCatalog = pgTable("dependency_catalog", {
+  id: text("id").primaryKey(),
+  sourceId: text("source_id").notNull().references(() => dependencySources.id),
+  displayName: text("display_name").notNull(),
+  category: text("category", { enum: dependencyCategories }).notNull(),
+  description: text("description").notNull(),
+  selector: jsonb("selector").notNull(),
+  scopeOptions: jsonb("scope_options"),
+  sourceScopeNote: text("source_scope_note"),
+  catalogVersion: text("catalog_version").notNull(),
+  enabled: boolean("enabled").notNull(),
+  validatedAt: timestamptz("validated_at"),
+  validationError: text("validation_error"),
+}, (table) => [
+  check(
+    "dependency_catalog_category",
+    sql`${table.category} in ('ai', 'hosting', 'auth', 'data', 'payments', 'developer')`,
+  ),
+]);
+
+export const dependencies = pgTable("dependencies", {
+  id: text("id").primaryKey(),
+  catalogId: text("catalog_id").notNull().references(() => dependencyCatalog.id),
+  scopeId: text("scope_id"),
+  notificationsEnabled: boolean("notifications_enabled").notNull().default(true),
+  createdAt: timestamptz("created_at").notNull(),
+  removedAt: timestamptz("removed_at"),
+}, (table) => [
+  uniqueIndex("dependencies_active_catalog_scope")
+    .on(table.catalogId, sql`coalesce(${table.scopeId}, '')`)
+    .where(sql`${table.removedAt} is null`),
+]);
+
+export const dependencyState = pgTable("dependency_state", {
+  dependencyId: text("dependency_id").primaryKey().references(() => dependencies.id),
+  state: text("state", { enum: dependencyStates }).notNull(),
+  checking: boolean("checking").notNull().default(false),
+  stateStartedAt: timestamptz("state_started_at").notNull(),
+  providerUpdatedAt: timestamptz("provider_updated_at"),
+  observedAt: timestamptz("observed_at").notNull(),
+  lastSuccessfulPollAt: timestamptz("last_successful_poll_at"),
+}, (table) => [
+  check(
+    "dependency_state_state",
+    sql`${table.state} in ('OPERATIONAL', 'DEGRADED', 'OUTAGE', 'MAINTENANCE', 'UNKNOWN')`,
+  ),
+]);
+
+export const dependencyStateIntervals = pgTable("dependency_state_intervals", {
+  id: text("id").primaryKey(),
+  dependencyId: text("dependency_id").notNull().references(() => dependencies.id),
+  state: text("state", { enum: dependencyStates }).notNull(),
+  startedAt: timestamptz("started_at").notNull(),
+  endedAt: timestamptz("ended_at"),
+  sourceObservedAt: timestamptz("source_observed_at").notNull(),
+}, (table) => [
+  uniqueIndex("dependency_state_intervals_one_open")
+    .on(table.dependencyId)
+    .where(sql`${table.endedAt} is null`),
+  index("dependency_state_intervals_dependency_time")
+    .on(table.dependencyId, table.startedAt.desc()),
+  check(
+    "dependency_state_intervals_state",
+    sql`${table.state} in ('OPERATIONAL', 'DEGRADED', 'OUTAGE', 'MAINTENANCE', 'UNKNOWN')`,
+  ),
+  check("dependency_state_intervals_order", sql`${table.endedAt} is null or ${table.endedAt} >= ${table.startedAt}`),
+]);
+
+export const providerIncidents = pgTable("provider_incidents", {
+  id: text("id").primaryKey(),
+  sourceId: text("source_id").notNull().references(() => dependencySources.id),
+  externalId: text("external_id").notNull(),
+  title: text("title").notNull(),
+  state: text("state", { enum: providerIncidentStates }).notNull(),
+  impact: text("impact"),
+  startedAt: timestamptz("started_at").notNull(),
+  resolvedAt: timestamptz("resolved_at"),
+  providerUpdatedAt: timestamptz("provider_updated_at").notNull(),
+  canonicalUrl: text("canonical_url"),
+}, (table) => [
+  uniqueIndex("provider_incidents_source_external").on(table.sourceId, table.externalId),
+  index("provider_incidents_source_started").on(table.sourceId, table.startedAt.desc()),
+  index("provider_incidents_unresolved")
+    .on(table.resolvedAt)
+    .where(sql`${table.resolvedAt} is null`),
+  check(
+    "provider_incidents_state",
+    sql`${table.state} in ('investigating', 'identified', 'monitoring', 'resolved', 'scheduled', 'in_progress', 'completed', 'recovering', 'false_alarm')`,
+  ),
+  check("provider_incidents_resolution_order", sql`${table.resolvedAt} is null or ${table.resolvedAt} >= ${table.startedAt}`),
+]);
+
+export const providerIncidentComponents = pgTable("provider_incident_components", {
+  incidentId: text("incident_id").notNull().references(() => providerIncidents.id),
+  externalComponentId: text("external_component_id").notNull(),
+  associationKind: text("association_kind", { enum: incidentComponentAssociationKinds }).notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.incidentId, table.externalComponentId] }),
+  check("provider_incident_components_association_kind", sql`${table.associationKind} in ('explicit', 'inferred')`),
+]);
+
+export const providerIncidentUpdates = pgTable("provider_incident_updates", {
+  incidentId: text("incident_id").notNull().references(() => providerIncidents.id),
+  externalUpdateId: text("external_update_id").notNull(),
+  state: text("state", { enum: providerIncidentStates }).notNull(),
+  bodyText: text("body_text").notNull(),
+  providerCreatedAt: timestamptz("provider_created_at").notNull(),
+  providerUpdatedAt: timestamptz("provider_updated_at").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.incidentId, table.externalUpdateId] }),
+  check(
+    "provider_incident_updates_state",
+    sql`${table.state} in ('investigating', 'identified', 'monitoring', 'resolved', 'scheduled', 'in_progress', 'completed', 'recovering', 'false_alarm')`,
+  ),
+]);
+
+export const dependencyIncidentMatches = pgTable("dependency_incident_matches", {
+  dependencyId: text("dependency_id").notNull().references(() => dependencies.id),
+  incidentId: text("incident_id").notNull().references(() => providerIncidents.id),
+  matchKind: text("match_kind", { enum: dependencyIncidentMatchKinds }).notNull(),
+  matchedAt: timestamptz("matched_at").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.dependencyId, table.incidentId] }),
+  check("dependency_incident_matches_kind", sql`${table.matchKind} in ('component_match', 'inferred')`),
+]);

@@ -1,0 +1,682 @@
+{
+  "schemaVersion": 1,
+  "catalogVersion": "2026-07-19.1",
+  "sources": [
+    {
+      "id": "openai",
+      "provider": "OpenAI",
+      "adapter": "incidentio_compat",
+      "currentUrl": "https://status.openai.com/api/v2/summary.json",
+      "incidentsUrl": "https://status.openai.com/api/v2/incidents.json",
+      "statusPageUrl": "https://status.openai.com/",
+      "allowedHosts": ["status.openai.com"],
+      "operationalPollSeconds": 120,
+      "activePollSeconds": 60,
+      "staleAfterSeconds": 600,
+      "config": {}
+    },
+    {
+      "id": "anthropic",
+      "provider": "Anthropic",
+      "adapter": "statuspage_v2",
+      "currentUrl": "https://status.anthropic.com/api/v2/summary.json",
+      "incidentsUrl": "https://status.anthropic.com/api/v2/incidents.json",
+      "statusPageUrl": "https://status.anthropic.com/",
+      "allowedHosts": ["status.anthropic.com"],
+      "operationalPollSeconds": 120,
+      "activePollSeconds": 60,
+      "staleAfterSeconds": 600,
+      "config": {}
+    },
+    {
+      "id": "google_cloud",
+      "provider": "Google Cloud",
+      "adapter": "google_cloud_status",
+      "currentUrl": "https://status.cloud.google.com/incidents.json",
+      "incidentsUrl": "https://status.cloud.google.com/incidents.json",
+      "statusPageUrl": "https://status.cloud.google.com/",
+      "allowedHosts": ["status.cloud.google.com"],
+      "operationalPollSeconds": 120,
+      "activePollSeconds": 60,
+      "staleAfterSeconds": 600,
+      "config": { "productsUrl": "https://status.cloud.google.com/products.json" }
+    },
+    {
+      "id": "vercel",
+      "provider": "Vercel",
+      "adapter": "statuspage_v2",
+      "currentUrl": "https://www.vercel-status.com/api/v2/summary.json",
+      "incidentsUrl": "https://www.vercel-status.com/api/v2/incidents.json",
+      "statusPageUrl": "https://www.vercel-status.com/",
+      "allowedHosts": ["www.vercel-status.com"],
+      "operationalPollSeconds": 120,
+      "activePollSeconds": 60,
+      "staleAfterSeconds": 600,
+      "config": {}
+    },
+    {
+      "id": "cloudflare",
+      "provider": "Cloudflare",
+      "adapter": "statuspage_v2",
+      "currentUrl": "https://www.cloudflarestatus.com/api/v2/summary.json",
+      "incidentsUrl": "https://www.cloudflarestatus.com/api/v2/incidents.json",
+      "statusPageUrl": "https://www.cloudflarestatus.com/",
+      "allowedHosts": ["www.cloudflarestatus.com"],
+      "operationalPollSeconds": 120,
+      "activePollSeconds": 60,
+      "staleAfterSeconds": 600,
+      "config": {}
+    },
+    {
+      "id": "workos",
+      "provider": "WorkOS",
+      "adapter": "statuspage_v2",
+      "currentUrl": "https://status.workos.com/api/v2/summary.json",
+      "incidentsUrl": "https://status.workos.com/api/v2/incidents.json",
+      "statusPageUrl": "https://status.workos.com/",
+      "allowedHosts": ["status.workos.com"],
+      "operationalPollSeconds": 120,
+      "activePollSeconds": 60,
+      "staleAfterSeconds": 600,
+      "config": {}
+    },
+    {
+      "id": "clerk",
+      "provider": "Clerk",
+      "adapter": "incidentio_compat",
+      "currentUrl": "https://status.clerk.com/api/v2/summary.json",
+      "incidentsUrl": "https://status.clerk.com/api/v2/incidents.json",
+      "statusPageUrl": "https://status.clerk.com/",
+      "allowedHosts": ["status.clerk.com"],
+      "operationalPollSeconds": 120,
+      "activePollSeconds": 60,
+      "staleAfterSeconds": 600,
+      "config": {}
+    },
+    {
+      "id": "neon",
+      "provider": "Neon",
+      "adapter": "statusio_public",
+      "currentUrl": "https://api.status.io/1.0/status/6878fc85709daa75be6c7e3c",
+      "incidentsUrl": null,
+      "statusPageUrl": "https://neonstatus.com",
+      "allowedHosts": ["api.status.io", "neonstatus.com"],
+      "operationalPollSeconds": 120,
+      "activePollSeconds": 60,
+      "staleAfterSeconds": 600,
+      "config": {}
+    },
+    {
+      "id": "supabase",
+      "provider": "Supabase",
+      "adapter": "statuspage_v2",
+      "currentUrl": "https://status.supabase.com/api/v2/summary.json",
+      "incidentsUrl": "https://status.supabase.com/api/v2/incidents.json",
+      "statusPageUrl": "https://status.supabase.com/",
+      "allowedHosts": ["status.supabase.com"],
+      "operationalPollSeconds": 120,
+      "activePollSeconds": 60,
+      "staleAfterSeconds": 600,
+      "config": {}
+    },
+    {
+      "id": "upstash",
+      "provider": "Upstash",
+      "adapter": "statuspage_v2",
+      "currentUrl": "https://status.upstash.com/api/v2/summary.json",
+      "incidentsUrl": "https://status.upstash.com/api/v2/incidents.json",
+      "statusPageUrl": "https://status.upstash.com/",
+      "allowedHosts": ["status.upstash.com"],
+      "operationalPollSeconds": 120,
+      "activePollSeconds": 60,
+      "staleAfterSeconds": 600,
+      "config": {}
+    },
+    {
+      "id": "stripe",
+      "provider": "Stripe",
+      "adapter": "statuspage_v2",
+      "currentUrl": "https://www.stripestatus.com/api/v2/summary.json",
+      "incidentsUrl": "https://www.stripestatus.com/api/v2/incidents.json",
+      "statusPageUrl": "https://www.stripestatus.com/",
+      "allowedHosts": ["www.stripestatus.com"],
+      "operationalPollSeconds": 120,
+      "activePollSeconds": 60,
+      "staleAfterSeconds": 600,
+      "config": {}
+    },
+    {
+      "id": "resend",
+      "provider": "Resend",
+      "adapter": "incidentio_compat",
+      "currentUrl": "https://resend-status.com/api/v2/summary.json",
+      "incidentsUrl": "https://resend-status.com/api/v2/incidents.json",
+      "statusPageUrl": "https://resend-status.com/",
+      "allowedHosts": ["resend-status.com"],
+      "operationalPollSeconds": 120,
+      "activePollSeconds": 60,
+      "staleAfterSeconds": 600,
+      "config": {}
+    },
+    {
+      "id": "postmark",
+      "provider": "Postmark",
+      "adapter": "sorry_v1",
+      "currentUrl": "https://status.postmarkapp.com/api/v1/status",
+      "incidentsUrl": "https://status.postmarkapp.com/api/v1/notices",
+      "statusPageUrl": "https://status.postmarkapp.com/",
+      "allowedHosts": ["status.postmarkapp.com"],
+      "operationalPollSeconds": 120,
+      "activePollSeconds": 60,
+      "staleAfterSeconds": 600,
+      "config": {
+        "componentsUrl": "https://status.postmarkapp.com/api/v1/components",
+        "noticeDetailUrlTemplate": "https://status.postmarkapp.com/api/v1/notices/{id}"
+      }
+    },
+    {
+      "id": "twilio",
+      "provider": "Twilio",
+      "adapter": "statuspage_v2",
+      "currentUrl": "https://status.twilio.com/api/v2/summary.json",
+      "incidentsUrl": "https://status.twilio.com/api/v2/incidents.json",
+      "statusPageUrl": "https://status.twilio.com/",
+      "allowedHosts": ["status.twilio.com"],
+      "operationalPollSeconds": 120,
+      "activePollSeconds": 60,
+      "staleAfterSeconds": 600,
+      "config": {}
+    },
+    {
+      "id": "github",
+      "provider": "GitHub",
+      "adapter": "statuspage_v2",
+      "currentUrl": "https://www.githubstatus.com/api/v2/summary.json",
+      "incidentsUrl": "https://www.githubstatus.com/api/v2/incidents.json",
+      "statusPageUrl": "https://www.githubstatus.com/",
+      "allowedHosts": ["www.githubstatus.com"],
+      "operationalPollSeconds": 120,
+      "activePollSeconds": 60,
+      "staleAfterSeconds": 600,
+      "config": {}
+    }
+  ],
+  "presets": [
+    {
+      "id": "openai_api",
+      "sourceId": "openai",
+      "name": "OpenAI API",
+      "category": "ai",
+      "description": "Core OpenAI API surface across Responses, Chat, Realtime, and related endpoints.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": [
+          "01JP8CD9JR3HR6Y7G4Q75N4DVW",
+          "01JMXBRMFE6N2NNT7DG6XZQ6PW",
+          "01JMXBRMFEQW613TFE89F45035",
+          "01JMXBRMFEV0AJ0VVS68N9CD6R",
+          "01JMXBRMFESJCBGJR10PDD3WCQ",
+          "01JMXBRMFEVZ7E0X9GD9FWR9WX",
+          "01JMXBRMFE5ESNNV8JDHVCGSRD",
+          "01JMXBRMFEMZK0HPK19RYET250",
+          "01JMXBRMFEKVBWKK82B44QFMCE",
+          "01JMXBRMFE4MAP2BHSJNZ787WX"
+        ]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "chatgpt",
+      "sourceId": "openai",
+      "name": "ChatGPT",
+      "category": "ai",
+      "description": "ChatGPT conversations, login, and file uploads.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["01JMXBNJXGV1T5GT2M9XA83XNG", "01JMXBNJXG1S2D9V65P1ZZTD94", "01JMXBNJXG1YMQPPCPCQX3MPA2"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "anthropic_api",
+      "sourceId": "anthropic",
+      "name": "Anthropic API",
+      "category": "ai",
+      "description": "The Claude API.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["k8w3r06qmzrp"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "google_vertex_gemini",
+      "sourceId": "google_cloud",
+      "name": "Vertex Gemini API",
+      "category": "ai",
+      "description": "Google's Vertex Gemini API product, with an optional location filter.",
+      "selector": {
+        "kind": "google_product",
+        "productId": "Z0FZJAMvEB4j3NbCJs6B",
+        "location": { "required": false }
+      },
+      "scope": { "kind": "discovered_locations", "required": false },
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "vercel_runtime",
+      "sourceId": "vercel",
+      "name": "Vercel Runtime",
+      "category": "hosting",
+      "description": "Vercel Functions, CDN, routing middleware, and DNS.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["kgcsn9c73xzf", "j7g76bfzc8hw", "1w4lc3s3q2pz", "4byczsw70cgb"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "vercel_deployments",
+      "sourceId": "vercel",
+      "name": "Vercel Deployments",
+      "category": "hosting",
+      "description": "Vercel Build & Deploy and CI/CD.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["47ltvgp4g9fb", "g6xj3gwdsw26"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "cloudflare_cdn",
+      "sourceId": "cloudflare",
+      "name": "Cloudflare CDN",
+      "category": "hosting",
+      "description": "Cloudflare CDN/cache and network.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["5wnz34mhfhrk", "4n0gb0kh02gf"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "cloudflare_workers",
+      "sourceId": "cloudflare",
+      "name": "Cloudflare Workers",
+      "category": "hosting",
+      "description": "Cloudflare Workers and network.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["57srcl8zcn7c", "4n0gb0kh02gf"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "google_cloud_run",
+      "sourceId": "google_cloud",
+      "name": "Google Cloud Run",
+      "category": "hosting",
+      "description": "Google Cloud Run, with an optional location filter.",
+      "selector": {
+        "kind": "google_product",
+        "productId": "9D7d2iNBQWN24zc1VamE",
+        "location": { "required": false }
+      },
+      "scope": { "kind": "discovered_locations", "required": false },
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "google_cloud_sql",
+      "sourceId": "google_cloud",
+      "name": "Google Cloud SQL",
+      "category": "hosting",
+      "description": "Google Cloud SQL, with an optional location filter.",
+      "selector": {
+        "kind": "google_product",
+        "productId": "hV87iK5DcEXKgWU2kDri",
+        "location": { "required": false }
+      },
+      "scope": { "kind": "discovered_locations", "required": false },
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "google_cloud_storage",
+      "sourceId": "google_cloud",
+      "name": "Google Cloud Storage",
+      "category": "hosting",
+      "description": "Google Cloud Storage, with an optional location filter.",
+      "selector": {
+        "kind": "google_product",
+        "productId": "UwaYoXQ5bHYHG6EdiPB8",
+        "location": { "required": false }
+      },
+      "scope": { "kind": "discovered_locations", "required": false },
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "workos_authkit",
+      "sourceId": "workos",
+      "name": "WorkOS AuthKit",
+      "category": "auth",
+      "description": "WorkOS AuthKit.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["1tlfjhlvtmsv"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "workos_sso",
+      "sourceId": "workos",
+      "name": "WorkOS SSO",
+      "category": "auth",
+      "description": "WorkOS SSO.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["5ns7gvd8lhw9"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "workos_directory_sync",
+      "sourceId": "workos",
+      "name": "WorkOS Directory Sync",
+      "category": "auth",
+      "description": "WorkOS Directory Sync.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["403ts209pj59"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "clerk_authentication",
+      "sourceId": "clerk",
+      "name": "Clerk Authentication",
+      "category": "auth",
+      "description": "Clerk user and authentication, and session management.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["01K41ZBMSBHW3SN4CMJRPPAYG9", "01K41ZBMSBS0Z4RS051CDMT5CH"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "clerk_machine_auth",
+      "sourceId": "clerk",
+      "name": "Clerk Machine Authentication",
+      "category": "auth",
+      "description": "Clerk machine authentication.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["01K4TC9GXAYMA3FK9RYJM2QG8R"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "neon_database",
+      "sourceId": "neon",
+      "name": "Neon Database",
+      "category": "data",
+      "description": "Neon database connectivity for one selected region.",
+      "selector": {
+        "kind": "statusio_component_container",
+        "componentId": "690ccc238c3745059f2b33b2",
+        "container": { "required": true }
+      },
+      "scope": {
+        "kind": "required_options",
+        "options": [
+          { "id": "690ccafbbfd4c50578f181cc", "label": "AWS ap-southeast-1" },
+          { "id": "690ccb05220d0b058a2e700a", "label": "AWS ap-southeast-2" },
+          { "id": "690ccb1ee98ae5053d8beeaa", "label": "AWS eu-central-1" },
+          { "id": "690ccb313e9b0e0539518461", "label": "AWS eu-west-2" },
+          { "id": "690ccb3e1cc5d9057f11fde0", "label": "AWS sa-east-1" },
+          { "id": "690ccb48769e0d058c5c353d", "label": "AWS us-east-1" },
+          { "id": "690ccb4f8c3745059f2b33b1", "label": "AWS us-east-2" },
+          { "id": "690ccb5d8c199d057e3d8b17", "label": "AWS us-west-2" },
+          { "id": "690ccb7b3e9b0e0539518462", "label": "Azure germanywestcentral" },
+          { "id": "690ccb8b3e9b0e0539518463", "label": "Azure eastus2" },
+          { "id": "690ccb941cde000532ba309e", "label": "Azure westus3" }
+        ]
+      },
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "supabase_database",
+      "sourceId": "supabase",
+      "name": "Supabase Database",
+      "category": "data",
+      "description": "Supabase Database, scoped to one Compute capacity region.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["yz6pcnlscwpb"]
+      },
+      "scope": { "kind": "discovered_children", "groupId": "36n3k66s7n2v", "required": true },
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "supabase_auth",
+      "sourceId": "supabase",
+      "name": "Supabase Authentication",
+      "category": "data",
+      "description": "Supabase Auth.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["fznyj00kpng2"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "upstash_redis_global",
+      "sourceId": "upstash",
+      "name": "Upstash Redis Global",
+      "category": "data",
+      "description": "Upstash Redis Global.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["61bgyd0tzh22"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "upstash_redis_regional",
+      "sourceId": "upstash",
+      "name": "Upstash Redis Regional",
+      "category": "data",
+      "description": "Upstash Redis Regional, scoped to one region.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": []
+      },
+      "scope": { "kind": "discovered_children", "groupId": "3wszb9kxy0n8", "required": true },
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "stripe_api",
+      "sourceId": "stripe",
+      "name": "Stripe API",
+      "category": "payments",
+      "description": "The Stripe API.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["2p0n66vlgnn2"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "stripe_checkout",
+      "sourceId": "stripe",
+      "name": "Stripe Checkout",
+      "category": "payments",
+      "description": "Stripe Checkout, via Stripe's global payments component.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["qcs5gg7rz4ps"]
+      },
+      "scope": null,
+      "sourceScopeNote": "Provider source also covers Elements, Connect, Payment Links, Terminal, and 3DS.",
+      "enabled": true
+    },
+    {
+      "id": "stripe_webhooks",
+      "sourceId": "stripe",
+      "name": "Stripe Webhooks",
+      "category": "payments",
+      "description": "Stripe Webhooks, via Stripe's core components.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["mdklyd2ynjqv"]
+      },
+      "scope": null,
+      "sourceScopeNote": "Provider source also covers Dashboard, support, and payouts.",
+      "enabled": true
+    },
+    {
+      "id": "resend_email_sending",
+      "sourceId": "resend",
+      "name": "Resend Email Sending",
+      "category": "payments",
+      "description": "Resend single email, batch email, SMTP, and general API.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["01JAVQMPBQB2V1EV4CXB9SSE6S", "01JBC9MT40KNWXCBCC34T3EKBM", "01JBC9MT401XKH67TV03711ZEK", "01K48K3D9YJBGX1PSPN9GMMPGS"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "resend_webhooks",
+      "sourceId": "resend",
+      "name": "Resend Webhooks",
+      "category": "payments",
+      "description": "Resend webhooks and email events.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["01K48K3D9YZ9SAZN1T0R8FNN70", "01JAVQSTAM5ENJFQH4D2ZR2ZBE"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "postmark_email_delivery",
+      "sourceId": "postmark",
+      "name": "Postmark Email Delivery",
+      "category": "payments",
+      "description": "Postmark API sending and SMTP sending.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["87154", "87151"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "twilio_messaging",
+      "sourceId": "twilio",
+      "name": "Twilio Messaging",
+      "category": "payments",
+      "description": "Twilio Programmable Messaging.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["s2k3h0mkqnth"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "github_api",
+      "sourceId": "github",
+      "name": "GitHub API",
+      "category": "developer",
+      "description": "GitHub API requests.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["brv1bkgrwx7q"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "github_actions",
+      "sourceId": "github",
+      "name": "GitHub Actions",
+      "category": "developer",
+      "description": "GitHub Actions.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["br0l2tvcx85d"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "enabled": true
+    }
+  ]
+}
