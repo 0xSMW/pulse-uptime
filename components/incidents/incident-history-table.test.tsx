@@ -36,19 +36,24 @@ function renderTable() {
 }
 
 describe("IncidentHistoryTable", () => {
-  it("raises the actions cell above the row's full-row click overlay (finding: Write Report overlapped the after:inset-0 monitor link, so clicks landed on row navigation instead of the button)", () => {
-    renderTable();
-    const button = screen.getByRole("button", { name: "Write Report" });
-    const cell = button.closest("td")!;
-    expect(cell.className).toContain("relative");
-    expect(cell.className).toContain("z-10");
-  });
-
-  it("still renders the monitor link with the full-row click overlay", () => {
+  it("scopes the monitor link overlay to its cell (finding: relative on tr is not a containing block in WebKit, so the after:inset-0 overlay covered the page and the Reports tab clicked through to the incident detail)", () => {
     renderTable();
     const link = screen.getByRole("link", { name: "API Production" });
     expect(link.className).toContain("after:absolute");
     expect(link.className).toContain("after:inset-0");
     expect(link.getAttribute("href")).toBe("/incidents/inc-1");
+    const cell = link.closest("td")!;
+    expect(cell.className).toContain("relative");
+    const row = link.closest("tr")!;
+    expect(row.className).not.toContain("relative");
+  });
+
+  it("does not render a Status column (finding: it duplicated the HTTP code already shown by Opening Failure)", () => {
+    renderTable();
+    const headers = screen.getAllByRole("columnheader").map((th) => th.textContent);
+    expect(headers).toContain("Opening Failure");
+    expect(headers).not.toContain("Status");
+    expect(screen.getByText("HTTP 503")).toBeTruthy();
+    expect(screen.queryByText("resolved")).toBeNull();
   });
 });

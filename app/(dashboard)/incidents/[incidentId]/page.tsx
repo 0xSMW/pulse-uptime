@@ -18,7 +18,7 @@ export default async function IncidentDetailPage({ params }: { params: Promise<{
 
   const stats = [
     { label: "Started", value: <IncidentTime value={incident.openedAt} /> },
-    { label: "Resolved", value: incident.resolvedAt ? <IncidentTime value={incident.resolvedAt} /> : "Ongoing" },
+    { label: "Resolved", value: incident.resolvedAt ? <IncidentTime value={incident.resolvedAt} sameDayOf={incident.openedAt} /> : "Ongoing" },
     { label: "Duration", value: formatIncidentDuration(incident.durationSeconds) },
   ];
 

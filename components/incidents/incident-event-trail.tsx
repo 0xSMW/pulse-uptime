@@ -12,6 +12,19 @@ const eventLabels: Record<IncidentEventType, string> = {
   recovery_sent: "Recovery email sent",
 };
 
+// Failure events use the down token, recovery events the up token, and
+// notification events the neutral token, matching StatusDot state colors.
+const eventDotClasses: Record<IncidentEventType, string> = {
+  first_failure: "bg-[var(--down)]",
+  failure_confirmed: "bg-[var(--down)]",
+  outage_queued: "bg-[var(--neutral-state)]",
+  outage_sent: "bg-[var(--neutral-state)]",
+  first_success: "bg-[var(--up)]",
+  recovery_confirmed: "bg-[var(--up)]",
+  recovery_queued: "bg-[var(--neutral-state)]",
+  recovery_sent: "bg-[var(--neutral-state)]",
+};
+
 export function IncidentEventTrail({ events }: { events: IncidentEvent[] }) {
   return (
     <section aria-labelledby="event-trail-title" className="rounded-xl border border-[var(--border-strong)] shadow-[var(--card-shadow)]">
@@ -25,7 +38,7 @@ export function IncidentEventTrail({ events }: { events: IncidentEvent[] }) {
               {index < events.length - 1 ? (
                 <span aria-hidden="true" className="absolute left-[4px] top-7 h-[calc(100%-12px)] w-px bg-[var(--border-strong)]" />
               ) : null}
-              <span aria-hidden="true" className="mt-1.5 size-[9px] shrink-0 rounded-full bg-[var(--neutral-state)]" />
+              <span aria-hidden="true" className={`mt-1.5 size-[9px] shrink-0 rounded-full ${eventDotClasses[event.type]}`} />
               <div className="flex min-w-0 flex-1 flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                 <span className="text-[13px] font-medium">{eventLabels[event.type]}</span>
                 <time dateTime={event.at} className="font-data text-[11px] text-[var(--fg-faint)]">
