@@ -18,6 +18,7 @@ import (
 	"github.com/0xSMW/pulse-uptime/cli/internal/api"
 	"github.com/0xSMW/pulse-uptime/cli/internal/auth"
 	"github.com/0xSMW/pulse-uptime/cli/internal/buildinfo"
+	"github.com/spf13/pflag"
 )
 
 func TestMeCallsCanonicalEndpointWithHeaders(t *testing.T) {
@@ -381,6 +382,63 @@ func TestTokenStdinAuthenticatesWithoutKeyring(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), "stdin-secret") || strings.Contains(stderr.String(), "stdin-secret") {
 		t.Fatal("stdin token leaked")
+	}
+}
+
+func TestTokenStdinRejectsStdinPayloadFlags(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		t.Errorf("guarded command reached the server: %s %s", r.Method, r.URL.Path)
+	}))
+	defer server.Close()
+	t.Setenv("PULSECTL_URL", server.URL)
+	t.Setenv("PULSECTL_TOKEN", "")
+	t.Setenv("PULSECTL_OUTPUT", "json")
+	cases := [][]string{
+		{"config", "validate", "--file", "-"},
+		{"config", "plan", "--file", "-"},
+		{"config", "apply", "--file", "-"},
+		{"status-page", "apply", "--file", "-"},
+		{"report", "create", "--type", "incident", "--title", "API outage", "--status", "investigating", "--message-file", "-"},
+		{"report", "post", "rep_1", "--status", "monitoring", "--message-file", "-"},
+		{"report", "edit-update", "rep_1", "upd_1", "--message-file", "-"},
+	}
+	for _, args := range cases {
+		var stdout, stderr bytes.Buffer
+		app := New(Options{In: strings.NewReader("stdin-secret\n"), Out: &stdout, Err: &stderr, ConfigPath: t.TempDir() + "/config.yaml", Credentials: &testCredentialStore{}})
+		code := app.Execute(append([]string{"--token-stdin"}, args...))
+		if code != ExitInvalidInput || !strings.Contains(stderr.String(), "STDIN_CONFLICT") {
+			t.Errorf("%v: code=%d stderr=%s", args, code, stderr.String())
+		}
+		if strings.Contains(stdout.String(), "stdin-secret") || strings.Contains(stderr.String(), "stdin-secret") {
+			t.Errorf("%v: stdin token leaked", args)
+		}
+	}
+}
+
+func TestTokenStdinGuardCoversEveryStdinConsumingCommand(t *testing.T) {
+	app := New(Options{In: strings.NewReader(""), Out: io.Discard, Err: io.Discard, ConfigPath: t.TempDir() + "/missing.yaml"})
+	guarded := map[string]bool{}
+	for _, name := range stdinPayloadFlags {
+		guarded[name] = true
+	}
+	for _, cmd := range leafCommands(app.Root()) {
+		supportsStdin := cmd.Annotations["supportsStdin"] == "true"
+		hasGuardedFlag := false
+		cmd.Flags().VisitAll(func(flag *pflag.Flag) {
+			readsStdin := strings.Contains(flag.Usage, "- for stdin")
+			if readsStdin && !guarded[flag.Name] {
+				t.Errorf("%s --%s reads stdin but is missing from stdinPayloadFlags", cmd.CommandPath(), flag.Name)
+			}
+			if readsStdin && !supportsStdin {
+				t.Errorf("%s --%s reads stdin but the command lacks the supportsStdin annotation", cmd.CommandPath(), flag.Name)
+			}
+			if readsStdin && guarded[flag.Name] {
+				hasGuardedFlag = true
+			}
+		})
+		if supportsStdin && !hasGuardedFlag {
+			t.Errorf("%s is annotated supportsStdin but declares no guarded stdin flag", cmd.CommandPath())
+		}
 	}
 }
 

@@ -542,6 +542,15 @@ func newPublishCommand(d Dependencies) *cobra.Command {
 	}
 }
 
+// Hostile-server pagination bounds. A malicious server that returns a repeating
+// or non-advancing cursor, or an endless stream of pages, must not drive the
+// CLI into an unbounded request loop or memory growth.
+const (
+	maxListPages   = 1000
+	maxListRecords = 100_000
+	maxListBytes   = 64 << 20
+)
+
 // List fetches status reports, following cursors for machine output or --all.
 func List(ctx context.Context, client Client, o ListOptions) (ListEnvelope, error) {
 	if o.Limit < 0 {
@@ -560,7 +569,17 @@ func List(ctx context.Context, client Client, o ListOptions) (ListEnvelope, erro
 	remaining := o.Limit
 	auto := o.Machine || o.All
 	result := ListEnvelope{APIVersion: "v1", Kind: "StatusReportList", Data: make([]json.RawMessage, 0)}
-	for {
+	// seen tracks cursors already requested so a repeated or non-advancing
+	// cursor terminates the loop instead of cycling forever.
+	seen := map[string]struct{}{}
+	if o.Cursor != "" {
+		seen[o.Cursor] = struct{}{}
+	}
+	totalBytes := 0
+	for pages := 0; ; pages++ {
+		if pages >= maxListPages {
+			return ListEnvelope{}, pageLimit("server returned more report pages than the client will follow")
+		}
 		if remaining > 0 {
 			pageSize := remaining
 			if pageSize > 100 {
@@ -576,7 +595,16 @@ func List(ctx context.Context, client Client, o ListOptions) (ListEnvelope, erro
 		if remaining > 0 && len(accepted) > remaining {
 			accepted = accepted[:remaining]
 		}
+		for _, raw := range accepted {
+			totalBytes += len(raw)
+		}
+		if totalBytes > maxListBytes {
+			return ListEnvelope{}, pageLimit("server exceeded the maximum aggregate response size")
+		}
 		result.Data = append(result.Data, accepted...)
+		if len(result.Data) > maxListRecords {
+			return ListEnvelope{}, pageLimit("server returned more reports than the client will aggregate")
+		}
 		result.Meta = page.Meta
 		if page.APIVersion != "" {
 			result.APIVersion = page.APIVersion
@@ -593,9 +621,18 @@ func List(ctx context.Context, client Client, o ListOptions) (ListEnvelope, erro
 		if !auto || page.Meta.NextCursor == nil || *page.Meta.NextCursor == "" {
 			break
 		}
-		query.Set("cursor", *page.Meta.NextCursor)
+		next := *page.Meta.NextCursor
+		if _, ok := seen[next]; ok {
+			return ListEnvelope{}, pageLimit("server returned a repeating pagination cursor")
+		}
+		seen[next] = struct{}{}
+		query.Set("cursor", next)
 	}
 	return result, nil
+}
+
+func pageLimit(message string) error {
+	return &Error{Exit: ExitOperational, Code: "PAGINATION_LIMIT", Message: message}
 }
 
 func mutateAndRender(ctx context.Context, d Dependencies, method, path string, body any) error {
@@ -754,4 +791,5 @@ func invalid(message string) error {
 const (
 	ExitUnexpected   = 1
 	ExitInvalidInput = 2
+	ExitOperational  = 4
 )

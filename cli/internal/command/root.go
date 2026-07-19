@@ -31,6 +31,12 @@ import (
 
 const authRequired = "authentication required. Set PULSECTL_TOKEN to a scoped token"
 
+// stdinPayloadFlags names every flag that reads the shared stdin when set to
+// "-". Any command that reads a payload from stdin must carry the
+// supportsStdin annotation and take the payload through one of these flags so
+// the root --token-stdin conflict guard covers it.
+var stdinPayloadFlags = []string{"file", "message-file"}
+
 type Options struct {
 	In          io.Reader
 	Out         io.Writer
@@ -154,9 +160,14 @@ func (a *App) newRoot() *cobra.Command {
 			return a.rootHelp(cmd.OutOrStdout())
 		},
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			if a.tokenStdin && strings.HasPrefix(cmd.CommandPath(), "pulsectl config ") {
-				if flag := cmd.Flags().Lookup("file"); flag != nil && flag.Value.String() == "-" {
-					return cliError(ExitInvalidInput, "STDIN_CONFLICT", "--token-stdin cannot be combined with --file -")
+			if !a.tokenStdin || cmd.Annotations["supportsStdin"] != "true" {
+				return nil
+			}
+			// The token and the payload share one stdin reader, so a single
+			// invocation cannot read both from it.
+			for _, name := range stdinPayloadFlags {
+				if flag := cmd.Flags().Lookup(name); flag != nil && flag.Value.String() == "-" {
+					return cliError(ExitInvalidInput, "STDIN_CONFLICT", fmt.Sprintf("--token-stdin cannot be combined with --%s -", name))
 				}
 			}
 			return nil

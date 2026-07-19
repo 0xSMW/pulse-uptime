@@ -5,12 +5,15 @@ vi.mock("server-only", () => ({}));
 const { dbMock } = vi.hoisted(() => ({ dbMock: { select: vi.fn() } }));
 vi.mock("@/lib/db/client", () => ({ db: dbMock }));
 
-import { getSecuritySettings } from "./settings";
+import { ADMINISTRATOR_SCOPES } from "@/lib/api/scopes";
+
+import { getAccessSettings, getSecuritySettings } from "./settings";
 
 /** A chainable stand-in for a drizzle `db.select(...).from(...)....limit(...)` call. */
 function selectChain(rows: unknown[]) {
   const node = {
     from: () => node,
+    innerJoin: () => node,
     where: () => node,
     orderBy: () => node,
     limit: () => Promise.resolve(rows),
@@ -97,5 +100,68 @@ describe("getSecuritySettings (finding: the 100-row cap ranked by recency could 
 
     const result = await getSecuritySettings("user-1", "sess-current", now);
     expect(result.sessions.map((session) => session.id)).toEqual(["sess-current", "sess-newest", "sess-oldest"]);
+  });
+});
+
+function cliSessionRow(overrides: Partial<{
+  id: string;
+  prefix: string;
+  scopes: string[];
+  scopeProfile: string | null;
+  expiresAt: Date;
+  lastUsedAt: Date | null;
+  displayName: string;
+  platform: string;
+  architecture: string;
+}> = {}) {
+  return {
+    id: "cli-1",
+    prefix: "plc_abc1",
+    scopes: ["monitors:read"],
+    scopeProfile: null,
+    expiresAt: new Date("2026-08-18T12:00:00.000Z"),
+    lastUsedAt: null,
+    displayName: "Stephen's laptop",
+    platform: "darwin",
+    architecture: "arm64",
+    ...overrides,
+  };
+}
+
+describe("getAccessSettings (finding: after the scope_profile backfill, auth grants the live profile scopes while the access page still displayed the stale literal scopes column)", () => {
+  it("reports the resolved profile scopes for a CLI session whose literal scopes column is stale", async () => {
+    const session = cliSessionRow({
+      scopeProfile: "administrator",
+      // Pre-migration snapshot that no longer reflects what auth grants.
+      scopes: ["monitors:read", "incidents:read"],
+    });
+    dbMock.select
+      .mockReturnValueOnce(selectChain([]))
+      .mockReturnValueOnce(selectChain([session]));
+
+    const result = await getAccessSettings();
+    expect(result.tokens).toHaveLength(1);
+    expect(result.tokens[0].scopes).toEqual([...ADMINISTRATOR_SCOPES]);
+    expect(result.tokens[0].scopes).toContain("reports:read");
+  });
+
+  it("falls back to the literal scopes column when scope_profile is null", async () => {
+    const session = cliSessionRow({ scopeProfile: null, scopes: ["monitors:read", "incidents:read"] });
+    dbMock.select
+      .mockReturnValueOnce(selectChain([]))
+      .mockReturnValueOnce(selectChain([session]));
+
+    const result = await getAccessSettings();
+    expect(result.tokens[0].scopes).toEqual(["monitors:read", "incidents:read"]);
+  });
+
+  it("falls back to the literal scopes column when the stored profile name is unknown, matching auth's resolution", async () => {
+    const session = cliSessionRow({ scopeProfile: "not-a-real-profile", scopes: ["status:read"] });
+    dbMock.select
+      .mockReturnValueOnce(selectChain([]))
+      .mockReturnValueOnce(selectChain([session]));
+
+    const result = await getAccessSettings();
+    expect(result.tokens[0].scopes).toEqual(["status:read"]);
   });
 });

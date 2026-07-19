@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/url"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -85,6 +86,57 @@ func TestListSendsFiltersAndPaginates(t *testing.T) {
 	}
 	if queries[1].Get("cursor") != "page2" || queries[1].Get("state") != "resolved" {
 		t.Fatalf("second query=%v", queries[1])
+	}
+}
+
+func TestListRejectsRepeatingCursor(t *testing.T) {
+	// SEC-08: a server that keeps returning the same nextCursor must not drive an
+	// unbounded request loop; the repeated cursor terminates it quickly.
+	cycle := "cycle"
+	calls := 0
+	client := clientFunc(func(_ context.Context, r Request) error {
+		calls++
+		doc := r.Result.(*ListEnvelope)
+		doc.APIVersion, doc.Kind = "v1", "StatusReportList"
+		doc.Data = []json.RawMessage{json.RawMessage(`{"id":"rep_1"}`)}
+		doc.Meta.NextCursor = &cycle
+		return nil
+	})
+	_, err := List(context.Background(), client, ListOptions{All: true, Machine: true})
+	if err == nil {
+		t.Fatal("expected a repeating cursor to be rejected")
+	}
+	var ce *Error
+	if !errors.As(err, &ce) || ce.Code != "PAGINATION_LIMIT" {
+		t.Fatalf("error = %#v, want PAGINATION_LIMIT", err)
+	}
+	if calls > 3 {
+		t.Fatalf("made %d requests before detecting the cycle", calls)
+	}
+}
+
+func TestListCapsTotalPages(t *testing.T) {
+	// SEC-08: a server that always advances the cursor, even across empty pages,
+	// is still bounded by the hard page cap rather than looping forever.
+	calls := 0
+	client := clientFunc(func(_ context.Context, r Request) error {
+		calls++
+		next := strconv.Itoa(calls)
+		doc := r.Result.(*ListEnvelope)
+		doc.APIVersion, doc.Kind = "v1", "StatusReportList"
+		doc.Meta.NextCursor = &next
+		return nil
+	})
+	_, err := List(context.Background(), client, ListOptions{All: true, Machine: true})
+	if err == nil {
+		t.Fatal("expected the page cap to stop an endless stream")
+	}
+	var ce *Error
+	if !errors.As(err, &ce) || ce.Code != "PAGINATION_LIMIT" {
+		t.Fatalf("error = %#v, want PAGINATION_LIMIT", err)
+	}
+	if calls > maxListPages+1 {
+		t.Fatalf("made %d requests, expected at most %d", calls, maxListPages+1)
 	}
 }
 

@@ -2,6 +2,7 @@ import { and, desc, eq, gt, isNull } from "drizzle-orm";
 
 import { validateMonitoringConfig, type MonitoringConfig } from "@/lib/config";
 import { DEFAULT_MONITOR_VALUES } from "@/lib/config/defaults";
+import { normalizeScopes, resolveScopeProfile } from "@/lib/api/scopes";
 import { getStatusPageConfig } from "@/lib/api/status-page-config";
 import { parseUserAgent } from "@/lib/auth/user-agent";
 import { db } from "@/lib/db/client";
@@ -181,6 +182,7 @@ export async function getAccessSettings() {
       id: cliSessions.id,
       prefix: cliSessions.tokenPrefix,
       scopes: cliSessions.scopes,
+      scopeProfile: cliSessions.scopeProfile,
       expiresAt: cliSessions.expiresAt,
       lastUsedAt: cliSessions.lastUsedAt,
       displayName: cliInstallations.displayName,
@@ -211,7 +213,10 @@ export async function getAccessSettings() {
         kind: "cli" as const,
         detail: `${session.platform}/${session.architecture}`,
         prefix: session.prefix,
-        scopes: session.scopes,
+        // The access page must show the scopes auth actually grants. A stored
+        // scope profile wins over the literal mint-time snapshot, mirroring
+        // findCliSession in lib/api/principal.ts.
+        scopes: resolveScopeProfile(session.scopeProfile) ?? normalizeScopes(session.scopes),
         expiresAt: session.expiresAt.toISOString(),
         lastUsedAt: session.lastUsedAt?.toISOString() ?? null,
       })),

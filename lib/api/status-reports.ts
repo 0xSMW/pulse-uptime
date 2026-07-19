@@ -278,13 +278,43 @@ export type StatusReportsDependencies = {
   updateId?: string;
 };
 
-const RFC3339_PATTERN = /^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})$/;
+const RFC3339_PATTERN =
+  /^(\d{4})-(\d{2})-(\d{2})[Tt ](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/;
+
+/**
+ * Strict RFC 3339 acceptance: the string must be shaped right, Date.parse
+ * must accept it, AND the parsed instant must round-trip back to the exact
+ * calendar components the caller wrote. The round-trip is what rejects
+ * impossible dates Date.parse silently normalizes (2026-02-31 becomes
+ * March 3, 24:00:00 becomes the next day's midnight): a typo in startsAt,
+ * endsAt, or a backdated publishedAt must fail as VALIDATION_ERROR, never
+ * publish a silently shifted incident or maintenance time.
+ */
+function isStrictRfc3339(value: string): boolean {
+  const match = RFC3339_PATTERN.exec(value);
+  if (!match) return false;
+  const epochMs = Date.parse(value);
+  if (Number.isNaN(epochMs)) return false;
+  const offset = match[7]!;
+  const offsetMinutes = offset === "Z" || offset === "z"
+    ? 0
+    : (offset.startsWith("-") ? -1 : 1) * (Number(offset.slice(1, 3)) * 60 + Number(offset.slice(4, 6)));
+  // Shifting the UTC instant by the written offset reconstructs the caller's
+  // wall-clock components, so getUTC* reads them back for comparison.
+  const wallClock = new Date(epochMs + offsetMinutes * 60_000);
+  return (
+    wallClock.getUTCFullYear() === Number(match[1])
+    && wallClock.getUTCMonth() + 1 === Number(match[2])
+    && wallClock.getUTCDate() === Number(match[3])
+    && wallClock.getUTCHours() === Number(match[4])
+    && wallClock.getUTCMinutes() === Number(match[5])
+    && wallClock.getUTCSeconds() === Number(match[6])
+  );
+}
 
 const timestampSchema = z
   .string()
-  .refine((value) => RFC3339_PATTERN.test(value) && !Number.isNaN(Date.parse(value)), {
-    message: "Must be an RFC 3339 timestamp",
-  })
+  .refine(isStrictRfc3339, { message: "Must be an RFC 3339 timestamp" })
   .transform((value) => new Date(value));
 
 export const MAX_MARKDOWN_LENGTH = 10_240;

@@ -24,8 +24,8 @@ import {
 import {
   deriveOverallState,
   excludePromotedIncidents,
-  filterReportsForGroup,
   promotedIncidentIds,
+  type PublicReportEntry,
 } from "@/lib/status-page/reports-display";
 import type { StatusPageConfigDocument } from "@/lib/status-page/schema";
 
@@ -67,6 +67,29 @@ const RECENT_INCIDENTS_DISPLAY_LIMIT = 10;
  * scale this dashboard isn't designed to display anyway.
  */
 const CURRENT_INCIDENTS_FETCH_LIMIT = 500;
+
+/**
+ * A report belongs on /status/[group] iff it affects that group, matched by a
+ * currently visible monitor id or by the SLUG of the snapshotted group name.
+ * Slug matching (not exact-name matching against visible monitors) is what
+ * keeps a report reachable when every monitor it affected has since been
+ * archived: the affected rows still carry the group-name snapshot, and its
+ * slug is exactly what the URL segment encodes. Null snapshot group names
+ * collapse to the "Other" bucket exactly as the page groups live monitors.
+ */
+function filterReportsForGroupSlug<T extends Pick<PublicReportEntry, "affected">>(
+  reports: readonly T[],
+  slug: string,
+  visibleMonitorIds: ReadonlySet<string>,
+): T[] {
+  return reports.filter((report) =>
+    report.affected.some(
+      (entry) =>
+        visibleMonitorIds.has(entry.monitorId) ||
+        statusGroupSlug(entry.groupName ?? "Other") === slug,
+    ),
+  );
+}
 
 function failureLabel(statusCode: number | null): string {
   if (statusCode !== null) return `HTTP ${statusCode}`;
@@ -169,16 +192,18 @@ async function loadPublicStatus(group?: string) {
   const visible = group
     ? monitors.filter((monitor) => statusGroupSlug(monitor.groupName ?? "Other") === group)
     : monitors;
-  if (group && visible.length === 0) return null;
 
   const ids = visible.map((monitor) => monitor.id);
   // Group pages scope query 1 of getPublicReports to this group's monitors so
   // the resolved-history LIMIT is applied after group filtering. Otherwise a
   // global top-10 resolved list can starve a group's history even though
   // older relevant resolved reports exist. The root page (no `group`) stays
-  // unfiltered. filterReportsForGroup below still runs as a defense-in-depth
-  // pass over whatever this returns.
-  const publicReportsFilter = group
+  // unfiltered, and so does a group page with zero visible monitors: the
+  // group's display name is not recoverable from a slug alone, so the SQL
+  // filter cannot express "this slug" and the slug filter below must see the
+  // full report set. filterReportsForGroupSlug below still runs as a
+  // defense-in-depth pass over whatever this returns.
+  const publicReportsFilter = group && visible.length > 0
     ? { monitorIds: ids, groupNames: [...new Set(visible.map((monitor) => monitor.groupName ?? "Other"))] }
     : undefined;
   // One parallel fan-out per revalidation: the three monitor-scoped queries
@@ -228,15 +253,31 @@ async function loadPublicStatus(group?: string) {
   ]);
 
   // Group filtering: a report appears on /status/[group] iff it affects
-  // a monitor in that group, matched by monitor id or snapshotted group name.
+  // a monitor in that group, matched by visible monitor id or by the slug of
+  // the snapshotted group name (see filterReportsForGroupSlug).
+  const visibleIds = new Set(ids);
   const reports: PublicReports = group
     ? {
-        ongoing: filterReportsForGroup(publicReports.ongoing, visible),
-        upcoming: filterReportsForGroup(publicReports.upcoming, visible),
-        windowEnded: filterReportsForGroup(publicReports.windowEnded, visible),
-        resolved: filterReportsForGroup(publicReports.resolved, visible),
+        ongoing: filterReportsForGroupSlug(publicReports.ongoing, group, visibleIds),
+        upcoming: filterReportsForGroupSlug(publicReports.upcoming, group, visibleIds),
+        windowEnded: filterReportsForGroupSlug(publicReports.windowEnded, group, visibleIds),
+        resolved: filterReportsForGroupSlug(publicReports.resolved, group, visibleIds),
       }
     : publicReports;
+  // A group URL is absent (null, the page 404s) only when it has NEITHER
+  // visible monitors NOR any published report scoped to it. A group whose
+  // monitors were all archived but that still has published reports (their
+  // affected rows snapshot the group name) must keep rendering those reports,
+  // so this decision can only be made after the report fetch, never from the
+  // monitor query alone.
+  if (group && visible.length === 0) {
+    const hasReports =
+      reports.ongoing.length > 0 ||
+      reports.upcoming.length > 0 ||
+      reports.windowEnded.length > 0 ||
+      reports.resolved.length > 0;
+    if (!hasReports) return null;
+  }
   // Ongoing dedupe: an ongoing auto-incident card is suppressed when an
   // ongoing published report was promoted from it. History folding drops
   // machine incidents represented by ANY published report entry. Both sets use

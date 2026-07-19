@@ -389,6 +389,44 @@ describe("createStatusReport", () => {
     }, dependencies(store))).resolves.toMatchObject({ startsAt: "2026-07-19T00:00:00.000Z" });
   });
 
+  it("rejects impossible calendar dates Date.parse would normalize (finding: 2026-02-31 silently stored as March 3)", async () => {
+    const store = memoryStore();
+    // startsAt with a day that does not exist in its month must be a
+    // VALIDATION_ERROR, never a silently shifted instant.
+    await expect(createStatusReport({
+      ...validCreate, startsAt: "2026-02-31T00:00:00Z",
+    }, dependencies(store))).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    // Same rule for the initial update's backdated publishedAt.
+    await expect(createStatusReport({
+      ...validCreate,
+      update: { ...validCreate.update, publishedAt: "2026-04-31T12:00:00Z" },
+    }, dependencies(store))).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    // Same rule for a maintenance window's endsAt.
+    await expect(createStatusReport({
+      ...validCreate, type: "maintenance", affected: [],
+      startsAt: "2026-06-01T00:00:00Z", endsAt: "2026-06-31T00:00:00Z",
+      update: { status: "scheduled", markdown: "Planned." },
+    }, dependencies(store))).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    // Hour 24 is another instant Date.parse normalizes (to next-day 00:00).
+    await expect(createStatusReport({
+      ...validCreate, startsAt: "2026-07-01T24:00:00Z",
+    }, dependencies(store))).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    // A real leap day is a valid calendar date and must still be accepted.
+    await expect(createStatusReport({
+      ...validCreate, startsAt: "2028-02-29T00:00:00Z",
+    }, dependencies(store))).resolves.toMatchObject({ startsAt: "2028-02-29T00:00:00.000Z" });
+
+    // An offset timestamp whose wall-clock components are valid round-trips
+    // even though its UTC rendering lands on a different calendar day.
+    await expect(createStatusReport({
+      ...validCreate, startsAt: "2026-03-01T01:30:00+07:00",
+    }, dependencies(store))).resolves.toMatchObject({ startsAt: "2026-02-28T18:30:00.000Z" });
+  });
+
   it("validates endsAt against the EFFECTIVE (defaulted) startsAt when startsAt is omitted (finding: inverted window via default)", async () => {
     const store = memoryStore();
     // startsAt omitted defaults to NOW (2026-07-18T12:00:00.000Z). An endsAt
@@ -587,6 +625,28 @@ describe("report update lifecycle", () => {
       .rejects.toMatchObject({ code: "UPDATE_NOT_FOUND" });
     await expect(addReportUpdate("missing", { status: "monitoring", markdown: "x" }, deps))
       .rejects.toMatchObject({ code: "REPORT_NOT_FOUND" });
+  });
+
+  it("rejects impossible calendar dates in add/edit publishedAt (finding: Date.parse normalization silently backdates to the wrong day)", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const created = await createStatusReport(validCreate, deps);
+    const updateId = created.updates[0]!.id;
+
+    await expect(addReportUpdate(created.id, {
+      status: "monitoring", markdown: "Watching.", publishedAt: "2026-02-31T00:00:00Z",
+    }, deps)).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    await expect(editReportUpdate(created.id, updateId, {
+      publishedAt: "2026-04-31T12:00:00Z",
+    }, deps)).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    // A real leap day remains a valid backdate for both mutations.
+    await expect(editReportUpdate(created.id, updateId, {
+      publishedAt: "2028-02-29T00:00:00Z",
+    }, deps)).resolves.toMatchObject({
+      updates: [expect.objectContaining({ publishedAt: "2028-02-29T00:00:00.000Z" })],
+    });
   });
 
   it("keeps resolvedAt consistent when two updates land concurrently on the same report (finding: an unlocked list-then-write recompute can race and persist a stale value)", async () => {

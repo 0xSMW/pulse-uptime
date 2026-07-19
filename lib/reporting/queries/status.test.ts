@@ -201,6 +201,74 @@ describe("getPublicStatus", () => {
     expect(data).toBeNull();
   });
 
+  it("renders (does not 404) a group whose monitors are all archived but that still has a published report snapshotting the group name (finding: the group filter returned null before the report lookup)", async () => {
+    vi.mocked(getStatusPageConfig).mockResolvedValue(resolvedConfig());
+    // The monitors query only returns enabled, unarchived rows, so an
+    // all-archived group is indistinguishable from an unknown one here.
+    dbMock.select.mockReturnValue(selectChain([]));
+    vi.mocked(getPublicReports).mockResolvedValue({
+      ongoing: [{
+        id: "report-1",
+        type: "incident",
+        title: "Core outage",
+        startsAt: "2026-07-18T10:00:00.000Z",
+        endsAt: null,
+        publishedAt: "2026-07-18T10:00:00.000Z",
+        resolvedAt: null,
+        originIncidentId: null,
+        currentStatus: "investigating",
+        phase: "ongoing",
+        latestUpdate: null,
+        // The affected row is a snapshot of a monitor that has since been
+        // archived. Only its snapshotted group name (slug "core") ties the
+        // report to the /status/core URL.
+        affected: [{ monitorId: "archived-1", monitorName: "Archived API", groupName: "Core", impact: "down" }],
+      }],
+      upcoming: [],
+      windowEnded: [],
+      resolved: [],
+    });
+
+    const data = await getPublicStatus("core");
+
+    expect(data).not.toBeNull();
+    expect(data!.groups).toEqual([]);
+    expect(data!.reports.ongoing).toHaveLength(1);
+    expect(data!.reports.ongoing[0]!.id).toBe("report-1");
+    expect(data!.overallState).toBe("outage");
+    // With zero visible monitors the group's display name is unknowable from
+    // a slug, so the report fetch must stay unfiltered and the slug filter
+    // scopes the results afterwards.
+    expect(getPublicReports).toHaveBeenCalledWith(undefined, undefined);
+  });
+
+  it("still returns null for an unknown group even when other groups have published reports", async () => {
+    vi.mocked(getStatusPageConfig).mockResolvedValue(resolvedConfig());
+    dbMock.select.mockReturnValue(selectChain([]));
+    vi.mocked(getPublicReports).mockResolvedValue({
+      ongoing: [],
+      upcoming: [],
+      windowEnded: [],
+      resolved: [{
+        id: "report-2",
+        type: "incident",
+        title: "Elsewhere outage",
+        startsAt: "2026-07-18T10:00:00.000Z",
+        endsAt: null,
+        publishedAt: "2026-07-18T10:00:00.000Z",
+        resolvedAt: "2026-07-18T11:00:00.000Z",
+        originIncidentId: null,
+        currentStatus: "resolved",
+        phase: "resolved",
+        latestUpdate: null,
+        affected: [{ monitorId: "archived-2", monitorName: "Other API", groupName: "Elsewhere", impact: "down" }],
+      }],
+    });
+
+    const data = await getPublicStatus("core");
+    expect(data).toBeNull();
+  });
+
   it("scopes getPublicReports to the group's monitors/group names on a group page, and leaves the root page unfiltered", async () => {
     vi.mocked(getStatusPageConfig).mockResolvedValue(resolvedConfig());
     const monitorRow = { id: "mon-1", name: "API", groupName: "Core", state: "UP" };
