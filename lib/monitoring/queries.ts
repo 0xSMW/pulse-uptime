@@ -2,6 +2,7 @@ import { and, eq, isNull, sql as dsql } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 import { checkResults, incidents, metricRollups, monitorRegistry, monitorState } from "@/lib/db/schema";
+import { isRangeUnlocked } from "@/lib/reporting/queries/first-run";
 
 const stateOrder = [
   "DOWN",
@@ -122,6 +123,11 @@ export async function listDashboardMonitors() {
         lastCheckedAt: row.lastCheckedAt?.toISOString() ?? null,
         activatedAt: row.activatedAt?.toISOString() ?? null,
         activeIncidentOpenedAt: row.activeIncidentOpenedAt?.toISOString() ?? null,
+        // The card claims a full 24 hours, so it unlocks only once the completed
+        // window reaches a whole day back to activation, the same gate the detail
+        // page uses. A monitor active by wall clock but activated inside the
+        // window still reads as collecting until its window fills.
+        uptime24hUnlocked: isRangeUnlocked("h24", row.activatedAt, end15m),
         uptime24h: row.uptime24h === null ? null : Number(row.uptime24h),
       }];
     })

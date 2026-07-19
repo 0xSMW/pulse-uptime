@@ -8,6 +8,7 @@ import {
   LIVE_POLL_STEADY_MS,
   livePollBackoffMs,
   livePollIntervalMs,
+  livePollIsGone,
   livePollIsStale,
 } from "./live-poll";
 
@@ -62,6 +63,19 @@ describe("livePollIsStale", () => {
   it("is stale once failures reach the threshold", () => {
     expect(livePollIsStale(3)).toBe(true);
     expect(livePollIsStale(9)).toBe(true);
+  });
+});
+
+describe("livePollIsGone", () => {
+  it("treats a 404 as gone so the poll stops retrying", () => {
+    expect(livePollIsGone(404)).toBe(true);
+  });
+
+  it("keeps retrying every other failure, including transient server and network errors", () => {
+    expect(livePollIsGone(500)).toBe(false);
+    expect(livePollIsGone(503)).toBe(false);
+    expect(livePollIsGone(429)).toBe(false);
+    expect(livePollIsGone(undefined)).toBe(false);
   });
 });
 

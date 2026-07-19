@@ -140,8 +140,14 @@ const toneClass: Record<UptimeTone, string> = {
   unknown: "text-[var(--fg-muted)]",
 };
 
+// Coverage renders 100 percent only when every expected check ran. Anything
+// short floors to one decimal, never rounding a gap away, so 1433 of 1440
+// reads 99.5 percent rather than a false 100 percent that hides the stall.
 function formatCoverage(value: number | null): string {
-  return value === null ? "—" : `${Math.round(value * 100)}%`;
+  if (value === null) return "—";
+  const percent = value * 100;
+  if (percent >= 100) return "100%";
+  return `${(Math.floor(percent * 10) / 10).toFixed(1)}%`;
 }
 
 function RangeButtons<T extends string>({

@@ -29,6 +29,7 @@ import {
 } from "@/lib/status-page/reports-display";
 import type { StatusPageConfigDocument } from "@/lib/status-page/schema";
 
+import { rollupsSinceActivation } from "./first-run";
 import { buildRollupTimeline, statusGroupSlug, summarizeRollupCoverage } from "./timeline";
 
 /**
@@ -196,6 +197,7 @@ async function loadPublicStatus(group?: string) {
     name: monitorRegistry.name,
     groupName: monitorRegistry.groupName,
     state: monitorState.state,
+    activatedAt: monitorState.activatedAt,
   }).from(monitorRegistry)
     .leftJoin(monitorState, eq(monitorState.monitorId, monitorRegistry.id))
     .where(and(eq(monitorRegistry.enabled, true), isNull(monitorRegistry.archivedAt)))
@@ -316,7 +318,12 @@ async function loadPublicStatus(group?: string) {
       name,
       slug: statusGroupSlug(name),
       monitors: entries.sort((left, right) => left.name.localeCompare(right.name)).map((monitor) => {
-        const rows = rollupsByMonitor.get(monitor.id) ?? [];
+        // Public uptime and history count only buckets at or after activation,
+        // the same exclusive bucket-start gate the dashboard uses, so setup
+        // failures before the first success never read as public downtime. A
+        // never-activated monitor has no observed data, so its uptime is null
+        // and its timeline is all no-data, never down.
+        const rows = rollupsSinceActivation(rollupsByMonitor.get(monitor.id) ?? [], monitor.activatedAt ?? null);
         const summary = summarizeRollupCoverage(rows);
         return {
           id: monitor.id,

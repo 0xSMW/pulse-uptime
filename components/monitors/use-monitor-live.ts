@@ -7,11 +7,21 @@ import useSWR from "swr";
 import {
   livePollBackoffMs,
   livePollIntervalMs,
+  livePollIsGone,
   livePollIsStale,
 } from "@/lib/reporting/live-poll";
 import type { MonitorPhase } from "@/lib/reporting/queries/first-run";
 import type { MonitorLiveData } from "@/lib/reporting/queries/live-summary";
 import type { MonitorState } from "@/components/monitors/status-dot";
+
+// Carries the HTTP status so the retry policy can single out a gone monitor.
+class LiveFetchError extends Error {
+  readonly status: number;
+  constructor(status: number) {
+    super(`Live summary failed with ${status}`);
+    this.status = status;
+  }
+}
 
 async function fetchLive(url: string): Promise<MonitorLiveData> {
   const response = await fetch(url, {
@@ -19,7 +29,7 @@ async function fetchLive(url: string): Promise<MonitorLiveData> {
     cache: "no-store",
     headers: { Accept: "application/json" },
   });
-  if (!response.ok) throw new Error(`Live summary failed with ${response.status}`);
+  if (!response.ok) throw new LiveFetchError(response.status);
   const body = (await response.json()) as { data: MonitorLiveData };
   return body.data;
 }
@@ -45,6 +55,7 @@ export function useMonitorLive(
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [isHidden, setIsHidden] = useState(false);
   const refreshedVersionRef = useRef<string | null>(server.rollupVersion);
+  const goneRef = useRef(false);
 
   // Track visibility so the indicator can show "Updates paused". SWR stops the
   // interval itself through refreshWhenHidden false.
@@ -74,7 +85,17 @@ export function useMonitorLive(
         setUpdatedAt(Date.now());
       },
       onError: () => setErrorCount((count) => count + 1),
-      onErrorRetry: (_error, _key, _config, revalidate, { retryCount }) => {
+      onErrorRetry: (error, _key, _config, revalidate, { retryCount }) => {
+        // A gone monitor never recovers, so drop the retry and refresh once so
+        // the server component resolves to its not-found path. The guard keeps a
+        // repeated 404 from looping refreshes.
+        if (livePollIsGone((error as { status?: number }).status)) {
+          if (!goneRef.current) {
+            goneRef.current = true;
+            router.refresh();
+          }
+          return;
+        }
         setTimeout(() => {
           // A hidden tab pauses polling, so a retry that fires while hidden is
           // dropped rather than flipping the indicator to stale. SWR revalidates

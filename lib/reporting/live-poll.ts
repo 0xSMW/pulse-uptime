@@ -41,6 +41,13 @@ export function livePollIsStale(errorCount: number): boolean {
   return errorCount >= LIVE_STALE_AFTER_ERRORS;
 }
 
+// A 404 means the monitor was archived or deleted in another session. The poll
+// stops retrying it, since retries can never recover a gone monitor, and the
+// client refreshes once so the server component resolves to its not-found path.
+export function livePollIsGone(status: number | undefined): boolean {
+  return status === 404;
+}
+
 // Compact "Updated Ns ago" label. Seconds up to a minute, then whole minutes.
 export function formatUpdatedAgo(secondsAgo: number): string {
   const clamped = Math.max(0, Math.floor(secondsAgo));

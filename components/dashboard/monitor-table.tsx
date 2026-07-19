@@ -25,16 +25,20 @@ export type DashboardMonitor = {
   lastCheckedAt: string | null;
   activatedAt: string | null;
   activeIncidentOpenedAt: string | null;
+  uptime24hUnlocked: boolean;
 };
 
 // The 24h column is a full-window claim, so it stays a placeholder until a
 // monitor has been observed for a whole day. A setup-phase monitor has never
-// succeeded, a collecting one has less than 24 hours of history, and both would
-// otherwise render a partial figure as if it were a settled score.
+// succeeded, a collecting one has less than 24 hours of history, and a monitor
+// active by wall clock but activated inside the completed window still lacks a
+// full post-activation day, so all three render as a placeholder rather than a
+// partial figure passed off as a settled score. The unlock flag carries the
+// same completed-bucket gate the detail page applies.
 function uptime24hLabel(monitor: DashboardMonitor, now: Date): string {
   const phase = firstRunPhase(monitor.activatedAt ? new Date(monitor.activatedAt) : null, now);
   if (phase === "setup") return "Verifying";
-  if (phase === "collecting") return "Collecting";
+  if (phase === "collecting" || !monitor.uptime24hUnlocked) return "Collecting";
   return formatUptimeTable(monitor.uptime24h);
 }
 

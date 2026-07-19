@@ -269,22 +269,25 @@ export async function getMonitorDetail(id: string) {
     } satisfies Record<AvailabilityRange, boolean>,
     firstRun: buildFirstRun(monitor, observed24h, now),
     rollupVersion: rollupVersionOf(rollups7d),
+    // Timeline bars read the same activation-filtered rollups the uptime
+    // figures do, so pre-activation buckets render as no-data rather than red
+    // down bars while the header still reads as collecting or setup.
     availability: {
       h24: {
         start: new Date(end15m.getTime() - 86_400_000).toISOString(),
-        buckets: buildRollupTimeline(rollups24h, 60, 86_400_000, end15m),
+        buckets: buildRollupTimeline(rollupsSinceActivation(rollups24h, activatedAt), 60, 86_400_000, end15m),
       },
       d7: {
         start: new Date(end15m.getTime() - 7 * 86_400_000).toISOString(),
-        buckets: buildRollupTimeline(rollups7d, 84, 7 * 86_400_000, end15m),
+        buckets: buildRollupTimeline(rollupsSinceActivation(rollups7d, activatedAt), 84, 7 * 86_400_000, end15m),
       },
       d30: {
         start: new Date(endHour.getTime() - 30 * 86_400_000).toISOString(),
-        buckets: buildRollupTimeline(rollups30d, 90, 30 * 86_400_000, endHour),
+        buckets: buildRollupTimeline(rollupsSinceActivation(rollups30d, activatedAt), 90, 30 * 86_400_000, endHour),
       },
       d90: {
         start: new Date(endDay.getTime() - 90 * 86_400_000).toISOString(),
-        buckets: buildRollupTimeline(rollups90d, 90, 90 * 86_400_000, endDay),
+        buckets: buildRollupTimeline(rollupsSinceActivation(rollups90d, activatedAt), 90, 90 * 86_400_000, endDay),
       },
     },
     responseTime: {
