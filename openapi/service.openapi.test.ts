@@ -20,7 +20,9 @@ const document = JSON.parse(
 };
 
 const expectedOperations = [
-  "GET /api/v1/version", "GET /api/v1/me", "GET /api/v1/monitors", "POST /api/v1/monitors",
+  "GET /api/v1/version", "GET /api/v1/me", "PATCH /api/v1/me", "POST /api/v1/me/email",
+  "POST /api/v1/me/password", "DELETE /api/v1/me/sessions/{sessionId}", "POST /api/v1/me/sessions/revoke-others",
+  "GET /api/v1/monitors", "POST /api/v1/monitors",
   "GET /api/v1/monitors/{monitorId}", "PATCH /api/v1/monitors/{monitorId}", "DELETE /api/v1/monitors/{monitorId}",
   "POST /api/v1/monitors/{monitorId}/pause", "POST /api/v1/monitors/{monitorId}/resume", "POST /api/v1/monitors/{monitorId}/test",
   "GET /api/v1/groups", "POST /api/v1/groups", "PATCH /api/v1/groups/{groupId}", "DELETE /api/v1/groups/{groupId}",
@@ -29,6 +31,13 @@ const expectedOperations = [
   "GET /api/v1/config/operations/{operationId}", "POST /api/v1/notifications/test", "POST /api/v1/tokens", "GET /api/v1/tokens",
   "DELETE /api/v1/tokens/{tokenId}", "POST /api/v1/cli-auth/device", "POST /api/v1/cli-auth/token", "POST /api/v1/cli-auth/revoke",
   "GET /api/v1/database-health", "POST /api/v1/database-health/refresh",
+  "GET /api/v1/status-page-config", "PUT /api/v1/status-page-config",
+  "POST /api/v1/images", "GET /api/v1/images/{imageId}",
+  "GET /api/v1/status-reports", "POST /api/v1/status-reports",
+  "GET /api/v1/status-reports/{reportId}", "PATCH /api/v1/status-reports/{reportId}", "DELETE /api/v1/status-reports/{reportId}",
+  "POST /api/v1/status-reports/{reportId}/publish", "POST /api/v1/status-reports/{reportId}/updates",
+  "PATCH /api/v1/status-reports/{reportId}/updates/{updateId}", "DELETE /api/v1/status-reports/{reportId}/updates/{updateId}",
+  "POST /api/v1/incidents/{incidentId}/promote",
 ];
 
 describe("committed OpenAPI v1 source", () => {
@@ -39,7 +48,7 @@ describe("committed OpenAPI v1 source", () => {
         ? document.components.pathItems[reference.split("/").at(-1)!]
         : rawPathItem;
       return Object.keys(pathItem)
-        .filter((method) => ["get", "post", "patch", "delete"].includes(method))
+        .filter((method) => ["get", "post", "put", "patch", "delete"].includes(method))
         .map((method) => `${method.toUpperCase()} ${path}`);
     });
     expect(document.openapi).toBe("3.1.0");
@@ -77,7 +86,7 @@ describe("committed OpenAPI v1 source", () => {
       const pathItem = typeof reference === "string"
         ? document.components.pathItems[reference.split("/").at(-1)!]
         : rawPathItem;
-      for (const method of ["get", "post", "patch", "delete"]) {
+      for (const method of ["get", "post", "put", "patch", "delete"]) {
         const operation = pathItem[method] as Operation & {
           responses?: Record<string, unknown>;
         };
@@ -124,7 +133,7 @@ describe("committed OpenAPI v1 source", () => {
         const route = relative(root, dirname(join(root, file))).split(sep)
           .map((segment) => segment.replace(/^\[(.+)]$/, "{$1}"))
           .join("/");
-        return [...source.matchAll(/export async function (GET|POST|PATCH|DELETE)\b/g)]
+        return [...source.matchAll(/export async function (GET|POST|PUT|PATCH|DELETE)\b/g)]
           .map((match) => `${match[1]} /api/v1/${route}`.replace(/\/$/, ""));
       });
     expect(implemented.sort()).toEqual(expectedOperations.sort());
@@ -150,6 +159,8 @@ describe("committed OpenAPI v1 source", () => {
       ["/api/v1/monitors/{monitorId}", "delete"],
       ["/api/v1/tokens/{tokenId}", "delete"],
       ["/api/v1/cli-auth/revoke", "post"],
+      ["/api/v1/status-reports/{reportId}", "delete"],
+      ["/api/v1/status-reports/{reportId}/updates/{updateId}", "delete"],
     ] as const) {
       const operation = document.paths[path][method] as Operation & { responses: Record<string, unknown> };
       expect(operation.responses["200"]).toBeDefined();
@@ -168,6 +179,97 @@ describe("committed OpenAPI v1 source", () => {
       responses: Record<string, { headers?: Record<string, unknown> }>;
     }).responses["200"];
     expect(response.headers?.ETag).toBeDefined();
+  });
+
+  it("documents the status page configuration concurrency contract", () => {
+    const get = document.paths["/api/v1/status-page-config"].get as Operation & {
+      responses: Record<string, { headers?: Record<string, unknown> }>;
+    };
+    const put = document.paths["/api/v1/status-page-config"].put as Operation & {
+      parameters: Array<{ name?: string; required?: boolean; $ref?: string }>;
+      responses: Record<string, unknown>;
+    };
+    expect(get["x-required-scopes"]).toEqual(["config:read"]);
+    expect(get.responses["200"].headers?.ETag).toBeDefined();
+    expect(put["x-required-scopes"]).toEqual(["config:write"]);
+    expect(put.parameters.some((parameter) => parameter.name === "If-Match" && parameter.required)).toBe(true);
+    // The route requires Idempotency-Key just like every other mutation
+    // (finding: the spec omitted it for this PUT even though the handler
+    // 400s IDEMPOTENCY_KEY_REQUIRED without it) — same shared parameter ref
+    // asserted for every status-reports mutation and the database-health
+    // refresh below.
+    expect(put.parameters.some((parameter) => parameter.$ref?.endsWith("/IdempotencyKey"))).toBe(true);
+    expect(put.responses["412"]).toBeDefined();
+    expect(put.responses["428"]).toBeDefined();
+    const config = document.components.schemas.StatusPageConfig as {
+      properties: Record<string, Record<string, unknown>>;
+    };
+    expect(config.properties.navLinks).toMatchObject({ maxItems: 8 });
+    expect(config.properties.historyDays.enum).toEqual([30, 60, 90]);
+    expect(config.properties.updatedAt).toMatchObject({ readOnly: true });
+    const upload = document.paths["/api/v1/images"].post as Operation & {
+      requestBody: { content: Record<string, { schema: { required: string[] } }> };
+    };
+    expect(upload["x-required-scopes"]).toEqual(["config:write"]);
+    expect(upload.requestBody.content["multipart/form-data"].schema.required).toEqual(["file", "kind"]);
+  });
+
+  it("documents the status reports contract", () => {
+    const schemas = document.components.schemas;
+    const scope = schemas.Scope as { enum: string[] };
+    expect(scope.enum).toContain("reports:read");
+    expect(scope.enum).toContain("reports:write");
+
+    const operation = (path: string, method: string) =>
+      document.paths[path][method] as Operation & {
+        parameters?: Array<{ $ref?: string }>;
+        responses: Record<string, unknown>;
+      };
+    expect(operation("/api/v1/status-reports", "get")["x-required-scopes"]).toEqual(["reports:read"]);
+    expect(operation("/api/v1/status-reports", "post")["x-required-scopes"]).toEqual(["reports:write"]);
+    expect(operation("/api/v1/status-reports/{reportId}", "get")["x-required-scopes"]).toEqual(["reports:read"]);
+    expect(operation("/api/v1/incidents/{incidentId}/promote", "post")["x-required-scopes"]).toEqual(["reports:write"]);
+
+    // Every mutation is idempotent and both conflict cases (ALREADY_PUBLISHED,
+    // LAST_UPDATE) are visible as 409s.
+    for (const [path, method] of [
+      ["/api/v1/status-reports", "post"],
+      ["/api/v1/status-reports/{reportId}", "patch"],
+      ["/api/v1/status-reports/{reportId}", "delete"],
+      ["/api/v1/status-reports/{reportId}/publish", "post"],
+      ["/api/v1/status-reports/{reportId}/updates", "post"],
+      ["/api/v1/status-reports/{reportId}/updates/{updateId}", "patch"],
+      ["/api/v1/status-reports/{reportId}/updates/{updateId}", "delete"],
+      ["/api/v1/incidents/{incidentId}/promote", "post"],
+    ] as const) {
+      const mutation = operation(path, method);
+      expect(mutation["x-required-scopes"], `${method} ${path}`).toEqual(["reports:write"]);
+      expect(
+        mutation.parameters?.some((parameter) => parameter.$ref?.endsWith("/IdempotencyKey")),
+        `${method} ${path}`,
+      ).toBe(true);
+      expect(mutation.responses["409"], `${method} ${path}`).toBeDefined();
+    }
+
+    const report = schemas.StatusReport as {
+      required: string[];
+      properties: Record<string, Record<string, unknown>>;
+    };
+    expect(report.required).toEqual(expect.arrayContaining(["publishedAt", "resolvedAt", "currentStatus", "updates", "affected"]));
+    expect(report.properties.publishedAt.type).toEqual(["string", "null"]);
+    expect(report.properties.title).toMatchObject({ minLength: 1, maxLength: 160 });
+    const updateSchema = schemas.StatusReportUpdate as { properties: Record<string, Record<string, unknown>> };
+    expect(updateSchema.properties.markdown).toMatchObject({ minLength: 1, maxLength: 10240 });
+    const create = schemas.StatusReportCreateRequest as { required: string[]; properties: Record<string, unknown> };
+    expect(create.required).toEqual(["type", "title", "update"]);
+    expect(create.properties.draft).toMatchObject({ type: "boolean" });
+    const status = schemas.StatusReportUpdateStatus as { enum: string[] };
+    expect(status.enum).toEqual([
+      "investigating", "identified", "monitoring", "resolved",
+      "scheduled", "in_progress", "completed",
+    ]);
+    const list = schemas.StatusReportListEnvelope as { properties: { kind: { const: string } } };
+    expect(list.properties.kind.const).toBe("StatusReportList");
   });
 
   it("documents database health caching and unavailable states", () => {

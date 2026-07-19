@@ -54,7 +54,7 @@ export type PaletteGroup = {
 const navigationItems: PaletteItem[] = [
   { id: "nav-overview", text: "Overview", searchText: "Overview", hint: "", href: "/" },
   { id: "nav-incidents", text: "Incidents", searchText: "Incidents", hint: "", href: "/incidents" },
-  { id: "nav-settings", text: "Settings", searchText: "Settings", hint: "", href: "/settings/general" },
+  { id: "nav-settings", text: "Settings", searchText: "Settings", hint: "", href: "/settings/account" },
   { id: "nav-status", text: "Status Page", searchText: "Status Page", hint: "↗", href: "/status", external: true },
 ];
 

@@ -82,7 +82,7 @@ export function UserMenu({ email }: { email: string }) {
           <span className="min-w-0 truncate text-[13px] text-[var(--fg)]">{email}</span>
         </div>
         <DropdownMenuSeparator />
-        <DropdownMenuLinkItem render={<Link href="/settings/general" />}>Settings</DropdownMenuLinkItem>
+        <DropdownMenuLinkItem render={<Link href="/settings/account" />}>Settings</DropdownMenuLinkItem>
         <DropdownMenuLinkItem render={<Link href="/help" />}>Help Center</DropdownMenuLinkItem>
         <DropdownMenuSeparator />
         <div className="px-2.5 pt-1.5 pb-2">

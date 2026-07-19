@@ -8,6 +8,7 @@ import { IncidentTime } from "@/components/incidents/incident-time";
 import { IncidentStatus } from "@/components/incidents/incident-status";
 import { NotificationSummary } from "@/components/incidents/notification-summary";
 import type { IncidentDetail } from "@/components/incidents/types";
+import { WriteReportButton } from "@/components/incidents/write-report-button";
 import { getIncidentDetail } from "@/lib/reporting/queries/incidents";
 
 export default async function IncidentDetailPage({ params }: { params: Promise<{ incidentId: string }> }) {
@@ -31,6 +32,7 @@ export default async function IncidentDetailPage({ params }: { params: Promise<{
       <header className="mb-6 flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-semibold tracking-[-0.02em]">{incident.monitorName}</h1>
         <IncidentStatus ongoing={!incident.resolvedAt} />
+        <span className="ml-auto"><WriteReportButton incidentId={incident.id} /></span>
       </header>
 
       <dl className="mb-6 grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] overflow-hidden rounded-xl border border-[var(--border-strong)] shadow-[var(--card-shadow)]">

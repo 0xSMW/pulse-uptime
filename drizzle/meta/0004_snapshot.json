@@ -1,5 +1,5 @@
 {
-  "id": "a34ffc3e-5045-4c80-aedb-7e7d03f3dd6a",
+  "id": "40eb80a8-80e1-46ff-9444-e2b139c8b303",
   "prevId": "3dd3cced-29a3-4716-8e0b-7fba3201c9e9",
   "version": "7",
   "dialect": "postgresql",
@@ -25,6 +25,24 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "avatar_image_id": {
+          "name": "avatar_image_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "timezone": {
+          "name": "timezone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -379,24 +397,7 @@
           "notNull": false
         }
       },
-      "indexes": {
-        "api_tokens_active_creator": {
-          "name": "api_tokens_active_creator",
-          "columns": [
-            {
-              "expression": "created_by_principal",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"api_tokens\".\"revoked_at\" is null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
@@ -916,23 +917,7 @@
           "notNull": false
         }
       },
-      "indexes": {
-        "cli_sessions_installation": {
-          "name": "cli_sessions_installation",
-          "columns": [
-            {
-              "expression": "installation_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
         "cli_sessions_installation_id_cli_installations_id_fk": {
           "name": "cli_sessions_installation_id_cli_installations_id_fk",
@@ -1148,27 +1133,6 @@
             },
             {
               "expression": "state",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "config_operations_principal_idempotency": {
-          "name": "config_operations_principal_idempotency",
-          "columns": [
-            {
-              "expression": "principal_key",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "idempotency_key",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -1949,27 +1913,6 @@
           "method": "btree",
           "with": {}
         },
-        "incidents_feed_order": {
-          "name": "incidents_feed_order",
-          "columns": [
-            {
-              "expression": "opened_at",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            },
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "incidents_one_active_per_monitor": {
           "name": "incidents_one_active_per_monitor",
           "columns": [
@@ -2733,30 +2676,7 @@
           "notNull": false
         }
       },
-      "indexes": {
-        "monitoring_config_snapshots_accepted_order": {
-          "name": "monitoring_config_snapshots_accepted_order",
-          "columns": [
-            {
-              "expression": "accepted_at",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            },
-            {
-              "expression": "seen_at",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"monitoring_config_snapshots\".\"status\" = 'accepted'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
@@ -2890,22 +2810,6 @@
         }
       },
       "indexes": {
-        "notification_outbox_incident": {
-          "name": "notification_outbox_incident",
-          "columns": [
-            {
-              "expression": "incident_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"notification_outbox\".\"incident_id\" is not null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "notification_outbox_due": {
           "name": "notification_outbox_due",
           "columns": [

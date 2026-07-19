@@ -1,13 +1,18 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, gt, isNull } from "drizzle-orm";
 
 import { validateMonitoringConfig, type MonitoringConfig } from "@/lib/config";
 import { DEFAULT_MONITOR_VALUES } from "@/lib/config/defaults";
+import { normalizeScopes, resolveScopeProfile } from "@/lib/api/scopes";
+import { getStatusPageConfig } from "@/lib/api/status-page-config";
+import { parseUserAgent } from "@/lib/auth/user-agent";
 import { db } from "@/lib/db/client";
 import { getDatabaseHealth } from "@/lib/database-health";
 import {
+  adminUsers,
   apiTokens,
   cliInstallations,
   cliSessions,
+  humanSessions,
   monitorRegistry,
   monitoringConfigSnapshots,
   monitorState,
@@ -71,11 +76,82 @@ export async function getMonitorSettings() {
   };
 }
 
-export async function getGeneralSettings() {
+export async function getNotificationSettings() {
   const config = await getAcceptedConfig();
   return {
     defaultRecipients: config?.settings.defaultRecipients ?? [],
     sender: process.env.RESEND_FROM_EMAIL?.trim() || null,
+  };
+}
+
+export async function getAccountSettings(userId: string) {
+  const [row] = await db.select({
+    name: adminUsers.name,
+    email: adminUsers.email,
+    timezone: adminUsers.timezone,
+    avatarImageId: adminUsers.avatarImageId,
+  }).from(adminUsers).where(eq(adminUsers.id, userId)).limit(1);
+  return row ?? null;
+}
+
+const sessionColumns = {
+  id: humanSessions.id,
+  userAgent: humanSessions.userAgent,
+  ipAddress: humanSessions.ipAddress,
+  createdAt: humanSessions.createdAt,
+  lastSeenAt: humanSessions.lastSeenAt,
+};
+
+export async function getSecuritySettings(userId: string, currentSessionId: string, now = new Date()) {
+  const activeFilter = and(
+    eq(humanSessions.userId, userId),
+    isNull(humanSessions.revokedAt),
+    gt(humanSessions.expiresAt, now),
+  );
+  const rows = await db.select(sessionColumns).from(humanSessions)
+    .where(activeFilter)
+    .orderBy(desc(humanSessions.createdAt))
+    .limit(100);
+
+  // The 100-row cap ranks by recency, so a session that's still current but
+  // was created long ago can rank past the cutoff, and the page must never
+  // omit the current session while it's in use. Rather than trust recency,
+  // fetch it directly by id when the capped batch missed it, and prepend it
+  // (still bound by the same active-session filter).
+  let allRows = rows;
+  if (!rows.some((row) => row.id === currentSessionId)) {
+    const currentRows = await db.select(sessionColumns).from(humanSessions)
+      .where(and(eq(humanSessions.id, currentSessionId), activeFilter))
+      .limit(1);
+    if (currentRows[0]) allRows = [currentRows[0], ...rows];
+  }
+
+  const sessions = allRows.map((row) => {
+    const { browser, os } = parseUserAgent(row.userAgent);
+    return {
+      id: row.id,
+      browser,
+      os,
+      ipAddress: row.ipAddress,
+      createdAt: row.createdAt.toISOString(),
+      lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
+      current: row.id === currentSessionId,
+    };
+  });
+  // Current session first. The rest keep newest-signed-in order (stable sort).
+  sessions.sort((left, right) => Number(right.current) - Number(left.current));
+  return { sessions };
+}
+
+export async function getStatusPageSettings() {
+  const { data, etag } = await getStatusPageConfig();
+  const { updatedAt: _updatedAt, ...document } = data;
+  void _updatedAt;
+  return {
+    // The full document (including the current logo/favicon image ids) is the
+    // page's single draft. The ETag rides along for the If-Match PUT.
+    config: document,
+    etag,
   };
 }
 
@@ -106,6 +182,7 @@ export async function getAccessSettings() {
       id: cliSessions.id,
       prefix: cliSessions.tokenPrefix,
       scopes: cliSessions.scopes,
+      scopeProfile: cliSessions.scopeProfile,
       expiresAt: cliSessions.expiresAt,
       lastUsedAt: cliSessions.lastUsedAt,
       displayName: cliInstallations.displayName,
@@ -136,7 +213,10 @@ export async function getAccessSettings() {
         kind: "cli" as const,
         detail: `${session.platform}/${session.architecture}`,
         prefix: session.prefix,
-        scopes: session.scopes,
+        // The access page must show the scopes auth actually grants. A stored
+        // scope profile wins over the literal mint-time snapshot, mirroring
+        // findCliSession in lib/api/principal.ts.
+        scopes: resolveScopeProfile(session.scopeProfile) ?? normalizeScopes(session.scopes),
         expiresAt: session.expiresAt.toISOString(),
         lastUsedAt: session.lastUsedAt?.toISOString() ?? null,
       })),

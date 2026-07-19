@@ -3,14 +3,13 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
-import { AppearanceControl } from "@/components/settings/appearance-control";
-import { TimezoneControl } from "@/components/settings/timezone-control";
 import { apiRequest, messageForError, type ApiEnvelope } from "@/components/settings/settings-api";
-import { CardHeading, SettingsRow } from "@/components/settings/settings-row";
+import { useDirtyGuard } from "@/components/settings/settings-dirty";
+import { CardHeading } from "@/components/settings/settings-row";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
-export type GeneralSettingsData = {
+export type NotificationSettingsData = {
   defaultRecipients: string[];
   sender: string | null;
 };
@@ -23,12 +22,15 @@ type ConfigurationOperation = { id: string; state: "written" | "accepted" | "rej
 const OPERATION_POLL_INTERVAL_MS = 2_000;
 const OPERATION_POLL_DEADLINE_MS = 30_000;
 
-export function GeneralSettings({ data }: { data: GeneralSettingsData }) {
+export function NotificationsSettings({ data }: { data: NotificationSettingsData }) {
   const router = useRouter();
-  const [recipientsText, setRecipientsText] = useState(data.defaultRecipients.join("\n"));
+  const [savedText, setSavedText] = useState(data.defaultRecipients.join("\n"));
+  const [recipientsText, setRecipientsText] = useState(savedText);
   const [notificationBusy, setNotificationBusy] = useState<"save" | "test" | null>(null);
   const [notificationStatus, setNotificationStatus] = useState("");
   const pollTimer = useRef<number | null>(null);
+
+  useDirtyGuard("notifications-recipients", recipientsText !== savedText);
 
   useEffect(() => () => {
     if (pollTimer.current !== null) window.clearTimeout(pollTimer.current);
@@ -42,7 +44,7 @@ export function GeneralSettings({ data }: { data: GeneralSettingsData }) {
     pollTimer.current = null;
   }
 
-  function pollOperation(operationId: string, deadline: number) {
+  function pollOperation(operationId: string, deadline: number, committedText: string) {
     const tick = async () => {
       pollTimer.current = null;
       try {
@@ -51,6 +53,7 @@ export function GeneralSettings({ data }: { data: GeneralSettingsData }) {
         if (state === "accepted") {
           setNotificationStatus("Recipients saved");
           setNotificationBusy(null);
+          setSavedText(committedText);
           router.refresh();
           return;
         }
@@ -76,6 +79,7 @@ export function GeneralSettings({ data }: { data: GeneralSettingsData }) {
     if (recipientError) { setNotificationStatus(recipientError); return; }
     stopPolling();
     setNotificationBusy("save"); setNotificationStatus("");
+    const committedText = recipientsText;
     try {
       const current = await apiRequest<ApiEnvelope<DeclarativeConfig> & { meta: ConfigurationMeta }>("/api/v1/config");
       const baseConfigHash = current.meta.configHash;
@@ -88,7 +92,7 @@ export function GeneralSettings({ data }: { data: GeneralSettingsData }) {
         body: JSON.stringify({ baseConfigHash, targetConfigHash: planned.data.targetConfigHash, planHash: planned.data.planHash, targetConfig, allowDelete: false }),
       }, true);
       setNotificationStatus("Updating configuration…");
-      pollOperation(applied.data.id, Date.now() + OPERATION_POLL_DEADLINE_MS);
+      pollOperation(applied.data.id, Date.now() + OPERATION_POLL_DEADLINE_MS, committedText);
     } catch (error) {
       setNotificationStatus(messageForError(error));
       setNotificationBusy(null);
@@ -107,20 +111,8 @@ export function GeneralSettings({ data }: { data: GeneralSettingsData }) {
 
   return (
     <div className="space-y-6">
-      <Card className="overflow-hidden">
-        <CardHeading title="Appearance" />
-        <div className="border-t border-[var(--border)]">
-          <SettingsRow label="Theme" description="How the dashboard looks on this device. Also available from the account menu.">
-            <AppearanceControl />
-          </SettingsRow>
-          <SettingsRow label="Time zone" description="Used for timestamps across the dashboard on this device.">
-            <TimezoneControl />
-          </SettingsRow>
-        </div>
-      </Card>
-
       <Card>
-        <CardHeading title="Notifications" />
+        <CardHeading title="Email" />
         <CardContent className="pt-0">
           <p className="mb-4 max-w-[640px] text-[13px] leading-[18px] text-[var(--fg-muted)]">Defaults apply when a monitor has no recipients. Use one address per line, up to 20.</p>
           <div className="max-w-[640px] space-y-4">

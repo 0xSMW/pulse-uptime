@@ -41,6 +41,17 @@ export async function listDashboardMonitors() {
   // is an anti-join: only raw checks whose own 15m bucket lacks a rollup
   // row are counted, so gaps are covered by raw data, never double-counted.
   // A gap whose raw rows were already purged cannot be recovered here.
+  // Both sides are clamped to [start15m, end15m), the most recent completed
+  // 24h of quarter-hour buckets, so the card always covers exactly 24 hours
+  // and agrees with the detail page's completed rollup window. Checks in the
+  // current partial bucket are excluded until their bucket closes.
+  // The window filter and bucket comparison below use check_results.scheduled_at
+  // (not checked_at): metric_rollups buckets are date_bin'd from check_batches
+  // .scheduled_minute (see COMPACT_15_MINUTE_SQL), and check_results.scheduled_at
+  // is set from that same scheduled minute (lib/scheduler/coordinator.ts). A
+  // check scheduled just before a 15m boundary but completing after it must be
+  // compared on scheduled_at, or it would land in the rollup's earlier bucket
+  // while the anti-join probed the later checked_at bucket, double-counting it.
   const end15m = new Date();
   end15m.setUTCMinutes(Math.floor(end15m.getUTCMinutes() / 15) * 15, 0, 0);
   const start15m = new Date(end15m.getTime() - 86_400_000);
@@ -71,12 +82,13 @@ export async function listDashboardMonitors() {
             count(*) filter (where ${checkResults.successful}) as successful
           from ${checkResults}
           where ${checkResults.monitorId} = ${monitorRegistry.id}
-            and ${checkResults.checkedAt} >= ${start15m}
+            and ${checkResults.scheduledAt} >= ${start15m}
+            and ${checkResults.scheduledAt} < ${end15m}
             and not exists (
               select 1 from ${metricRollups} covered
               where covered.monitor_id = ${monitorRegistry.id}
                 and covered.resolution = '15m'
-                and covered.bucket_start = date_bin('15 minutes', ${checkResults.checkedAt}, timestamptz '2000-01-01')
+                and covered.bucket_start = date_bin('15 minutes', ${checkResults.scheduledAt}, timestamptz '2000-01-01')
             )
         ) raw
       )`,

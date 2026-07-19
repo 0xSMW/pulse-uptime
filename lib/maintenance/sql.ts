@@ -140,6 +140,20 @@ deleted as (
   delete from exception_payloads using doomed where exception_payloads.id = doomed.id returning 1
 )
 select count(*)::int as affected from deleted`;
+const DELETE_ORPHAN_IMAGES_SQL = `with referenced as (
+  select logo_light_image_id id from status_page_config where logo_light_image_id is not null
+  union select logo_dark_image_id from status_page_config where logo_dark_image_id is not null
+  union select favicon_image_id from status_page_config where favicon_image_id is not null
+  union select avatar_image_id from admin_users where avatar_image_id is not null
+), unreferenced as (
+  select images.id, images.created_at,
+    row_number() over (order by images.created_at desc, images.id desc) position
+  from images where not exists (select 1 from referenced where referenced.id = images.id)
+), doomed as (
+  select id from unreferenced where created_at < $1 or position > $2
+  order by created_at, id limit $3
+)
+delete from images using doomed where images.id = doomed.id returning images.id`;
 
 export function createSqlMaintenanceStore(db: QueryExecutor): MaintenanceStore {
   return {
@@ -216,6 +230,9 @@ export function createSqlMaintenanceStore(db: QueryExecutor): MaintenanceStore {
     },
     async retainExceptionPayloads(now, limit) {
       return affected(await db.query<AffectedRow>(RETAIN_PAYLOADS_SQL, [now, limit]));
+    },
+    async deleteOrphanImages(cutoff, keepNewest, limit) {
+      return count(await db.query(DELETE_ORPHAN_IMAGES_SQL, [cutoff, keepNewest, limit]));
     },
   };
 }

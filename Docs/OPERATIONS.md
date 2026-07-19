@@ -31,6 +31,36 @@ Outbox rows are claimed atomically. A five-minute stale claim is retried with th
 
 For a dead row, determine whether Resend accepted the message before retrying manually. Never change its idempotency key.
 
+## Publishing a status report during an outage
+
+Detected incidents and authored reports coexist. Promotion always creates a draft; nothing reaches the public status page until you publish.
+
+From the dashboard:
+
+1. Open **Incidents → Outage history** and choose **Write report** on the incident row.
+2. Edit the draft: title, affected services and impact, and the first update.
+3. Select **Publish**. Updates appear on the status page immediately.
+
+From the CLI:
+
+```sh
+pulsectl incident promote inc_123        # creates a draft report from the incident
+pulsectl report publish rep_456
+pulsectl report post rep_456 --status monitoring --message "A fix is deployed; watching recovery."
+pulsectl report resolve rep_456
+```
+
+`report resolve` posts the closing update with the body "Resolved." for incidents or "Completed." for maintenance unless `--message` is given. For longer updates, read the body from stdin:
+
+```sh
+pulsectl report post rep_456 --status identified --message-file - <<'EOF'
+The connection pool was exhausted by a runaway deploy.
+We are rolling back and restoring capacity.
+EOF
+```
+
+Report commands require the `reports:read` and `reports:write` scopes. Credentials minted before these scopes existed lack them — re-run `pulsectl auth login` or create a new token.
+
 ## Configuration recovery
 
 Edge Config is desired state. The last accepted Postgres snapshot remains executable during invalid, destructive-unapproved, or temporarily unavailable Edge Config reads.
@@ -55,4 +85,22 @@ Run migrations only through `DATABASE_URL_UNPOOLED`. Runtime functions use the p
 - Revoke human sessions after a password change.
 - Rotate `API_TOKEN_HASH_KEY` or `DEVICE_AUTH_SECRET` only with an explicit credential invalidation plan.
 - Rotate `CRON_SECRET`, the Resend key, Neon credentials, and the Vercel API token in both Vercel and the provider.
+
+## Recovering from admin lockout
+
+Changing the account email or password revokes every other dashboard session, and the email address is the sole login identifier — there is no reset-by-email flow. A mistyped email during an email change therefore locks the dashboard.
+
+Machine credentials are deliberately not revoked by these changes: existing API tokens and CLI sessions keep working, so `pulsectl` remains available while the dashboard is locked.
+
+There is no in-app credential reset. Recovery re-opens onboarding: account creation refuses while an administrator row exists, so remove the account rows directly in Postgres. `human_sessions` and `onboarding_progress` reference `admin_users` without cascading deletes, so delete them first:
+
+```sql
+begin;
+delete from human_sessions;
+delete from onboarding_progress;
+delete from admin_users;
+commit;
+```
+
+Then open the application URL. With no administrator row, onboarding runs again; account creation (`createOnlyAdmin` in `lib/auth/service.ts`) is gated only by `hasAdmin()` returning false and the readiness checks (Vercel, database, Edge Config, and email) passing — there is no bootstrap-token check anywhere in the onboarding path. In practice this means anyone who can reach the application URL while the administrator row is absent can claim the install, so treat the window between the `delete from admin_users` above and completing account creation as sensitive: run the SQL and immediately create the account, and restrict network/database access during recovery if that window needs to be longer. Create the account with the correct email and a new password. Monitors, incidents, configuration, and history are untouched — only the account, its sessions, and onboarding progress are recreated.
 

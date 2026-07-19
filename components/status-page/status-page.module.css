@@ -57,3 +57,76 @@
     --card-shadow: 0 1px 2px rgb(0 0 0 / 16%);
   }
 }
+
+/*
+ * Forced theme (Settings → Status page). The compound selectors out-rank the
+ * media-query blocks above, pinning the resolved theme regardless of device.
+ */
+.shell.light {
+  color-scheme: light;
+  --bg: #ffffff;
+  --hover: #0000000d;
+  --border: #ebebeb;
+  --border-strong: #eaeaea;
+  --border-hover: #c9c9c9;
+  --fg: #171717;
+  --fg-muted: #4d4d4d;
+  --fg-faint: #8f8f8f;
+  --chip-bg: #f2f2f2;
+  --focus: #006bff;
+  --up: #28a948;
+  --up-text: #107d32;
+  --up-bg: #ecfdec;
+  --verifying: #ffae00;
+  --verifying-text: #aa4d00;
+  --verifying-bg: #fff6de;
+  --down: #fc0035;
+  --down-text: #d8001b;
+  --down-bg: #ffeeef;
+  --neutral-state: #a8a8a8;
+  --card-shadow: 0 2px 2px rgb(0 0 0 / 4%);
+}
+
+.shell.dark {
+  color-scheme: dark;
+  --bg: #000000;
+  --hover: #ffffff12;
+  --border: #ffffff17;
+  --border-strong: #ffffff24;
+  --border-hover: #ffffff3d;
+  --fg: #ededed;
+  --fg-muted: #a0a0a0;
+  --fg-faint: #8f8f8f;
+  --chip-bg: #ffffff12;
+  --focus: #47a8ff;
+  --up: #00ac3a;
+  --up-text: #00ca50;
+  --up-bg: #002608;
+  --verifying: #ffae00;
+  --verifying-text: #ff9300;
+  --verifying-bg: #2a1700;
+  --down: #f13242;
+  --down-text: #ff565f;
+  --down-bg: #330a11;
+  --neutral-state: #878787;
+  --card-shadow: 0 1px 2px rgb(0 0 0 / 16%);
+}
+
+/*
+ * System-theme logo pair: both variants are rendered and the stylesheet picks
+ * one, so the swap costs no client JavaScript. Forced themes render a single
+ * variant and never hit these rules.
+ */
+.logoDark {
+  display: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  .logoLight {
+    display: none;
+  }
+
+  .logoDark {
+    display: inline-block;
+  }
+}

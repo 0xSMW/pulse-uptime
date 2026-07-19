@@ -1,0 +1,3 @@
+DROP INDEX "status_report_updates_latest";--> statement-breakpoint
+CREATE INDEX "status_reports_resolved" ON "status_reports" USING btree ("resolved_at" DESC NULLS LAST) WHERE "status_reports"."resolved_at" is not null;--> statement-breakpoint
+CREATE INDEX "status_report_updates_latest" ON "status_report_updates" USING btree ("report_id","published_at" DESC NULLS LAST,"created_at" DESC NULLS LAST,"id" DESC NULLS LAST);

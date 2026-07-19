@@ -180,13 +180,32 @@
     if (rules) block.innerHTML = highlight(block.textContent, rules);
   });
 
+  /* ---- Code tabs ---- */
+
+  $$(".code-tabs").forEach((tabs) => {
+    const figure = tabs.closest(".code-block, .dv-frame");
+    $$(".code-tab", tabs).forEach((tab) => {
+      tab.addEventListener("click", () => {
+        $$(".code-tab", tabs).forEach((other) => {
+          const active = other === tab;
+          other.classList.toggle("active", active);
+          other.setAttribute("aria-selected", String(active));
+        });
+        $$(".code-tab-panel", figure).forEach((panel) => {
+          panel.hidden = panel.dataset.tabPanel !== tab.dataset.tab;
+        });
+      });
+    });
+  });
+
   /* ---- Code copy buttons ---- */
 
   $$(".code-block").forEach((figure) => {
     const button = $(".code-copy", figure);
-    const code = $("pre code", figure);
-    if (!button || !code) return;
+    if (!button) return;
     button.addEventListener("click", () => {
+      const code = $(".code-tab-panel:not([hidden]) code", figure) || $("pre code", figure);
+      if (!code) return;
       const text = code.textContent
         .split("\n")
         .filter((line) => !/^\s*#/.test(line))

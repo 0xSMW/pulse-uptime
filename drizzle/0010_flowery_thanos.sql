@@ -1,0 +1,1 @@
+ALTER TABLE "status_page_config" ADD COLUMN "version" integer DEFAULT 0 NOT NULL;

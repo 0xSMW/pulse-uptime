@@ -29,6 +29,24 @@ pulsectl config validate --file monitors.yaml
 pulsectl config plan --file monitors.yaml
 pulsectl config apply --file monitors.yaml`;
 
+const reportWorkflow = `pulsectl report create --type incident --title "API outage" \\
+  --status investigating --message "We are investigating elevated error rates." \\
+  --affected api-prod:down
+pulsectl report post rep_123 --status monitoring --message "A fix is deployed; watching recovery."
+pulsectl report resolve rep_123`;
+
+const reportScripting = `pulsectl incident promote inc_123
+pulsectl report publish rep_123
+
+pulsectl report post rep_123 --status identified --message-file - <<'EOF'
+The connection pool was exhausted by a runaway deploy.
+We are rolling back and restoring capacity.
+EOF`;
+
+const statusPageWorkflow = `pulsectl status-page set name="Acme Status" historyDays=60
+pulsectl status-page export --file status-page.json
+pulsectl status-page apply --file status-page.json`;
+
 const agentPrompt =
   "Use pulsectl --help to discover commands. Authenticate through PULSECTL_TOKEN, prefer --output json, and never print or persist the token.";
 
@@ -115,7 +133,7 @@ export default function CliDocsPage() {
           </p>
         </section>
 
-        <section className="mb-16" aria-labelledby="configuration">
+        <section className="mb-12" aria-labelledby="configuration">
           <SectionHeading
             id="configuration"
             eyebrow="04"
@@ -127,6 +145,38 @@ export default function CliDocsPage() {
             Noninteractive destructive applies require both
             <code className="mx-1 font-mono text-[var(--fg)]">--allow-delete</code>
             and <code className="font-mono text-[var(--fg)]">--yes</code>.
+          </p>
+        </section>
+
+        <section className="mb-16" aria-labelledby="status-reports">
+          <SectionHeading
+            id="status-reports"
+            eyebrow="05"
+            title="Publish status reports"
+            description="Author incident and maintenance timelines on your status page"
+          />
+          <CodeBlock code={reportWorkflow} language="shell" copyLabel="Copy report workflow" />
+          <p className="mt-3 mb-4 text-[13px] leading-5 text-[var(--fg-muted)]">
+            <code className="font-mono text-[var(--fg)]">report resolve</code> posts the closing
+            update — &ldquo;Resolved.&rdquo; for incidents, &ldquo;Completed.&rdquo; for
+            maintenance — unless you pass{" "}
+            <code className="font-mono text-[var(--fg)]">--message</code>. Promote a detected
+            incident into a draft report, publish it, and pipe longer updates through stdin:
+          </p>
+          <CodeBlock code={reportScripting} language="shell" copyLabel="Copy scripting example" />
+          <p className="mt-3 mb-4 text-[13px] leading-5 text-[var(--fg-muted)]">
+            The status page itself — name, branding, links, announcement, history math — is edited
+            the same way as monitors: export, edit, apply. Exports embed the current ETag, so a
+            stale apply fails instead of overwriting concurrent edits.
+          </p>
+          <CodeBlock code={statusPageWorkflow} language="shell" copyLabel="Copy status page workflow" />
+          <p className="mt-3 text-[13px] leading-5 text-[var(--fg-muted)]">
+            Report commands require the
+            <code className="mx-1 font-mono text-[var(--fg)]">reports:read</code>
+            and <code className="font-mono text-[var(--fg)]">reports:write</code> scopes. Tokens
+            minted before these scopes existed lack them — re-run{" "}
+            <code className="font-mono text-[var(--fg)]">pulsectl auth login</code> or create a new
+            token.
           </p>
         </section>
       </article>

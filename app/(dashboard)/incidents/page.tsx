@@ -2,6 +2,7 @@ import { Suspense } from "react";
 
 import { IncidentEmpty } from "@/components/incidents/incident-empty";
 import { IncidentFilters } from "@/components/incidents/incident-filters";
+import { IncidentsTabs } from "@/components/incidents/incidents-tabs";
 import { IncidentHistoryTable } from "@/components/incidents/incident-history-table";
 import { OngoingIncidentCard } from "@/components/incidents/ongoing-incident-card";
 import type { IncidentFilter, IncidentSummary } from "@/components/incidents/types";
@@ -21,12 +22,15 @@ export default async function IncidentsPage({
 
   return (
     <>
-      <header className="mb-6 flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold tracking-[-0.02em]">Incidents</h1>
-          <p className="mt-1 text-[13px] text-[var(--fg-muted)]">Endpoint outage history</p>
+      <header className="mb-6">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-semibold tracking-[-0.02em]">Incidents</h1>
+            <p className="mt-1 text-[13px] text-[var(--fg-muted)]">Endpoint outage history</p>
+          </div>
+          <IncidentFilters active={filter} />
         </div>
-        <IncidentFilters active={filter} />
+        <IncidentsTabs className="mt-4" />
       </header>
 
       {/* key={filter}: switching filters re-shows the fallback instead of

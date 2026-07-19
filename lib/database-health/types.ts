@@ -10,6 +10,7 @@ export const DATABASE_HEALTH_CATEGORY_KEYS = [
   "incidents",
   "coreData",
   "operations",
+  "content",
   "indexes",
   "other",
 ] as const;

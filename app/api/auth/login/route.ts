@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { AuthServiceError, login } from "@/lib/auth/service";
+import { AuthServiceError, clientIpFromHeaders, login } from "@/lib/auth/service";
 import { getCurrentSession, sessionCookie } from "@/lib/auth/session";
 import { safeReturnTo } from "@/lib/auth/return-to";
 import { mutationOriginAllowed } from "@/lib/onboarding/http";
@@ -12,7 +12,8 @@ export async function POST(request: Request) {
     const current = await getCurrentSession();
     const result = await login({
       email: String(body.email ?? ""), password: String(body.password ?? ""),
-      ip: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown",
+      ip: clientIpFromHeaders(request.headers) ?? "unknown",
+      userAgent: request.headers.get("user-agent"),
       currentSessionId: current?.sessionId,
     });
     const response = NextResponse.json({

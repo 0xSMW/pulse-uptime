@@ -18,6 +18,7 @@ import (
 	"github.com/0xSMW/pulse-uptime/cli/internal/api"
 	"github.com/0xSMW/pulse-uptime/cli/internal/auth"
 	"github.com/0xSMW/pulse-uptime/cli/internal/buildinfo"
+	"github.com/spf13/pflag"
 )
 
 func TestMeCallsCanonicalEndpointWithHeaders(t *testing.T) {
@@ -105,6 +106,24 @@ func TestMeMapsServiceErrorsAndPreservesRequestID(t *testing.T) {
 	}
 }
 
+func TestReportScopeDenialIncludesRolloutHint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, `{"apiVersion":"v1","kind":"Error","error":{"code":"SCOPE_DENIED","message":"Scope denied","details":{"scope":"reports:read"},"requestId":"req_scope"}}`)
+	}))
+	defer server.Close()
+	t.Setenv("PULSECTL_URL", server.URL)
+	t.Setenv("PULSECTL_TOKEN", "pulse_live_legacy")
+	t.Setenv("PULSECTL_OUTPUT", "json")
+	code, _, stderr := execute(t, "report", "list")
+	if code != ExitPermission || !strings.Contains(stderr, `"code": "SCOPE_DENIED"`) {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stderr, "token lacks reports:*") || !strings.Contains(stderr, "re-run pulsectl login") {
+		t.Fatalf("hint missing from stderr: %s", stderr)
+	}
+}
+
 func TestMapAPIErrorUsesStableExitCodes(t *testing.T) {
 	cases := map[int]int{0: 9, 400: 2, 401: 3, 403: 7, 404: 5, 408: 8, 409: 6, 412: 6, 422: 2, 429: 8, 503: 9}
 	for status, want := range cases {
@@ -121,7 +140,7 @@ func TestRootHelpListsEveryLeafAndFitsBudget(t *testing.T) {
 	if code != 0 || stderr != "" {
 		t.Fatalf("code=%d stderr=%q", code, stderr)
 	}
-	for _, path := range []string{"auth login", "context remove", "token create", "monitor watch", "group rename", "incident get", "config apply", "notification test", "status", "doctor", "completion", "version"} {
+	for _, path := range []string{"auth login", "context remove", "token create", "monitor watch", "group rename", "incident get", "incident promote", "report create", "report publish", "status-page set", "status-page apply", "config apply", "notification test", "status", "doctor", "completion", "version"} {
 		if !strings.Contains(stdout, path) {
 			t.Errorf("root help missing %q", path)
 		}
@@ -141,7 +160,7 @@ func TestJSONHelpIsGeneratedFromCommandTree(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.SchemaVersion != 1 || got.Binary != "pulsectl" || len(got.Commands) != 37 {
+	if got.SchemaVersion != 1 || got.Binary != "pulsectl" || len(got.Commands) != 51 {
 		t.Fatalf("incomplete manifest: %#v", got)
 	}
 	for _, item := range got.Commands {
@@ -363,6 +382,63 @@ func TestTokenStdinAuthenticatesWithoutKeyring(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), "stdin-secret") || strings.Contains(stderr.String(), "stdin-secret") {
 		t.Fatal("stdin token leaked")
+	}
+}
+
+func TestTokenStdinRejectsStdinPayloadFlags(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		t.Errorf("guarded command reached the server: %s %s", r.Method, r.URL.Path)
+	}))
+	defer server.Close()
+	t.Setenv("PULSECTL_URL", server.URL)
+	t.Setenv("PULSECTL_TOKEN", "")
+	t.Setenv("PULSECTL_OUTPUT", "json")
+	cases := [][]string{
+		{"config", "validate", "--file", "-"},
+		{"config", "plan", "--file", "-"},
+		{"config", "apply", "--file", "-"},
+		{"status-page", "apply", "--file", "-"},
+		{"report", "create", "--type", "incident", "--title", "API outage", "--status", "investigating", "--message-file", "-"},
+		{"report", "post", "rep_1", "--status", "monitoring", "--message-file", "-"},
+		{"report", "edit-update", "rep_1", "upd_1", "--message-file", "-"},
+	}
+	for _, args := range cases {
+		var stdout, stderr bytes.Buffer
+		app := New(Options{In: strings.NewReader("stdin-secret\n"), Out: &stdout, Err: &stderr, ConfigPath: t.TempDir() + "/config.yaml", Credentials: &testCredentialStore{}})
+		code := app.Execute(append([]string{"--token-stdin"}, args...))
+		if code != ExitInvalidInput || !strings.Contains(stderr.String(), "STDIN_CONFLICT") {
+			t.Errorf("%v: code=%d stderr=%s", args, code, stderr.String())
+		}
+		if strings.Contains(stdout.String(), "stdin-secret") || strings.Contains(stderr.String(), "stdin-secret") {
+			t.Errorf("%v: stdin token leaked", args)
+		}
+	}
+}
+
+func TestTokenStdinGuardCoversEveryStdinConsumingCommand(t *testing.T) {
+	app := New(Options{In: strings.NewReader(""), Out: io.Discard, Err: io.Discard, ConfigPath: t.TempDir() + "/missing.yaml"})
+	guarded := map[string]bool{}
+	for _, name := range stdinPayloadFlags {
+		guarded[name] = true
+	}
+	for _, cmd := range leafCommands(app.Root()) {
+		supportsStdin := cmd.Annotations["supportsStdin"] == "true"
+		hasGuardedFlag := false
+		cmd.Flags().VisitAll(func(flag *pflag.Flag) {
+			readsStdin := strings.Contains(flag.Usage, "- for stdin")
+			if readsStdin && !guarded[flag.Name] {
+				t.Errorf("%s --%s reads stdin but is missing from stdinPayloadFlags", cmd.CommandPath(), flag.Name)
+			}
+			if readsStdin && !supportsStdin {
+				t.Errorf("%s --%s reads stdin but the command lacks the supportsStdin annotation", cmd.CommandPath(), flag.Name)
+			}
+			if readsStdin && guarded[flag.Name] {
+				hasGuardedFlag = true
+			}
+		})
+		if supportsStdin && !hasGuardedFlag {
+			t.Errorf("%s is annotated supportsStdin but declares no guarded stdin flag", cmd.CommandPath())
+		}
 	}
 }
 
