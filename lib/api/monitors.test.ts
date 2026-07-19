@@ -1,8 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/db/client", () => ({ db: { impl: "default-db" } }));
+vi.mock("./config-mutation", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./config-mutation")>()),
+  mutateConfig: vi.fn(async (_principalKey: string, mutator: (config: unknown) => unknown) => mutator(BASE_CONFIG)),
+}));
 
-import { mergeMonitorPatch, parseCreateMonitor, parsePatchMonitor } from "./monitors";
+import type { DatabaseHandle } from "@/lib/db/client";
+import { db } from "@/lib/db/client";
+
+import { mutateConfig } from "./config-mutation";
+import { createMonitor, deleteMonitor, mergeMonitorPatch, MonitorApiError, parseCreateMonitor, parsePatchMonitor, setMonitorEnabled, updateMonitor } from "./monitors";
+
+const EXISTING = parseCreateMonitor({ id: "site-home", name: "Site", url: "https://example.com" });
+const BASE_CONFIG = { schemaVersion: 2, configVersion: 1, groups: [], monitors: [EXISTING] };
 
 describe("monitor API request parsing", () => {
   it("applies the documented safe defaults to creates", () => {
@@ -26,5 +38,44 @@ describe("monitor API request parsing", () => {
     const groups = [{ id: "production", name: "Production" }];
     expect(parseCreateMonitor({ id: "site-one", name: "One", url: "https://one.example.com", group: "production" }, groups).groupId).toBe("production");
     expect(() => parseCreateMonitor({ id: "site-two", name: "Two", url: "https://two.example.com", group: "Production", groupId: "production" }, groups)).toThrow();
+  });
+});
+
+describe("handle threading to mutateConfig (finding: the mutation and the idempotency completion must commit in the same transaction, so the route's tx must reach mutateConfig, not the default pool)", () => {
+  const routeTx = { impl: "route-tx" } as unknown as DatabaseHandle;
+
+  it("createMonitor forwards the given handle", async () => {
+    await createMonitor({ id: "site-two", name: "Two", url: "https://two.example.com" }, "human:1", routeTx);
+    expect(mutateConfig).toHaveBeenLastCalledWith("human:1", expect.any(Function), routeTx);
+  });
+
+  it("createMonitor defaults to the db handle when none is given", async () => {
+    await createMonitor({ id: "site-three", name: "Three", url: "https://three.example.com" }, "human:1");
+    expect(mutateConfig).toHaveBeenLastCalledWith("human:1", expect.any(Function), db);
+  });
+
+  it("updateMonitor forwards the given handle", async () => {
+    await updateMonitor("site-home", { name: "Renamed" }, "human:1", routeTx);
+    expect(mutateConfig).toHaveBeenLastCalledWith("human:1", expect.any(Function), routeTx);
+  });
+
+  it("setMonitorEnabled forwards the given handle", async () => {
+    await setMonitorEnabled("site-home", false, "human:1", routeTx);
+    expect(mutateConfig).toHaveBeenLastCalledWith("human:1", expect.any(Function), routeTx);
+  });
+
+  it("deleteMonitor forwards the given handle to mutateConfig and to the archived-registry fallback read on MONITOR_NOT_FOUND", async () => {
+    vi.mocked(mutateConfig).mockRejectedValueOnce(new MonitorApiError("MONITOR_NOT_FOUND", "Monitor was not found"));
+    const chain: Record<string, unknown> = {};
+    chain.from = vi.fn(() => chain);
+    chain.where = vi.fn(() => chain);
+    chain.limit = vi.fn(async () => [{ id: "site-missing" }]);
+    const fallbackHandle = { select: vi.fn(() => chain) } as unknown as DatabaseHandle;
+
+    const result = await deleteMonitor("site-missing", "human:1", fallbackHandle);
+
+    expect(mutateConfig).toHaveBeenLastCalledWith("human:1", expect.any(Function), fallbackHandle);
+    expect(fallbackHandle.select).toHaveBeenCalled();
+    expect(result).toEqual({ id: "site-missing", deleted: true });
   });
 });

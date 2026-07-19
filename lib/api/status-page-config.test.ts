@@ -5,6 +5,9 @@ vi.mock("@/lib/db/client", () => ({ db: {} }));
 
 import type { StatusPageConfigDocument } from "@/lib/status-page/schema";
 
+import { executeIdempotent, type IdempotencyPersistence, type IdempotencyRecord } from "@/lib/api/idempotency";
+import type { DatabaseHandle } from "@/lib/db/client";
+
 import {
   getStatusPageConfig,
   putStatusPageConfig,
@@ -232,5 +235,115 @@ describe("putStatusPageConfig", () => {
     expect((error as StatusPageConfigError).details.issues).toEqual(
       expect.arrayContaining([expect.objectContaining({ path: "name" })]),
     );
+  });
+});
+
+/** Minimal in-memory IdempotencyPersistence, mirroring lib/api/idempotency.test.ts. */
+class MemoryPersistence implements IdempotencyPersistence {
+  owner: IdempotencyRecord | undefined;
+  completions: Array<{ status: number; body: unknown; usedTx: boolean }> = [];
+
+  async insertRunning(value: Parameters<IdempotencyPersistence["insertRunning"]>[0]) {
+    if (this.owner) return undefined;
+    this.owner = { responseStatus: null, responseBody: null, completedAt: null, ...value } as IdempotencyRecord;
+    return this.owner.id;
+  }
+
+  async findOwner(principalKey: string, idempotencyKey: string) {
+    return this.owner?.principalKey === principalKey && this.owner.idempotencyKey === idempotencyKey ? this.owner : undefined;
+  }
+
+  async reclaimExpired(id: string, now: Date, value: Parameters<IdempotencyPersistence["reclaimExpired"]>[2]) {
+    if (!this.owner || this.owner.id !== id || this.owner.expiresAt > now) return null;
+    this.owner = { responseStatus: null, responseBody: null, completedAt: null, ...value } as IdempotencyRecord;
+    return this.owner.id;
+  }
+
+  async claimStale(id: string, staleBefore: Date, now: Date, expiresAt: Date) {
+    if (!this.owner || this.owner.id !== id || this.owner.createdAt >= staleBefore) return undefined;
+    this.owner = { ...this.owner, createdAt: now, expiresAt };
+    return id;
+  }
+
+  async lockOwner() {
+    // The real persistence takes a FOR UPDATE lock on the owner record. These
+    // single-threaded tests never contend, so the lock is a no-op here.
+  }
+
+  async transaction<R>(run: (tx: DatabaseHandle) => Promise<R>) {
+    return await run("stub-tx" as unknown as DatabaseHandle);
+  }
+
+  async complete(id: string, status: number, body: unknown, completedAt: Date, tx?: DatabaseHandle) {
+    this.completions.push({ status, body, usedTx: tx !== undefined });
+    if (!this.owner || this.owner.id !== id) return;
+    this.owner = { ...this.owner, state: "completed", responseStatus: status, responseBody: body, completedAt };
+  }
+}
+
+function idempotentPutRequest() {
+  return new Request("https://pulse.test/api/v1/status-page-config", {
+    method: "PUT",
+    headers: { "Idempotency-Key": "00000000-0000-4000-8000-000000000001" },
+  });
+}
+
+describe("putStatusPageConfig + executeIdempotent (mirrors the route's work(): transaction-wrapped write, a deterministic domain error recorded as the operation's own completed response, and an unexpected error left running)", () => {
+  const ETAG = `"${CURRENT_VERSION}"`;
+
+  it("persists the completion using the SAME transaction the write ran in (finding: a fallback post-hoc completion write could commit after the mutation crashed, leaving the two inconsistent)", async () => {
+    const store = fakeStore();
+    const persistence = new MemoryPersistence();
+
+    const result = await executeIdempotent({
+      request: idempotentPutRequest(), principalKey: "human:1", routeKey: "status-page-config", body: {}, persistence,
+      work: async ({ transaction }) => transaction(async () => {
+        const { data } = await putStatusPageConfig(document({ name: "Renamed" }), ETAG, { store });
+        return { status: 200, body: data };
+      }),
+    });
+
+    expect(result.status).toBe(200);
+    expect(persistence.completions).toHaveLength(1);
+    expect(persistence.completions[0].usedTx).toBe(true);
+    expect(persistence.owner?.state).toBe("completed");
+  });
+
+  it("records a PRECONDITION_FAILED domain error as the operation's own completed response instead of leaving the record running", async () => {
+    const store = fakeStore({ write: vi.fn().mockResolvedValue(false) });
+    const persistence = new MemoryPersistence();
+
+    const result = await executeIdempotent({
+      request: idempotentPutRequest(), principalKey: "human:1", routeKey: "status-page-config", body: {}, persistence,
+      work: async ({ transaction }) => transaction<unknown>(async () => {
+        try {
+          const { data } = await putStatusPageConfig(document(), ETAG, { store });
+          return { status: 200, body: data };
+        } catch (error) {
+          if (error instanceof StatusPageConfigError) return { status: 412, body: { code: error.code } };
+          throw error;
+        }
+      }),
+    });
+
+    expect(result.status).toBe(412);
+    expect(persistence.owner?.state).toBe("completed");
+    expect(persistence.owner?.responseStatus).toBe(412);
+  });
+
+  it("leaves the record running when work() throws an unexpected error, so the mutation and the completion both roll back together", async () => {
+    const store = fakeStore({ write: vi.fn().mockRejectedValue(new Error("db down")) });
+    const persistence = new MemoryPersistence();
+
+    await expect(executeIdempotent({
+      request: idempotentPutRequest(), principalKey: "human:1", routeKey: "status-page-config", body: {}, persistence,
+      work: async ({ transaction }) => transaction(async () => {
+        const { data } = await putStatusPageConfig(document(), ETAG, { store });
+        return { status: 200, body: data };
+      }),
+    })).rejects.toThrow("db down");
+
+    expect(persistence.owner?.state).toBe("running");
+    expect(persistence.completions).toHaveLength(0);
   });
 });

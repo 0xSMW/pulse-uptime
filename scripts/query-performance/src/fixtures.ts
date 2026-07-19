@@ -895,13 +895,15 @@ export async function seedFixture(conn: GatedConnection): Promise<FixtureCardina
   };
 
   // Drizzle configures the shared client for pre-serialized JSONB values.
-  // Raw SQL must stringify cardinalities and cast them to JSONB.
+  // Raw SQL must stringify cardinalities and bind them as text then cast to
+  // jsonb. A param described as jsonb makes postgres.js JSON-encode the
+  // already-serialized string again, producing a double-encoded scalar.
   // The marker records the fixture clock, not now(), so benchmark windows
   // anchor to the same instant the seeded rows end at even when seeding
   // crosses a rollup bucket boundary.
   await conn.sql`
     insert into "_query_perf_fixture" (tag, version, seeded_at, cardinalities)
-    values (${"qh-fixture"}, ${FIXTURE_VERSION}, ${FIXTURE_CLOCK}, ${JSON.stringify(cardinalities)}::jsonb)
+    values (${"qh-fixture"}, ${FIXTURE_VERSION}, ${FIXTURE_CLOCK}, ${JSON.stringify(cardinalities)}::text::jsonb)
     on conflict (tag) do update set
       version = excluded.version, seeded_at = excluded.seeded_at, cardinalities = excluded.cardinalities
   `;

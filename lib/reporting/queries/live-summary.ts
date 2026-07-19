@@ -131,6 +131,26 @@ export function buildRecentIncidents(rows: LiveIncidentRow[], now: Date): LiveRe
   }));
 }
 
+export type RawMinuteCheck = {
+  checked_at: Date;
+  completed: boolean;
+  failed: boolean;
+  latency_ms: number | null;
+};
+
+// Raw minute rows carry real per-check results, so they take precedence over
+// the rollup-derived rows below whenever the retention window still has them.
+export function buildRecentChecksFromRaw(checks: RawMinuteCheck[]): LiveRecentCheck[] {
+  return checks.map((check) => ({
+    id: `minute:${check.checked_at.toISOString()}`,
+    checkedAt: check.checked_at.toISOString(),
+    successful: check.completed && !check.failed,
+    statusCode: null,
+    resultLabel: check.completed ? (check.failed ? "Failed" : "Passed") : "No response recorded",
+    latencyMs: check.latency_ms,
+  }));
+}
+
 export function buildRecentChecks(rollups24h: LiveRollupRow[]): LiveRecentCheck[] {
   return rollups24h.slice(-20).toReversed().map((rollup) => ({
     id: `15m:${rollup.bucketStart.toISOString()}`,

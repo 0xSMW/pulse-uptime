@@ -70,7 +70,9 @@ const { db } = vi.hoisted(() => {
 
 vi.mock("@/lib/db/client", () => ({ db: db.impl }));
 
-import { approveDeviceAuthorization, DeviceAuthorizationError, pollDeviceAuthorization } from "./device-authorization";
+import type { DatabaseHandle } from "@/lib/db/client";
+
+import { approveDeviceAuthorization, DeviceAuthorizationError, pollDeviceAuthorization, startDeviceAuthorization } from "./device-authorization";
 import { ADMINISTRATOR_SCOPES } from "./scopes";
 
 function resetDb() {
@@ -217,5 +219,55 @@ describe("pollDeviceAuthorization", () => {
 
     await expect(pollDeviceAuthorization("raw-device-code", now)).rejects.toBeInstanceOf(DeviceAuthorizationError);
     expect(db.selectColumnsCalls).toHaveLength(1);
+  });
+});
+
+describe("startDeviceAuthorization", () => {
+  const now = new Date("2026-07-18T12:00:00.000Z");
+  const input = {
+    clientName: "pulsectl",
+    installationKey: "install-key-1",
+    installationName: "laptop",
+    clientVersion: "1.2.3",
+    platform: "darwin",
+    architecture: "arm64",
+    scopeProfile: "administrator",
+    requestIp: null,
+  };
+
+  // Fake handle whose .transaction just runs the callback against a fresh
+  // attempt handle, standing in for a savepoint: the first insert rejects
+  // with a 23505 the way a real unique violation would, the second resolves.
+  // Since this fake handle exposes only `.transaction`, not `.insert`, the
+  // insert call can only succeed if startDeviceAuthorization opens a
+  // savepoint per attempt rather than inserting on `handle` directly, which
+  // is exactly what the fix under test requires.
+  function transactionalHandle() {
+    let insertCalls = 0;
+    const attemptHandle = {
+      insert: vi.fn(() => ({
+        values: vi.fn(() => {
+          insertCalls += 1;
+          if (insertCalls === 1) {
+            return Promise.reject(Object.assign(new Error("duplicate key"), { code: "23505" }));
+          }
+          return Promise.resolve(undefined);
+        }),
+      })),
+    };
+    const handle = {
+      transaction: vi.fn((work: (tx: unknown) => unknown) => work(attemptHandle)),
+    } as unknown as DatabaseHandle;
+    return { handle, insertCallCount: () => insertCalls };
+  }
+
+  it("burns only a savepoint on a 23505 unique violation, then succeeds on the next attempt (fix: the retry used to run on an aborted transaction)", async () => {
+    const { handle, insertCallCount } = transactionalHandle();
+
+    const result = await startDeviceAuthorization(input, now, handle);
+
+    expect(insertCallCount()).toBe(2);
+    expect(handle.transaction).toHaveBeenCalledTimes(2);
+    expect(result.userCode).toMatch(/^[0-9A-Z]{4}-[0-9A-Z]{4}$/);
   });
 });

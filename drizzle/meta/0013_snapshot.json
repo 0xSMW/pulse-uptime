@@ -1,6 +1,6 @@
 {
-  "id": "226fa03d-53fb-4b69-90fc-3ac586a6158a",
-  "prevId": "e19107ef-78bf-404d-9ab6-229adbd5367c",
+  "id": "3db4725b-79ef-4abc-b3c2-d790521fae4d",
+  "prevId": "226fa03d-53fb-4b69-90fc-3ac586a6158a",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2678,6 +2678,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0
+        },
+        "activated_at": {
+          "name": "activated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "first_failure_at": {
           "name": "first_failure_at",

@@ -1,2 +1,0 @@
-ALTER TABLE "monitor_state" ADD COLUMN "activated_at" timestamp with time zone;--> statement-breakpoint
-UPDATE "monitor_state" SET "activated_at" = "first_success_at" WHERE "activated_at" IS NULL AND "first_success_at" IS NOT NULL;

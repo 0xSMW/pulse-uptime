@@ -37,6 +37,9 @@ type ExceptionRow = {
   incidentId: string | null;
 };
 
+// $11 is bound as text then cast to jsonb. A param described as jsonb makes
+// postgres.js JSON-encode the already-serialized string again, producing a
+// double-encoded scalar jsonb_to_recordset can't read as an array.
 export const WRITE_PACKED_MINUTE_SQL = `
 with batch_insert as (
   insert into check_batches (
@@ -47,7 +50,7 @@ with batch_insert as (
   on conflict (scheduled_minute) do nothing
   returning scheduled_minute
 ), exception_rows as (
-  select * from jsonb_to_recordset($11::jsonb) as event(
+  select * from jsonb_to_recordset($11::text::jsonb) as event(
     id uuid, "monitorId" text, "eventType" text, "errorCode" text,
     "identityHash" text, "seenAt" timestamptz, "latencyMs" integer, "incidentId" uuid
   )
@@ -134,6 +137,6 @@ export async function writePackedMinute(db: PackedMinuteExecutor, input: PackedM
     packed.latencyValues,
     input.schedulerStartedAt,
     input.schedulerCompletedAt,
-    exceptions,
+    JSON.stringify(exceptions),
   ]);
 }

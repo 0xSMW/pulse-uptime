@@ -2,7 +2,7 @@ import "server-only";
 
 import { and, eq, inArray, sql } from "drizzle-orm";
 
-import { db } from "@/lib/db/client";
+import { db, type DatabaseHandle } from "@/lib/db/client";
 import { adminUsers, images, statusPageConfig } from "@/lib/db/schema";
 import {
   parseStatusPageConfigDocument,
@@ -72,6 +72,8 @@ export type StatusPageConfigDependencies = {
   store?: StatusPageConfigStore;
   env?: Record<string, string | undefined>;
   now?: () => Date;
+  /** Runs the store against this handle instead of the default pool, so the guarded update can join an outer transaction as a savepoint. Ignored when `store` is given. */
+  handle?: DatabaseHandle;
 };
 
 function defaultName(env: Record<string, string | undefined>): string {
@@ -125,7 +127,7 @@ export async function putStatusPageConfig(
   }
   const document = parsed.data;
 
-  const store = dependencies.store ?? databaseStatusPageConfigStore;
+  const store = dependencies.store ?? createDatabaseStatusPageConfigStore(dependencies.handle);
   const current = await store.read();
   if (!current) {
     throw new StatusPageConfigError("CONFIG_UNAVAILABLE", "The status page configuration row is missing; run database migrations");
@@ -198,51 +200,65 @@ const configSelection = {
   version: statusPageConfig.version,
 };
 
-export const databaseStatusPageConfigStore: StatusPageConfigStore = {
-  async read() {
-    const [row] = await db.select(configSelection).from(statusPageConfig).where(eq(statusPageConfig.id, 1)).limit(1);
-    if (!row) return null;
-    return {
-      ...row,
-      historyDays: row.historyDays as 30 | 60 | 90,
-      navLinks: (row.navLinks ?? []) as StatusPageNavLink[],
-    };
-  },
-  // The conditional UPDATE compares against the CURRENT version (not
-  // updatedAt), incrementing it in the same statement, so a stale If-Match
-  // still fails even when two writes land in the same millisecond. The seed
-  // row's version defaults to 0, so no separate "never written" branch is
-  // needed: version 0 is a normal, comparable value.
-  async write({ document, expectedVersion, now }) {
-    const rows = await db
-      .update(statusPageConfig)
-      .set({ ...document, updatedAt: now, version: sql`${statusPageConfig.version} + 1` })
-      .where(and(
-        eq(statusPageConfig.id, 1),
-        eq(statusPageConfig.version, expectedVersion),
-      ))
-      .returning({ id: statusPageConfig.id });
-    return rows.length > 0;
-  },
-  async findImageKinds(ids) {
-    if (ids.length === 0) return [];
-    return db.select({ id: images.id, kind: images.kind }).from(images).where(inArray(images.id, [...ids]));
-  },
-  async deleteUnreferencedImages(ids) {
-    if (ids.length === 0) return 0;
-    const rows = await db
-      .delete(images)
-      .where(and(
-        inArray(images.id, [...ids]),
-        sql`not exists (
-          select 1 from ${statusPageConfig}
-          where ${statusPageConfig.logoLightImageId} = ${images.id}
-            or ${statusPageConfig.logoDarkImageId} = ${images.id}
-            or ${statusPageConfig.faviconImageId} = ${images.id}
-        )`,
-        sql`not exists (select 1 from ${adminUsers} where ${adminUsers.avatarImageId} = ${images.id})`,
-      ))
-      .returning({ id: images.id });
-    return rows.length;
-  },
-};
+/** Binds the store to `handle` (default the pool) so a caller can join an outer transaction as a savepoint. */
+export function createDatabaseStatusPageConfigStore(handle: DatabaseHandle = db): StatusPageConfigStore {
+  return {
+    async read() {
+      const [row] = await handle.select(configSelection).from(statusPageConfig).where(eq(statusPageConfig.id, 1)).limit(1);
+      if (!row) return null;
+      return {
+        ...row,
+        historyDays: row.historyDays as 30 | 60 | 90,
+        navLinks: (row.navLinks ?? []) as StatusPageNavLink[],
+      };
+    },
+    // The conditional UPDATE compares against the CURRENT version (not
+    // updatedAt), incrementing it in the same statement, so a stale If-Match
+    // still fails even when two writes land in the same millisecond. The seed
+    // row's version defaults to 0, so no separate "never written" branch is
+    // needed: version 0 is a normal, comparable value.
+    async write({ document, expectedVersion, now }) {
+      const rows = await handle
+        .update(statusPageConfig)
+        .set({ ...document, updatedAt: now, version: sql`${statusPageConfig.version} + 1` })
+        .where(and(
+          eq(statusPageConfig.id, 1),
+          eq(statusPageConfig.version, expectedVersion),
+        ))
+        .returning({ id: statusPageConfig.id });
+      return rows.length > 0;
+    },
+    async findImageKinds(ids) {
+      if (ids.length === 0) return [];
+      return handle.select({ id: images.id, kind: images.kind }).from(images).where(inArray(images.id, [...ids]));
+    },
+    async deleteUnreferencedImages(ids) {
+      if (ids.length === 0) return 0;
+      // Runs as a savepoint of `handle`, never a bare statement on it: the
+      // caller treats this delete as best-effort (see putStatusPageConfig's
+      // .catch), but `handle` may already be the caller's outer transaction,
+      // where an unguarded DB error would abort that whole transaction. The
+      // swallowed rejection would then let execution continue into the
+      // completion write, which dies with 25P02 and rolls back the config
+      // write this GC is only ever supposed to run alongside.
+      return handle.transaction(async (tx) => {
+        const rows = await tx
+          .delete(images)
+          .where(and(
+            inArray(images.id, [...ids]),
+            sql`not exists (
+              select 1 from ${statusPageConfig}
+              where ${statusPageConfig.logoLightImageId} = ${images.id}
+                or ${statusPageConfig.logoDarkImageId} = ${images.id}
+                or ${statusPageConfig.faviconImageId} = ${images.id}
+            )`,
+            sql`not exists (select 1 from ${adminUsers} where ${adminUsers.avatarImageId} = ${images.id})`,
+          ))
+          .returning({ id: images.id });
+        return rows.length;
+      });
+    },
+  };
+}
+
+export const databaseStatusPageConfigStore: StatusPageConfigStore = createDatabaseStatusPageConfigStore();

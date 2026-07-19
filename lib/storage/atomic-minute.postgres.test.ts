@@ -142,4 +142,56 @@ suite("atomic minute PostgreSQL transaction", () => {
     expect(daily).toMatchObject({ expected: 72 * 60, completed: 15, unknown: 72 * 60 - 15 });
     expect(daily?.rows).toBe(3);
   });
+
+  it("picks the accepted snapshot whose range covers each minute across a mid-gap config change", async () => {
+    const scanStart = new Date("2026-07-25T00:00:00Z");
+    const boundary = new Date("2026-07-25T00:05:00Z");
+    const scanEnd = new Date("2026-07-25T00:10:00Z");
+    await client`insert into monitor_registry (id, name, url, enabled, config_hash, first_seen_at, last_seen_at)
+      values ('gap-a', 'Gap A', 'https://gap-a.example.com', true, 'gap-a-hash', ${scanStart}, ${scanStart}),
+        ('gap-b', 'Gap B', 'https://gap-b.example.com', true, 'gap-b-hash', ${scanStart}, ${scanStart})`;
+    await client`insert into monitoring_config_snapshots
+      (id, config_version, config_hash, config_json, status, source, seen_at, accepted_at)
+      values
+        ('22222222-2222-4222-8222-222222222222', 30, 'gap-config-30',
+          ${client.json({ monitors: [{ id: "gap-a", enabled: true, intervalMinutes: 1 }] })}::jsonb,
+          'accepted', 'test', ${new Date("2026-07-24T23:00:00Z")}, ${new Date("2026-07-24T23:00:00Z")}),
+        ('33333333-3333-4333-8333-333333333333', 31, 'gap-config-31',
+          ${client.json({ monitors: [
+            { id: "gap-a", enabled: true, intervalMinutes: 1 },
+            { id: "gap-b", enabled: true, intervalMinutes: 1 },
+          ] })}::jsonb,
+          'accepted', 'test', ${boundary}, ${boundary})`;
+
+    // scanStart is far past any covered_until/accepted_start from earlier
+    // tests, so it wins the greatest() and scan_start lands exactly here.
+    await client.unsafe(FILL_SCHEDULER_GAPS_SQL, [scanStart, scanEnd, scanEnd] as never[]);
+
+    const batches = await client<{ scheduled_minute: Date; config_version: number; monitor_ids: string[]; expected_bitmap: Buffer }[]>`
+      select scheduled_minute, config_version, monitor_ids, expected_bitmap from check_batches
+      where scheduled_minute >= ${scanStart} and scheduled_minute < ${scanEnd}
+      order by scheduled_minute`;
+    expect(batches).toHaveLength(10);
+    const before = batches.filter((row) => row.scheduled_minute < boundary);
+    const after = batches.filter((row) => row.scheduled_minute >= boundary);
+    expect(before).toHaveLength(5);
+    expect(after).toHaveLength(5);
+    for (const row of before) {
+      expect(row.config_version).toBe(30);
+      expect(row.monitor_ids).toEqual(["gap-a"]);
+      expect(row.expected_bitmap).toEqual(Buffer.from([0b00000001]));
+    }
+    for (const row of after) {
+      expect(row.config_version).toBe(31);
+      expect(row.monitor_ids).toEqual(["gap-a", "gap-b"]);
+      expect(row.expected_bitmap).toEqual(Buffer.from([0b00000011]));
+    }
+
+    const [exceptions] = await client<{ gap_a: number; gap_b: number }[]>`
+      select
+        count(*) filter (where monitor_id = 'gap-a')::integer gap_a,
+        count(*) filter (where monitor_id = 'gap-b')::integer gap_b
+      from monitor_exceptions where event_type = 'scheduler_gap' and monitor_id in ('gap-a', 'gap-b')`;
+    expect(exceptions).toEqual({ gap_a: 10, gap_b: 5 });
+  });
 });

@@ -2,7 +2,7 @@ import "server-only";
 
 import { and, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 
-import { db } from "@/lib/db/client";
+import { db, type DatabaseHandle } from "@/lib/db/client";
 import { apiIdempotency, apiTokens, cliInstallations, cliSessions, deviceAuthorizations } from "@/lib/db/schema";
 
 import type { HumanPrincipal } from "./principal";
@@ -171,12 +171,12 @@ export async function startDeviceAuthorization(input: {
   requestIp: string | null;
   deviceCredential?: ReturnType<typeof createDeviceCode>;
   userCode?: string;
-}, now = new Date()) {
+}, now = new Date(), handle: DatabaseHandle = db) {
   if (input.clientName !== "pulsectl" || input.scopeProfile !== "administrator") {
     throw new DeviceAuthorizationError("INVALID_DEVICE_REQUEST", "Unsupported client or scope profile");
   }
   if (input.deviceCredential) {
-    const [existing] = await db.select({
+    const [existing] = await handle.select({
       userCode: deviceAuthorizations.userCode,
       pollingIntervalSeconds: deviceAuthorizations.pollingIntervalSeconds,
     }).from(deviceAuthorizations)
@@ -194,22 +194,29 @@ export async function startDeviceAuthorization(input: {
     const deviceCode = input.deviceCredential ?? createDeviceCode();
     const userCode = input.userCode ?? generateUserCode();
     try {
-      await db.insert(deviceAuthorizations).values({
-        id: crypto.randomUUID(),
-        deviceCodeDigest: deviceCode.digest,
-        userCode,
-        scopeProfile: "administrator",
-        clientName: "pulsectl",
-        installationKey: input.installationKey,
-        installationName: input.installationName,
-        platform: input.platform,
-        architecture: input.architecture,
-        clientVersion: input.clientVersion,
-        requestIp: input.requestIp,
-        state: "pending",
-        createdAt: now,
-        expiresAt: new Date(now.getTime() + DEVICE_TTL_MS),
-        pollingIntervalSeconds: INITIAL_POLL_SECONDS,
+      // A caught unique violation must burn only a savepoint, not the
+      // enclosing transaction: `handle` may already be the caller's outer
+      // transaction, and Postgres aborts that whole transaction on error, so
+      // every insert attempt below runs inside its own savepoint and only
+      // that savepoint rolls back, leaving `handle` clean for the next retry.
+      await handle.transaction(async (attemptHandle) => {
+        await attemptHandle.insert(deviceAuthorizations).values({
+          id: crypto.randomUUID(),
+          deviceCodeDigest: deviceCode.digest,
+          userCode,
+          scopeProfile: "administrator",
+          clientName: "pulsectl",
+          installationKey: input.installationKey,
+          installationName: input.installationName,
+          platform: input.platform,
+          architecture: input.architecture,
+          clientVersion: input.clientVersion,
+          requestIp: input.requestIp,
+          state: "pending",
+          createdAt: now,
+          expiresAt: new Date(now.getTime() + DEVICE_TTL_MS),
+          pollingIntervalSeconds: INITIAL_POLL_SECONDS,
+        });
       });
       return { deviceCode: deviceCode.raw, userCode, expiresIn: 600, interval: INITIAL_POLL_SECONDS };
     } catch (error) {
@@ -223,9 +230,10 @@ export async function pollDeviceAuthorization(
   rawDeviceCode: string,
   now = new Date(),
   sessionCredential?: ReturnType<typeof createBearerToken>,
+  handle: DatabaseHandle = db,
 ) {
   const digest = digestDeviceCode(rawDeviceCode);
-  const outcome = await db.transaction(async (tx) => {
+  const outcome = await handle.transaction(async (tx) => {
     if (sessionCredential) {
       const [existingSession] = await tx.select({
         expiresAt: cliSessions.expiresAt,
@@ -298,9 +306,9 @@ export async function pollDeviceAuthorization(
   return outcome.session;
 }
 
-export async function revokeCliInstallation(principal: { type: string; id: string }, now = new Date()) {
+export async function revokeCliInstallation(principal: { type: string; id: string }, now = new Date(), handle: DatabaseHandle = db) {
   if (principal.type !== "cli_session") return false;
-  return db.transaction(async (tx) => {
+  return handle.transaction(async (tx) => {
     const [session] = await tx.select({ installationId: cliSessions.installationId }).from(cliSessions)
       .where(eq(cliSessions.id, principal.id)).limit(1);
     if (!session) return false;
@@ -338,13 +346,6 @@ export async function resolveRevokedCliRevokeReplay(request: Request): Promise<{
     eq(apiIdempotency.routeKey, "cli-session-revoke"),
   )).limit(1);
   return record ? { id: session.id, principalKey } : null;
-}
-
-export async function isCliInstallationRevoked(sessionId: string): Promise<boolean> {
-  const [row] = await db.select({ revokedAt: cliInstallations.revokedAt }).from(cliSessions)
-    .innerJoin(cliInstallations, eq(cliInstallations.id, cliSessions.installationId))
-    .where(eq(cliSessions.id, sessionId)).limit(1);
-  return row?.revokedAt !== null && row?.revokedAt !== undefined;
 }
 
 function generateUserCode() {

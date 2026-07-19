@@ -1,7 +1,7 @@
 import { and, desc, eq, gte, isNull, lt } from "drizzle-orm";
 import { cache } from "react";
 
-import { db } from "@/lib/db/client";
+import { db, sql } from "@/lib/db/client";
 import {
   incidents,
   metricRollups,
@@ -11,6 +11,8 @@ import {
 } from "@/lib/db/schema";
 import { DEFAULT_MONITOR_VALUES } from "@/lib/config/defaults";
 import { validateMonitoringConfig, type MonitorConfig } from "@/lib/config";
+import { portableQueryValues } from "@/lib/db/query-values";
+import { RECENT_MINUTE_CHECKS_SQL } from "@/lib/storage/sql";
 
 import {
   isRangeUnlocked,
@@ -22,6 +24,7 @@ import {
   buildFirstRun,
   buildLatestIncident,
   buildRecentChecks,
+  buildRecentChecksFromRaw,
   buildRecentIncidents,
   rollupVersionOf,
   type MonitorLiveData,
@@ -137,6 +140,43 @@ export const getMonitorIdentity = cache(async (id: string) => {
 
 export type MonitorIdentity = NonNullable<Awaited<ReturnType<typeof getMonitorIdentity>>>;
 
+type RecentMinuteCheckRow = {
+  checked_at: Date;
+  completed: boolean;
+  failed: boolean;
+  latency_ms: number | null;
+};
+
+type RecentMinuteCheckDbRow = Omit<RecentMinuteCheckRow, "checked_at"> & { checked_at: Date | string };
+
+const RECENT_MINUTE_CHECK_LOOKBACK_MS = 48 * 3_600_000;
+const RECENT_MINUTE_CHECK_LIMIT = 20;
+
+// db wraps this module's sql client in drizzle(), which reconfigures the
+// client's own type parsers, so raw sql.unsafe queries on that same client
+// return timestamptz columns as strings rather than Date instances.
+function toDate(value: Date | string): Date {
+  return Object.prototype.toString.call(value) === "[object Date]" ? value as Date : new Date(value);
+}
+
+// Reads raw per-check results straight from check_batches, on the monitor's
+// own cadence. Raw minutes retain 12-48h depending on governor mode, 0 in
+// essential mode, so callers fall back to rollup-derived rows on an empty
+// result. A query or decode failure degrades the same way, an empty array,
+// instead of failing a page that never used to touch check_batches.
+export async function getRecentRawChecks(monitorId: string, end: Date): Promise<RecentMinuteCheckRow[]> {
+  const start = new Date(end.getTime() - RECENT_MINUTE_CHECK_LOOKBACK_MS);
+  try {
+    const rows = await sql.unsafe(
+      RECENT_MINUTE_CHECKS_SQL,
+      portableQueryValues([monitorId, start, end, RECENT_MINUTE_CHECK_LIMIT]) as never[],
+    ) as unknown as RecentMinuteCheckDbRow[];
+    return rows.map((row) => ({ ...row, checked_at: toDate(row.checked_at) }));
+  } catch {
+    return [];
+  }
+}
+
 export async function getMonitorDetail(id: string) {
   const monitor = await getMonitorIdentity(id);
   if (!monitor) return null;
@@ -145,7 +185,7 @@ export async function getMonitorDetail(id: string) {
   const end15m = completedRangeEnd(now, "15m");
   const endHour = completedRangeEnd(now, "hour");
   const endDay = completedRangeEnd(now, "day");
-  const [rollups7d, rollups30d, rollups90d, recentIncidents, accepted] = await Promise.all([
+  const [rollups7d, rollups30d, rollups90d, recentIncidents, accepted, recentRawChecks] = await Promise.all([
     fetchRollups(id, "15m", end15m, 7 * 86_400_000),
     fetchRollups(id, "hour", endHour, 30 * 86_400_000),
     fetchRollups(id, "day", endDay, 90 * 86_400_000),
@@ -158,6 +198,7 @@ export async function getMonitorDetail(id: string) {
       .where(eq(monitoringConfigSnapshots.status, "accepted"))
       .orderBy(desc(monitoringConfigSnapshots.acceptedAt))
       .limit(1),
+    getRecentRawChecks(id, now),
   ]);
 
   // Derive the last 24 hours from the fetched seven days of rollups.
@@ -253,13 +294,16 @@ export async function getMonitorDetail(id: string) {
     },
     latestIncident: buildLatestIncident(recentIncidents, now),
     recentIncidents: buildRecentIncidents(recentIncidents, now),
-    recentChecks: buildRecentChecks(rollups24h),
+    recentChecks: recentRawChecks.length > 0
+      ? buildRecentChecksFromRaw(recentRawChecks)
+      : buildRecentChecks(rollups24h),
   };
 }
 
-// Lean payload for the live poll. It fetches only the 7d 15-minute rollups,
-// enough for the h24 and d7 uptime and coverage, the recent checks, and the
-// rollup version. The d30 and d90 figures are absent, so the client keeps the
+// Lean payload for the live poll. It fetches the 7d 15-minute rollups plus
+// the raw recent checks, enough for the h24 and d7 uptime and coverage, the
+// recent checks, and the rollup version. The d30 and d90 figures are absent,
+// so the client keeps the
 // snapshot values that refresh through the rollup-version-gated router.refresh.
 // It skips the config snapshot, the timeline buckets, and the response chart
 // series that the full detail query builds. Locked ranges report null so an
@@ -270,12 +314,13 @@ export async function getMonitorLive(id: string): Promise<MonitorLiveData | null
 
   const now = new Date();
   const end15m = completedRangeEnd(now, "15m");
-  const [rollups7d, recentIncidents] = await Promise.all([
+  const [rollups7d, recentIncidents, recentRawChecks] = await Promise.all([
     fetchRollups(id, "15m", end15m, 7 * 86_400_000),
     db.select().from(incidents)
       .where(eq(incidents.monitorId, id))
       .orderBy(desc(incidents.openedAt))
       .limit(5),
+    getRecentRawChecks(id, now),
   ]);
 
   const rollups24h = selectRecentRollupWindow(rollups7d, end15m.getTime() - 86_400_000, end15m.getTime());
@@ -307,7 +352,9 @@ export async function getMonitorLive(id: string): Promise<MonitorLiveData | null
     firstRun: buildFirstRun(monitor, observed24h, now),
     latestIncident: buildLatestIncident(recentIncidents, now),
     recentIncidents: buildRecentIncidents(recentIncidents, now),
-    recentChecks: buildRecentChecks(rollups24h),
+    recentChecks: recentRawChecks.length > 0
+      ? buildRecentChecksFromRaw(recentRawChecks)
+      : buildRecentChecks(rollups24h),
     rollupVersion: rollupVersionOf(rollups7d),
   };
 }
