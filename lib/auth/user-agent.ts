@@ -1,6 +1,6 @@
 /**
  * Dependency-free user-agent display parser for the Security page's session
- * list. Family and major version only; no device fingerprinting, no data files.
+ * list. Family and major version only, no device fingerprinting, no data files.
  */
 
 export type ParsedUserAgent = {

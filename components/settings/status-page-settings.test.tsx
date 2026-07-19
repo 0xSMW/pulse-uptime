@@ -111,7 +111,7 @@ describe("StatusPageSettings save model", () => {
     expect(screen.queryByText("Unsaved changes")).toBeNull();
     expect((screen.getByLabelText("Page name") as HTMLInputElement).value).toBe("System Status");
     expect(screen.getByTestId("dirty").textContent).toBe("false");
-    // The bar unmounted; focus lands on the always-mounted status region.
+    // The bar unmounted. Focus lands on the always-mounted status region.
     expect(document.activeElement?.textContent).toBe("Changes discarded");
   });
 
@@ -131,8 +131,8 @@ describe("StatusPageSettings save model", () => {
     expect(url).toBe("/api/v1/status-page-config");
     expect(init.method).toBe("PUT");
     expect(init.headers["If-Match"]).toBe('"1"');
-    // The config PUT route requires a UUID Idempotency-Key (executeIdempotent);
-    // omitting it makes every Settings -> Status page save fail.
+    // The config PUT route requires a UUID Idempotency-Key (executeIdempotent).
+    // Omitting it makes every Settings -> Status page save fail.
     expect(init.headers["Idempotency-Key"]).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     );
@@ -197,7 +197,7 @@ describe("StatusPageSettings navigation links", () => {
     // A just-added empty row must not fire an instant alert.
     expect(screen.queryByRole("alert")).toBeNull();
     fireEvent.change(screen.getByLabelText("Link 1 label"), { target: { value: "Docs" } });
-    // Still quiet while typing; validation waits for a save attempt.
+    // Still quiet while typing. Validation waits for a save attempt.
     expect(screen.queryByText("Every link needs a label and a URL")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Remove link 1" }));
     expect(screen.queryByLabelText("Link 1 label")).toBeNull();

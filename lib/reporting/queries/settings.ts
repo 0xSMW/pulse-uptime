@@ -137,7 +137,7 @@ export async function getSecuritySettings(userId: string, currentSessionId: stri
       current: row.id === currentSessionId,
     };
   });
-  // Current session first; the rest keep newest-signed-in order (stable sort).
+  // Current session first. The rest keep newest-signed-in order (stable sort).
   sessions.sort((left, right) => Number(right.current) - Number(left.current));
   return { sessions };
 }
@@ -148,7 +148,7 @@ export async function getStatusPageSettings() {
   void _updatedAt;
   return {
     // The full document (including the current logo/favicon image ids) is the
-    // page's single draft; the ETag rides along for the If-Match PUT.
+    // page's single draft. The ETag rides along for the If-Match PUT.
     config: document,
     etag,
   };

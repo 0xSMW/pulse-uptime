@@ -51,16 +51,16 @@ const RECENT_INCIDENTS_DISPLAY_LIMIT = 10;
 /**
  * Current (ongoing) active-incident overfetch: excludePromotedIncidents runs
  * after this query, so the LIMIT must clear that exclusion too, not just
- * size to the eventual display count; here there is no display cap, every
+ * size to the eventual display count. Here there is no display cap, every
  * unpromoted active incident is shown. With more than 100 simultaneously
  * active incidents whose newest are promoted into ongoing reports, a bare
  * LIMIT 100 would fill entirely with rows that then get excluded, dropping
  * older still-active unpromoted incidents from the page even though they
  * qualify. Unlike the resolved-history overfetch above, currentIncidents has
- * no trailing `.slice()`; every row this query returns after exclusion is
+ * no trailing `.slice()`. Every row this query returns after exclusion is
  * displayed, so the fix is simply a generous query LIMIT, not an
  * overfetch-then-slice pair. 500 is far beyond any realistic simultaneous
- * active-incident count while staying bounded; the tradeoff is the same
+ * active-incident count while staying bounded. The tradeoff is the same
  * pathological case as the resolved-history fetch: if active-incident volume
  * (promoted + unpromoted) ever exceeds this bound, the oldest active
  * incidents past it would still be dropped, but that requires an outage of a
@@ -101,7 +101,7 @@ export const getStatusPageDisplayConfig = cache(
   },
 );
 
-/** Favicon inlined as a data: URI in the ISR'd head; null when unset or the database is unavailable. */
+/** Favicon inlined as a data: URI in the ISR'd head. Null when unset or the database is unavailable. */
 export const getStatusFaviconDataUri = cache(async (): Promise<string | null> => {
   const config = await getStatusPageDisplayConfig();
   if (!config.faviconImageId) return null;
@@ -173,7 +173,7 @@ async function loadPublicStatus(group?: string) {
 
   const ids = visible.map((monitor) => monitor.id);
   // Group pages scope query 1 of getPublicReports to this group's monitors so
-  // the resolved-history LIMIT is applied after group filtering; otherwise a
+  // the resolved-history LIMIT is applied after group filtering. Otherwise a
   // global top-10 resolved list can starve a group's history even though
   // older relevant resolved reports exist. The root page (no `group`) stays
   // unfiltered. filterReportsForGroup below still runs as a defense-in-depth
@@ -241,7 +241,7 @@ async function loadPublicStatus(group?: string) {
   // ongoing published report was promoted from it. History folding drops
   // machine incidents represented by ANY published report entry. Both sets use
   // the GROUP-FILTERED report lists: on a group page an incident is only
-  // folded when its promoted report actually renders on that page; otherwise
+  // folded when its promoted report actually renders on that page. Otherwise
   // suppressing it would hide an active outage (or its history) entirely.
   const ongoingPromoted = promotedIncidentIds(reports.ongoing);
   const historyPromoted = promotedIncidentIds([
@@ -278,7 +278,7 @@ async function loadPublicStatus(group?: string) {
       }),
     }));
   const states = visible.map((monitor) => monitor.state ?? "PENDING");
-  // Machine states derive the classic tiers; published ongoing reports add the
+  // Machine states derive the classic tiers. Published ongoing reports add the
   // degraded/maintenance/outage tiers. The reddest wins.
   const overallState = deriveOverallState(states, reports.ongoing);
   return {
@@ -346,7 +346,7 @@ export const getPublicStatus = cache(async (group?: string) => {
  * ids resolve to null → notFound(). Request-deduped so page + generateMetadata
  * share the read within one revalidation.
  *
- * A `null` return means "not found" (drafts, unknown ids) and should 404; the
+ * A `null` return means "not found" (drafts, unknown ids) and should 404. The
  * distinct `"unavailable"` sentinel means the database itself is unreachable
  * or not yet migrated, and the page should render a degraded message instead
  * of 404ing on a report that may well exist.

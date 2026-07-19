@@ -120,7 +120,7 @@ export type ProfileUpdateDependencies = {
 
 /**
  * Updates the administrator profile. An avatarImageId must reference an
- * uploaded kind='avatar' image; the replaced avatar row is deleted afterwards
+ * uploaded kind='avatar' image. The replaced avatar row is deleted afterwards
  * (a failed deletion leaves an orphan for the maintenance sweep).
  */
 export async function updateAccountProfile(
@@ -223,7 +223,7 @@ export type EmailChangeDependencies = {
  * current-password guesses count against the same 5-per-15-minutes budget as
  * sign-in attempts (mirroring changeAccountPassword). Revokes every *other*
  * human session and synchronizes the denormalized CLI email copies in the same
- * transaction; machine credentials (API tokens, CLI sessions) are deliberately
+ * transaction. Machine credentials (API tokens, CLI sessions) are deliberately
  * not revoked.
  */
 export async function changeAccountEmail(
@@ -399,7 +399,7 @@ export type SessionRevocationDependencies = {
   now?: () => Date;
 };
 
-/** Revokes one of the administrator's other sessions; the current one is refused. */
+/** Revokes one of the administrator's other sessions. The current one is refused. */
 export async function revokeAccountSession(
   input: { userId: string; sessionId: string; currentSessionId: string },
   dependencies: SessionRevocationDependencies = {},

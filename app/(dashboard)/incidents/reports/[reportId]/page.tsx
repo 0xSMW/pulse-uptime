@@ -7,7 +7,7 @@ import { getMonitorSettings } from "@/lib/reporting/queries/settings";
 
 export default async function EditStatusReportPage({ params }: { params: Promise<{ reportId: string }> }) {
   const { reportId } = await params;
-  // Load the report and monitor settings in parallel; notFound() is decided
+  // Load the report and monitor settings in parallel. notFound() is decided
   // only after both settle so a settings failure still surfaces as an error.
   const [reportResult, settingsResult] = await Promise.allSettled([
     getStatusReport(reportId),

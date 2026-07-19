@@ -114,7 +114,7 @@ describe("statusReportPatchAlreadyApplied (finding: an INVALID patch retry was r
 
   it("recovers a padded affected monitorId against the schema-trimmed stored value", () => {
     // affectedEntrySchema trims monitorId the same way titleSchema trims
-    // title; a stale retry's raw, padded monitorId must still match the
+    // title. A stale retry's raw, padded monitorId must still match the
     // current (already-trimmed) affected set.
     expect(
       statusReportPatchAlreadyApplied(current, { affected: [{ monitorId: " api-prod ", impact: "down" }] }),
@@ -180,7 +180,7 @@ describe("storedStatusReportError + executeIdempotent (finding: publish/report-d
     expect(first.body).toEqual(errorEnvelope("ALREADY_PUBLISHED", "The status report is already published", "req-1", {}));
 
     // Retry with the SAME idempotency key: replays the recorded 409 verbatim
-    // via the ordinary completed-record path; work() never runs again, so
+    // via the ordinary completed-record path, work() never runs again, so
     // there's no recover callback in the loop to manufacture a false success.
     const second = await executeIdempotent({
       request: idempotentRequest(), principalKey: "human:1", routeKey: "test", body: {}, persistence, work,

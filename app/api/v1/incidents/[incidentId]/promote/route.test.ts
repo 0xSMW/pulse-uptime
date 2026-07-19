@@ -139,7 +139,7 @@ describe("POST /api/v1/incidents/{incidentId}/promote", () => {
     });
 
     // Recovery miss: no report exists yet for this incident (genuine crash
-    // before the create committed); fall through so work() reruns to
+    // before the create committed). Fall through so work() reruns to
     // create it.
     vi.mocked(recoverPromotedReport).mockResolvedValue(null);
     await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();

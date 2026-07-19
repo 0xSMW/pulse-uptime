@@ -96,7 +96,7 @@ function worse(left: PublicOverallState, right: PublicOverallState): PublicOvera
  * The banner tier one ongoing published report contributes. Incident reports
  * floor at "degraded" (an ongoing incident report must never sit under a green
  * banner) and escalate to "outage" when any affected service is down.
- * Maintenance reports always contribute the maintenance tint; downtime inside
+ * Maintenance reports always contribute the maintenance tint. Downtime inside
  * a maintenance window is expected, not an outage.
  */
 export function reportBannerTier(
@@ -108,8 +108,8 @@ export function reportBannerTier(
 
 /**
  * Overall state: machine states derive the existing
- * empty/operational/investigating/outage tiers; published ongoing reports add
- * degraded/maintenance/outage tiers; the reddest wins.
+ * empty/operational/investigating/outage tiers. Published ongoing reports add
+ * degraded/maintenance/outage tiers. The reddest wins.
  *
  * "empty" only when there are NEITHER monitors NOR ongoing reports: a page
  * with zero enabled monitors must never short-circuit to "empty" without
@@ -214,8 +214,8 @@ export function monitorReportAnnotations(
 /**
  * Phase for the permalink page, mirroring classifyPublicReport in
  * lib/api/status-reports.ts on the serialized (string-timestamp) shape:
- * upcoming = startsAt > now for EITHER report type; a maintenance window past
- * endsAt with no completing update is "window_ended"; resolved wins over
+ * upcoming = startsAt > now for EITHER report type. A maintenance window past
+ * endsAt with no completing update is "window_ended". Resolved wins over
  * everything.
  *
  * The latest update's status must never move a started window back to

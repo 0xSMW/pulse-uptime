@@ -71,7 +71,7 @@ export function SettingsSidebar() {
       if (document.querySelector("dialog[open]")) return;
       const target = event.target as HTMLElement | null;
       if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
-      // A dirty form suppresses the Esc exit entirely; leaving requires the
+      // A dirty form suppresses the Esc exit entirely. Leaving requires the
       // explicit, confirmable Back-to-app or sidebar navigation. Announce why
       // the key did nothing instead of failing silently.
       if (dirty) {
@@ -85,7 +85,7 @@ export function SettingsSidebar() {
   }, [router, dirty]);
 
   // Clear the suppressed-Esc announcement once the forms are clean again
-  // (render-time state adjustment; see react.dev "You Might Not Need an Effect").
+  // (render-time state adjustment, see react.dev "You Might Not Need an Effect").
   const [prevDirty, setPrevDirty] = useState(dirty);
   if (prevDirty !== dirty) {
     setPrevDirty(dirty);

@@ -21,7 +21,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ rep
       const recovered = await recoverPublishedStatusReport(reportId);
       if (!recovered) return null;
       // The crash this recovers from may have landed between the publish
-      // committing and revalidation running; the report just became
+      // committing and revalidation running. The report just became
       // public, so ISR pages must be refreshed here too, same as the normal
       // work() path below.
       await revalidateStatusReportPaths(recovered);

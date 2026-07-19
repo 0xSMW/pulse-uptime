@@ -47,7 +47,7 @@ describe("getSecuritySettings (finding: the 100-row cap ranked by recency could 
     const currentRow = sessionRow({ id: "sess-current", createdAt: new Date(now.getTime() - 999_999_000) });
 
     // First query (top 100 by recency) doesn't include the old current
-    // session; the fallback point lookup by id finds it.
+    // session. The fallback point lookup by id finds it.
     dbMock.select
       .mockReturnValueOnce(selectChain(cappedRows))
       .mockReturnValueOnce(selectChain([currentRow]));

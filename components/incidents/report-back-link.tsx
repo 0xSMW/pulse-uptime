@@ -6,7 +6,7 @@ import Link from "next/link";
 /**
  * "← Reports" back link. The editor's unsaved-changes guard (mounted by
  * ReportEditor via useNavigationGuard) is a document-wide click listener,
- * so it already confirms before this link navigates away; this component
+ * so it already confirms before this link navigates away. This component
  * no longer needs its own check.
  */
 export function ReportBackLink() {

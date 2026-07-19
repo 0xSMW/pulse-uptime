@@ -25,7 +25,7 @@ export async function PATCH(request: Request, { params }: Params) {
     routeKey: `/api/v1/status-reports/${reportId}/updates/${updateId}`,
     body,
     // Recovers only when the CURRENT update already reflects everything this
-    // patch asked for; a genuinely different state (or an unknown
+    // patch asked for. A genuinely different state (or an unknown
     // report/update) returns null so work() reruns.
     recover: async () => {
       const recovered = await recoverEditedReportUpdate(reportId, updateId, body);

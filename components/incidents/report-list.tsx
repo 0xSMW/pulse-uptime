@@ -61,7 +61,7 @@ export function ReportList({ reports }: { reports: ReportListRowData[] }) {
 
 /**
  * Cursor-following pagination, matching the filter-link pattern: "Older
- * reports" walks forward via nextCursor; "Newer reports" returns to the first
+ * reports" walks forward via nextCursor. "Newer reports" returns to the first
  * page whenever a cursor is active.
  */
 export function ReportListPagination({

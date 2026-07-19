@@ -9,7 +9,7 @@ export type Message = { text: string; tone: "info" | "error" };
 
 /**
  * The one status live region per settings card. Always mounted (empty when
- * idle) so assistive tech reliably announces changes; errors get the error
+ * idle) so assistive tech reliably announces changes. Errors get the error
  * color token and role="alert". Focusable so save bars can hand focus here
  * when they unmount.
  */

@@ -391,7 +391,7 @@ describe("createStatusReport", () => {
 
   it("validates endsAt against the EFFECTIVE (defaulted) startsAt when startsAt is omitted (finding: inverted window via default)", async () => {
     const store = memoryStore();
-    // startsAt omitted defaults to NOW (2026-07-18T12:00:00.000Z); an endsAt
+    // startsAt omitted defaults to NOW (2026-07-18T12:00:00.000Z). An endsAt
     // before that must still be rejected, not silently accepted because the
     // schema-level refine only fired when startsAt was explicitly given.
     await expect(createStatusReport({
@@ -432,7 +432,7 @@ describe("createStatusReport", () => {
       update: { status: "scheduled", markdown: "Planned." },
     }, dependencies(store))).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
 
-    // Degraded is valid for both types; maintenance's own impact is valid too.
+    // Degraded is valid for both types. Maintenance's own impact is valid too.
     await expect(createStatusReport({
       ...validCreate, affected: [{ monitorId: "api-prod", impact: "degraded" }],
     }, dependencies(store))).resolves.toMatchObject({ affected: [expect.objectContaining({ impact: "degraded" })] });
@@ -493,7 +493,7 @@ describe("report update lifecycle", () => {
     const report = await addReportUpdate(created.id, { status: "monitoring", markdown: "Watching." }, deps);
     const [first, second] = report.updates.map((update) => update.id);
 
-    // Two deletes racing over a two-update report: exactly one wins; the
+    // Two deletes racing over a two-update report: exactly one wins. The
     // loser sees "last_update" (row exists, zero rows deleted), never a
     // report with no updates left.
     await expect(store.deleteUpdate({ reportId: created.id, updateId: first })).resolves.toBe("deleted");
@@ -512,7 +512,7 @@ describe("report update lifecycle", () => {
     const report = await addReportUpdate(created.id, { status: "monitoring", markdown: "Watching." }, deps);
     const [first, second] = report.updates.map((update) => update.id);
 
-    // Fired concurrently (not sequentially, unlike the test above); the
+    // Fired concurrently (not sequentially, unlike the test above). The
     // guarded contract must still hold: exactly one "deleted", exactly one
     // "last_update", and the report never ends up with zero updates. A
     // non-locking count-subquery implementation could let both observe
@@ -557,7 +557,7 @@ describe("report update lifecycle", () => {
 
     await expect(addReportUpdate(created.id, { status: "monitoring", markdown: "Watching." }, deps))
       .rejects.toMatchObject({ code: "REPORT_NOT_FOUND" });
-    // The report (and, via cascade, its updates) is gone; nothing was
+    // The report (and, via cascade, its updates) is gone. Nothing was
     // inserted for the raced attempt.
     expect([...store.updates.values()].filter((row) => row.reportId === created.id)).toHaveLength(0);
   });
@@ -696,7 +696,7 @@ describe("updateStatusReport", () => {
     await expect(updateStatusReport(created.id, { endsAt: null }, deps))
       .resolves.toMatchObject({ endsAt: null });
 
-    // A maintenance report is unaffected; it may still set endsAt.
+    // A maintenance report is unaffected. It may still set endsAt.
     const maintenance = await createStatusReport({
       ...validCreate, type: "maintenance", affected: [],
       startsAt: "2026-07-19T00:00:00.000Z",
@@ -777,8 +777,8 @@ describe("recoverDeletedStatusReport (finding: DELETE /status-reports/{id} shipp
     const store = memoryStore();
     // A genuinely-existing report always has a UUID-shaped id in production
     // (the store's own isUuid guard rejects anything else), so this fixture
-    // must be UUID-shaped too, unlike the file's default sequential ids;
-    // otherwise the malformed-id short-circuit added below would swallow
+    // must be UUID-shaped too, unlike the file's default sequential ids.
+    // Otherwise the malformed-id short-circuit added below would swallow
     // this case for the wrong reason.
     const deps = { store, newId: sequentialUuids(), now: () => NOW };
     const created = await createStatusReport(validCreate, deps);
@@ -1320,7 +1320,7 @@ describe("getPublicReports", () => {
       startsAt: "2026-07-18T11:00:00.000Z", endsAt: "2026-07-18T15:00:00.000Z",
       update: { status: "in_progress", markdown: "Underway." },
     }, deps);
-    // 150 future rows, one minute apart, in ascending startsAt order; only
+    // 150 future rows, one minute apart, in ascending startsAt order. Only
     // 99 fit in the unresolved cap alongside the 1 active row.
     const base = new Date("2027-01-01T00:00:00.000Z").getTime();
     const future: Awaited<ReturnType<typeof createStatusReport>>[] = [];

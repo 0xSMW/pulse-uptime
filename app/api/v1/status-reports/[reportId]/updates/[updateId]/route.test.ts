@@ -109,7 +109,7 @@ describe("PATCH /api/v1/status-reports/{reportId}/updates/{updateId}", () => {
     expect(recoverEditedReportUpdate).toHaveBeenCalledWith("rep-1", "upd-1", body);
 
     // Recovery miss: the current state genuinely differs (crash before the
-    // edit committed); fall through so work() actually applies it.
+    // edit committed). Fall through so work() actually applies it.
     vi.mocked(recoverEditedReportUpdate).mockResolvedValue(null);
     await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
   });
@@ -199,7 +199,7 @@ describe("DELETE /api/v1/status-reports/{reportId}/updates/{updateId}", () => {
     expect(recoverDeletedReportUpdate).toHaveBeenCalledWith("rep-1", "upd-1");
 
     // Recovery miss: the update still exists (genuine crash before the
-    // delete committed), or the report itself is gone; fall through so
+    // delete committed), or the report itself is gone. Fall through so
     // work() reruns and records the genuine outcome.
     vi.mocked(recoverDeletedReportUpdate).mockResolvedValue(null);
     await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();

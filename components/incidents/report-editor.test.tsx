@@ -9,11 +9,11 @@ vi.mock("next/navigation", () => ({
 }));
 
 // jsdom has no layout engine, so Radix Select's scroll-into-view and pointer
-// capture calls are unimplemented; stub them so opening a Select in tests
+// capture calls are unimplemented. Stub them so opening a Select in tests
 // doesn't throw.
 //
 // jsdom also does not implement HTMLDialogElement.showModal()/close() (both
-// are undefined, not even throwing stubs); the discard-changes ConfirmDialog
+// are undefined, not even throwing stubs). The discard-changes ConfirmDialog
 // needs those, so polyfill the minimal behavior it depends on: toggling the
 // `open` attribute/property, which jsdom's generic boolean-attribute
 // reflection already handles once set.

@@ -197,15 +197,15 @@ export function loginRateLimitKey(
   return `login-${kind}:${digest(`human-login:${kind}:${value}`).toString("hex")}`;
 }
 
-/** First forwarded hop only; proxies append, so later entries are spoofable. */
+/** First forwarded hop only. Proxies append, so later entries are spoofable. */
 export function firstForwardedIp(forwardedFor: string | null): string | null {
   return forwardedFor?.split(",")[0]?.trim() || null;
 }
 
 /**
  * Client IP for stored session rows and rate-limit keys: x-real-ip is set by
- * the fronting platform and cannot be influenced by the caller, so it wins;
- * the first x-forwarded-for hop is the fallback.
+ * the fronting platform and cannot be influenced by the caller, so it wins.
+ * The first x-forwarded-for hop is the fallback.
  */
 export function clientIpFromHeaders(headers: { get(name: string): string | null }): string | null {
   return headers.get("x-real-ip")?.trim() || firstForwardedIp(headers.get("x-forwarded-for"));
@@ -316,7 +316,7 @@ export async function findSessionByDigest(digest: Buffer, now = new Date()): Pro
     .limit(1);
   if (!row) return null;
   const { lastSeenAt, ...session } = row;
-  // The app-level check is only a fast path to skip the write entirely; the
+  // The app-level check is only a fast path to skip the write entirely. The
   // staleness predicate rides in the UPDATE's WHERE clause so concurrent
   // bursts collapse under the row lock instead of each re-writing lastSeenAt.
   if (shouldRefreshLastSeen(lastSeenAt, now)) {

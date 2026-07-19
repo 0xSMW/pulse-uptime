@@ -30,7 +30,7 @@ export function statusReportRouteError(error: unknown, requestId: string): Respo
  * deterministic outcomes of CURRENT state (publish's ALREADY_PUBLISHED, the
  * REPORT_NOT_FOUND/UPDATE_NOT_FOUND/LAST_UPDATE the report- and
  * update-mutation routes can throw) are never proof an operation didn't run,
- * so they must be recorded as the idempotent operation's own response; see
+ * so they must be recorded as the idempotent operation's own response. See
  * runStatusReportMutation's doc comment for why.
  */
 export function storedStatusReportError(error: StatusReportError, requestId: string): StoredResponse {
@@ -47,7 +47,7 @@ type MutationOutcome<T> = { status: number; kind: string; data: T };
  * params/body → one call here with route-specific `recover`/`work` closures.
  *
  * `work` returns the eventual `{ status, kind, data }` or throws
- * StatusReportError; `recover` returns the same shape for an already-applied
+ * StatusReportError. `recover` returns the same shape for an already-applied
  * operation, or null to fall through to `work`. Two invariants this helper
  * owns on every call, so route files don't have to restate them:
  *
@@ -183,7 +183,7 @@ export async function revalidateStatusReportPaths(
       const live = await databaseStatusReportsStore.findMonitors(monitorIds);
       for (const monitor of live) slugs.add(statusGroupSlug(monitor.groupName ?? "Other"));
     } catch {
-      // Revalidation is best-effort; the snapshot slugs above still ran and
+      // Revalidation is best-effort. The snapshot slugs above still ran and
       // the 30 s ISR window bounds any staleness.
     }
   }

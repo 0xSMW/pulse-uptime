@@ -48,7 +48,7 @@ export type PublicStatusData = {
   pageName: string;
   lastUpdatedAt: string;
   overallState: PublicOverallState;
-  /** True when the database was unreachable or not yet migrated; every other field is a degraded placeholder. */
+  /** True when the database was unreachable or not yet migrated. Every other field is a degraded placeholder. */
   unavailable: boolean;
   config: StatusPageDisplayConfig;
   reports: PublicReportsView;
@@ -80,7 +80,7 @@ export type PublicStatusData = {
 };
 
 /**
- * Theme-appropriate logo. A forced theme renders exactly one variant; the
+ * Theme-appropriate logo. A forced theme renders exactly one variant. The
  * system theme renders both and lets the stylesheet pick via
  * prefers-color-scheme (no client JS). Missing variants fall back to the other.
  */
@@ -237,7 +237,7 @@ function MaintenanceSchedule({ data, zone }: { data: PublicStatusData; zone: Tim
   const heading = allMaintenance ? "Scheduled Maintenance" : "Scheduled Reports";
   // Each timestamp gets its OWN offset label: a single page-level offset
   // reused across rows would be wrong for rows on the other side of a DST
-  // boundary; startsAt and endsAt can even differ from each other when a
+  // boundary. startsAt and endsAt can even differ from each other when a
   // long window straddles the transition.
   const window = (report: PublicReportEntry) => (
     <>
@@ -296,7 +296,7 @@ type RecentHistoryEntry =
  * One chronological "Recent Incidents" feed: resolved authored reports and
  * machine incidents interleave by RESOLVED time, newest first. Sorted by
  * resolved time (not start time) because both source lists are already
- * capped by resolved-time ordering; re-sorting by start time would drop
+ * capped by resolved-time ordering. Re-sorting by start time would drop
  * entries inconsistently.
  */
 function mergeRecentHistory(data: PublicStatusData): RecentHistoryEntry[] {
@@ -333,7 +333,7 @@ function StatusCard({ data, groupView }: { data: PublicStatusData; groupView: bo
   }
 
   // The "see report" annotation supplements the machine state dot while a
-  // report is ongoing; the dot itself always shows the machine state.
+  // report is ongoing. The dot itself always shows the machine state.
   const annotations = monitorReportAnnotations(data.reports.ongoing);
 
   return (

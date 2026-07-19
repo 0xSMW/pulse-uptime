@@ -48,7 +48,7 @@ export class StatusPageConfigError extends Error {
   }
 }
 
-/** Quoted version counter; `"0"` marks the never-updated seed row. */
+/** Quoted version counter. `"0"` marks the never-updated seed row. */
 export function statusPageConfigEtag(version: number): string {
   return `"${version}"`;
 }
@@ -57,7 +57,7 @@ export type StatusPageConfigRow = StatusPageConfigDocument & { updatedAt: Date |
 
 export interface StatusPageConfigStore {
   read(): Promise<(Omit<StatusPageConfigRow, "name"> & { name: string | null }) | null>;
-  /** Conditional single-row update; false when version no longer matches expectedVersion. */
+  /** Conditional single-row update, false when version no longer matches expectedVersion. */
   write(input: {
     document: StatusPageConfigDocument;
     expectedVersion: number;

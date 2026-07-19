@@ -83,7 +83,7 @@ export type StatusPageNavLink = z.infer<typeof navLinkSchema>;
  * Parses a full replacement document. Read-side fields (updatedAt, the
  * monotonic `version` counter, the CLI export's _etag) are stripped rather
  * than rejected so a GET/export response can be edited and sent straight
- * back; the strict schema must never reject a plain GET→PUT round-trip over
+ * back. The strict schema must never reject a plain GET→PUT round-trip over
  * a read-only field it doesn't recognize as input.
  */
 export function parseStatusPageConfigDocument(input: unknown) {

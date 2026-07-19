@@ -39,7 +39,7 @@ export async function PATCH(request: Request, { params }: Params) {
     routeKey: `/api/v1/status-reports/${reportId}`,
     body,
     // Recovers only when the CURRENT report already reflects everything this
-    // patch asked for; a genuinely different state (or an unknown report)
+    // patch asked for. A genuinely different state (or an unknown report)
     // returns null so work() reruns rather than re-snapshotting affected
     // monitors on top of a rename/move a rerun would otherwise clobber.
     recover: async () => {
@@ -50,15 +50,15 @@ export async function PATCH(request: Request, { params }: Params) {
       // here too, same as the normal work() path below. The pre-patch
       // affected snapshot is unavailable at recovery time (the crashed
       // attempt already applied the patch), so this can only revalidate the
-      // CURRENT affected set, not a group page the report left; that residual
+      // CURRENT affected set, not a group page the report left. That residual
       // is bounded by the 30 s ISR window, same as findMonitors' best-effort
       // catch inside revalidateStatusReportPaths itself.
       await revalidateStatusReportPaths(current);
       return { status: 200, kind: "StatusReport", data: current };
     },
     work: async () => {
-      // Replacing the affected set can move the report between group pages;
-      // capture the pre-patch snapshot so the pages it leaves also refresh.
+      // Replacing the affected set can move the report between group pages.
+      // Capture the pre-patch snapshot so the pages it leaves also refresh.
       const previous = body !== null && typeof body === "object" && "affected" in body
         ? await getStatusReport(reportId).catch(() => null)
         : null;

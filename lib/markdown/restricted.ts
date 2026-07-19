@@ -18,7 +18,7 @@ const MAX_INPUT_LENGTH = 16 * 1024;
 
 const ALLOWED_SCHEMES = ["http:", "https:", "mailto:"];
 
-/** Placeholder sentinel for already-rendered spans; NUL is stripped from input first. */
+/** Placeholder sentinel for already-rendered spans. NUL is stripped from input first. */
 const TOKEN = "\u0000";
 
 function escapeHtml(text: string): string {
@@ -64,7 +64,7 @@ function extractCodeSpans(text: string, stash: Stash): string {
   return out + text.slice(cursor);
 }
 
-/** Replaces [label](url) with anchor tokens; disallowed URLs stay plain text. */
+/** Replaces [label](url) with anchor tokens. Disallowed URLs stay plain text. */
 function extractLinks(text: string, stash: Stash): string {
   let out = "";
   let cursor = 0;
@@ -93,7 +93,7 @@ function extractLinks(text: string, stash: Stash): string {
   return out + text.slice(cursor);
 }
 
-/** Bold before italic; [^*]+ cannot backtrack catastrophically. */
+/** Bold before italic. [^*]+ cannot backtrack catastrophically. */
 function applyEmphasis(text: string): string {
   return text
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
@@ -109,7 +109,7 @@ function renderParagraph(escaped: string): string {
   text = applyEmphasis(text);
   text = text.replace(/\n/g, "<br>\n");
   // A link label may itself contain a code-span token, so restore until no
-  // sentinels remain (tokens only reference earlier tokens; depth is bounded).
+  // sentinels remain (tokens only reference earlier tokens, depth is bounded).
   while (text.includes(TOKEN)) {
     text = text.replace(/\u0000(\d+)\u0000/g, (_, index: string) => tokens[Number(index)]);
   }

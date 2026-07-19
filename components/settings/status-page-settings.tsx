@@ -66,7 +66,7 @@ export function toDocument(draft: StatusPageConfigDocument): StatusPageConfigDoc
 
 /**
  * Three-way merge for 412 recovery: fields the local draft changed
- * relative to its base win over the refreshed server document; everything else
+ * relative to its base win over the refreshed server document. Everything else
  * takes the server value. Local edits are never dropped.
  */
 export function mergeStatusPageDrafts(
@@ -285,7 +285,7 @@ function ImageUploadZone({
     }
   }
 
-  // Fresh uploads preview from the picked file; persisted logos use the public
+  // Fresh uploads preview from the picked file. Persisted logos use the public
   // asset route and persisted favicons the authenticated image route.
   const previewUrl = freshUpload
     ? localPreview
@@ -428,7 +428,7 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
 
   async function save() {
     if (busy || nameError) return;
-    // Fully-empty rows are dropped; partially-filled rows block the save.
+    // Fully-empty rows are dropped. Partially-filled rows block the save.
     const navLinks = draft.navLinks.filter((link) => link.label.trim() || link.url.trim());
     if (navLinks.some((link) => !link.label.trim() || !link.url.trim())) {
       setNavLinksError("Every link needs a label and a URL");
@@ -441,8 +441,8 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
     try {
       const response = await fetch("/api/v1/status-page-config", {
         method: "PUT",
-        // The config PUT route requires a UUID Idempotency-Key (executeIdempotent);
-        // without it every save fails with IDEMPOTENCY_KEY_REQUIRED.
+        // The config PUT route requires a UUID Idempotency-Key (executeIdempotent).
+        // Without it every save fails with IDEMPOTENCY_KEY_REQUIRED.
         headers: { "Content-Type": "application/json", "If-Match": etag, "Idempotency-Key": crypto.randomUUID() },
         body: JSON.stringify(document),
       });
@@ -456,8 +456,8 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
       setDraft(structuredClone(document));
       if (nextEtag) setEtag(nextEtag);
       setMessage({ text: "Status page settings saved", tone: "info" });
-      // The sticky bar (and the focused Save button) unmounts on success;
-      // hand focus to the always-mounted status region instead of <body>.
+      // The sticky bar (and the focused Save button) unmounts on success.
+      // Hand focus to the always-mounted status region instead of <body>.
       statusRef.current?.focus();
       router.refresh();
     } catch (error) {
@@ -489,7 +489,7 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
     setDraft(structuredClone(saved));
     setNavLinksError("");
     setMessage({ text: "Changes discarded", tone: "info" });
-    // The sticky bar unmounts; keep focus on something real.
+    // The sticky bar unmounts. Keep focus on something real.
     statusRef.current?.focus();
   }
 

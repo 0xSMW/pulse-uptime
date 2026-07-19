@@ -2,7 +2,7 @@ import type { MonitorState } from "@/components/monitors/status-dot";
 
 /**
  * Client-safe status-report types and helpers. The shapes mirror the JSON
- * serialization of lib/api/status-reports (StatusReportData); that module is
+ * serialization of lib/api/status-reports (StatusReportData). That module is
  * server-only, so client components use these structural twins instead.
  */
 
@@ -25,7 +25,7 @@ export type ReportUpdateData = {
   markdown: string;
   publishedAt: string;
   /**
-   * RFC3339 creation time. Newer serializations include it; when absent the
+   * RFC3339 creation time. Newer serializations include it. When absent the
    * client falls back to array order for the (createdAt, id) tiebreak.
    */
   createdAt?: string;
@@ -185,7 +185,7 @@ export function stateFlipDirection(
 
 /**
  * Detects whether removing an update flips the report between Ongoing and
- * Resolved. Returns null for the last remaining update; the server refuses
+ * Resolved. Returns null for the last remaining update. The server refuses
  * that deletion outright (LAST_UPDATE).
  */
 export function stateFlipAfterRemoval(
@@ -233,7 +233,7 @@ export function toDatetimeLocal(iso: string): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-/** Parses a datetime-local input value back to ISO; null when unparseable. */
+/** Parses a datetime-local input value back to ISO, or null when unparseable. */
 export function fromDatetimeLocal(value: string): string | null {
   if (!value.trim()) return null;
   const date = new Date(value);

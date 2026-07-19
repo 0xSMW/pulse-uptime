@@ -4,7 +4,7 @@ import { promoteIncident, recoverPromotedReport } from "@/lib/api/status-reports
 
 /**
  * Promotes an auto-detected incident to a DRAFT status report. Requires
- * reports:write since it creates a report; the incidents namespace is just its
+ * reports:write since it creates a report. The incidents namespace is just its
  * address. Promotion is idempotent through the partial unique index on
  * originIncidentId, so no public revalidation is needed (drafts are invisible).
  */
@@ -21,7 +21,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ inc
     // pins its new report's id to the idempotency operationId, and a stale
     // reclaim reuses the SAME record id, so a recovered report whose id
     // equals THIS retry's operationId proves this crashed attempt inserted
-    // it (201); any other id means a different operation created it: a
+    // it (201). Any other id means a different operation created it: a
     // concurrent promote that won the race, or one that already completed
     // (200).
 

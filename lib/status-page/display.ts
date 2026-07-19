@@ -131,7 +131,7 @@ export function historyWindowStart(historyDays: number, completedDay: Date): Dat
   return new Date(completedDay.getTime() - historyDays * 86_400_000);
 }
 
-/** data: URI for the ISR'd favicon; the asset never becomes a request. */
+/** data: URI for the ISR'd favicon. The asset never becomes a request. */
 export function imageDataUri(mimeType: string, bytes: Uint8Array): string {
   return `data:${mimeType};base64,${Buffer.from(bytes).toString("base64")}`;
 }

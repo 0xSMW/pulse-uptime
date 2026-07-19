@@ -59,7 +59,7 @@ function resolvedConfig() {
 beforeEach(() => {
   vi.clearAllMocks();
   dbMock.select.mockReset();
-  // Default: no rows anywhere, no reports — success path, empty status.
+  // Default: no rows anywhere, no reports. Success path, empty status.
   dbMock.select.mockReturnValue(selectChain([]));
   vi.mocked(getPublicReports).mockResolvedValue({ ongoing: [], upcoming: [], windowEnded: [], resolved: [] });
 });
@@ -230,8 +230,8 @@ describe("getPublicStatus", () => {
     // them): the first 6 are short-duration (filtered by minIncidentSeconds),
     // one further down (index 7) is promoted (folded into its status report
     // and excluded), the rest are long-duration and unpromoted. Under the old
-    // "LIMIT 10 before filtering" bug, only indices 0-9 would ever be fetched
-    // — filtering those down to just 4 survivors — instead of the 8 that
+    // "LIMIT 10 before filtering" bug, only indices 0-9 would ever be fetched,
+    // filtering those down to just 4 survivors instead of the 8 that
     // should be visible once the full overfetch is filtered correctly.
     const base = new Date("2026-07-18T12:00:00.000Z").getTime();
     const recentRows = Array.from({ length: 15 }, (_, index) => {
@@ -281,7 +281,7 @@ describe("getPublicStatus", () => {
     // The overfetch (60) is what makes the correct behavior possible.
     expect(recentLimitSpy).toHaveBeenCalledWith(60);
     // Surviving ids: the 6 short ones (0-5) are filtered by duration, inc-7
-    // is filtered as promoted, leaving 6, 8, 9, 10, 11, 12, 13, 14 (8 rows) —
+    // is filtered as promoted, leaving 6, 8, 9, 10, 11, 12, 13, 14 (8 rows),
     // well within the eventual 10-row display cap, but MORE than the old
     // buggy LIMIT-10-first code path could ever have surfaced.
     expect(data!.recentIncidents.map((incident) => incident.id)).toEqual([
@@ -295,10 +295,10 @@ describe("getPublicStatus", () => {
 
     // 110 simultaneously active (unresolved) incidents, newest first (as the
     // query's ORDER BY returns them): the newest 100 (inc-0..inc-99) are each
-    // promoted into an ongoing published report; the oldest 10 (inc-100..
+    // promoted into an ongoing published report. The oldest 10 (inc-100..
     // inc-109) are genuinely active and were never promoted. Under the old
     // "LIMIT 100 before promoted exclusion" bug, the query would fetch ONLY
-    // inc-0..inc-99 — exactly the promoted set — so excludePromotedIncidents
+    // inc-0..inc-99, exactly the promoted set, so excludePromotedIncidents
     // would remove all 100 fetched rows and currentIncidents would render
     // EMPTY, even though 10 genuinely active, unpromoted incidents exist.
     const base = new Date("2026-07-18T12:00:00.000Z").getTime();
@@ -350,9 +350,9 @@ describe("getPublicStatus", () => {
 
     // The overfetch is what makes the correct behavior possible.
     expect(currentLimitSpy).toHaveBeenCalledWith(500);
-    // The 100 newest (promoted) incidents fold into their ongoing reports;
-    // the 10 oldest, unpromoted incidents still surface as currentIncidents
-    // — none of them silently dropped by a query LIMIT sized too small to
+    // The 100 newest (promoted) incidents fold into their ongoing reports.
+    // The 10 oldest, unpromoted incidents still surface as currentIncidents,
+    // none of them silently dropped by a query LIMIT sized too small to
     // survive exclusion.
     expect(data!.currentIncidents).toHaveLength(10);
     expect(data!.currentIncidents.map((incident) => incident.id)).toEqual(

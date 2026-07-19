@@ -70,7 +70,7 @@ function codesOf(error: object): unknown[] {
   return codes;
 }
 
-/** True only for the infra-class errors described above; everything else should be rethrown. */
+/** True only for the infra-class errors described above. Everything else should be rethrown. */
 export function isDatabaseUnavailableError(error: unknown): boolean {
   let current: unknown = error;
   const seen = new Set<unknown>();

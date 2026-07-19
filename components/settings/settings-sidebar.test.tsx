@@ -18,7 +18,7 @@ function DirtyProbe() {
 }
 
 // jsdom does not implement HTMLDialogElement.showModal()/close() (both are
-// undefined, not even throwing stubs) — polyfill the minimal behavior the
+// undefined, not even throwing stubs). Polyfill the minimal behavior the
 // discard-changes ConfirmDialog depends on: toggling the `open`
 // attribute/property, which jsdom's generic boolean-attribute reflection
 // already handles once set.

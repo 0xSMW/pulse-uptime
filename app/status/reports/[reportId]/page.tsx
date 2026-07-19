@@ -31,7 +31,7 @@ export async function generateMetadata({ params }: ReportPageProps): Promise<Met
   const { reportId } = await params;
   // Report lookup first: unknown ids and drafts 404 without paying for the
   // config read or the favicon bytes. A database-unavailable read is neither
-  // of those; it falls through to the default page name below.
+  // of those. It falls through to the default page name below.
   const report = await getPublicReportDetail(reportId);
   if (report === null) notFound();
   const [config, favicon] = await Promise.all([

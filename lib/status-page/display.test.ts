@@ -128,7 +128,7 @@ describe("displayTimelineBuckets", () => {
   it("maps unknown buckets to operational styling when configured", () => {
     const mapped = displayTimelineBuckets(buckets, true);
     expect(mapped.map((bucket) => bucket.state)).toEqual(["up", "up", "down"]);
-    // Down and verifying buckets are never touched; labels are preserved.
+    // Down and verifying buckets are never touched. Labels are preserved.
     expect(mapped[1]!.label).toBe("day-2");
   });
 });

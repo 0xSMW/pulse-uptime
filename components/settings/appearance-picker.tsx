@@ -32,7 +32,7 @@ function ThumbnailContent({ palette }: { palette: (typeof palettes)[keyof typeof
   );
 }
 
-/** Mini dashboard mock; System renders the light and dark halves split diagonally. */
+/** Mini dashboard mock. System renders the light and dark halves split diagonally. */
 function ThemeThumbnail({ variant }: { variant: Theme }) {
   if (variant !== "system") {
     return (

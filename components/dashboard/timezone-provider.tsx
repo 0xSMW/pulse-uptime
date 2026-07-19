@@ -6,7 +6,7 @@ export const DEFAULT_TIMEZONE = "system";
 /**
  * Deliberate this-device overrides only. The legacy "pulse-timezone" key was
  * written on every pick, so a concrete value there does NOT represent a
- * deliberate override; promoting it would permanently mask the account
+ * deliberate override. Promoting it would permanently mask the account
  * time zone. It is deleted on load, never adopted.
  */
 export const TIMEZONE_STORAGE_KEY = "pulse-timezone-override";
@@ -24,7 +24,7 @@ interface TimezoneContextValue {
   deviceOverride: string | null;
   /** Account commit: adopts the server value and clears the device override key. */
   setServerTimezone: (timezone: string | null) => void;
-  /** Hydration sync from the server; never touches the device override. */
+  /** Hydration sync from the server. Never touches the device override. */
   adoptServerTimezone: (timezone: string | null) => void;
   /** Creates or clears the explicit this-device override. */
   setDeviceOverride: (timezone: string | null) => void;
@@ -65,7 +65,7 @@ function TimezoneProvider({
   const [serverTimezone, setServerTimezoneState] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    // The legacy key was written on every pick, deliberate or not; a concrete
+    // The legacy key was written on every pick, deliberate or not. A concrete
     // value there is not evidence of a deliberate override. Drop it outright.
     window.localStorage.removeItem(LEGACY_TIMEZONE_STORAGE_KEY);
     const saved = window.localStorage.getItem(storageKey);

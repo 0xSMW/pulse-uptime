@@ -439,7 +439,7 @@ export const images = pgTable("images", {
 
 /**
  * Single-row status page configuration. The migration seeds row 1 with name
- * NULL and updatedAt NULL; the service coalesces NULL name to
+ * NULL and updatedAt NULL. The service coalesces NULL name to
  * NEXT_PUBLIC_STATUS_PAGE_NAME and then "System Status" without persisting, so
  * existing deployments keep their env-derived title until the first PUT.
  */
@@ -465,7 +465,7 @@ export const statusPageConfig = pgTable("status_page_config", {
   minIncidentSeconds: integer("min_incident_seconds").notNull().default(0),
   timezone: text("timezone"),
   updatedAt: timestamptz("updated_at"),
-  // Monotonic optimistic-concurrency counter; incremented on every write. The
+  // Monotonic optimistic-concurrency counter, incremented on every write. The
   // ETag derives from this, not from updatedAt.getTime(), so two writes
   // landing in the same millisecond still produce distinct ETags and a stale
   // If-Match can never pass.
@@ -563,7 +563,7 @@ export const cliSessions = pgTable("cli_sessions", {
   scopes: text("scopes").array().notNull(),
   // Named scope profile ("administrator"). When present, the profile resolves
   // to its scope list at AUTH time, so sessions minted before a scope existed
-  // gain it automatically; the literal scopes column is the legacy fallback.
+  // gain it automatically. The literal scopes column is the legacy fallback.
   scopeProfile: text("scope_profile"),
   createdAt: timestamptz("created_at").notNull(),
   expiresAt: timestamptz("expires_at").notNull(),
@@ -670,7 +670,7 @@ export const statusReports = pgTable("status_reports", {
   endsAt: timestamptz("ends_at"),
   // NULL = draft: listed in the dashboard, invisible to the public page.
   publishedAt: timestamptz("published_at"),
-  // Derived from the update set; recomputed on every update create/edit/delete.
+  // Derived from the update set, recomputed on every update create/edit/delete.
   resolvedAt: timestamptz("resolved_at"),
   originIncidentId: uuid("origin_incident_id").references(() => incidents.id),
   createdAt: timestamptz("created_at").notNull(),
@@ -696,7 +696,7 @@ export const statusReportUpdates = pgTable("status_report_updates", {
   reportId: uuid("report_id").notNull().references(() => statusReports.id, { onDelete: "cascade" }),
   status: text("status", { enum: statusReportUpdateStatuses }).notNull(),
   markdown: text("markdown").notNull(),
-  // Editable/backdatable; display and ordering input, not an audit timestamp.
+  // Editable/backdatable, display and ordering input, not an audit timestamp.
   publishedAt: timestamptz("published_at").notNull(),
   createdAt: timestamptz("created_at").notNull(),
   updatedAt: timestamptz("updated_at").notNull(),
@@ -721,7 +721,7 @@ export const statusReportUpdates = pgTable("status_report_updates", {
 
 export const statusReportAffected = pgTable("status_report_affected", {
   reportId: uuid("report_id").notNull().references(() => statusReports.id, { onDelete: "cascade" }),
-  // Registry ids are reusable slugs; the FK is a soft navigation link and the
+  // Registry ids are reusable slugs. The FK is a soft navigation link and the
   // name/group snapshots below are what historical rendering uses.
   monitorId: text("monitor_id").notNull().references(() => monitorRegistry.id),
   monitorName: text("monitor_name").notNull(),

@@ -60,7 +60,7 @@ export function ConfirmDialog({
       aria-describedby={description ? descriptionId : undefined}
       onCancel={(event) => {
         // Native `<dialog>` fires a "cancel" event for both Esc and backdrop
-        // dismissal; preventDefault stops it from closing itself so onCancel
+        // dismissal. preventDefault stops it from closing itself so onCancel
         // stays the single source of truth.
         event.preventDefault();
         onCancel();

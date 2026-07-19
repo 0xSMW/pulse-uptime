@@ -235,7 +235,7 @@ describe("PUT /api/v1/status-page-config", () => {
     // Recovery hit: the CURRENT document (version bumped to 6 by the
     // committed write) already deep-equals what was submitted, even though
     // this retry's own If-Match ("5") is now stale against the current ETag
-    // ("6"); a prior attempt committed the write before crashing, so the
+    // ("6"). A prior attempt committed the write before crashing, so the
     // retry recovers with the current state (and its advanced ETag) instead
     // of rerunning putStatusPageConfig and 412ing against its own write.
     const recoveredData = { ...submitted, updatedAt: "2026-07-18T00:18:20.000Z", version: 6 };
@@ -243,7 +243,7 @@ describe("PUT /api/v1/status-page-config", () => {
     await expect(options.recover({ operationId: "op-1" })).resolves.toEqual({ status: 200, body: recoveredData });
 
     // Recovery miss: the current document genuinely differs (the crash hit
-    // before the write committed, or something else changed it since); fall
+    // before the write committed, or something else changed it since). Fall
     // through so work() reruns the real If-Match-guarded write.
     vi.mocked(getStatusPageConfig).mockResolvedValue({
       data: { ...submitted, name: "Something Else", updatedAt: "2026-07-18T00:00:00.000Z", version: 5 } as never,
@@ -301,9 +301,9 @@ describe("PUT /api/v1/status-page-config", () => {
 
   it("recover still recognizes a semantically-equal-but-syntactically-different submitted body (finding: normalization drift check — the schema's only normalization, trim(), is idempotent and applied identically to both the originally-persisted document and this retry's reparse, so a body differing only in incidental whitespace must still compare equal)", async () => {
     // Extra leading/trailing whitespace in `name` that parseStatusPageConfigDocument's
-    // trim() will normalize away; the stored document (itself normalized at
+    // trim() will normalize away. The stored document (itself normalized at
     // write time) never has this whitespace, so a byte-for-byte body compare
-    // would spuriously diverge; the schema-level parse must not.
+    // would spuriously diverge. The schema-level parse must not.
     const submitted = fullDocument({ name: "  Acme Status  " });
     await PUT(putRequest(submitted, { "If-Match": '"5"' }));
     const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {

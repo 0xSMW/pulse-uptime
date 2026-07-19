@@ -65,14 +65,14 @@ type Pending = { kind: "click"; href: string } | { kind: "popstate" } | null;
  *    stashed, and the dialog opens. Confirming navigates to the stashed href
  *    afterward, through the router for a same-origin href, or
  *    `window.location.assign` for a cross-origin one, since the router
- *    cannot navigate off-origin. Declining just closes the dialog; the click
+ *    cannot navigate off-origin. Declining just closes the dialog. The click
  *    is already cancelled, so there is nothing else to undo.
  *
  *    Ignored on purpose (checked before the unconditional intercept above):
  *    modified clicks (ctrl/cmd/shift/alt, i.e. "open in new tab"), non-
  *    primary-button clicks, `target="_blank"`, `download` links, and
  *    same-page hash-only links (`href="#..."`). Everything else, including
- *    links to external hosts, gets the same dialog; that's intentionally
+ *    links to external hosts, gets the same dialog. That's intentionally
  *    conservative rather than trying to detect in-app vs. external targets.
  *
  *    This does not cover programmatic navigation (`router.push(...)` called

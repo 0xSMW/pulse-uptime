@@ -29,7 +29,7 @@ func run(t *testing.T, d Dependencies, args ...string) error {
 
 // TestReportGroupScopes checks every subcommand's advertised scope against
 // what it calls. resolve GETs (reports:read) before POSTing its closing
-// update (reports:write), so it needs both. list/get are pure reads; the
+// update (reports:write), so it needs both. list/get are pure reads, and the
 // rest never read before mutating, so reports:write alone is correct.
 func TestReportGroupScopes(t *testing.T) {
 	cmd := NewGroup(Dependencies{})

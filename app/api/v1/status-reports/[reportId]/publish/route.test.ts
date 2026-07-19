@@ -131,7 +131,7 @@ describe("POST /api/v1/status-reports/{reportId}/publish", () => {
     expect(recoverPublishedStatusReport).toHaveBeenCalledWith("rep-1");
 
     // Recovery miss: still a draft (crash before the publish committed), or
-    // an unknown report; fall through so work() reruns and records the
+    // an unknown report. Fall through so work() reruns and records the
     // genuine outcome.
     vi.mocked(recoverPublishedStatusReport).mockResolvedValue(null);
     await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();

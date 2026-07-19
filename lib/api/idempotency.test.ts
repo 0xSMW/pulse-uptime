@@ -255,7 +255,7 @@ describe("idempotency fingerprint covers whatever the caller passes as `body`, i
     await expect(executeIdempotent({
       ...preconditionedRequest('"6"', { name: "Acme Status" }), now, persistence, work,
     })).rejects.toMatchObject({ code: "IDEMPOTENCY_KEY_REUSED" });
-    // The second call never reached work() again — it was rejected before
+    // The second call never reached work() again. It was rejected before
     // that point, which is the whole point: it must not silently replay OR
     // silently rerun, only surface the explicit "mint a new key" signal.
     expect(work).toHaveBeenCalledOnce();

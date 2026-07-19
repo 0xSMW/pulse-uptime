@@ -609,7 +609,7 @@ export function ReportEditor({ report, monitors }: { report: ReportData | null; 
                 <ul className="space-y-4 border-t border-[var(--border)] pt-5">
                   {report.updates.map((update) => {
                     // Deleting the latest resolving update can flip the
-                    // report back to Ongoing; warn inside the delete confirm.
+                    // report back to Ongoing. Warn inside the delete confirm.
                     const deleteFlip =
                       confirmDeleteUpdateId === update.id ? stateFlipAfterRemoval(report.updates, update.id) : null;
                     return (

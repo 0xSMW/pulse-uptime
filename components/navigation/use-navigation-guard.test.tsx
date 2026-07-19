@@ -108,7 +108,7 @@ describe("useNavigationGuard history (popstate)", () => {
   it("Discard calls history.go(-2) to complete the exit past the sentinel and the landed-on entry", () => {
     const pushStateSpy = vi.spyOn(window.history, "pushState");
     // jsdom has too little synthetic history for a real -2 traversal (it
-    // logs "Not implemented: navigation to another Document"); stub it so
+    // logs "Not implemented: navigation to another Document"). Stub it so
     // the test asserts the call without depending on jsdom's navigation.
     const goSpy = vi.spyOn(window.history, "go").mockImplementation(() => {});
     render(<Harness dirty />);
