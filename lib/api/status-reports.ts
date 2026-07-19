@@ -257,6 +257,12 @@ export interface StatusReportsStore {
   getLatestUpdates(reportIds: readonly string[]): Promise<StatusReportUpdateRow[]>;
   /** Query 3: affected rows for the page of reports. */
   getAffected(reportIds: readonly string[]): Promise<StatusReportAffectedRow[]>;
+  /**
+   * Point lookup by the partial unique index on originIncidentId, backing
+   * promote's idempotency recovery: is there already a report for this
+   * incident?
+   */
+  getReportByOriginIncident(incidentId: string): Promise<StatusReportRow | null>;
 }
 
 export type StatusReportsDependencies = {
@@ -732,6 +738,28 @@ export async function deleteStatusReport(id: string, dependencies: StatusReports
 }
 
 /**
+ * Idempotency recovery for DELETE /status-reports/{id} (finding: this route
+ * shipped with NO recover callback, so a committed delete + crash made the
+ * retry rerun getStatusReport/deleteStatusReport, which records a false
+ * REPORT_NOT_FOUND 404 for what was actually this operation's own success).
+ * deleteReport is a guarded DELETE ... RETURNING: a concurrent delete of the
+ * SAME report would itself observe zero rows and record its own
+ * REPORT_NOT_FOUND rather than staying "running" — so a record left running
+ * here, with the report now gone, proves THIS operation is what deleted it.
+ * Returns true (recovered success) when the report is gone, or false when it
+ * still exists — a genuine crash before the delete committed — so work()
+ * reruns and performs the real delete.
+ */
+export async function recoverDeletedStatusReport(
+  id: string,
+  dependencies: StatusReportsDependencies = {},
+): Promise<boolean> {
+  const store = dependencies.store ?? databaseStatusReportsStore;
+  const existing = await store.getReport(id);
+  return existing === null;
+}
+
+/**
  * Shared tail of the update mutations: recompute+persist the resolution
  * under the report-row lock (with the affected rows in parallel), and build
  * the response from the rows already in hand — no trailing getStatusReport
@@ -922,6 +950,39 @@ export async function deleteReportUpdate(
   return persistResolutionAndSerialize(store, report, now);
 }
 
+/**
+ * Idempotency recovery for DELETE /status-reports/{id}/updates/{updateId}
+ * (finding: this route shipped with NO recover callback, so a committed
+ * delete + crash made the retry rerun deleteReportUpdate, which records a
+ * false UPDATE_NOT_FOUND 404 for what was actually this operation's own
+ * success). deleteUpdate is a row-locked, guarded delete: a concurrent delete
+ * of the SAME update would itself observe it already gone and record its own
+ * UPDATE_NOT_FOUND rather than staying "running" — so a record left running
+ * here, with the update now gone (and the report still present), proves THIS
+ * operation is what deleted it. Recomputes+persists resolution the same way
+ * the success path does (mirrors recoverEditedReportUpdate/
+ * recoverAddedReportUpdate) since the crash this recovers from may have
+ * landed between the delete committing and the recompute running. Returns
+ * null — so work() reruns and records the genuine outcome — when the update
+ * still exists (a genuine crash before the delete committed, which reruns
+ * into the real delete/LAST_UPDATE guard) or the report itself is gone (a
+ * separate report-level delete since made the question moot; work() reruns
+ * and records the truthful current REPORT_NOT_FOUND).
+ */
+export async function recoverDeletedReportUpdate(
+  reportId: string,
+  updateId: string,
+  dependencies: StatusReportsDependencies = {},
+): Promise<StatusReportData | null> {
+  const store = dependencies.store ?? databaseStatusReportsStore;
+  const now = dependencies.now?.() ?? new Date();
+  const report = await store.getReport(reportId);
+  if (!report) return null;
+  const current = await store.getUpdate(reportId, updateId);
+  if (current) return null;
+  return persistResolutionAndSerialize(store, report, now);
+}
+
 export async function publishStatusReport(
   id: string,
   dependencies: StatusReportsDependencies = {},
@@ -934,6 +995,30 @@ export async function publishStatusReport(
     throw new StatusReportError("ALREADY_PUBLISHED", "The status report is already published");
   }
   return getStatusReport(id, dependencies);
+}
+
+/**
+ * Idempotency recovery for POST /status-reports/{id}/publish (finding: this
+ * route shipped with NO recover callback at all, so a committed publish +
+ * crash made the retry rerun publishStatusReport, which hits the guarded
+ * UPDATE ... WHERE published_at IS NULL, observes zero rows, and records a
+ * false ALREADY_PUBLISHED 409 for what was actually this operation's own
+ * success). The guard is what makes recovering safe: a concurrent publish of
+ * the SAME report would itself observe the row already published and record
+ * its own 409 rather than staying "running" — so a record left running here,
+ * with the report now published, proves THIS operation is what published it.
+ * Returns the current report when it's published, or null — an unpublished
+ * or now-missing report — so work() reruns and records the genuine outcome
+ * (a real ALREADY_PUBLISHED conflict, or REPORT_NOT_FOUND).
+ */
+export async function recoverPublishedStatusReport(
+  id: string,
+  dependencies: StatusReportsDependencies = {},
+): Promise<StatusReportData | null> {
+  const store = dependencies.store ?? databaseStatusReportsStore;
+  const report = await store.getReport(id);
+  if (!report || !report.publishedAt) return null;
+  return loadReportData(store, report);
 }
 
 /** Matches the public label in lib/reporting/queries/status.ts (failureLabel). */
@@ -991,6 +1076,30 @@ export async function promoteIncident(
     return { report: serializeReport(report, [update], affected), created: true };
   }
   return { report: await getStatusReport(outcome.id, dependencies), created: false };
+}
+
+/**
+ * Idempotency recovery for POST /incidents/{incidentId}/promote (finding:
+ * this route shipped with NO recover callback; promoteIncident is already
+ * safe to rerun outright — insertPromotedReport's conflict path on the
+ * partial unique index on originIncidentId just returns the existing report
+ * — but the retry still reached the database, re-validated the incident, and
+ * re-serialized fresh values on every replay instead of short-circuiting at
+ * recovery like the report family's other mutations do). Returns the
+ * existing report for this incident (created:false semantics — the actual
+ * creation already happened, whether by this crashed attempt or a concurrent
+ * one; the partial unique index guarantees at most one row per incident), or
+ * null when no report exists yet for this incident so work() reruns to
+ * create it.
+ */
+export async function recoverPromotedReport(
+  incidentId: string,
+  dependencies: StatusReportsDependencies = {},
+): Promise<StatusReportData | null> {
+  const store = dependencies.store ?? databaseStatusReportsStore;
+  const existing = await store.getReportByOriginIncident(incidentId);
+  if (!existing) return null;
+  return loadReportData(store, existing);
 }
 
 export type PublicReportPhase = "ongoing" | "upcoming" | "window_ended" | "resolved";
@@ -1551,5 +1660,12 @@ export const databaseStatusReportsStore: StatusReportsStore = {
       .from(statusReportAffected)
       .where(inArray(statusReportAffected.reportId, [...reportIds]))
       .limit(reportIds.length * MAX_AFFECTED_PER_REPORT);
+  },
+
+  async getReportByOriginIncident(incidentId) {
+    if (!isUuid(incidentId)) return null;
+    const [row] = await db.select(reportSelection).from(statusReports)
+      .where(eq(statusReports.originIncidentId, incidentId)).limit(1);
+    return row ?? null;
   },
 };

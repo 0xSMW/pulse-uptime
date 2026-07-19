@@ -80,14 +80,19 @@ export type StatusPageConfigDocument = z.infer<typeof statusPageConfigDocumentSc
 export type StatusPageNavLink = z.infer<typeof navLinkSchema>;
 
 /**
- * Parses a full replacement document. Read-side fields (updatedAt, the CLI
- * export's _etag) are stripped rather than rejected so a GET/export response
- * can be edited and sent straight back.
+ * Parses a full replacement document. Read-side fields (updatedAt, the
+ * monotonic `version` counter, the CLI export's _etag) are stripped rather
+ * than rejected so a GET/export response can be edited and sent straight back
+ * (finding: `version` was added to the read shape alongside the ETag change
+ * but never stripped here, so a plain GET→PUT round-trip failed the strict
+ * schema instead of silently dropping the read-only field like updatedAt/
+ * _etag already did).
  */
 export function parseStatusPageConfigDocument(input: unknown) {
   if (input && typeof input === "object" && !Array.isArray(input)) {
-    const { updatedAt: _updatedAt, _etag, ...rest } = input as Record<string, unknown>;
+    const { updatedAt: _updatedAt, version: _version, _etag, ...rest } = input as Record<string, unknown>;
     void _updatedAt;
+    void _version;
     void _etag;
     return statusPageConfigDocumentSchema.safeParse(rest);
   }

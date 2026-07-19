@@ -25,7 +25,11 @@ import {
   publishStatusReport,
   recoverAddedReportUpdate,
   recoverCreatedStatusReport,
+  recoverDeletedReportUpdate,
+  recoverDeletedStatusReport,
   recoverEditedReportUpdate,
+  recoverPromotedReport,
+  recoverPublishedStatusReport,
   StatusReportError,
   updateStatusReport,
   type StatusReportAffectedRow,
@@ -255,6 +259,10 @@ function memoryStore(monitors: Array<{ id: string; name: string; groupName: stri
     },
     async getAffected(reportIds) {
       return affected.filter((row) => reportIds.includes(row.reportId)).map((row) => ({ ...row }));
+    },
+    async getReportByOriginIncident(incidentId) {
+      const row = [...reports.values()].find((entry) => entry.originIncidentId === incidentId);
+      return row ? { ...row } : null;
     },
   };
   return store;
@@ -657,6 +665,30 @@ describe("publishStatusReport", () => {
   });
 });
 
+describe("recoverPublishedStatusReport (finding: publish shipped with no recover callback, so a committed-then-crashed publish replayed a false ALREADY_PUBLISHED 409 instead of its own success)", () => {
+  it("recovers with the current report when it's published (a prior attempt committed the publish before crashing)", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const draft = await createStatusReport({ ...validCreate, draft: true }, deps);
+    const published = await publishStatusReport(draft.id, deps);
+
+    const recovered = await recoverPublishedStatusReport(draft.id, deps);
+    expect(recovered).toEqual(published);
+  });
+
+  it("returns null when the report is still a draft (genuine crash before the publish committed)", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const draft = await createStatusReport({ ...validCreate, draft: true }, deps);
+    await expect(recoverPublishedStatusReport(draft.id, deps)).resolves.toBeNull();
+  });
+
+  it("returns null for an unknown report", async () => {
+    const store = memoryStore();
+    await expect(recoverPublishedStatusReport("missing", dependencies(store))).resolves.toBeNull();
+  });
+});
+
 describe("deleteStatusReport", () => {
   it("deletes and 404s afterwards", async () => {
     const store = memoryStore();
@@ -665,6 +697,28 @@ describe("deleteStatusReport", () => {
     await expect(deleteStatusReport(created.id, deps)).resolves.toEqual({ id: created.id });
     await expect(getStatusReport(created.id, deps)).rejects.toMatchObject({ code: "REPORT_NOT_FOUND" });
     await expect(deleteStatusReport(created.id, deps)).rejects.toMatchObject({ code: "REPORT_NOT_FOUND" });
+  });
+});
+
+describe("recoverDeletedStatusReport (finding: DELETE /status-reports/{id} shipped with no recover callback, so a committed-then-crashed delete replayed a false REPORT_NOT_FOUND 404 instead of its own success)", () => {
+  it("recovers (true) when the report is gone (a prior attempt committed the delete before crashing)", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const created = await createStatusReport(validCreate, deps);
+    await deleteStatusReport(created.id, deps);
+    await expect(recoverDeletedStatusReport(created.id, deps)).resolves.toBe(true);
+  });
+
+  it("returns false when the report still exists (genuine crash before the delete committed)", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const created = await createStatusReport(validCreate, deps);
+    await expect(recoverDeletedStatusReport(created.id, deps)).resolves.toBe(false);
+  });
+
+  it("recovers (true) for a report id that never existed (indistinguishable, and safe, per the guarded-delete invariant)", async () => {
+    const store = memoryStore();
+    await expect(recoverDeletedStatusReport("missing", dependencies(store))).resolves.toBe(true);
   });
 });
 
@@ -719,6 +773,27 @@ describe("promoteIncident", () => {
     const store = memoryStore();
     await expect(promoteIncident("missing", dependencies(store)))
       .rejects.toMatchObject({ code: "INCIDENT_NOT_FOUND" });
+  });
+
+  describe("recoverPromotedReport (finding: promote shipped with no recover callback; promoteIncident is already safe to rerun via the partial unique index, but recovery lets a retry short-circuit at the database instead of re-validating the incident and re-serializing fresh values)", () => {
+    it("recovers with the existing report tied to this incident (created:false semantics, mirroring a promote conflict)", async () => {
+      const store = storeWithIncident();
+      const deps = dependencies(store);
+      const { report: promoted } = await promoteIncident("inc-1", deps);
+
+      const recovered = await recoverPromotedReport("inc-1", deps);
+      expect(recovered).toEqual(promoted);
+    });
+
+    it("returns null when no report exists yet for this incident (genuine crash before the create committed)", async () => {
+      const store = storeWithIncident();
+      await expect(recoverPromotedReport("inc-1", dependencies(store))).resolves.toBeNull();
+    });
+
+    it("returns null for an unrelated/unknown incident id", async () => {
+      const store = memoryStore();
+      await expect(recoverPromotedReport("missing", dependencies(store))).resolves.toBeNull();
+    });
   });
 });
 
@@ -975,6 +1050,45 @@ describe("idempotent-edit recovery (finding: PATCH /updates/{updateId} was the o
     const updateId = created.updates[0].id;
     await expect(recoverEditedReportUpdate(created.id, updateId, {}, deps)).resolves.toBeNull();
     await expect(recoverEditedReportUpdate(created.id, updateId, { foo: 1 }, deps)).resolves.toBeNull();
+  });
+});
+
+describe("recoverDeletedReportUpdate (finding: DELETE /updates/{updateId} shipped with no recover callback, so a committed-then-crashed delete replayed a false UPDATE_NOT_FOUND 404 instead of its own success)", () => {
+  it("recovers by recomputing+serializing current state when the update is gone but the report still exists", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const created = await createStatusReport(validCreate, deps);
+    const second = await addReportUpdate(created.id, { status: "monitoring", markdown: "Watching." }, deps);
+    const updateId = second.updates.find((update) => update.status === "monitoring")!.id;
+
+    // Simulate the delete having committed before a crash.
+    const deleted = await deleteReportUpdate(created.id, updateId, deps);
+
+    const recovered = await recoverDeletedReportUpdate(created.id, updateId, deps);
+    expect(recovered).toEqual(deleted);
+  });
+
+  it("returns null when the update still exists (genuine crash before the delete committed)", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const created = await createStatusReport(validCreate, deps);
+    await addReportUpdate(created.id, { status: "monitoring", markdown: "Watching." }, deps);
+    const updateId = created.updates[0].id;
+    await expect(recoverDeletedReportUpdate(created.id, updateId, deps)).resolves.toBeNull();
+  });
+
+  it("returns null for an unknown report (can't recompute+serialize without it; work() reruns and records the truthful current REPORT_NOT_FOUND)", async () => {
+    const store = memoryStore();
+    await expect(recoverDeletedReportUpdate("missing-report", "missing-update", dependencies(store))).resolves.toBeNull();
+  });
+
+  it("recovers (success) for an update id that never existed on a report that still does — indistinguishable from, and safe per the same guarded-delete invariant as, recoverDeletedStatusReport's 'gone is gone' semantics", async () => {
+    const store = memoryStore();
+    const deps = dependencies(store);
+    const created = await createStatusReport(validCreate, deps);
+    const recovered = await recoverDeletedReportUpdate(created.id, "missing-update", deps);
+    expect(recovered?.id).toBe(created.id);
+    expect(recovered?.updates).toEqual(created.updates);
   });
 });
 

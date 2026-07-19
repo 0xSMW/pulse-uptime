@@ -17,15 +17,17 @@ vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
 vi.mock("@/lib/api/status-reports", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/status-reports")>()),
   publishStatusReport: vi.fn(),
+  recoverPublishedStatusReport: vi.fn(),
 }));
 
 import { revalidatePath } from "next/cache";
 
-import { errorEnvelope } from "@/lib/api/envelopes";
+import { errorEnvelope, objectEnvelope } from "@/lib/api/envelopes";
 import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, type ApiContext } from "@/lib/api/middleware";
 import {
   publishStatusReport,
+  recoverPublishedStatusReport,
   StatusReportError,
   type StatusReportData,
 } from "@/lib/api/status-reports";
@@ -61,6 +63,7 @@ beforeEach(() => {
   vi.mocked(authorize).mockReset().mockResolvedValue(context);
   vi.mocked(revalidatePath).mockReset();
   vi.mocked(publishStatusReport).mockReset().mockResolvedValue(report);
+  vi.mocked(recoverPublishedStatusReport).mockReset();
   vi.mocked(executeIdempotent).mockClear();
 });
 
@@ -92,14 +95,12 @@ describe("POST /api/v1/status-reports/{reportId}/publish", () => {
     expect((await response.json()).error.code).toBe("REPORT_NOT_FOUND");
   });
 
-  it("maps ALREADY_PUBLISHED and REPORT_NOT_FOUND inside work() itself, with no recover callback (finding: a thrown deterministic error left the idempotency record stuck 'running' until a stale reclaim's recover callback saw the exact 'already published' state a genuine conflict would also produce, and replayed it as a false 200)", async () => {
+  it("maps ALREADY_PUBLISHED and REPORT_NOT_FOUND inside work() itself (finding: a thrown deterministic error left the idempotency record stuck 'running' until a stale reclaim's recover callback saw the exact 'already published' state a genuine conflict would also produce, and replayed it as a false 200)", async () => {
     vi.mocked(publishStatusReport).mockRejectedValue(new StatusReportError("ALREADY_PUBLISHED", "already"));
     await POST(request(), params);
     const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
-      recover?: unknown;
       work: (context: { operationId: string }) => Promise<{ status: number; body: unknown }>;
     };
-    expect(options.recover).toBeUndefined();
     await expect(options.work({ operationId: "op-1" })).resolves.toEqual({
       status: 409,
       body: errorEnvelope("ALREADY_PUBLISHED", "already", context.requestId, {}),
@@ -110,5 +111,35 @@ describe("POST /api/v1/status-reports/{reportId}/publish", () => {
       status: 404,
       body: errorEnvelope("REPORT_NOT_FOUND", "missing", context.requestId, {}),
     });
+  });
+
+  it("wires a recover callback that replays a committed-then-crashed publish as success instead of rerunning into a false ALREADY_PUBLISHED 409 (finding: publish shipped with no recover callback)", async () => {
+    await POST(request(), params);
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
+    };
+
+    // Recovery hit: recoverPublishedStatusReport finds the report already
+    // published — a prior attempt committed the publish before crashing —
+    // so the retry recovers with that state instead of rerunning
+    // publishStatusReport (and observing a false ALREADY_PUBLISHED).
+    vi.mocked(recoverPublishedStatusReport).mockResolvedValue(report);
+    await expect(options.recover({ operationId: "op-1" })).resolves.toEqual({
+      status: 200,
+      body: objectEnvelope("StatusReport", report, context.requestId),
+    });
+    expect(recoverPublishedStatusReport).toHaveBeenCalledWith("rep-1");
+
+    // Recovery miss: still a draft (crash before the publish committed), or
+    // an unknown report — fall through so work() reruns and records the
+    // genuine outcome.
+    vi.mocked(recoverPublishedStatusReport).mockResolvedValue(null);
+    await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
+  });
+
+  it("refuses rather than reruns on a recovery miss (finding: rerunAfterRecoveryMiss defaulting to rerun risks re-running work() against ambiguous state)", async () => {
+    await POST(request(), params);
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as { rerunAfterRecoveryMiss?: boolean };
+    expect(options.rerunAfterRecoveryMiss).toBe(false);
   });
 });

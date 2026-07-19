@@ -207,68 +207,47 @@ describe("PUT /api/v1/status-page-config", () => {
     expect(payload.error.code).toBe("INVALID_JSON");
   });
 
-  it("wires a recover callback that returns the current document as success when the retry's own If-Match is FRESH against the current ETag and the document already matches what was submitted (finding: a committed save + crash makes the retry 412 against its own write; a well-behaved client refreshes If-Match before retrying under the same Idempotency-Key, which If-Match isn't part of, so this is exactly how a genuine crash-after-commit retry looks)", async () => {
+  it("wires a recover callback that replays a committed-then-crashed write as 200 with the ADVANCED ETag, even though this retry's own If-Match still carries the PRE-write value (finding: the guarded write bumps the monotonic version/ETag on every success, so a prior pass requiring If-Match == current in recover made a normal committed-then-crashed retry — whose If-Match is necessarily the OLD value — always miss recovery, rerun, and 412 against its own write)", async () => {
     const submitted = fullDocument({ name: "Acme Status" });
     await PUT(putRequest(submitted, { "If-Match": '"5"' }));
     const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
       recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
     };
 
-    // Recovery hit: this retry's own If-Match ("5") matches the
-    // CURRENT etag, and the current document already deep-equals what was
-    // submitted — a prior attempt committed the write before crashing — so
-    // the retry recovers with the current state instead of rerunning
-    // putStatusPageConfig.
-    vi.mocked(getStatusPageConfig).mockResolvedValue({
-      data: { ...submitted, updatedAt: "2026-07-18T00:00:00.000Z" } as never,
-      etag: '"5"',
-    });
-    await expect(options.recover({ operationId: "op-1" })).resolves.toEqual({
-      status: 200,
-      body: { ...submitted, updatedAt: "2026-07-18T00:00:00.000Z" },
-    });
+    // Recovery hit: the CURRENT document (version bumped to 6 by the
+    // committed write) already deep-equals what was submitted, even though
+    // this retry's own If-Match ("5") is now stale against the current ETag
+    // ("6") — a prior attempt committed the write before crashing — so the
+    // retry recovers with the current state (and its advanced ETag) instead
+    // of rerunning putStatusPageConfig and 412ing against its own write.
+    const recoveredData = { ...submitted, updatedAt: "2026-07-18T00:18:20.000Z", version: 6 };
+    vi.mocked(getStatusPageConfig).mockResolvedValue({ data: recoveredData as never, etag: '"6"' });
+    await expect(options.recover({ operationId: "op-1" })).resolves.toEqual({ status: 200, body: recoveredData });
 
     // Recovery miss: the current document genuinely differs (the crash hit
     // before the write committed, or something else changed it since) — fall
     // through so work() reruns the real If-Match-guarded write.
     vi.mocked(getStatusPageConfig).mockResolvedValue({
-      data: { ...submitted, name: "Something Else", updatedAt: "2026-07-18T00:00:00.000Z" } as never,
+      data: { ...submitted, name: "Something Else", updatedAt: "2026-07-18T00:00:00.000Z", version: 5 } as never,
       etag: '"5"',
     });
     await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
   });
 
-  it("returns null (never a recovered 200) when this retry's If-Match is STALE against the current ETag, even if the current document coincidentally already matches what was submitted (finding: someone else making the identical edit must not mask a genuine precondition failure — recover must not manufacture success just because the resulting content looks the same; work() reruns and reproduces the real 412)", async () => {
+  it("recover ignores field order, the read-only updatedAt, and the read-only version when comparing documents", async () => {
     const submitted = fullDocument({ name: "Acme Status" });
     await PUT(putRequest(submitted, { "If-Match": '"5"' }));
     const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
       recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
     };
 
-    // Current ETag has moved on to "6" — someone else's write —
-    // while this retry still carries the ORIGINAL, now-stale If-Match
-    // ("5"). The document coincidentally matches, but that must
-    // not be treated as this operation's own success.
-    vi.mocked(getStatusPageConfig).mockResolvedValue({
-      data: { ...submitted, updatedAt: "2026-07-18T00:18:20.000Z" } as never,
-      etag: '"6"',
-    });
-    await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
-  });
-
-  it("recover ignores field order and the read-only updatedAt when comparing documents (with a fresh If-Match)", async () => {
-    const submitted = fullDocument({ name: "Acme Status" });
-    await PUT(putRequest(submitted, { "If-Match": '"5"' }));
-    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
-      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
-    };
-
-    // Reordered keys and a different updatedAt must still compare equal, as
-    // long as the ETag itself is fresh against this retry's If-Match.
+    // Reordered keys, a different updatedAt, and an advanced version must
+    // still compare equal — those are exactly the fields a committed write
+    // changes, and none of them was part of what the caller submitted.
     const reordered = Object.fromEntries(Object.entries(submitted).reverse());
     vi.mocked(getStatusPageConfig).mockResolvedValue({
-      data: { ...reordered, updatedAt: "2099-01-01T00:00:00.000Z" } as never,
-      etag: '"5"',
+      data: { ...reordered, updatedAt: "2099-01-01T00:00:00.000Z", version: 6 } as never,
+      etag: '"6"',
     });
     await expect(options.recover({ operationId: "op-1" })).resolves.not.toBeNull();
   });
@@ -285,10 +264,19 @@ describe("PUT /api/v1/status-page-config", () => {
     };
 
     vi.mocked(getStatusPageConfig).mockResolvedValue({
-      data: { ...fullDocument({ name: "Acme Status" }), updatedAt: "2026-07-18T00:00:00.000Z" } as never,
-      etag: '"5"',
+      data: { ...fullDocument({ name: "Acme Status" }), updatedAt: "2026-07-18T00:00:00.000Z", version: 6 } as never,
+      etag: '"6"',
     });
     await expect(options.recover({ operationId: "op-1" })).resolves.not.toBeNull();
+  });
+
+  it("a genuinely stale If-Match with a genuinely DIFFERENT body still 412s on the first attempt via work(), not a manufactured recover success (finding: dropping the If-Match-freshness check from recover only ever lets an EQUAL-body retry through — a real conflict still reaches work()'s conditional UPDATE, which records the 412 rather than throwing past executeIdempotent)", async () => {
+    vi.mocked(putStatusPageConfig).mockRejectedValue(
+      new StatusPageConfigError("PRECONDITION_FAILED", "changed since read"),
+    );
+    const response = await PUT(putRequest(fullDocument({ name: "Someone Else's Edit" }), { "If-Match": '"5"' }));
+    expect(response.status).toBe(412);
+    expect((await response.json()).error.code).toBe("PRECONDITION_FAILED");
   });
 
   it("recover returns null (rerun) when the submitted body no longer parses", async () => {
@@ -298,6 +286,12 @@ describe("PUT /api/v1/status-page-config", () => {
       recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
     };
     await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
+  });
+
+  it("refuses rather than reruns on a recovery miss (finding: rerunAfterRecoveryMiss defaulting to rerun would let a stale retry re-run putStatusPageConfig against whatever the caller submitted instead of surfacing 'cannot recover safely, retry with a new key')", async () => {
+    await PUT(putRequest({ name: "Acme Status" }, { "If-Match": '"5"' }));
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as { rerunAfterRecoveryMiss?: boolean };
+    expect(options.rerunAfterRecoveryMiss).toBe(false);
   });
 
   it("maps a StatusPageConfigError inside work() itself, not thrown past executeIdempotent (finding: a thrown 412 left the idempotency record stuck 'running' until a stale reclaim's recover callback ran against a body that no longer parsed or a document that didn't match)", async () => {

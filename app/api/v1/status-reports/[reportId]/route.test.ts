@@ -19,6 +19,7 @@ vi.mock("@/lib/api/status-reports", async (importOriginal) => ({
   getStatusReport: vi.fn(),
   updateStatusReport: vi.fn(),
   deleteStatusReport: vi.fn(),
+  recoverDeletedStatusReport: vi.fn(),
 }));
 
 import { revalidatePath } from "next/cache";
@@ -29,6 +30,7 @@ import { authorize, type ApiContext } from "@/lib/api/middleware";
 import {
   deleteStatusReport,
   getStatusReport,
+  recoverDeletedStatusReport,
   StatusReportError,
   updateStatusReport,
   type StatusReportData,
@@ -68,6 +70,7 @@ beforeEach(() => {
   vi.mocked(getStatusReport).mockReset().mockResolvedValue(report);
   vi.mocked(updateStatusReport).mockReset().mockResolvedValue(report);
   vi.mocked(deleteStatusReport).mockReset().mockResolvedValue({ id: "rep-1" });
+  vi.mocked(recoverDeletedStatusReport).mockReset();
   vi.mocked(executeIdempotent).mockClear();
 });
 
@@ -184,6 +187,12 @@ describe("PATCH /api/v1/status-reports/{reportId}", () => {
     });
     await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
   });
+
+  it("refuses rather than reruns on a recovery miss (finding: rerunAfterRecoveryMiss defaulting to rerun let a stale retry re-apply this patch on top of a DIFFERENT edit made since, clobbering it; refusing surfaces 'cannot recover safely, retry with a new key' instead)", async () => {
+    await PATCH(request("PATCH", { title: "New title" }), params);
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as { rerunAfterRecoveryMiss?: boolean };
+    expect(options.rerunAfterRecoveryMiss).toBe(false);
+  });
 });
 
 describe("DELETE /api/v1/status-reports/{reportId}", () => {
@@ -205,17 +214,40 @@ describe("DELETE /api/v1/status-reports/{reportId}", () => {
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 
-  it("maps REPORT_NOT_FOUND inside work() itself, with no recover callback (finding: a thrown 404 left the idempotency record stuck 'running' until a stale reclaim's recover callback saw the exact 'report is gone' state a genuine 404 would also produce, and replayed it as a false 200)", async () => {
+  it("maps REPORT_NOT_FOUND inside work() itself (finding: a thrown 404 left the idempotency record stuck 'running' until a stale reclaim's recover callback saw the exact 'report is gone' state a genuine 404 would also produce, and replayed it as a false 200)", async () => {
     vi.mocked(getStatusReport).mockRejectedValue(new StatusReportError("REPORT_NOT_FOUND", "missing"));
     await DELETE(request("DELETE"), params);
     const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
-      recover?: unknown;
       work: (context: { operationId: string }) => Promise<{ status: number; body: unknown }>;
     };
-    expect(options.recover).toBeUndefined();
     await expect(options.work({ operationId: "op-1" })).resolves.toEqual({
       status: 404,
       body: errorEnvelope("REPORT_NOT_FOUND", "missing", context.requestId, {}),
     });
+  });
+
+  it("wires a recover callback that replays a committed-then-crashed delete as success instead of rerunning into a false REPORT_NOT_FOUND 404 (finding: DELETE shipped with no recover callback)", async () => {
+    await DELETE(request("DELETE"), params);
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
+    };
+
+    vi.mocked(recoverDeletedStatusReport).mockResolvedValue(true);
+    await expect(options.recover({ operationId: "op-1" })).resolves.toEqual({
+      status: 200,
+      body: objectEnvelope("StatusReportDeleted", { id: "rep-1" }, context.requestId),
+    });
+    expect(recoverDeletedStatusReport).toHaveBeenCalledWith("rep-1");
+
+    // Recovery miss: the report still exists — a genuine crash before the
+    // delete committed — fall through so work() reruns the real delete.
+    vi.mocked(recoverDeletedStatusReport).mockResolvedValue(false);
+    await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
+  });
+
+  it("refuses rather than reruns on a recovery miss", async () => {
+    await DELETE(request("DELETE"), params);
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as { rerunAfterRecoveryMiss?: boolean };
+    expect(options.rerunAfterRecoveryMiss).toBe(false);
   });
 });

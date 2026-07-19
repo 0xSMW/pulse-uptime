@@ -153,6 +153,18 @@ describe("parseStatusPageConfigDocument", () => {
     }
   });
 
+  it("strips the read-only version counter so a GET→PUT round-trip validates (finding: version was added to the read shape alongside the monotonic-ETag change but never stripped, so re-submitting a GET response failed the strict schema)", () => {
+    const result = parseStatusPageConfigDocument({
+      ...baseDocument(),
+      updatedAt: "2026-07-18T00:00:00.000Z",
+      version: 6,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect("version" in result.data).toBe(false);
+    }
+  });
+
   it("rejects non-object documents", () => {
     expect(parseStatusPageConfigDocument(null).success).toBe(false);
     expect(parseStatusPageConfigDocument([]).success).toBe(false);

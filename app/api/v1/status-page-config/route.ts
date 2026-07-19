@@ -81,34 +81,38 @@ export async function PUT(request: Request) {
       routeKey: "/api/v1/status-page-config",
       body,
       // A retry after a stale-record reclaim may be replaying a save that
-      // already committed before a crash (finding: rerunning would re-check
-      // If-Match against the NEW updatedAt the prior attempt already wrote,
-      // 412ing against its own successful write). If the CURRENT document
-      // already deep-equals what the caller submitted (ignoring the
-      // read-only updatedAt), treat that as this operation's own recovered
-      // success — but ONLY when THIS retry's own If-Match is fresh against
-      // the CURRENT etag (finding: a STALE If-Match must still 412 even when
-      // the content coincidentally already matches — e.g. someone else made
-      // the identical edit — since a real precondition failure must never be
-      // masked as success just because the resulting document looks the
-      // same; If-Match isn't part of the idempotency request hash above, so
-      // a well-behaved client retrying under the same Idempotency-Key is
-      // free to refresh If-Match to the current ETag first, which is exactly
-      // what makes this check pass for a genuine crash-after-commit retry).
-      // A genuinely different current document, a stale If-Match, or a body
-      // that no longer parses all return null so work() reruns (and a real
-      // conflict still 412s there — recorded, not thrown, per work() below).
+      // already committed before a crash (finding: the write's guarded
+      // UPDATE advances the monotonic `version` counter — and therefore the
+      // ETag — on every successful write, so requiring THIS retry's If-Match
+      // to still equal the CURRENT etag, as a prior pass did, means a normal
+      // committed-then-crashed retry — whose If-Match is the PRE-write
+      // value, e.g. "5" against a current "6" — always misses recovery,
+      // reruns, and 412s against its own successful write). If the CURRENT
+      // document already deep-equals what the caller submitted (ignoring the
+      // read-only updatedAt/version), that alone is treated as this
+      // operation's own recovered success: the guarded conditional UPDATE
+      // means a genuinely stale If-Match with a genuinely DIFFERENT body
+      // still 412s below (recorded inside work(), not thrown — verified by
+      // the "genuine stale-If-Match different-body first attempt" test), so
+      // dropping the If-Match-freshness requirement here only ever lets an
+      // equal-body retry through. Residual: a crash landing between the
+      // running-record insert and work() start, racing a DIFFERENT writer
+      // making the IDENTICAL edit in between, would also replay 200 here —
+      // benign, since the desired document state genuinely holds either way.
+      // A genuinely different current document, an unreadable config, or a
+      // body that no longer parses all return null so work() reruns.
       recover: async () => {
         const parsed = parseStatusPageConfigDocument(body);
         if (!parsed.success) return null;
         const current = await getStatusPageConfig().catch(() => null);
         if (!current) return null;
-        if (current.etag !== ifMatch) return null;
-        const { updatedAt: _currentUpdatedAt, ...currentDocument } = current.data;
+        const { updatedAt: _currentUpdatedAt, version: _currentVersion, ...currentDocument } = current.data;
         void _currentUpdatedAt;
+        void _currentVersion;
         if (canonicalSerialize(currentDocument) !== canonicalSerialize(parsed.data)) return null;
         return { status: 200, body: current.data };
       },
+      rerunAfterRecoveryMiss: false,
       work: async () => {
         try {
           const { data } = await putStatusPageConfig(body, ifMatch);

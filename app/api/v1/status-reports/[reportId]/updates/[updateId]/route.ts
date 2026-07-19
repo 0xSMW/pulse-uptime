@@ -9,6 +9,7 @@ import {
 import {
   deleteReportUpdate,
   editReportUpdate,
+  recoverDeletedReportUpdate,
   recoverEditedReportUpdate,
   StatusReportError,
 } from "@/lib/api/status-reports";
@@ -38,6 +39,13 @@ export async function PATCH(request: Request, { params }: Params) {
         const recovered = await recoverEditedReportUpdate(reportId, updateId, body);
         return recovered ? { status: 200, body: objectEnvelope("StatusReport", recovered, context.requestId) } : null;
       },
+      // A recovery MISS means the CURRENT state doesn't match this patch —
+      // either the crash landed before it ever committed (safe to rerun), or
+      // a DIFFERENT edit changed the update afterward (finding: rerunning in
+      // that second case re-applies this stale patch on top of the newer
+      // edit, clobbering it). Indistinguishable from here, so refuse instead
+      // of guessing.
+      rerunAfterRecoveryMiss: false,
       work: async () => {
         try {
           const report = await editReportUpdate(reportId, updateId, body);
@@ -72,6 +80,20 @@ export async function DELETE(request: Request, { params }: Params) {
       principalKey: context.principalKey,
       routeKey: `/api/v1/status-reports/${reportId}/updates/${updateId}`,
       body: {},
+      // A retry after a stale-record reclaim may be replaying a delete that
+      // already committed before a crash (finding: with no recover callback,
+      // rerunning called deleteReportUpdate, observed the update gone, and
+      // recorded a false UPDATE_NOT_FOUND 404 for what was actually this
+      // operation's own success). deleteUpdate is a row-locked, guarded
+      // delete: a concurrent delete of the SAME update would itself observe
+      // it already gone and record its own UPDATE_NOT_FOUND rather than
+      // staying "running" — so a record left running here, with the update
+      // now gone, proves THIS operation is what deleted it.
+      recover: async () => {
+        const recovered = await recoverDeletedReportUpdate(reportId, updateId);
+        return recovered ? { status: 200, body: objectEnvelope("StatusReport", recovered, context.requestId) } : null;
+      },
+      rerunAfterRecoveryMiss: false,
       // UPDATE_NOT_FOUND / REPORT_NOT_FOUND / LAST_UPDATE are deterministic
       // outcomes of the CURRENT state, not proof this operation ever ran —
       // they're mapped and recorded as this operation's own response here
@@ -79,9 +101,6 @@ export async function DELETE(request: Request, { params }: Params) {
       // left the idempotency record stuck "running" until a stale reclaim's
       // recover callback saw the exact state a genuine 404 would also
       // produce — the update already gone — and replayed it as a false 200).
-      // No recover callback: a retry with the same key now replays the
-      // recorded 404/409 (or 200) verbatim via the ordinary completed-record
-      // path, and a genuine prior success replays the same way.
       work: async () => {
         try {
           const report = await deleteReportUpdate(reportId, updateId);

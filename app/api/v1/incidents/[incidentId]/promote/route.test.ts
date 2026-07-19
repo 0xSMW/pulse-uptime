@@ -17,13 +17,15 @@ vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
 vi.mock("@/lib/api/status-reports", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/status-reports")>()),
   promoteIncident: vi.fn(),
+  recoverPromotedReport: vi.fn(),
 }));
 
-import { apiError, errorEnvelope } from "@/lib/api/envelopes";
+import { apiError, errorEnvelope, objectEnvelope } from "@/lib/api/envelopes";
 import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, type ApiContext } from "@/lib/api/middleware";
 import {
   promoteIncident,
+  recoverPromotedReport,
   StatusReportError,
   type StatusReportData,
 } from "@/lib/api/status-reports";
@@ -58,6 +60,8 @@ function request() {
 beforeEach(() => {
   vi.mocked(authorize).mockReset().mockResolvedValue(context);
   vi.mocked(promoteIncident).mockReset().mockResolvedValue({ report: draft, created: true });
+  vi.mocked(recoverPromotedReport).mockReset();
+  vi.mocked(executeIdempotent).mockClear();
 });
 
 describe("POST /api/v1/incidents/{incidentId}/promote", () => {
@@ -93,7 +97,7 @@ describe("POST /api/v1/incidents/{incidentId}/promote", () => {
     expect((await response.json()).error.code).toBe("INCIDENT_NOT_FOUND");
   });
 
-  it("maps INCIDENT_NOT_FOUND inside work() itself, not thrown past executeIdempotent (finding: a thrown 404 left the idempotency record stuck 'running' — with no recover callback here, every retry within the 5-minute stale window got REQUEST_IN_PROGRESS instead of a clean, replayable 404)", async () => {
+  it("maps INCIDENT_NOT_FOUND inside work() itself, not thrown past executeIdempotent (finding: a thrown 404 left the idempotency record stuck 'running'; recover only ever recovers when a report already exists for this incident, so a genuinely unknown incident falls through to here every time)", async () => {
     vi.mocked(promoteIncident).mockRejectedValue(new StatusReportError("INCIDENT_NOT_FOUND", "missing"));
     await POST(request(), params);
     const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
@@ -103,5 +107,35 @@ describe("POST /api/v1/incidents/{incidentId}/promote", () => {
       status: 404,
       body: errorEnvelope("INCIDENT_NOT_FOUND", "missing", context.requestId, {}),
     });
+  });
+
+  it("wires a recover callback that replays a committed-then-crashed promote as success instead of re-validating the incident and re-serializing fresh values (finding: promote shipped with no recover callback)", async () => {
+    await POST(request(), params);
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+      recover: (context: { operationId: string }) => Promise<{ status: number; body: unknown } | null>;
+    };
+
+    // Recovery hit: a report already exists for this incident — a prior
+    // attempt committed the create before crashing (or a concurrent promote
+    // won the race) — so the retry recovers with that report (200,
+    // created:false semantics) instead of rerunning promoteIncident.
+    vi.mocked(recoverPromotedReport).mockResolvedValue(draft);
+    await expect(options.recover({ operationId: "op-1" })).resolves.toEqual({
+      status: 200,
+      body: objectEnvelope("StatusReport", draft, context.requestId),
+    });
+    expect(recoverPromotedReport).toHaveBeenCalledWith("inc-1");
+
+    // Recovery miss: no report exists yet for this incident (genuine crash
+    // before the create committed) — fall through so work() reruns to
+    // create it.
+    vi.mocked(recoverPromotedReport).mockResolvedValue(null);
+    await expect(options.recover({ operationId: "op-1" })).resolves.toBeNull();
+  });
+
+  it("refuses rather than reruns on a recovery miss", async () => {
+    await POST(request(), params);
+    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as { rerunAfterRecoveryMiss?: boolean };
+    expect(options.rerunAfterRecoveryMiss).toBe(false);
   });
 });
