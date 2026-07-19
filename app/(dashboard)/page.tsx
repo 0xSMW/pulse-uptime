@@ -4,6 +4,8 @@ import { HealthBanner } from "@/components/dashboard/health-banner";
 import { MonitorTable } from "@/components/dashboard/monitor-table";
 import { MonitorTableSkeleton } from "@/components/dashboard/monitor-table-skeleton";
 import { NewMonitorAction } from "@/components/dashboard/new-monitor-action";
+import { DependencyPanel } from "@/components/dependencies/dependency-panel";
+import { DependencyPanelSkeleton } from "@/components/dependencies/dependency-panel-skeleton";
 import { getHealthWarnings } from "@/lib/monitoring/health";
 import { listDashboardMonitors } from "@/lib/monitoring/queries";
 
@@ -24,6 +26,9 @@ export default function OverviewPage() {
       </div>
       <Suspense fallback={<MonitorTableSkeleton />}>
         <MonitorTableIsland />
+      </Suspense>
+      <Suspense fallback={<DependencyPanelSkeleton />}>
+        <DependencyPanel />
       </Suspense>
     </>
   );

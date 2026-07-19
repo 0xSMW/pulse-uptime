@@ -7,6 +7,7 @@ import { useState } from "react";
 import type { LatencyPoint } from "@/components/charts/latency-chart";
 import { LazyLatencyChart } from "@/components/charts/lazy-latency-chart";
 import { useTimezone } from "@/components/dashboard/timezone-provider";
+import { DependencyOverlapCard } from "@/components/dependencies/dependency-overlap-card";
 import type { DependencyIncidentOverlap } from "@/components/incidents/types";
 import { StatusBadge } from "@/components/monitors/status-badge";
 import { MonitorActions, MonitorEditButton } from "@/components/monitors/monitor-actions";
@@ -231,33 +232,36 @@ export function MonitorDetail({ monitor }: { monitor: MonitorDetailData }) {
       </section>
 
       {monitor.latestIncident ? (
-        <Link
-          href={`/incidents/${encodeURIComponent(monitor.latestIncident.id)}`}
-          className={cn(
-            "flex flex-col justify-between gap-2 rounded-xl border p-4 text-[13px] transition-colors hover:border-[var(--border-hover)] sm:flex-row sm:items-center",
-            monitor.latestIncident.state === "ONGOING"
-              ? "border-[var(--down-border)] bg-[var(--down-bg)]"
-              : "border-[var(--border)] bg-[var(--bg)]",
-          )}
-        >
-          <span className="flex min-w-0 items-center gap-2">
-            <StatusDot
-              state={monitor.latestIncident.state === "ONGOING" ? "DOWN" : "UP"}
-            />
-            <span className="font-medium">
-              {monitor.latestIncident.state === "ONGOING"
-                ? "Ongoing incident"
-                : "Recently resolved"}
+        <>
+          <Link
+            href={`/incidents/${encodeURIComponent(monitor.latestIncident.id)}`}
+            className={cn(
+              "flex flex-col justify-between gap-2 rounded-xl border p-4 text-[13px] transition-colors hover:border-[var(--border-hover)] sm:flex-row sm:items-center",
+              monitor.latestIncident.state === "ONGOING"
+                ? "border-[var(--down-border)] bg-[var(--down-bg)]"
+                : "border-[var(--border)] bg-[var(--bg)]",
+            )}
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <StatusDot
+                state={monitor.latestIncident.state === "ONGOING" ? "DOWN" : "UP"}
+              />
+              <span className="font-medium">
+                {monitor.latestIncident.state === "ONGOING"
+                  ? "Ongoing incident"
+                  : "Recently resolved"}
+              </span>
+              <span className="truncate font-data text-[var(--fg-muted)]">
+                {monitor.latestIncident.openingFailure}
+              </span>
             </span>
-            <span className="truncate font-data text-[var(--fg-muted)]">
-              {monitor.latestIncident.openingFailure}
+            <span className="shrink-0 font-data text-[var(--fg-muted)]">
+              {formatTimestamp(monitor.latestIncident.openedAt, resolvedTimeZone)} ·{" "}
+              {formatDuration(monitor.latestIncident.durationSeconds)}
             </span>
-          </span>
-          <span className="shrink-0 font-data text-[var(--fg-muted)]">
-            {formatTimestamp(monitor.latestIncident.openedAt, resolvedTimeZone)} ·{" "}
-            {formatDuration(monitor.latestIncident.durationSeconds)}
-          </span>
-        </Link>
+          </Link>
+          <DependencyOverlapCard overlaps={monitor.latestIncident.overlaps} />
+        </>
       ) : null}
 
       <Card>
