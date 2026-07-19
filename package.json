@@ -12,7 +12,11 @@
       "argon2",
       "esbuild",
       "sharp"
-    ]
+    ],
+    "overrides": {
+      "postcss@<8.5.10": "^8.5.10",
+      "@esbuild-kit/core-utils>esbuild": "^0.25.9"
+    }
   },
   "scripts": {
     "dev": "next dev",
