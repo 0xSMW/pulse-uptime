@@ -140,7 +140,10 @@ export async function executeIdempotent<T>(input: {
     }
     // Completion now commits atomically with the mutation, so a running
     // record past the stale window proves the prior attempt never took
-    // effect. Reclaim it and rerun work() rather than trying to recover.
+    // effect, as of the read above. The prior attempt can still complete
+    // between that read and this claim, so claimStale re-checks state and
+    // only reclaims a record still running. If it lost that race, the
+    // record is now completed and the client's next retry will replay it.
     recordId = await persistence.claimStale(existing.id, staleBefore, now, expiresAt);
     if (!recordId) {
       throw new IdempotencyError("REQUEST_IN_PROGRESS", "A request with this idempotency key is still running");
@@ -242,8 +245,19 @@ const databaseIdempotencyPersistence: IdempotencyPersistence = {
     )).returning({ id: apiIdempotency.id }))[0]?.id ?? null;
   },
   async claimStale(id, staleBefore, now, expiresAt) {
+    // A completed record must never be reclaimed. complete() does not touch
+    // createdAt, so an age check alone would still match a record whose
+    // owner finished just after we read it, letting a retry take over an
+    // already-completed record and overwrite its stored response. The
+    // state = "running" condition closes that race: if it doesn't match,
+    // the caller falls back to REQUEST_IN_PROGRESS and the next retry reads
+    // the completed record and replays it.
     return (await db.update(apiIdempotency).set({ createdAt: now, expiresAt })
-      .where(and(eq(apiIdempotency.id, id), lt(apiIdempotency.createdAt, staleBefore)))
+      .where(and(
+        eq(apiIdempotency.id, id),
+        eq(apiIdempotency.state, "running"),
+        lt(apiIdempotency.createdAt, staleBefore),
+      ))
       .returning({ id: apiIdempotency.id }))[0]?.id;
   },
   async transaction(run) {
