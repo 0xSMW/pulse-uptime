@@ -66,20 +66,26 @@ const requiredIndexes = [
   "api_idempotency_expiry",
   "api_idempotency_principal_key",
   "api_rate_limit_buckets_expiry",
+  "api_tokens_active_creator",
   "check_results_monitor_schedule",
   "check_results_monitor_time",
   "check_results_retention",
+  "cli_sessions_installation",
+  "config_operations_principal_idempotency",
   "config_operations_target_hash",
   "cron_runs_job_schedule",
   "device_authorizations_active_user_code",
   "exception_payloads_retention",
+  "incidents_feed_order",
   "incidents_monitor_opened",
   "incidents_one_active_per_monitor",
   "metric_rollups_retention",
   "monitor_exceptions_identity",
   "monitor_exceptions_incident",
   "monitor_exceptions_retention",
+  "monitoring_config_snapshots_accepted_order",
   "notification_outbox_due",
+  "notification_outbox_incident",
   "notification_outbox_stale_claim",
 ];
 
@@ -125,6 +131,10 @@ describe("database schema", () => {
     expect(indexes.get("device_authorizations_active_user_code")?.where).toBeDefined();
     expect(indexes.get("notification_outbox_due")?.where).toBeDefined();
     expect(indexes.get("notification_outbox_stale_claim")?.where).toBeDefined();
+    expect(indexes.get("notification_outbox_incident")?.where).toBeDefined();
+    expect(indexes.get("monitoring_config_snapshots_accepted_order")?.where).toBeDefined();
+    expect(indexes.get("api_tokens_active_creator")?.where).toBeDefined();
+    expect(indexes.get("config_operations_principal_idempotency")?.unique).toBe(false);
   });
 
   it("enforces the documented state domains", () => {

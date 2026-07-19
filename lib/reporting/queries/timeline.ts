@@ -36,6 +36,33 @@ export function summarizeRollupCoverage(rows: Array<Pick<RollupAvailability,
   };
 }
 
+function bucketIndexFor(timestamp: number, startMs: number, width: number, bucketCount: number): number | null {
+  const index = Math.floor((timestamp - startMs) / width);
+  return index >= 0 && index < bucketCount ? index : null;
+}
+
+// Integer widths permit direct bucket indexing. Non-integer widths can accumulate
+// floating-point drift and therefore use exact range filtering.
+function assignToBuckets<T>(rows: T[], bucketCount: number, startMs: number, width: number, timestampOf: (row: T) => number): T[][] {
+  if (Number.isInteger(width)) {
+    const buckets: T[][] = Array.from({ length: bucketCount }, () => []);
+    for (const row of rows) {
+      const index = bucketIndexFor(timestampOf(row), startMs, width, bucketCount);
+      if (index !== null) buckets[index]!.push(row);
+    }
+    return buckets;
+  }
+
+  return Array.from({ length: bucketCount }, (_, index) => {
+    const bucketStart = startMs + index * width;
+    const bucketEnd = bucketStart + width;
+    return rows.filter((row) => {
+      const timestamp = timestampOf(row);
+      return timestamp >= bucketStart && timestamp < bucketEnd;
+    });
+  });
+}
+
 export function buildCheckTimeline(
   rows: CheckAvailability[],
   bucketCount: number,
@@ -45,13 +72,11 @@ export function buildCheckTimeline(
   const startMs = now.getTime() - durationMs;
   const width = durationMs / bucketCount;
 
-  return Array.from({ length: bucketCount }, (_, index) => {
+  const buckets = assignToBuckets(rows, bucketCount, startMs, width, (row) => row.checkedAt.getTime());
+
+  return buckets.map((checks, index) => {
     const bucketStart = startMs + index * width;
     const bucketEnd = bucketStart + width;
-    const checks = rows.filter((row) => {
-      const timestamp = row.checkedAt.getTime();
-      return timestamp >= bucketStart && timestamp < bucketEnd;
-    });
     const failures = checks.filter((row) => !row.successful).length;
     return {
       state: checks.length === 0
@@ -110,13 +135,11 @@ export function buildRollupTimeline(
   const startMs = now.getTime() - durationMs;
   const width = durationMs / bucketCount;
 
-  return Array.from({ length: bucketCount }, (_, index) => {
+  const buckets = assignToBuckets(rows, bucketCount, startMs, width, (row) => row.bucketStart.getTime());
+
+  return buckets.map((included, index) => {
     const bucketStart = startMs + index * width;
     const bucketEnd = bucketStart + width;
-    const included = rows.filter((row) => {
-      const timestamp = row.bucketStart.getTime();
-      return timestamp >= bucketStart && timestamp < bucketEnd;
-    });
     const checks = included.reduce((sum, row) => sum + row.expectedChecks, 0);
     const completed = included.reduce((sum, row) => sum + row.completedChecks, 0);
     const failures = included.reduce((sum, row) => sum + row.failedChecks, 0);

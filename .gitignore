@@ -28,3 +28,7 @@ AGENTS.md
 /Docs/SECURITY-REMEDIATION-PLAN.md
 /Docs/SETTINGS-IA-REDESIGN.md
 /Docs/SETTINGS-AND-STATUS-REPORTS-PLAN.md
+
+# Query hillclimb: local temp-project state and generated benchmark artifacts
+/.query-performance/
+/scripts/query-performance/artifacts/

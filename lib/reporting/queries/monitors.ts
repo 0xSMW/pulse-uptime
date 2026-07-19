@@ -37,6 +37,18 @@ function completedRangeEnd(now: Date, resolution: "15m" | "hour" | "day"): Date 
   return end;
 }
 
+// Selects rows in [cutoffMs, endMs) from a wider window.
+export function selectRecentRollupWindow<T extends { bucketStart: Date }>(
+  supersetRows: T[],
+  cutoffMs: number,
+  endMs: number,
+): T[] {
+  return supersetRows.filter((row) => {
+    const bucketMs = row.bucketStart.getTime();
+    return bucketMs >= cutoffMs && bucketMs < endMs;
+  });
+}
+
 function p95Latency(rows: Array<{
   latencyCount: number;
   latencyHistogram: number[];
@@ -58,9 +70,8 @@ function p95Latency(rows: Array<{
   return null;
 }
 
-// Cheap identity lookup for the page shell: one indexed query, no rollups.
-// cache(): the page (shell/404 check) and the detail island share one lookup
-// per request.
+// Load identity without rollups. React cache shares the indexed lookup between
+// the page shell and detail island for each request.
 export const getMonitorIdentity = cache(async (id: string) => {
   const [monitor] = await db
     .select({
@@ -113,8 +124,7 @@ export async function getMonitorDetail(id: string) {
       lt(metricRollups.bucketStart, end),
     ))
     .orderBy(metricRollups.bucketStart);
-  const [rollups24h, rollups7d, rollups30d, rollups90d, recentIncidents, accepted] = await Promise.all([
-    rollupsFor("15m", end15m, 86_400_000),
+  const [rollups7d, rollups30d, rollups90d, recentIncidents, accepted] = await Promise.all([
     rollupsFor("15m", end15m, 7 * 86_400_000),
     rollupsFor("hour", endHour, 30 * 86_400_000),
     rollupsFor("day", endDay, 90 * 86_400_000),
@@ -128,6 +138,9 @@ export async function getMonitorDetail(id: string) {
       .orderBy(desc(monitoringConfigSnapshots.acceptedAt))
       .limit(1),
   ]);
+
+  // Derive the last 24 hours from the fetched seven days of rollups.
+  const rollups24h = selectRecentRollupWindow(rollups7d, end15m.getTime() - 86_400_000, end15m.getTime());
 
   let acceptedConfig = null;
   try { acceptedConfig = accepted[0] ? validateMonitoringConfig(accepted[0].configJson) : null; } catch { acceptedConfig = null; }

@@ -13,6 +13,11 @@ export interface QueryExecutor {
   query<T>(text: string, values: readonly unknown[]): Promise<readonly T[]>;
 }
 
+interface AffectedRow {
+  affected: number;
+}
+
+const affected = (rows: readonly AffectedRow[]) => rows[0]?.affected ?? 0;
 const count = (rows: readonly unknown[]) => rows.length;
 
 const SCHEDULER_COVERAGE_START_SQL = `select coalesce(
@@ -22,33 +27,66 @@ const SCHEDULER_COVERAGE_START_SQL = `select coalesce(
   $1::timestamptz - interval '48 hours'
 ) coverage_start`;
 
-const RECONCILE_CRON_SQL = `update cron_runs set status = 'failed', completed_at = $1,
-error_message = 'Stale running cron reconciled' where status = 'running' and started_at < $2 returning id`;
-const DELETE_CHECKS_SQL = `with doomed as (select id from check_results where created_at < $1 order by created_at, id limit $2)
-delete from check_results using doomed where check_results.id = doomed.id returning check_results.id`;
-const DELETE_SENT_SQL = `with doomed as (select id from notification_outbox where status = 'sent' and sent_at < $1 order by sent_at, id limit $2)
-delete from notification_outbox using doomed where notification_outbox.id = doomed.id returning notification_outbox.id`;
-const DELETE_CRON_SQL = `with doomed as (select id from cron_runs where started_at < $1 order by started_at, id limit $2)
-delete from cron_runs using doomed where cron_runs.id = doomed.id returning cron_runs.id`;
-const DELETE_ROLLUPS_SQL = `with doomed as (select monitor_id, day from daily_rollups where day < $1::date order by day, monitor_id limit $2)
-delete from daily_rollups using doomed where daily_rollups.monitor_id = doomed.monitor_id and daily_rollups.day = doomed.day returning daily_rollups.monitor_id`;
-const EXPIRE_APPROVALS_SQL = `with doomed as (select id from config_change_approvals where (expires_at < $1 and consumed_at is null) or consumed_at < $2 order by created_at, id limit $3)
-delete from config_change_approvals using doomed where config_change_approvals.id = doomed.id returning config_change_approvals.id`;
-const EXPIRE_IDEMPOTENCY_SQL = `with doomed as (select id from api_idempotency where expires_at < $1 order by expires_at, id limit $2)
-delete from api_idempotency using doomed where api_idempotency.id = doomed.id returning api_idempotency.id`;
-const MARK_DEVICE_EXPIRED_SQL = `with elapsed as (select id from device_authorizations where state in ('pending', 'approved') and expires_at < $1 order by expires_at, id limit $2)
-update device_authorizations set state = 'expired' from elapsed where device_authorizations.id = elapsed.id returning device_authorizations.id`;
-const DELETE_DEVICE_SQL = `with doomed as (select id from device_authorizations where state in ('expired', 'denied', 'consumed') and expires_at < $1 order by expires_at, id limit $2)
-delete from device_authorizations using doomed where device_authorizations.id = doomed.id returning device_authorizations.id`;
-const EXPIRE_RATE_SQL = `with doomed as (select ctid from api_rate_limit_buckets where expires_at < $1 order by expires_at limit $2)
-delete from api_rate_limit_buckets using doomed where api_rate_limit_buckets.ctid = doomed.ctid returning api_rate_limit_buckets.principal_key`;
+const RECONCILE_CRON_SQL = `with changed as (
+  update cron_runs set status = 'failed', completed_at = $1,
+  error_message = 'Stale running cron reconciled' where status = 'running' and started_at < $2 returning 1
+)
+select count(*)::int as affected from changed`;
+const DELETE_CHECKS_SQL = `with doomed as (select id from check_results where created_at < $1 order by created_at, id limit $2),
+deleted as (
+  delete from check_results using doomed where check_results.id = doomed.id returning 1
+)
+select count(*)::int as affected from deleted`;
+const DELETE_SENT_SQL = `with doomed as (select id from notification_outbox where status = 'sent' and sent_at < $1 order by sent_at, id limit $2),
+deleted as (
+  delete from notification_outbox using doomed where notification_outbox.id = doomed.id returning 1
+)
+select count(*)::int as affected from deleted`;
+const DELETE_CRON_SQL = `with doomed as (select id from cron_runs where started_at < $1 order by started_at, id limit $2),
+deleted as (
+  delete from cron_runs using doomed where cron_runs.id = doomed.id returning 1
+)
+select count(*)::int as affected from deleted`;
+const DELETE_ROLLUPS_SQL = `with doomed as (select monitor_id, day from daily_rollups where day < $1::date order by day, monitor_id limit $2),
+deleted as (
+  delete from daily_rollups using doomed where daily_rollups.monitor_id = doomed.monitor_id and daily_rollups.day = doomed.day returning 1
+)
+select count(*)::int as affected from deleted`;
+const EXPIRE_APPROVALS_SQL = `with doomed as (select id from config_change_approvals where (expires_at < $1 and consumed_at is null) or consumed_at < $2 order by created_at, id limit $3),
+deleted as (
+  delete from config_change_approvals using doomed where config_change_approvals.id = doomed.id returning 1
+)
+select count(*)::int as affected from deleted`;
+const EXPIRE_IDEMPOTENCY_SQL = `with doomed as (select id from api_idempotency where expires_at < $1 order by expires_at, id limit $2),
+deleted as (
+  delete from api_idempotency using doomed where api_idempotency.id = doomed.id returning 1
+)
+select count(*)::int as affected from deleted`;
+const MARK_DEVICE_EXPIRED_SQL = `with elapsed as (select id from device_authorizations where state in ('pending', 'approved') and expires_at < $1 order by expires_at, id limit $2),
+changed as (
+  update device_authorizations set state = 'expired' from elapsed where device_authorizations.id = elapsed.id returning 1
+)
+select count(*)::int as affected from changed`;
+const DELETE_DEVICE_SQL = `with doomed as (select id from device_authorizations where state in ('expired', 'denied', 'consumed') and expires_at < $1 order by expires_at, id limit $2),
+deleted as (
+  delete from device_authorizations using doomed where device_authorizations.id = doomed.id returning 1
+)
+select count(*)::int as affected from deleted`;
+const EXPIRE_RATE_SQL = `with doomed as (select ctid from api_rate_limit_buckets where expires_at < $1 order by expires_at limit $2),
+deleted as (
+  delete from api_rate_limit_buckets using doomed where api_rate_limit_buckets.ctid = doomed.ctid returning 1
+)
+select count(*)::int as affected from deleted`;
 const RETAIN_SNAPSHOTS_SQL = `with doomed as (
   select id from monitoring_config_snapshots where status = 'rejected' and seen_at < $1
   union all
   select id from (select id, row_number() over (order by accepted_at desc, seen_at desc, id desc) position
     from monitoring_config_snapshots where status = 'accepted') accepted where position > $2
-), batch as (select id from doomed limit $3)
-delete from monitoring_config_snapshots using batch where monitoring_config_snapshots.id = batch.id returning monitoring_config_snapshots.id`;
+), batch as (select id from doomed limit $3),
+deleted as (
+  delete from monitoring_config_snapshots using batch where monitoring_config_snapshots.id = batch.id returning 1
+)
+select count(*)::int as affected from deleted`;
 const RETAIN_TELEMETRY_SQL = `with doomed as (
   select scheduled_minute from check_batches
   where scheduled_minute < $1
@@ -56,7 +94,7 @@ const RETAIN_TELEMETRY_SQL = `with doomed as (
   order by scheduled_minute limit $3
 ), deleted_batches as (
   delete from check_batches using doomed where check_batches.scheduled_minute = doomed.scheduled_minute
-  returning check_batches.scheduled_minute
+  returning 1
 ), doomed_rollups as (
   select monitor_id, resolution, bucket_start from metric_rollups
   where (resolution = '15m' and bucket_start < $4
@@ -70,9 +108,9 @@ const RETAIN_TELEMETRY_SQL = `with doomed as (
   where metric_rollups.monitor_id = doomed_rollups.monitor_id
     and metric_rollups.resolution = doomed_rollups.resolution
     and metric_rollups.bucket_start = doomed_rollups.bucket_start
-  returning metric_rollups.bucket_start
+  returning 1
 )
-select scheduled_minute::text from deleted_batches union all select bucket_start::text from deleted_rollups`;
+select (select count(*)::int from deleted_batches) + (select count(*)::int from deleted_rollups) as affected`;
 const RETAIN_USAGE_SQL = `with ranked as (
   select captured_at,
     max(captured_at) over (partition by date_trunc('day', captured_at)) daily_point,
@@ -87,13 +125,21 @@ const RETAIN_USAGE_SQL = `with ranked as (
       and captured_at >= $1::timestamptz - interval '90 days'
       and captured_at <> daily_point)
   ) order by captured_at limit $2
+), deleted as (
+  delete from database_usage_snapshots using doomed
+  where database_usage_snapshots.captured_at = doomed.captured_at returning 1
 )
-delete from database_usage_snapshots using doomed
-where database_usage_snapshots.captured_at = doomed.captured_at returning database_usage_snapshots.captured_at`;
-const RETAIN_EXCEPTIONS_SQL = `with doomed as (select id from monitor_exceptions where last_seen_at < $1::timestamptz - interval '2 years' order by last_seen_at limit $2)
-delete from monitor_exceptions using doomed where monitor_exceptions.id = doomed.id returning monitor_exceptions.id`;
-const RETAIN_PAYLOADS_SQL = `with doomed as (select id from exception_payloads where expires_at < $1 order by expires_at limit $2)
-delete from exception_payloads using doomed where exception_payloads.id = doomed.id returning exception_payloads.id`;
+select count(*)::int as affected from deleted`;
+const RETAIN_EXCEPTIONS_SQL = `with doomed as (select id from monitor_exceptions where last_seen_at < $1::timestamptz - interval '2 years' order by last_seen_at limit $2),
+deleted as (
+  delete from monitor_exceptions using doomed where monitor_exceptions.id = doomed.id returning 1
+)
+select count(*)::int as affected from deleted`;
+const RETAIN_PAYLOADS_SQL = `with doomed as (select id from exception_payloads where expires_at < $1 order by expires_at limit $2),
+deleted as (
+  delete from exception_payloads using doomed where exception_payloads.id = doomed.id returning 1
+)
+select count(*)::int as affected from deleted`;
 const DELETE_ORPHAN_IMAGES_SQL = `with referenced as (
   select logo_light_image_id id from status_page_config where logo_light_image_id is not null
   union select logo_dark_image_id from status_page_config where logo_dark_image_id is not null
@@ -115,26 +161,38 @@ export function createSqlMaintenanceStore(db: QueryExecutor): MaintenanceStore {
       return reconcileStaleClaims(db, now);
     },
     async reconcileStaleCronRuns(now) {
-      return count(await db.query(RECONCILE_CRON_SQL, [now, new Date(now.getTime() - 5 * 60_000)]));
+      return affected(await db.query<AffectedRow>(RECONCILE_CRON_SQL, [now, new Date(now.getTime() - 5 * 60_000)]));
     },
-    async deleteRawChecks(cutoff, limit) { return count(await db.query(DELETE_CHECKS_SQL, [cutoff, limit])); },
-    async deleteSentNotifications(cutoff, limit) { return count(await db.query(DELETE_SENT_SQL, [cutoff, limit])); },
+    async deleteRawChecks(cutoff, limit) {
+      return affected(await db.query<AffectedRow>(DELETE_CHECKS_SQL, [cutoff, limit]));
+    },
+    async deleteSentNotifications(cutoff, limit) {
+      return affected(await db.query<AffectedRow>(DELETE_SENT_SQL, [cutoff, limit]));
+    },
     async expireConfigApprovals(now, consumedCutoff, limit) {
-      return count(await db.query(EXPIRE_APPROVALS_SQL, [now, consumedCutoff, limit]));
+      return affected(await db.query<AffectedRow>(EXPIRE_APPROVALS_SQL, [now, consumedCutoff, limit]));
     },
-    async expireApiIdempotency(now, limit) { return count(await db.query(EXPIRE_IDEMPOTENCY_SQL, [now, limit])); },
+    async expireApiIdempotency(now, limit) {
+      return affected(await db.query<AffectedRow>(EXPIRE_IDEMPOTENCY_SQL, [now, limit]));
+    },
     async markDeviceAuthorizationsExpired(now, limit) {
-      return count(await db.query(MARK_DEVICE_EXPIRED_SQL, [now, limit]));
+      return affected(await db.query<AffectedRow>(MARK_DEVICE_EXPIRED_SQL, [now, limit]));
     },
     async deleteExpiredDeviceAuthorizations(retentionCutoff, limit) {
-      return count(await db.query(DELETE_DEVICE_SQL, [retentionCutoff, limit]));
+      return affected(await db.query<AffectedRow>(DELETE_DEVICE_SQL, [retentionCutoff, limit]));
     },
-    async expireRateLimitBuckets(now, limit) { return count(await db.query(EXPIRE_RATE_SQL, [now, limit])); },
+    async expireRateLimitBuckets(now, limit) {
+      return affected(await db.query<AffectedRow>(EXPIRE_RATE_SQL, [now, limit]));
+    },
     async retainConfigSnapshots(cutoff, acceptedLimit, limit) {
-      return count(await db.query(RETAIN_SNAPSHOTS_SQL, [cutoff, acceptedLimit, limit]));
+      return affected(await db.query<AffectedRow>(RETAIN_SNAPSHOTS_SQL, [cutoff, acceptedLimit, limit]));
     },
-    async deleteOldCronRuns(cutoff, limit) { return count(await db.query(DELETE_CRON_SQL, [cutoff, limit])); },
-    async deleteOldRollups(dayCutoff, limit) { return count(await db.query(DELETE_ROLLUPS_SQL, [dayCutoff, limit])); },
+    async deleteOldCronRuns(cutoff, limit) {
+      return affected(await db.query<AffectedRow>(DELETE_CRON_SQL, [cutoff, limit]));
+    },
+    async deleteOldRollups(dayCutoff, limit) {
+      return affected(await db.query<AffectedRow>(DELETE_ROLLUPS_SQL, [dayCutoff, limit]));
+    },
     async compact15Minute(start, end, now) {
       return count(await db.query(COMPACT_15_MINUTE_SQL, [start, end, now]));
     },
@@ -158,15 +216,21 @@ export function createSqlMaintenanceStore(db: QueryExecutor): MaintenanceStore {
       const quarterCutoff = new Date(now.getTime() - policy.quarterHourDays * 86_400_000);
       const hourCutoff = new Date(now.getTime() - policy.hourlyDays * 86_400_000);
       const dayCutoff = new Date(now.getTime() - 730 * 86_400_000);
-      return count(await db.query(RETAIN_TELEMETRY_SQL, [
+      return affected(await db.query<AffectedRow>(RETAIN_TELEMETRY_SQL, [
         minuteCutoff, mode === "shortened" || mode === "incident_only", limit, quarterCutoff, hourCutoff,
         mode === "essential", dayCutoff, new Date(now.getTime() - 7 * 86_400_000),
         mode === "shortened" || mode === "incident_only", new Date(now.getTime() - 90 * 86_400_000),
       ]));
     },
-    async retainUsageSnapshots(now, limit) { return count(await db.query(RETAIN_USAGE_SQL, [now, limit])); },
-    async retainExceptions(now, limit) { return count(await db.query(RETAIN_EXCEPTIONS_SQL, [now, limit])); },
-    async retainExceptionPayloads(now, limit) { return count(await db.query(RETAIN_PAYLOADS_SQL, [now, limit])); },
+    async retainUsageSnapshots(now, limit) {
+      return affected(await db.query<AffectedRow>(RETAIN_USAGE_SQL, [now, limit]));
+    },
+    async retainExceptions(now, limit) {
+      return affected(await db.query<AffectedRow>(RETAIN_EXCEPTIONS_SQL, [now, limit]));
+    },
+    async retainExceptionPayloads(now, limit) {
+      return affected(await db.query<AffectedRow>(RETAIN_PAYLOADS_SQL, [now, limit]));
+    },
     async deleteOrphanImages(cutoff, keepNewest, limit) {
       return count(await db.query(DELETE_ORPHAN_IMAGES_SQL, [cutoff, keepNewest, limit]));
     },

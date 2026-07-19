@@ -3,15 +3,32 @@ import { incidentNotificationKey, normalizeRecipient } from "./idempotency";
 import type { SqlExecutor } from "./sql";
 import type { IncidentOpenedPayload, IncidentResolvedPayload } from "./types";
 
-export const ENQUEUE_NOTIFICATION_SQL = `
+const COLUMNS_PER_ROW = 8;
+
+function buildEnqueueRowValues(rowCount: number): string {
+  const rows: string[] = [];
+  for (let row = 0; row < rowCount; row++) {
+    const base = row * COLUMNS_PER_ROW;
+    const p = (offset: number) => `$${base + offset}`;
+    rows.push(`(${p(1)}, ${p(2)}, ${p(3)}, ${p(4)}, ${p(5)}, ${p(6)}, ${p(7)}, 'pending', 0, ${p(8)}, ${p(8)}, ${p(8)})`);
+  }
+  return rows.join(",\n");
+}
+
+export function buildEnqueueNotificationSql(rowCount: number): string {
+  return `
 insert into notification_outbox (
   id, incident_id, monitor_id, event_type, recipient, idempotency_key,
   payload, status, attempt_count, next_attempt_at, created_at, updated_at
 )
-values ($1, $2, $3, $4, $5, $6, $7, 'pending', 0, $8, $8, $8)
+values
+${buildEnqueueRowValues(rowCount)}
 on conflict (idempotency_key) do nothing
 returning id
 `;
+}
+
+export const ENQUEUE_NOTIFICATION_SQL = buildEnqueueNotificationSql(1);
 
 type IncidentEventInput =
   | {
@@ -41,8 +58,12 @@ export async function enqueueIncidentNotifications(
   const now = options.now ?? new Date();
   const createId = options.createId ?? randomUUID;
   const recipients = [...new Set(input.recipients.map(normalizeRecipient))];
-  let inserted = 0;
 
+  if (recipients.length === 0) {
+    return 0;
+  }
+
+  const values: unknown[] = [];
   for (const recipient of recipients) {
     const payload: IncidentOpenedPayload | IncidentResolvedPayload = input.event === "opened"
       ? {
@@ -59,18 +80,21 @@ export async function enqueueIncidentNotifications(
           recoveredAt: input.recoveredAt,
           duration: input.duration,
         };
-    const rows = await db.query<{ id: string }>(ENQUEUE_NOTIFICATION_SQL, [
+    values.push(
       createId(),
       input.incidentId,
       input.monitorId,
       payload.type,
       recipient,
       incidentNotificationKey(input.incidentId, input.event, recipient),
-      payload,
+      JSON.stringify(payload),
       now,
-    ]);
-    inserted += rows.length;
+    );
   }
 
-  return inserted;
+  const rows = await db.query<{ id: string }>(
+    buildEnqueueNotificationSql(recipients.length),
+    values,
+  );
+  return rows.length;
 }

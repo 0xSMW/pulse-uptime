@@ -1,12 +1,11 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useRef, useSyncExternalStore, type RefObject } from "react";
+import { useCallback, useRef, useSyncExternalStore, type RefObject } from "react";
 
 import type { LatencyPoint } from "@/components/charts/latency-chart";
 
-// recharts is heavy; split it out of the route bundle AND defer downloading
-// it until the chart container actually scrolls into view.
+// Load Recharts outside the route bundle when the chart enters the viewport.
 const LatencyChart = dynamic(
   () => import("@/components/charts/latency-chart").then((mod) => mod.LatencyChart),
   { loading: () => <ChartPlaceholder /> },
@@ -16,16 +15,15 @@ function ChartPlaceholder() {
   return <div className="h-[220px] w-full animate-pulse rounded bg-[var(--chip-bg)]" aria-hidden />;
 }
 
-// Subscribes to whether `containerRef` has scrolled into view. Falls back to
-// immediately visible when IntersectionObserver is unavailable, rather than
-// never mounting the chart. Modeled on useSyncExternalStore so state changes
-// only come from the subscription callback, never an effect body. Server
-// snapshot is always `false`, so SSR and the first render agree: no hydration mismatch.
+// Subscribe to visibility without changing state from an effect. Mount
+// immediately without IntersectionObserver. The false server snapshot keeps
+// hydration consistent until the client reports visibility.
 function useIsIntersecting(containerRef: RefObject<HTMLDivElement | null>) {
   const visibleRef = useRef(false);
 
-  return useSyncExternalStore(
-    (onChange) => {
+  // Keep subscribe stable to prevent IntersectionObserver recreation during parent renders.
+  const subscribe = useCallback(
+    (onChange: () => void) => {
       const container = containerRef.current;
       if (!container || visibleRef.current) return () => {};
 
@@ -47,6 +45,11 @@ function useIsIntersecting(containerRef: RefObject<HTMLDivElement | null>) {
       observer.observe(container);
       return () => observer.disconnect();
     },
+    [containerRef],
+  );
+
+  return useSyncExternalStore(
+    subscribe,
     () => visibleRef.current,
     () => false,
   );

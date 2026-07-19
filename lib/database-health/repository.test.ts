@@ -69,9 +69,18 @@ describe("database health repository", () => {
     expect(result?.retention.map(({ configuredSeconds }) => configuredSeconds)).toEqual([86_400, 259_200]);
   });
 
+  it("short-circuits on a cold start without querying retention ages", async () => {
+    unsafe.mockResolvedValueOnce([]);
+    await expect(databaseHealthRepository.readLatest()).resolves.toBeNull();
+    // A missing snapshot skips the retention query.
+    expect(unsafe).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects an invalid persisted capture timestamp", async () => {
     unsafe.mockResolvedValueOnce([{ ...snapshot, captured_at: "not-a-date" }]);
     await expect(databaseHealthRepository.readLatest()).rejects.toThrow("Invalid database usage snapshot timestamp");
+    // An invalid timestamp skips the retention query.
+    expect(unsafe).toHaveBeenCalledTimes(1);
   });
 
   it("normalizes timestamps created by another runtime realm", async () => {

@@ -4,7 +4,7 @@
   "private": true,
   "license": "MIT",
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.18.0"
   },
   "packageManager": "pnpm@10.15.1",
   "pnpm": {
@@ -29,7 +29,14 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
-    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "query-perf:validate": "node --import ./scripts/query-performance/register.mjs scripts/query-performance/src/validate.ts",
+    "query-perf:migrate": "node --import ./scripts/query-performance/register.mjs scripts/query-performance/src/migrate.ts",
+    "query-perf:seed": "node --import ./scripts/query-performance/register.mjs scripts/query-performance/src/seed-fixture.ts",
+    "query-perf:reset-fixture": "node --import ./scripts/query-performance/register.mjs scripts/query-performance/src/reset-fixture.ts",
+    "query-perf:verify-state": "node --import ./scripts/query-performance/register.mjs scripts/query-performance/src/verify-state.ts",
+    "query-perf:run": "node --import ./scripts/query-performance/register.mjs scripts/query-performance/src/run-benchmark.ts",
+    "query-perf:compare": "node --import ./scripts/query-performance/register.mjs scripts/query-performance/src/compare-artifacts.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

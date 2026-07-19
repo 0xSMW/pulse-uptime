@@ -91,6 +91,17 @@ function filterReportsForGroupSlug<T extends Pick<PublicReportEntry, "affected">
   );
 }
 
+// Groups rows by monitor ID while preserving input order.
+export function groupByMonitorId<T extends { monitorId: string }>(rows: T[]): Map<string, T[]> {
+  const grouped = new Map<string, T[]>();
+  for (const row of rows) {
+    const bucket = grouped.get(row.monitorId);
+    if (bucket) bucket.push(row);
+    else grouped.set(row.monitorId, [row]);
+  }
+  return grouped;
+}
+
 function failureLabel(statusCode: number | null): string {
   if (statusCode !== null) return `HTTP ${statusCode}`;
   // Checker codes can include infrastructure detail. Public pages use a stable,
@@ -297,13 +308,15 @@ async function loadPublicStatus(group?: string) {
     const name = monitor.groupName ?? "Other";
     grouped.set(name, [...(grouped.get(name) ?? []), monitor]);
   }
+  const rollupsByMonitor = groupByMonitorId(rollups);
+
   const groups = [...grouped.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([name, entries]) => ({
       name,
       slug: statusGroupSlug(name),
       monitors: entries.sort((left, right) => left.name.localeCompare(right.name)).map((monitor) => {
-        const rows = rollups.filter((rollup) => rollup.monitorId === monitor.id);
+        const rows = rollupsByMonitor.get(monitor.id) ?? [];
         const summary = summarizeRollupCoverage(rows);
         return {
           id: monitor.id,

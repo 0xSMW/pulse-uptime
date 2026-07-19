@@ -13,15 +13,25 @@ with coverage as (
     coalesce(coverage.covered_until, accepted_start.accepted_at, $2::timestamptz)
   ) scan_start
   from coverage cross join accepted_start
+), accepted_snapshot_rank as (
+  select config_version, config_json, accepted_at,
+    row_number() over (partition by accepted_at order by seen_at desc) rn
+  from monitoring_config_snapshots
+  where status = 'accepted'
+), accepted_ranges as (
+  select config_version, config_json, accepted_at,
+    lead(accepted_at) over (order by accepted_at) next_accepted_at
+  from accepted_snapshot_rank
+  where rn = 1
 ), missing as (
   select minute.scheduled_minute, config.config_version,
     array_agg(monitor.value->>'id' order by monitor.value->>'id') monitor_ids,
     array_agg((monitor.value->>'intervalMinutes')::integer order by monitor.value->>'id') intervals
   from scan
   cross join lateral generate_series(date_trunc('minute', scan.scan_start), date_trunc('minute', $2::timestamptz) - interval '1 minute', interval '1 minute') minute(scheduled_minute)
-  cross join lateral (select config_version, config_json from monitoring_config_snapshots
-    where status = 'accepted' and accepted_at <= minute.scheduled_minute
-    order by accepted_at desc, seen_at desc limit 1) config
+  cross join lateral (select config_version, config_json from accepted_ranges
+    where accepted_at <= minute.scheduled_minute
+      and (next_accepted_at is null or minute.scheduled_minute < next_accepted_at)) config
   cross join lateral jsonb_array_elements(config.config_json->'monitors') monitor(value)
   left join check_batches existing on existing.scheduled_minute = minute.scheduled_minute
   where existing.scheduled_minute is null and (monitor.value->>'enabled')::boolean

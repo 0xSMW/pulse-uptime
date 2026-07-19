@@ -69,7 +69,23 @@ export type ConfigurationService = {
   operation(id: string): Promise<ConfigOperation | null>;
 };
 
-function serializeOperation(row: typeof configOperations.$inferSelect): ConfigOperation {
+const OPERATION_COLUMNS = {
+  id: configOperations.id,
+  baseConfigHash: configOperations.baseConfigHash,
+  targetConfigHash: configOperations.targetConfigHash,
+  planHash: configOperations.planHash,
+  state: configOperations.state,
+  edgeConfigVersion: configOperations.edgeConfigVersion,
+  rejectionReason: configOperations.rejectionReason,
+  createdAt: configOperations.createdAt,
+  writtenAt: configOperations.writtenAt,
+  acceptedAt: configOperations.acceptedAt,
+  failedAt: configOperations.failedAt,
+};
+
+type OperationRow = Pick<typeof configOperations.$inferSelect, keyof typeof OPERATION_COLUMNS>;
+
+function serializeOperation(row: OperationRow): ConfigOperation {
   return {
     id: row.id,
     baseConfigHash: row.baseConfigHash,
@@ -126,14 +142,14 @@ function createDatabaseStore(): ConfigurationStore {
         .from(monitoringConfigSnapshots).where(eq(monitoringConfigSnapshots.status, "accepted"))
         .orderBy(desc(monitoringConfigSnapshots.acceptedAt), desc(monitoringConfigSnapshots.seenAt)).limit(1))[0]),
       findOperation: async (principalKey, idempotencyKey) => {
-        const [row] = await tx.select().from(configOperations).where(sql`${configOperations.principalKey} = ${principalKey} and ${configOperations.idempotencyKey} = ${idempotencyKey}`).limit(1);
+        const [row] = await tx.select(OPERATION_COLUMNS).from(configOperations).where(sql`${configOperations.principalKey} = ${principalKey} and ${configOperations.idempotencyKey} = ${idempotencyKey}`).limit(1);
         return row ? serializeOperation(row) : null;
       },
       insertApproval: async (value) => { await tx.insert(configChangeApprovals).values(value); },
-      insertOperation: async (value) => serializeOperation((await tx.insert(configOperations).values({ id: crypto.randomUUID(), ...value }).returning())[0]),
+      insertOperation: async (value) => serializeOperation((await tx.insert(configOperations).values({ id: crypto.randomUUID(), ...value }).returning(OPERATION_COLUMNS))[0]),
     })),
     readOperation: async (id) => {
-      const [row] = await db.select().from(configOperations).where(eq(configOperations.id, id)).limit(1);
+      const [row] = await db.select(OPERATION_COLUMNS).from(configOperations).where(eq(configOperations.id, id)).limit(1);
       return row ? serializeOperation(row) : null;
     },
   };

@@ -92,7 +92,18 @@ export async function approveDeviceAuthorization(
       sql`lower(${deviceAuthorizations.userCode}) = lower(${normalized})`,
       eq(deviceAuthorizations.state, "pending"),
       gt(deviceAuthorizations.expiresAt, now),
-    )).returning();
+    )).returning({
+      id: deviceAuthorizations.id,
+      userCode: deviceAuthorizations.userCode,
+      clientName: deviceAuthorizations.clientName,
+      installationKey: deviceAuthorizations.installationKey,
+      installationName: deviceAuthorizations.installationName,
+      platform: deviceAuthorizations.platform,
+      architecture: deviceAuthorizations.architecture,
+      clientVersion: deviceAuthorizations.clientVersion,
+      requestIp: deviceAuthorizations.requestIp,
+      expiresAt: deviceAuthorizations.expiresAt,
+    });
     if (!authorization) {
       throw new DeviceAuthorizationError("expired_token", "Authorization request is no longer available");
     }
@@ -230,7 +241,15 @@ export async function pollDeviceAuthorization(
         } };
       }
     }
-    const [authorization] = await tx.select().from(deviceAuthorizations)
+    const [authorization] = await tx.select({
+      id: deviceAuthorizations.id,
+      state: deviceAuthorizations.state,
+      expiresAt: deviceAuthorizations.expiresAt,
+      installationKey: deviceAuthorizations.installationKey,
+      lastPolledAt: deviceAuthorizations.lastPolledAt,
+      pollCount: deviceAuthorizations.pollCount,
+      pollingIntervalSeconds: deviceAuthorizations.pollingIntervalSeconds,
+    }).from(deviceAuthorizations)
       .where(eq(deviceAuthorizations.deviceCodeDigest, digest)).for("update").limit(1);
     if (!authorization) return { error: new DeviceAuthorizationError("expired_token", "Device code is invalid or expired") };
     if (authorization.expiresAt <= now || authorization.state === "consumed" || authorization.state === "expired") {
@@ -249,7 +268,10 @@ export async function pollDeviceAuthorization(
       return { error: new DeviceAuthorizationError(tooSoon ? "slow_down" : "authorization_pending", tooSoon ? "Polling too quickly" : "Authorization is pending") };
     }
 
-    const [installation] = await tx.select().from(cliInstallations)
+    const [installation] = await tx.select({
+      id: cliInstallations.id,
+      userEmail: cliInstallations.userEmail,
+    }).from(cliInstallations)
       .where(and(eq(cliInstallations.installationKey, authorization.installationKey), isNull(cliInstallations.revokedAt)))
       .limit(1);
     if (!installation) return { error: new DeviceAuthorizationError("expired_token", "Installation approval is no longer valid") };

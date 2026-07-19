@@ -20,6 +20,15 @@ describe("storage maintenance SQL", () => {
     expect(FILL_SCHEDULER_GAPS_SQL).toContain("'scheduler_gap'");
   });
 
+  it("resolves the accepted config per minute from precomputed effective ranges, not a per-minute lateral order-by", () => {
+    expect(FILL_SCHEDULER_GAPS_SQL).not.toMatch(/order by accepted_at desc, seen_at desc limit 1/);
+    expect(FILL_SCHEDULER_GAPS_SQL).toContain("partition by accepted_at order by seen_at desc");
+    expect(FILL_SCHEDULER_GAPS_SQL).toContain("lead(accepted_at) over (order by accepted_at) next_accepted_at");
+    expect(FILL_SCHEDULER_GAPS_SQL).toContain("where accepted_at <= minute.scheduled_minute");
+    expect(FILL_SCHEDULER_GAPS_SQL).toContain("next_accepted_at is null or minute.scheduled_minute < next_accepted_at");
+    expect(FILL_SCHEDULER_GAPS_SQL).toContain("cross join lateral (select config_version, config_json from accepted_ranges");
+  });
+
   it("promotes mergeable histogram buckets in database", () => {
     expect(PROMOTE_ROLLUP_SQL).toContain("sum(latency_histogram[8])");
     expect(PROMOTE_ROLLUP_SQL).toContain("on conflict (monitor_id, resolution, bucket_start) do update");
