@@ -39,7 +39,7 @@ export async function PATCH(request: Request, { params }: Params) {
         ? await getStatusReport(reportId, { store }).catch(() => null)
         : null;
       const report = await updateStatusReport(reportId, body, { store });
-      await revalidateStatusReportPaths(report, previous?.affected ?? []);
+      await revalidateStatusReportPaths(report, previous?.affected ?? [], store);
       return { status: 200, kind: "StatusReport", data: report };
     },
   });
@@ -58,7 +58,7 @@ export async function DELETE(request: Request, { params }: Params) {
       const store = createDatabaseStatusReportsStore(tx);
       const report = await getStatusReport(reportId, { store });
       await deleteStatusReport(reportId, { store });
-      await revalidateStatusReportPaths(report);
+      await revalidateStatusReportPaths(report, [], store);
       return { status: 200, kind: "StatusReportDeleted", data: { id: reportId } };
     },
   });

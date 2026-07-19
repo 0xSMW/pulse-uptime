@@ -81,6 +81,17 @@ describe("revalidateStatusReportPaths", () => {
     await revalidateStatusReportPaths({ id: "rep-1", affected: [] });
     expect(databaseStatusReportsStore.findMonitors).not.toHaveBeenCalled();
   });
+
+  it("rides a passed-in store's findMonitors instead of the global pool-bound store (finding: mutation routes hold a pool connection while calling this)", async () => {
+    const txStore = { findMonitors: vi.fn().mockResolvedValue([]) };
+    await revalidateStatusReportPaths(
+      { id: "rep-1", affected: [{ monitorId: "mon-1", groupName: "Core" }] },
+      [],
+      txStore,
+    );
+    expect(txStore.findMonitors).toHaveBeenCalledWith(["mon-1"]);
+    expect(databaseStatusReportsStore.findMonitors).not.toHaveBeenCalled();
+  });
 });
 
 function mutationRequest() {

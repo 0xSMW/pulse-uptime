@@ -234,20 +234,29 @@ export function createDatabaseStatusPageConfigStore(handle: DatabaseHandle = db)
     },
     async deleteUnreferencedImages(ids) {
       if (ids.length === 0) return 0;
-      const rows = await handle
-        .delete(images)
-        .where(and(
-          inArray(images.id, [...ids]),
-          sql`not exists (
-            select 1 from ${statusPageConfig}
-            where ${statusPageConfig.logoLightImageId} = ${images.id}
-              or ${statusPageConfig.logoDarkImageId} = ${images.id}
-              or ${statusPageConfig.faviconImageId} = ${images.id}
-          )`,
-          sql`not exists (select 1 from ${adminUsers} where ${adminUsers.avatarImageId} = ${images.id})`,
-        ))
-        .returning({ id: images.id });
-      return rows.length;
+      // Runs as a savepoint of `handle`, never a bare statement on it: the
+      // caller treats this delete as best-effort (see putStatusPageConfig's
+      // .catch), but `handle` may already be the caller's outer transaction,
+      // where an unguarded DB error would abort that whole transaction. The
+      // swallowed rejection would then let execution continue into the
+      // completion write, which dies with 25P02 and rolls back the config
+      // write this GC is only ever supposed to run alongside.
+      return handle.transaction(async (tx) => {
+        const rows = await tx
+          .delete(images)
+          .where(and(
+            inArray(images.id, [...ids]),
+            sql`not exists (
+              select 1 from ${statusPageConfig}
+              where ${statusPageConfig.logoLightImageId} = ${images.id}
+                or ${statusPageConfig.logoDarkImageId} = ${images.id}
+                or ${statusPageConfig.faviconImageId} = ${images.id}
+            )`,
+            sql`not exists (select 1 from ${adminUsers} where ${adminUsers.avatarImageId} = ${images.id})`,
+          ))
+          .returning({ id: images.id });
+        return rows.length;
+      });
     },
   };
 }
