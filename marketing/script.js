@@ -207,6 +207,7 @@
   }
 
   function renderMonitors() {
+    renderRecentAdded();
     const rows = $$("tr[data-monitor-id]", elements.monitorRows);
     const sameStructure =
       rows.length === demo.monitors.length &&
@@ -709,8 +710,30 @@
     });
     demo.lastAdded = id;
     renderMonitors();
-    showToast("Monitor created — running first check");
+    showToast("Monitor created, running first check");
     ensureMonitorTicker();
+    return id;
+  }
+
+  let recentAddedId = null;
+
+  function renderRecentAdded() {
+    const wrap = $("#monitor-added");
+    if (!wrap) return;
+    const monitor = demo.monitors.find((entry) => entry.id === recentAddedId);
+    if (!monitor) {
+      wrap.hidden = true;
+      return;
+    }
+    const up = monitor.status === "UP";
+    wrap.hidden = false;
+    $("#monitor-form-note").hidden = true;
+    $("#monitor-added-dot").className = `status-dot ${up ? "up" : "pulse"}`;
+    $("#monitor-added-name").textContent = monitor.name;
+    $("#monitor-added-url").textContent = monitor.url;
+    const state = $("#monitor-added-state");
+    state.textContent = up ? `up · ${monitor.latency} ms` : "first check running";
+    state.classList.toggle("t-up", up);
   }
 
   let monitorTicker = 0;
@@ -728,7 +751,7 @@
           monitor.uptime = "100%";
           monitor.lastCheckAt = now;
           monitor.history = 1;
-          showToast(`${monitor.name} is up — first check passed`);
+          showToast(`${monitor.name} is up, first check passed`);
           changed = true;
         } else if (monitor.status === "UP" && now - monitor.lastCheckAt >= 12000) {
           monitor.latency = Math.max(12, monitor.latency + Math.round(Math.random() * 14 - 7));
@@ -946,6 +969,7 @@
     { id: "go-operate", group: "Go to", icon: "arrow", label: "7.0 Operate", keywords: "section database storage budget", run: () => goTo("#database") },
     { id: "go-architecture", group: "Go to", icon: "arrow", label: "8.0 Architecture", keywords: "section map cron neon edge resend", run: () => goTo("#architecture") },
     { id: "go-security", group: "Go to", icon: "arrow", label: "9.0 Harden", keywords: "section security ssrf auth csp trust hostile", run: () => goTo("#security") },
+    { id: "go-performance", group: "Go to", icon: "arrow", label: "10.0 Accelerate", keywords: "section performance fast benchmark queries speed", run: () => goTo("#performance") },
     { id: "go-deploy", group: "Go to", icon: "arrow", label: "Deploy Pulse", keywords: "github clone install cta", run: () => goTo("#deploy") },
     { id: "cli-me", group: "CLI", icon: "terminal", label: "Run pulsectl me", keywords: "terminal user auth linked", run: () => { demo.command = "me"; goTo("#cli"); renderCLI(true); } },
     { id: "cli-monitors", group: "CLI", icon: "terminal", label: "Run pulsectl monitor list", keywords: "terminal checks uptime", run: () => { demo.command = "monitors"; goTo("#cli"); renderCLI(true); } },
@@ -1127,9 +1151,12 @@
 
   $("#inline-monitor-form").addEventListener("submit", (event) => {
     event.preventDefault();
-    addMonitor(event.currentTarget);
-    $("#monitor-form-note").textContent = "Monitor added to the dashboard above";
-    $("#simulation").scrollIntoView({ behavior: preferredScrollBehavior(), block: "start" });
+    const form = event.currentTarget;
+    const id = addMonitor(form);
+    if (!id) return;
+    recentAddedId = id;
+    renderRecentAdded();
+    form.reset();
   });
 
   $("#dialog-monitor-form").addEventListener("submit", (event) => {
@@ -1635,6 +1662,34 @@ Docs     <span class="dv-num">UP</span>  58ms
 
   $$(".security-tree button").forEach((button) =>
     button.addEventListener("click", () => renderSecurityFile(button.dataset.file)));
+
+  const perfCards = $("#perf-cards");
+  if (perfCards && "IntersectionObserver" in window) {
+    const easeOut = (t) => 1 - Math.pow(1 - t, 3);
+    const runCounter = (el, delay) => {
+      const from = parseFloat(el.dataset.countFrom);
+      const to = parseFloat(el.dataset.countTo);
+      const decimals = Number(el.dataset.countDecimals || 0);
+      if (prefersReducedMotion()) {
+        el.textContent = to.toFixed(decimals);
+        return;
+      }
+      el.textContent = from.toFixed(decimals);
+      const start = performance.now() + delay;
+      const step = (now) => {
+        const t = Math.min(1, (now - start) / 1100);
+        if (t > 0) el.textContent = (to + (from - to) * (1 - easeOut(t))).toFixed(decimals);
+        if (t < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    };
+    const watcher = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      watcher.disconnect();
+      $$("[data-count-from]", perfCards).forEach((el, index) => runCounter(el, 500 + index * 280));
+    }, { threshold: 0.35 });
+    watcher.observe(perfCards);
+  }
 
   const deployCommand = $("#deploy-command");
   if (deployCommand) {

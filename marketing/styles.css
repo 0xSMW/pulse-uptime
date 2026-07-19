@@ -3668,3 +3668,161 @@ html,
 .cta-links .text-link:hover svg {
   transform: translateX(2px);
 }
+
+/* ---- Performance section (10.0 Accelerate) ---- */
+
+.monitor-added {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 11px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  animation: event-in 300ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.monitor-added[hidden] {
+  display: none;
+}
+
+.monitor-added-text {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  text-align: left;
+}
+
+.monitor-added-text strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.monitor-added-text small {
+  overflow: hidden;
+  color: var(--fg-faint);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.monitor-added-state {
+  flex: 0 0 auto;
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+
+.perf-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  align-items: start;
+  margin-top: 64px;
+}
+
+.perf-card {
+  overflow: hidden;
+}
+
+.perf-metric {
+  color: var(--fg);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.perf-card-rows {
+  padding: 12px 14px;
+  background: var(--code-bg);
+}
+
+.perf-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  font: 11px/1.7 "Geist Mono", ui-monospace, monospace;
+  transition: opacity 200ms ease;
+}
+
+.perf-line span:first-child {
+  overflow: hidden;
+  color: var(--fg-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.perf-line span:last-child {
+  color: var(--fg);
+  white-space: nowrap;
+}
+
+.perf-card-rows:hover .perf-line:not(:hover) {
+  opacity: 0.45;
+}
+
+.perf-foot {
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  color: var(--fg-faint);
+  font: 11px/1.4 "Geist Mono", ui-monospace, monospace;
+}
+
+.js .perf-cards .perf-line {
+  animation: event-in 300ms cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+  animation-play-state: paused;
+  animation-delay: calc(var(--card-delay, 0ms) + var(--line, 0) * 110ms);
+}
+
+.js .perf-cards.is-visible .perf-line {
+  animation-play-state: running;
+}
+
+.perf-col:nth-child(2) .perf-card { --card-delay: 280ms; }
+.perf-col:nth-child(3) .perf-card { --card-delay: 560ms; }
+
+.perf-principle {
+  padding-inline: 2px;
+}
+
+.perf-col .perf-card {
+  margin-top: 30px;
+}
+
+.perf-principle span {
+  color: var(--fg-faint);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+}
+
+.perf-principle strong {
+  display: block;
+  margin-top: 20px;
+  font-weight: 500;
+}
+
+.perf-principle p {
+  margin-top: 7px;
+  color: var(--fg-muted);
+}
+.perf-line:nth-child(1) { --line: 0; }
+.perf-line:nth-child(2) { --line: 1; }
+.perf-line:nth-child(3) { --line: 2; }
+.perf-line:nth-child(4) { --line: 3; }
+.perf-line:nth-child(5) { --line: 4; }
+.perf-line:nth-child(6) { --line: 5; }
+.perf-line:nth-child(7) { --line: 6; }
+
+@media (prefers-reduced-motion: reduce) {
+  .js .perf-cards .perf-line { animation: none; }
+}
+
+@media (max-width: 980px) {
+  .perf-cards { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 760px) {
+  .perf-cards { margin-top: 44px; }
+}

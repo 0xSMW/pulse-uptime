@@ -216,6 +216,11 @@
 
             <button class="button primary full" type="submit">Save Monitor</button>
             <p class="form-note" id="monitor-form-note" aria-live="polite">Runs locally in this demo</p>
+            <div class="monitor-added" id="monitor-added" aria-live="polite" hidden>
+              <span class="status-dot pulse" id="monitor-added-dot" aria-hidden="true"></span>
+              <span class="monitor-added-text"><strong id="monitor-added-name"></strong><small id="monitor-added-url"></small></span>
+              <span class="monitor-added-state mono" id="monitor-added-state">first check running</span>
+            </div>
           </form>
         </div>
       </section>
@@ -589,7 +594,7 @@
               <svg class="node-arrow" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" /></svg>
             </button>
           </div>
-          <p class="system-description" id="system-description" aria-live="polite">Hover a system for its role. Click to zoom in</p>
+          <p class="system-description" id="system-description" aria-live="polite">Hover a system for its role. Click to zoom in.</p>
 
           <div class="system-detail" id="system-detail" role="group" aria-label="System detail" hidden>
             <button class="icon-button detail-close" type="button" data-close-detail aria-label="Back to all systems">
@@ -612,8 +617,6 @@
           <div><span class="mono">01</span><strong>Vercel-native</strong><p>Deploy with the platform you already use</p></div>
           <div><span class="mono">02</span><strong>Exception-first history</strong><p>Keep detail where it carries meaning</p></div>
           <div><span class="mono">03</span><strong>One control plane</strong><p>Serve people and agents consistently</p></div>
-          <div><span class="mono">04</span><strong>Status reports</strong><p>Draft, publish, and update incident narratives in your own words</p></div>
-          <div><span class="mono">05</span><strong>White-label status page</strong><p>Your name, logo, and links on the page your users see</p></div>
         </div>
       </section>
 
@@ -699,6 +702,62 @@
             <svg class="arrow-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" /></svg>
           </a>
         </p>
+      </section>
+
+      <section class="story shell section-rule" id="performance">
+        <div class="section-intro" data-reveal>
+          <div>
+            <p class="section-number">10.0 &nbsp; Accelerate</p>
+            <h2>Fast by doing less</h2>
+          </div>
+          <p>Fewer renders, fewer fetches, fewer statements. First paint to cron tick, every layer does less.</p>
+        </div>
+
+        <div class="perf-cards" id="perf-cards" data-reveal>
+          <div class="perf-col">
+            <div class="perf-principle"><span class="mono">01</span><strong>Runtime</strong><p>Shells stream while data loads. Revisits render from cache and rows prefetch on hover.</p></div>
+            <article class="perf-card panel">
+              <div class="dv-head"><span>shell</span><span class="perf-metric">600 ms → <span data-count-from="600" data-count-to="0">0</span></span></div>
+              <div class="perf-card-rows">
+                <div class="perf-line"><span>shell painted</span><span>0 ms</span></div>
+                <div class="perf-line"><span>rollup read · 24h</span><span>0.078 ms</span></div>
+                <div class="perf-line"><span>hover</span><span>prefetched</span></div>
+                <div class="perf-line"><span>revisit</span><span>cache hit</span></div>
+              </div>
+              <div class="perf-foot">paint first, fetch later</div>
+            </article>
+          </div>
+          <div class="perf-col">
+            <div class="perf-principle"><span class="mono">02</span><strong>Scale</strong><p>Cost follows change, not fleet size. More monitors do not mean more round trips.</p></div>
+            <article class="perf-card panel">
+              <div class="dv-head"><span>cron tick</span><span class="perf-metric">401 → <span data-count-from="401" data-count-to="5">5</span></span></div>
+              <div class="perf-card-rows">
+                <div class="perf-line"><span>read config</span><span>edge config</span></div>
+                <div class="perf-line"><span>registry sync</span><span>5 stmts</span></div>
+                <div class="perf-line"><span>alert fan-out</span><span>1 insert</span></div>
+                <div class="perf-line"><span>outbox claim</span><span>0.627 ms</span></div>
+                <div class="perf-line"><span>tick complete</span><span>steady state</span></div>
+              </div>
+              <div class="perf-foot">same cost at any fleet size</div>
+            </article>
+          </div>
+          <div class="perf-col">
+            <div class="perf-principle"><span class="mono">03</span><strong>Database</strong><p>Set-based SQL and rollup reads. One statement does what four hundred used to.</p></div>
+            <article class="perf-card panel">
+              <div class="dv-head"><span>queries</span><span class="perf-metric"><span data-count-from="4.894" data-count-to="0.082" data-count-decimals="3">0.082</span> ms median</span></div>
+              <div class="perf-card-rows">
+                <div class="perf-line"><span>uptime 24h</span><span>4.894 ms</span></div>
+                <div class="perf-line"><span>status rollups</span><span>0.684 ms</span></div>
+                <div class="perf-line"><span>outbox claim</span><span>0.627 ms</span></div>
+                <div class="perf-line"><span>detail rollups 30d</span><span>0.288 ms</span></div>
+                <div class="perf-line"><span>detail rollups 7d</span><span>0.122 ms</span></div>
+                <div class="perf-line"><span>incidents list</span><span>0.119 ms</span></div>
+                <div class="perf-line"><span>palette lookup</span><span>0.108 ms</span></div>
+              </div>
+              <div class="perf-foot">+12 more · none over 5 ms</div>
+            </article>
+          </div>
+        </div>
       </section>
 
       <section class="final-cta" id="deploy">
