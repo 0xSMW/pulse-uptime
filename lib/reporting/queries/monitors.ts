@@ -262,10 +262,10 @@ export async function getMonitorDetail(id: string) {
       d90: observed90d.coverage,
     },
     rangeUnlocked: {
-      h24: isRangeUnlocked("h24", activatedAt, now),
-      d7: isRangeUnlocked("d7", activatedAt, now),
-      d30: isRangeUnlocked("d30", activatedAt, now),
-      d90: isRangeUnlocked("d90", activatedAt, now),
+      h24: isRangeUnlocked("h24", activatedAt, end15m),
+      d7: isRangeUnlocked("d7", activatedAt, end15m),
+      d30: isRangeUnlocked("d30", activatedAt, endHour),
+      d90: isRangeUnlocked("d90", activatedAt, endDay),
     } satisfies Record<AvailabilityRange, boolean>,
     firstRun: buildFirstRun(monitor, observed24h, now),
     rollupVersion: rollupVersionOf(rollups7d),
@@ -307,19 +307,30 @@ export async function getMonitorDetail(id: string) {
 // snapshot values that refresh through the rollup-version-gated router.refresh.
 // It skips the config snapshot, the timeline buckets, and the response chart
 // series that the full detail query builds. Locked ranges report null so an
-// API consumer cannot read partial history as a full-range score.
-export async function getMonitorLive(id: string): Promise<MonitorLiveData | null> {
+// API consumer cannot read partial history as a full-range score. The incident
+// fields carry incident detail, so a caller without incidents:read receives a
+// null latestIncident and an empty recentIncidents and the query never reads
+// the incidents table. Dashboard sessions hold both scopes and see them.
+export async function getMonitorLive(
+  id: string,
+  options: { includeIncidents?: boolean } = {},
+): Promise<MonitorLiveData | null> {
+  const includeIncidents = options.includeIncidents ?? true;
   const monitor = await getMonitorIdentity(id);
   if (!monitor) return null;
 
   const now = new Date();
   const end15m = completedRangeEnd(now, "15m");
+  const endHour = completedRangeEnd(now, "hour");
+  const endDay = completedRangeEnd(now, "day");
   const [rollups7d, recentIncidents, recentRawChecks] = await Promise.all([
     fetchRollups(id, "15m", end15m, 7 * 86_400_000),
-    db.select().from(incidents)
-      .where(eq(incidents.monitorId, id))
-      .orderBy(desc(incidents.openedAt))
-      .limit(5),
+    includeIncidents
+      ? db.select().from(incidents)
+          .where(eq(incidents.monitorId, id))
+          .orderBy(desc(incidents.openedAt))
+          .limit(5)
+      : Promise.resolve([]),
     getRecentRawChecks(id, now),
   ]);
 
@@ -327,11 +338,15 @@ export async function getMonitorLive(id: string): Promise<MonitorLiveData | null
   const activatedAt = monitor.activatedAt;
   const observed24h = summarizeCounts(rollupsSinceActivation(rollups24h, activatedAt));
   const observed7d = summarizeCounts(rollupsSinceActivation(rollups7d, activatedAt));
-  const unlocked24h = isRangeUnlocked("h24", activatedAt, now);
-  const unlocked7d = isRangeUnlocked("d7", activatedAt, now);
+  const unlocked24h = isRangeUnlocked("h24", activatedAt, end15m);
+  const unlocked7d = isRangeUnlocked("d7", activatedAt, end15m);
 
   return {
     state: monitor.state ?? "PENDING",
+    // enabled tracks the registry row, which registry-sync flips in step with
+    // the state field above, so a pause from another session lands here on the
+    // next poll rather than waiting for a rollup refresh.
+    enabled: monitor.enabled,
     latestLatencyMs: monitor.latestLatencyMs,
     lastCheckedAt: monitor.lastCheckedAt?.toISOString() ?? null,
     p95LatencyMs: p95Latency(rollups24h),
@@ -346,8 +361,8 @@ export async function getMonitorLive(id: string): Promise<MonitorLiveData | null
     rangeUnlocked: {
       h24: unlocked24h,
       d7: unlocked7d,
-      d30: isRangeUnlocked("d30", activatedAt, now),
-      d90: isRangeUnlocked("d90", activatedAt, now),
+      d30: isRangeUnlocked("d30", activatedAt, endHour),
+      d90: isRangeUnlocked("d90", activatedAt, endDay),
     },
     firstRun: buildFirstRun(monitor, observed24h, now),
     latestIncident: buildLatestIncident(recentIncidents, now),

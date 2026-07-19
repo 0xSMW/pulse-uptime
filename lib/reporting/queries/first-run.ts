@@ -16,7 +16,7 @@ export type MonitorPhase = "setup" | "collecting" | "active";
 
 export type AvailabilityRange = "h24" | "d7" | "d30" | "d90";
 
-// A range unlocks once observation covers its full window.
+// A range unlocks once the completed data window covers its full span.
 export const RANGE_UNLOCK_MS: Record<AvailabilityRange, number> = {
   h24: 86_400_000,
   d7: 7 * 86_400_000,
@@ -37,13 +37,18 @@ export function firstRunPhase(activatedAt: Date | null, now: Date): MonitorPhase
   return observedMs(activatedAt, now) < COLLECTING_WINDOW_MS ? "collecting" : "active";
 }
 
+// A range card reads only completed buckets, so unlock compares against the
+// completed range end, not wall-clock now. The range unlocks once that end
+// reaches a full window back to activation. Comparing against now would unlock
+// a range while its newest bucket is still forming, showing a full-range score
+// over a window short one bucket.
 export function isRangeUnlocked(
   range: AvailabilityRange,
   activatedAt: Date | null,
-  now: Date,
+  completedRangeEnd: Date,
 ): boolean {
   if (activatedAt === null) return false;
-  return observedMs(activatedAt, now) >= RANGE_UNLOCK_MS[range];
+  return completedRangeEnd.getTime() - RANGE_UNLOCK_MS[range] >= activatedAt.getTime();
 }
 
 // Keeps only rollup buckets whose start is at or after activation. The bucket

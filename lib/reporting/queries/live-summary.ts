@@ -85,6 +85,7 @@ export type LiveRange = "h24" | "d7";
 // fields so the client can merge them over the server snapshot in place.
 export type MonitorLiveData = {
   state: MonitorState;
+  enabled: boolean;
   latestLatencyMs: number | null;
   p95LatencyMs: number | null;
   lastCheckedAt: string | null;

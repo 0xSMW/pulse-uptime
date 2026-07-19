@@ -45,18 +45,34 @@ describe("observedMs", () => {
 });
 
 describe("isRangeUnlocked", () => {
+  // The third argument is the completed range end, the last finalized bucket,
+  // not wall-clock now. A range unlocks only once that end reaches a full
+  // window back to activation.
+  const completedEnd = now;
+
   it("keeps every range locked before activation", () => {
-    expect(isRangeUnlocked("h24", null, now)).toBe(false);
-    expect(isRangeUnlocked("d30", null, now)).toBe(false);
+    expect(isRangeUnlocked("h24", null, completedEnd)).toBe(false);
+    expect(isRangeUnlocked("d30", null, completedEnd)).toBe(false);
   });
 
-  it("unlocks a range only once its full window is observed", () => {
-    expect(isRangeUnlocked("h24", ago(DAY - 1), now)).toBe(false);
-    expect(isRangeUnlocked("h24", ago(DAY), now)).toBe(true);
-    expect(isRangeUnlocked("d7", ago(6 * DAY), now)).toBe(false);
-    expect(isRangeUnlocked("d7", ago(7 * DAY), now)).toBe(true);
-    expect(isRangeUnlocked("d30", ago(29 * DAY), now)).toBe(false);
-    expect(isRangeUnlocked("d30", ago(30 * DAY), now)).toBe(true);
+  it("unlocks a range only once the completed window covers it back to activation", () => {
+    expect(isRangeUnlocked("h24", ago(DAY - 1), completedEnd)).toBe(false);
+    expect(isRangeUnlocked("h24", ago(DAY), completedEnd)).toBe(true);
+    expect(isRangeUnlocked("d7", ago(6 * DAY), completedEnd)).toBe(false);
+    expect(isRangeUnlocked("d7", ago(7 * DAY), completedEnd)).toBe(true);
+    expect(isRangeUnlocked("d30", ago(29 * DAY), completedEnd)).toBe(false);
+    expect(isRangeUnlocked("d30", ago(30 * DAY), completedEnd)).toBe(true);
+  });
+
+  it("stays locked when the completed end trails now past the window", () => {
+    // Activation a day and three minutes before now, but the last completed 15m
+    // bucket ends five minutes before now. The completed window reaches back
+    // only to two minutes before activation, so the range holds locked even
+    // though now minus activation already exceeds a day.
+    const trailingEnd = ago(5 * 60_000);
+    expect(isRangeUnlocked("h24", ago(DAY + 3 * 60_000), trailingEnd)).toBe(false);
+    // Once activation sits a full day before that same completed end, it unlocks.
+    expect(isRangeUnlocked("h24", ago(DAY + 5 * 60_000), trailingEnd)).toBe(true);
   });
 });
 
