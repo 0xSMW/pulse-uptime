@@ -29,6 +29,9 @@ describe("atomic completed minute persistence", () => {
     expect(PERSIST_ATOMIC_MINUTE_SQL).toContain("cross join batch_insert");
     expect(PERSIST_ATOMIC_MINUTE_SQL).toContain("pulse_assert_equal");
     expect(PERSIST_ATOMIC_MINUTE_SQL.trim().toLowerCase()).not.toMatch(/returning\s+\w+\s*$/);
+    for (const param of ["$4", "$11", "$12", "$13", "$14", "$15", "$16", "$17"]) {
+      expect(PERSIST_ATOMIC_MINUTE_SQL).toContain(`${param}::text::jsonb`);
+    }
     const values = query.mock.calls[0]![1];
     expect(JSON.parse(String(values[11]))).toHaveLength(1);
     expect(JSON.parse(String(values[14]))).toHaveLength(1);
