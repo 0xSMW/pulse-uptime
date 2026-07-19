@@ -3,7 +3,7 @@
 import { Search } from "lucide-react";
 import Link from "next/link";
 // Semi-public path: the only way to request a FULL (dynamic-data) prefetch
-// through router.prefetch() in Next 16 — the public default is shell-only.
+// through router.prefetch() in Next 16, since the public default is shell-only.
 import { PrefetchKind } from "next/dist/client/components/router-reducer/router-reducer-types";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -27,7 +27,7 @@ export type DashboardMonitor = {
 
 const rowInteractiveSelector = "a, button, input, select, textarea, summary, [role='button'], [role='link'], [contenteditable='true']";
 
-// Modified/aux clicks open new tabs (or nothing) — no client navigation
+// Modified/aux clicks open new tabs (or nothing): no client navigation
 // happens in this tab, so they must not enter the pending state.
 export function isPlainLeftClick(event: {
   button: number;
@@ -150,7 +150,7 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
                     markPending(monitor.id);
                   }
                 }}
-                // Rows are unbounded, so no viewport prefetch — a full dynamic
+                // Rows are unbounded, so no viewport prefetch: a full dynamic
                 // prefetch fires on hover/focus instead, when intent is clear.
                 onMouseEnter={() => router.prefetch(`/monitors/${encodeURIComponent(monitor.id)}`, { kind: PrefetchKind.FULL })}
                 onFocus={() => router.prefetch(`/monitors/${encodeURIComponent(monitor.id)}`, { kind: PrefetchKind.FULL })}

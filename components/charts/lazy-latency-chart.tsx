@@ -16,14 +16,11 @@ function ChartPlaceholder() {
   return <div className="h-[220px] w-full animate-pulse rounded bg-[var(--chip-bg)]" aria-hidden />;
 }
 
-// Subscribes to whether `containerRef`'s element has scrolled into view.
-// Falls back to "immediately visible" when IntersectionObserver isn't
-// available rather than never mounting the chart. Modeled as an external
-// store (rather than useEffect + setState) so the "become visible" signal
-// only ever flows out of a subscription callback, never synchronously out of
-// an effect body. The server snapshot is always `false`, so SSR and the
-// first client render agree — no hydration mismatch — and visibility only
-// flips to `true` once React attaches the subscription on the client.
+// Subscribes to whether `containerRef` has scrolled into view. Falls back to
+// immediately visible when IntersectionObserver is unavailable, rather than
+// never mounting the chart. Modeled on useSyncExternalStore so state changes
+// only come from the subscription callback, never an effect body. Server
+// snapshot is always `false`, so SSR and the first render agree: no hydration mismatch.
 function useIsIntersecting(containerRef: RefObject<HTMLDivElement | null>) {
   const visibleRef = useRef(false);
 

@@ -11,13 +11,13 @@ import { listCommandPaletteIncidents } from "@/lib/reporting/queries/incidents";
 export const dynamic = "force-dynamic";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  // Auth barrier stays ahead of children on purpose: no protected bytes can
-  // stream before the session check resolves.
+  // The session check must complete before children render; otherwise
+  // protected content could stream to unauthenticated clients.
   const session = await getCurrentSession();
   if (!session) redirect("/onboarding");
   if (!session.onboardingCompletedAt) redirect("/onboarding");
-  // Deliberately not awaited: streamed to the palette overlay, which resolves
-  // them with use() — palette data never blocks first paint.
+  // Not awaited: the palette overlay resolves these with use(), so palette
+  // data never blocks first paint.
   const monitorsPromise = listCommandPaletteMonitors()
     .then((monitors) => monitors.map(({ id, name, state, lastLatencyMs }) => ({ id, name, state, lastLatencyMs })))
     .catch(() => []);

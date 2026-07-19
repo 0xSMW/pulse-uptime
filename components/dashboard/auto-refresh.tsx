@@ -13,23 +13,17 @@ export function shouldAutoRefresh(
   return visibilityState === "visible" && now - lastRefreshAt >= MIN_REFRESH_GAP_MS;
 }
 
-// Server data changes outside browser mutations (cron writes monitor state
-// every minute), so the 30s router cache needs a freshness backstop: refresh
-// on window focus, and optionally on an interval while the tab is visible.
-//
-// Known, accepted cost: each refresh invalidates the segment cache, which
-// re-triggers prefetches for visible prefetch={true} links (3-4 bounded nav
-// links). For this single-operator dashboard that is a handful of cheap
-// in-region renders per minute, and only while the tab is visible — the price
-// of always-fresh, instantly-navigable tabs.
+// Cron writes monitor state every minute outside browser mutations, so the
+// 30s router cache needs a freshness backstop: refresh on focus, plus an
+// optional interval while visible. Each refresh also re-triggers prefetch
+// for the always-visible full-prefetch nav links, a few cheap in-region renders.
 export function AutoRefresh({ intervalMs }: { intervalMs?: number }) {
   const router = useRouter();
   const lastRefreshAtRef = useRef(0);
 
   useEffect(() => {
-    // Seed the throttle window on mount (not during render, which must stay
-    // pure) so a focus/visibilitychange event firing immediately after mount
-    // doesn't trigger a redundant refresh right on top of the initial load.
+    // Seed here, not during render (render must stay pure), so a focus or
+    // visibilitychange event firing right after mount skips a redundant refresh.
     lastRefreshAtRef.current = Date.now();
 
     const refresh = () => {

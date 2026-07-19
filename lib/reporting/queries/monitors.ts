@@ -58,7 +58,7 @@ function p95Latency(rows: Array<{
   return null;
 }
 
-// Cheap identity lookup for the page shell — one indexed query, no rollups.
+// Cheap identity lookup for the page shell: one indexed query, no rollups.
 // cache(): the page (shell/404 check) and the detail island share one lookup
 // per request.
 export const getMonitorIdentity = cache(async (id: string) => {

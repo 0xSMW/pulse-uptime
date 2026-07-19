@@ -10,8 +10,8 @@ import { listDashboardMonitors } from "@/lib/monitoring/queries";
 export default function OverviewPage() {
   return (
     <>
-      {/* Fallback is intentionally empty: warnings are the exception, and a
-          late-arriving alert banner is acceptable shift for an alert. */}
+      {/* Empty fallback: warnings are rare, and layout shift from a
+          late-arriving alert banner is acceptable for an alert. */}
       <Suspense fallback={null}>
         <HealthBannerIsland />
       </Suspense>

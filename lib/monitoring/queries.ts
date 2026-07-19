@@ -33,27 +33,14 @@ export async function listCommandPaletteMonitors() {
 }
 
 export async function listDashboardMonitors() {
-  // Uptime blends pre-aggregated 15m rollups with raw check_results instead
-  // of rescanning 24h of raw checks per monitor. Rollups close at
-  // quarter-hour boundaries, so on their own they lag up to 15 minutes.
-  // check_results rows are purged 30 days after creation (see
-  // lib/maintenance/coordinator.ts performMaintenance rawCutoff, and
-  // lib/maintenance/sql.ts DELETE_CHECKS_SQL) independently of whether
-  // they've been rolled up — compaction reads from check_batches, not
-  // check_results (lib/storage/sql.ts COMPACT_15_MINUTE_SQL) — so a raw row
-  // and the 15m rollup bucket covering the same check routinely coexist for
-  // the entire 30-day retention window. A naive COALESCE(rollup, raw) over
-  // the full 24h window either double-counts (if summed together) or, as
-  // written before this fix, lets one fully-covered 15m bucket mask an
-  // otherwise-uncovered 24h window (young monitors, or a rollup outage gap).
-  //
-  // Correct approach: sum the rollups that exist in-window, then add every
-  // in-window raw check whose own 15m bucket was NOT rolled up (anti-join on
-  // date_bin). This never double-counts — a raw row is excluded exactly when
-  // the rollup sum already covers its bucket — and it counts retained raw
-  // rows in leading/middle coverage gaps (backfill start, compaction outage),
-  // not just the tail after the last rollup. A gap whose raw rows were
-  // already purged is simply gone and cannot be recovered here.
+  // uptime24h blends 15m metric_rollups with raw check_results because rollups close
+  // at quarter-hour boundaries and lag up to 15 minutes on their own. check_results
+  // rows are purged 30 days after creation independently of rollup status
+  // (retention in lib/maintenance, compaction reads check_batches in
+  // lib/storage), so a raw row and its rollup bucket coexist. The raw side
+  // is an anti-join: only raw checks whose own 15m bucket lacks a rollup
+  // row are counted, so gaps are covered by raw data, never double-counted.
+  // A gap whose raw rows were already purged cannot be recovered here.
   const end15m = new Date();
   end15m.setUTCMinutes(Math.floor(end15m.getUTCMinutes() / 15) * 15, 0, 0);
   const start15m = new Date(end15m.getTime() - 86_400_000);

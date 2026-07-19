@@ -4,12 +4,10 @@ import Link from "next/link";
 import { StatusBadge } from "@/components/monitors/status-badge";
 import type { MonitorIdentity } from "@/lib/reporting/queries/monitors";
 
-// Single source of truth for the monitor-detail loading geometry, used by BOTH
-// the route loading.tsx (identity unknown yet) and the page's Suspense fallback
-// (identity known) so the two loading stages never shift against each other.
-// Block heights mirror the real page: stat cards render 122px (p-6 content),
-// the response-time card is header + 220px chart, and Configuration closes the
-// page.
+// Shared by loading.tsx (identity unknown) and the page's Suspense fallback
+// (identity known), so the two loading stages never shift against each other.
+// Heights mirror the real page: stat cards 122px, response-time card is
+// header plus 220px chart, Configuration card closes the page.
 export function MonitorDetailSkeleton({ identity }: { identity?: MonitorIdentity }) {
   return (
     <div className="space-y-6" aria-busy="true" aria-label="Loading monitor details">

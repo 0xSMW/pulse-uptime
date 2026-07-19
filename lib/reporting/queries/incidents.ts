@@ -97,8 +97,8 @@ export async function listIncidents(filter: IncidentFilter = "all") {
     .orderBy(desc(incidents.openedAt))
     .limit(100);
 
-  // Aggregate in SQL: bounded result (one row per incident) instead of up to
-  // 4,000 outbox rows filtered per-incident in JS, and no silent truncation.
+  // Aggregated in SQL: one row per incident, so the result stays bounded
+  // regardless of outbox size.
   const summaries = rows.length === 0 ? [] : await db.select({
     incidentId: notificationOutbox.incidentId,
     sentCount: dsql<number>`count(*) filter (where ${notificationOutbox.status} = 'sent')`.mapWith(Number),
