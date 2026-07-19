@@ -169,6 +169,34 @@ func TestDebugHookOmitsSecretsAndQuery(t *testing.T) {
 	}
 }
 
+func TestProgressHookSpansRetriesAndErrorPaths(t *testing.T) {
+	t.Parallel()
+	var attempts int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		w.Header().Set("Retry-After", "0")
+		http.Error(w, `{"error":{"code":"TEMPORARY"}}`, http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "secret", "pulsectl/test", time.Second, server.Client())
+	var starts, ends int
+	client.SetProgressHook(func() func() {
+		starts++
+		return func() { ends++ }
+	})
+	_, err := client.DoRaw(context.Background(), Request{Method: http.MethodGet, Path: "/api/v1/monitors"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if attempts != maxAttempts {
+		t.Fatalf("attempts = %d, want %d", attempts, maxAttempts)
+	}
+	if starts != 1 || ends != 1 {
+		t.Fatalf("starts = %d, ends = %d, want exactly one begin/end spanning the retry loop", starts, ends)
+	}
+}
+
 func TestRejectsAbsoluteRequestURL(t *testing.T) {
 	t.Parallel()
 	client := NewClient("https://pulse.example.com", "secret", "pulsectl/test", time.Second, nil)
