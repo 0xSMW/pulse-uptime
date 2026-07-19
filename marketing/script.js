@@ -269,6 +269,8 @@
     elements.controlCopy.textContent = stage.controlCopy;
     elements.stepBack.classList.toggle("hidden-step", demo.stage === 0);
     elements.stepBack.disabled = demo.stage === 0;
+    const hintDot = $("#control-hint-dot");
+    if (hintDot) hintDot.className = `status-dot ${kind}`;
     elements.stepForward.classList.toggle("is-reset", demo.stage === 4);
     elements.stepForward.setAttribute("aria-label", demo.stage === 4 ? "Reset demo" : "Next step");
 
@@ -484,7 +486,7 @@
           <span class="dep-status"><span class="status-dot ${meta.dot}${pulse}"></span>${meta.label}</span>
           <span class="dep-name">${depIcon(item.icon, item.monogram)}<span class="dep-name-text"><strong>${escapeHtml(item.name)}${dep.region ? ` · ${escapeHtml(dep.region)}` : ""}</strong><small>${escapeHtml(item.provider)}</small></span></span>
           <div class="mini-timeline dep-timeline" aria-label="${escapeHtml(item.name)} provider-reported timeline">${depTimeline(dep, 22)}</div>
-          <span class="dep-incident mono">${status.incident ? escapeHtml(status.incident) : "—"}</span>
+          <span class="dep-incident mono">${status.incident ? escapeHtml(status.incident) : ""}</span>
         </div>`;
     }).join("");
   }
@@ -663,9 +665,26 @@
     renderCLI(false);
   }
 
+  let hintTimer = 0;
+
   function setStage(nextStage) {
     demo.stage = Math.max(0, Math.min(4, nextStage));
     renderAll();
+    const hint = $("#control-hint");
+    const hintDot = $("#control-hint-dot");
+    if (hint && !prefersReducedMotion()) {
+      [hint, hintDot].forEach((el) => {
+        if (!el) return;
+        el.classList.remove("ping");
+        void el.offsetWidth;
+        el.classList.add("ping");
+      });
+      window.clearTimeout(hintTimer);
+      hintTimer = window.setTimeout(() => {
+        hint.classList.remove("ping");
+        if (hintDot) hintDot.classList.remove("ping");
+      }, 900);
+    }
   }
 
   function addMonitor(form) {
@@ -845,6 +864,7 @@
   }
 
   let playTimer = 0;
+  let manualControl = false;
 
   function stopPlayback() {
     if (!playTimer) return;
@@ -856,6 +876,7 @@
   }
 
   function startPlayback() {
+    manualControl = true;
     if (demo.stage >= 4) setStage(0);
     elements.playButton.classList.add("playing");
     elements.playLabel.textContent = "Pause";
@@ -869,10 +890,12 @@
 
   elements.playButton.addEventListener("click", () => (playTimer ? stopPlayback() : startPlayback()));
   elements.stepBack.addEventListener("click", () => {
+    manualControl = true;
     stopPlayback();
     setStage(demo.stage - 1);
   });
   elements.stepForward.addEventListener("click", () => {
+    manualControl = true;
     stopPlayback();
     setStage(demo.stage === 4 ? 0 : demo.stage + 1);
   });
@@ -896,21 +919,85 @@
 
   const goTo = (selector) => $(selector)?.scrollIntoView({ behavior: preferredScrollBehavior(), block: "start" });
 
+  const PALETTE_ICONS = {
+    plus: '<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>',
+    play: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M5 3.2v9.6c0 .5.55.8.97.53l7.04-4.8a.62.62 0 0 0 0-1.06L5.97 2.67A.62.62 0 0 0 5 3.2Z"/></svg>',
+    reset: '<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.6 8a5.4 5.4 0 1 0 1.6-3.8M4.1 1.6v2.7h2.7"/></svg>',
+    terminal: '<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="m3 4.5 3.5 3.5L3 11.5M8.5 12H13"/></svg>',
+    copy: '<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="7.5" height="7.5" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H4.5A1.5 1.5 0 0 0 3 3v4.5A1.5 1.5 0 0 0 4.5 9H5"/></svg>',
+    sun: '<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="8" cy="8" r="3.1"/><path d="M8 1.2v1.6M8 13.2v1.6M1.2 8h1.6M13.2 8h1.6M3.4 3.4l1.2 1.2M11.4 11.4l1.2 1.2M12.6 3.4l-1.2 1.2M4.6 11.4l-1.2 1.2"/></svg>',
+    moon: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M13.54 9.63a.55.55 0 0 0-.62-.18 4.9 4.9 0 0 1-1.67.29 5 5 0 0 1-5-4.99c0-.55.09-1.1.27-1.62a.55.55 0 0 0-.7-.7A6.1 6.1 0 0 0 1.9 8.18 6.1 6.1 0 0 0 8 14.1a6.1 6.1 0 0 0 5.66-3.85.55.55 0 0 0-.12-.62Z"/></svg>',
+    arrow: '<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6"/></svg>'
+  };
+
+  const PALETTE_GROUPS = ["Create", "Demo", "Go to", "CLI", "Agents", "Appearance"];
+
   const PALETTE_COMMANDS = [
-    { label: "New monitor", hint: "dashboard", run: () => elements.dialog.showModal() },
-    { label: "Play the outage demo", hint: "detect", run: () => { goTo("#simulation"); startPlayback(); } },
-    { label: "Reset demo", hint: "detect", run: () => { stopPlayback(); setStage(0); goTo("#simulation"); } },
-    { label: "Run pulsectl me", hint: "cli", run: () => { demo.command = "me"; goTo("#cli"); renderCLI(true); } },
-    { label: "Run pulsectl monitor list", hint: "cli", run: () => { demo.command = "monitors"; goTo("#cli"); renderCLI(true); } },
-    { label: "Run pulsectl incident list", hint: "cli", run: () => { demo.command = "incidents"; goTo("#cli"); renderCLI(true); } },
-    { label: "Add a dependency", hint: "attribute", run: () => goTo("#dependencies") },
-    { label: "Run pulsectl dependency list", hint: "cli", run: () => { demo.command = "deps"; goTo("#cli"); renderCLI(true); } },
-    { label: "Copy agent prompt", hint: "agents", run: () => copyText($("#agent-prompt code").textContent.trim()) },
-    { label: "Toggle theme", hint: "appearance", run: () => setTheme(demo.theme === "dark" ? "light" : "dark") },
-    { label: "View architecture", hint: "navigate", run: () => goTo("#architecture") },
-    { label: "View status page", hint: "navigate", run: () => goTo("#status-page") },
-    { label: "Deploy Pulse", hint: "navigate", run: () => goTo("#deploy") }
+    { id: "new-monitor", group: "Create", icon: "plus", label: "New monitor", keywords: "add create endpoint url check", run: () => elements.dialog.showModal() },
+    { id: "add-dependency", group: "Create", icon: "plus", label: "Add a dependency", keywords: "openai stripe vercel provider attribute catalog", run: () => goTo("#dependencies") },
+    { id: "play-demo", group: "Demo", icon: "play", label: "Play the outage demo", keywords: "simulate incident start watch", run: () => { goTo("#simulation"); startPlayback(); } },
+    { id: "reset-demo", group: "Demo", icon: "reset", label: "Reset demo", keywords: "restart clear stage", run: () => { manualControl = true; stopPlayback(); setStage(0); goTo("#simulation"); } },
+    { id: "go-monitor", group: "Go to", icon: "arrow", label: "1.0 Monitor", keywords: "section add endpoint form", run: () => goTo("#monitoring") },
+    { id: "go-detect", group: "Go to", icon: "arrow", label: "2.0 Detect", keywords: "section simulator outage player", run: () => goTo("#simulation") },
+    { id: "go-respond", group: "Go to", icon: "arrow", label: "3.0 Respond", keywords: "section incidents email alert history", run: () => goTo("#response") },
+    { id: "go-attribute", group: "Go to", icon: "arrow", label: "4.0 Attribute", keywords: "section dependencies providers is it us or them", run: () => goTo("#dependencies") },
+    { id: "go-publish", group: "Go to", icon: "arrow", label: "5.0 Publish", keywords: "section status page public", run: () => goTo("#status-page") },
+    { id: "go-automate", group: "Go to", icon: "arrow", label: "6.0 Automate", keywords: "section cli terminal agents pulsectl", run: () => goTo("#cli") },
+    { id: "go-operate", group: "Go to", icon: "arrow", label: "7.0 Operate", keywords: "section database storage budget", run: () => goTo("#database") },
+    { id: "go-architecture", group: "Go to", icon: "arrow", label: "8.0 Architecture", keywords: "section map cron neon edge resend", run: () => goTo("#architecture") },
+    { id: "go-security", group: "Go to", icon: "arrow", label: "9.0 Harden", keywords: "section security ssrf auth csp trust hostile", run: () => goTo("#security") },
+    { id: "go-deploy", group: "Go to", icon: "arrow", label: "Deploy Pulse", keywords: "github clone install cta", run: () => goTo("#deploy") },
+    { id: "cli-me", group: "CLI", icon: "terminal", label: "Run pulsectl me", keywords: "terminal user auth linked", run: () => { demo.command = "me"; goTo("#cli"); renderCLI(true); } },
+    { id: "cli-monitors", group: "CLI", icon: "terminal", label: "Run pulsectl monitor list", keywords: "terminal checks uptime", run: () => { demo.command = "monitors"; goTo("#cli"); renderCLI(true); } },
+    { id: "cli-incidents", group: "CLI", icon: "terminal", label: "Run pulsectl incident list", keywords: "terminal outage history", run: () => { demo.command = "incidents"; goTo("#cli"); renderCLI(true); } },
+    { id: "cli-deps", group: "CLI", icon: "terminal", label: "Run pulsectl dependency list", keywords: "terminal providers", run: () => { demo.command = "deps"; goTo("#cli"); renderCLI(true); } },
+    { id: "copy-agent", group: "Agents", icon: "copy", label: "Copy agent prompt", keywords: "ai clipboard install setup", run: () => copyText($("#agent-prompt code").textContent.trim()) },
+    { id: "theme", group: "Appearance", icon: () => (demo.theme === "dark" ? "sun" : "moon"), label: () => (demo.theme === "dark" ? "Switch to light theme" : "Switch to dark theme"), keywords: "toggle theme dark light mode appearance", run: () => setTheme(demo.theme === "dark" ? "light" : "dark") }
   ];
+
+  let recentCommandIds = [];
+  try {
+    recentCommandIds = JSON.parse(localStorage.getItem("pulse-palette-recents") || "[]");
+  } catch {
+    recentCommandIds = [];
+  }
+
+  function rememberCommand(id) {
+    if (!id || id === "__terminal") return;
+    recentCommandIds = [id, ...recentCommandIds.filter((item) => item !== id)].slice(0, 3);
+    try {
+      localStorage.setItem("pulse-palette-recents", JSON.stringify(recentCommandIds));
+    } catch {
+      /* private mode */
+    }
+  }
+
+  const paletteLabel = (command) => (typeof command.label === "function" ? command.label() : command.label);
+  const paletteIcon = (command) => PALETTE_ICONS[typeof command.icon === "function" ? command.icon() : command.icon] || "";
+
+  function highlightLabel(label, tokens) {
+    const ranges = [];
+    const lower = label.toLowerCase();
+    tokens.forEach((token) => {
+      const index = lower.indexOf(token);
+      if (index >= 0) ranges.push([index, index + token.length]);
+    });
+    if (!ranges.length) return escapeHtml(label);
+    ranges.sort((a, b) => a[0] - b[0]);
+    const merged = [ranges[0]];
+    ranges.slice(1).forEach(([start, end]) => {
+      const last = merged[merged.length - 1];
+      if (start <= last[1]) last[1] = Math.max(last[1], end);
+      else merged.push([start, end]);
+    });
+    let html = "";
+    let cursor = 0;
+    merged.forEach(([start, end]) => {
+      html += escapeHtml(label.slice(cursor, start)) + "<b>" + escapeHtml(label.slice(start, end)) + "</b>";
+      cursor = end;
+    });
+    return html + escapeHtml(label.slice(cursor));
+  }
 
   function highlightPalette() {
     $$(".palette-item", paletteList).forEach((item) => {
@@ -922,17 +1009,62 @@
   }
 
   function renderPalette(filter) {
-    const query = filter.trim().toLowerCase();
-    paletteMatches = PALETTE_COMMANDS.filter((command) => command.label.toLowerCase().includes(query));
+    const raw = (filter || "").trim();
+    const tokens = raw.toLowerCase().split(/\s+/).filter(Boolean);
+    let sections = [];
+
+    if (!tokens.length) {
+      const recents = recentCommandIds
+        .map((id) => PALETTE_COMMANDS.find((command) => command.id === id))
+        .filter(Boolean);
+      if (recents.length) sections.push(["Recent", recents]);
+      PALETTE_GROUPS.forEach((group) => {
+        sections.push([group, PALETTE_COMMANDS.filter((command) => command.group === group)]);
+      });
+    } else {
+      const matches = PALETTE_COMMANDS.filter((command) => {
+        const haystack = (paletteLabel(command) + " " + (command.keywords || "") + " " + command.group).toLowerCase();
+        return tokens.every((token) => haystack.includes(token));
+      });
+      sections = PALETTE_GROUPS
+        .map((group) => [group, matches.filter((command) => command.group === group)])
+        .filter(([, items]) => items.length);
+      if (!matches.length) {
+        sections = [["Terminal", [{
+          id: "__terminal",
+          icon: "terminal",
+          label: 'Run "' + raw + '" in the terminal',
+          run: () => {
+            goTo("#cli");
+            runTypedCommand(raw);
+          }
+        }]]];
+      }
+    }
+
+    paletteMatches = sections.flatMap(([, items]) => items);
     paletteIndex = Math.min(paletteIndex, Math.max(0, paletteMatches.length - 1));
-    paletteList.innerHTML = paletteMatches.length
-      ? paletteMatches.map((command, index) => `<li class="palette-item" data-index="${index}" role="option"><span>${escapeHtml(command.label)}</span><span class="hint">${escapeHtml(command.hint)}</span></li>`).join("")
-      : '<li class="palette-empty">No matching command</li>';
+
+    let rowIndex = 0;
+    paletteList.innerHTML = sections.map(([title, items]) =>
+      '<li class="palette-group" role="presentation">' + escapeHtml(title) + "</li>" + items.map((command) => {
+        const row = '<li class="palette-item" data-index="' + rowIndex + '" role="option">' +
+          '<span class="palette-icon" aria-hidden="true">' + paletteIcon(command) + "</span>" +
+          '<span class="palette-label">' + highlightLabel(paletteLabel(command), tokens) + "</span>" +
+          '<kbd class="palette-enter" aria-hidden="true">\u21B5</kbd></li>';
+        rowIndex += 1;
+        return row;
+      }).join("")
+    ).join("");
+
+    const count = $("#palette-count");
+    if (count) count.textContent = paletteMatches.length + " command" + (paletteMatches.length === 1 ? "" : "s");
+
     $$(".palette-item", paletteList).forEach((item) => {
       item.addEventListener("mouseenter", () => {
-        const index = Number(item.dataset.index);
-        if (index === paletteIndex) return;
-        paletteIndex = index;
+        const itemIndex = Number(item.dataset.index);
+        if (itemIndex === paletteIndex) return;
+        paletteIndex = itemIndex;
         highlightPalette();
       });
       item.addEventListener("click", runPaletteCommand);
@@ -943,6 +1075,7 @@
   function runPaletteCommand() {
     const command = paletteMatches[paletteIndex];
     if (!command) return;
+    rememberCommand(command.id);
     palette.close();
     window.setTimeout(() => command.run(), 30);
   }
@@ -1388,8 +1521,140 @@ Docs     <span class="dv-num">UP</span>  58ms
       const target = document.getElementById(id);
       if (target) spyObserver.observe(target);
     });
+
+    const STAGE_LANDMARKS = [
+      ["#simulation", 1],
+      ["#response", 2],
+      ["#dependencies", 3],
+      ["#status-page", 4]
+    ];
+    const stageObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        stageObserver.unobserve(entry.target);
+        if (manualControl) return;
+        const landmark = Number(entry.target.dataset.stageLandmark);
+        if (demo.stage < landmark) setStage(landmark);
+      });
+    }, { rootMargin: "-35% 0px -35% 0px" });
+    STAGE_LANDMARKS.forEach(([selector, stage]) => {
+      const target = $(selector);
+      if (!target) return;
+      target.dataset.stageLandmark = String(stage);
+      stageObserver.observe(target);
+    });
   } else {
     revealTargets.forEach((target) => target.classList.add("is-visible"));
+  }
+
+  const SECURITY_FILES = {
+    "ip-policy": {
+      trace: `<span class="t-prompt">$</span> evaluate target addresses
+
+<span class="t-label">parse</span>    10.0.0.8 · valid IPv4
+<span class="t-label">range</span>    private · <span class="t-down">not publicly routable</span>
+<span class="t-label">verdict</span>  <span class="t-down">BLOCKED_TARGET</span>
+
+<span class="t-label">parse</span>    93.184.216.34 · valid IPv4
+<span class="t-label">range</span>    <span class="t-up">public unicast</span>
+<span class="t-label">verdict</span>  <span class="t-up">allowed</span>`,
+      blocked: [
+        ["redirect → 169.254.169.254", "link-local · BLOCKED_TARGET"],
+        ["target resolves to 10.0.0.8", "private range · refused"]
+      ]
+    },
+    "secure-lookup": {
+      trace: `<span class="t-prompt">$</span> check https://api.example.com/health
+
+<span class="t-label">resolve</span>  api.example.com → 93.184.216.34
+<span class="t-label">policy</span>   <span class="t-up">public range</span> · not private, not link-local
+<span class="t-label">pin</span>      socket pinned to validated address
+<span class="t-label">tls</span>      TLS 1.3 · certificate valid
+<span class="t-label">result</span>   <span class="t-up">200 OK</span> in 42 ms → <span class="t-up">UP</span>`,
+      blocked: [
+        ["DNS answer flipped to 127.0.0.1", "rebind attempt · pinned socket refused"],
+        ["resolver returned an empty set", "ENOTFOUND · check fails safe"]
+      ]
+    },
+    validation: {
+      trace: `<span class="t-prompt">$</span> validate https://api.example.com/health
+
+<span class="t-label">scheme</span>   https · <span class="t-up">allowed</span>
+<span class="t-label">host</span>     not an IP literal
+<span class="t-label">auth</span>     no credentials embedded in URL
+<span class="t-label">port</span>     443 · standard
+<span class="t-label">verdict</span>  <span class="t-up">accepted</span>`,
+      blocked: [
+        ["ftp://internal/backup", "scheme not allowed"],
+        ["https://user:pass@host.com", "credentials in URL · rejected"]
+      ]
+    },
+    credentials: {
+      trace: `<span class="t-prompt">$</span> verify login you@example.com
+
+<span class="t-label">limit</span>    attempt 2 of 5 this window
+<span class="t-label">hash</span>     argon2id · memory-hard
+<span class="t-label">verify</span>   <span class="t-up">match</span> · constant time
+<span class="t-label">token</span>    issued · sha-256 digest, lineage tracked`,
+      blocked: [
+        ["attempt 6 of 5 for admin", "rate limited · verify skipped"],
+        ["token digest mismatch", "lineage revoked"]
+      ]
+    },
+    "rate-limit": {
+      trace: `<span class="t-prompt">$</span> POST /api/v1/monitors · burst of 41
+
+<span class="t-label">window</span>   60 s · limit 40
+<span class="t-label">count</span>    41 → <span class="t-verifying">over limit</span>
+<span class="t-label">respond</span>  429 · Retry-After 30 s
+<span class="t-label">rows</span>     one per principal · <span class="t-up">no amplification</span>`,
+      blocked: [
+        ["request 41 in window", "429 · Retry-After 30 s"],
+        ["rate-limit row flood probe", "one row per principal"]
+      ]
+    }
+  };
+
+  function renderSecurityFile(key) {
+    const data = SECURITY_FILES[key];
+    const trace = $("#security-trace");
+    if (!data || !trace) return;
+    $$(".security-tree button").forEach((button) => button.classList.toggle("active", button.dataset.file === key));
+    trace.classList.remove("fade-in");
+    void trace.offsetWidth;
+    trace.innerHTML = data.trace;
+    trace.classList.add("fade-in");
+    const attempts = $("#security-attempts");
+    if (attempts) attempts.textContent = `${data.blocked.length} attempts`;
+    const rows = $("#security-blocked-rows");
+    if (rows) {
+      rows.innerHTML = data.blocked.map(([what, why]) =>
+        `<div class="blocked-row mono"><span class="t-down">✗</span> ${escapeHtml(what)} <span class="blocked-why">${escapeHtml(why)}</span></div>`).join("");
+    }
+  }
+
+  $$(".security-tree button").forEach((button) =>
+    button.addEventListener("click", () => renderSecurityFile(button.dataset.file)));
+
+  const deployCommand = $("#deploy-command");
+  if (deployCommand) {
+    let deployPrompt = $("#deploy-prompt-fallback")?.textContent.trim() || null;
+    fetch("./docs.html")
+      .then((response) => response.text())
+      .then((docsHtml) => {
+        const doc = new DOMParser().parseFromString(docsHtml, "text/html");
+        const text = doc.querySelector('[data-tab-panel="codex"] code')?.textContent?.trim();
+        if (text) deployPrompt = text;
+      })
+      .catch(() => { /* fallback block already loaded */ });
+    deployCommand.addEventListener("click", () => {
+      const icon = $(".cta-command-copy", deployCommand);
+      if (!deployPrompt) {
+        showToast("Copy unavailable");
+        return;
+      }
+      copyText(deployPrompt, icon);
+    });
   }
 
   const depSearch = $("#dep-search");
