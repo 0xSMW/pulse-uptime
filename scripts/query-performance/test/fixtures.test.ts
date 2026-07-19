@@ -6,6 +6,7 @@ import { validateMonitoringConfig } from "../../../lib/config/validation";
 import { incidentNotificationKey } from "../../../lib/notifications/idempotency";
 import * as schema from "../../../lib/db/schema";
 import {
+  CHECK_HISTORY_HOURS,
   CHUNK_SIZE,
   MAX_FIXTURE_RECIPIENTS,
   STALE_CLAIM_CUTOFF_MS,
@@ -362,6 +363,19 @@ describe("insertMaintenanceAndScheduler", () => {
       .filter((entry) => entry.table === schema.databaseUsageSnapshots)
       .reduce((sum, entry) => sum + entry.rowCount, 0);
     expect(usageSnapshotRows).toBe(30);
+  });
+});
+
+describe("raw check history window", () => {
+  it("covers the dashboard's completed 24h scan window plus the 15-minute bucket alignment slack", () => {
+    // listDashboardMonitors scans [end15m - 24h, end15m) where end15m floors
+    // the clock by up to 15 minutes, so seeded minutes must reach back at
+    // least 24h plus that slack from the fixture clock.
+    expect(CHECK_HISTORY_HOURS * 60).toBeGreaterThanOrEqual(24 * 60 + 15);
+  });
+
+  it("keeps total check_results cardinality bounded for the harness", () => {
+    expect(MONITOR_COUNT * CHECK_HISTORY_HOURS * 60).toBeLessThanOrEqual(150_000);
   });
 });
 

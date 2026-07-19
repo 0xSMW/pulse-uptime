@@ -6,7 +6,7 @@ import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 
 import * as schema from "../../../lib/db/schema";
-import { queryCases } from "../src/query-cases";
+import { excludedQueries, queryCases } from "../src/query-cases";
 import type { GatedConnection } from "../src/db-connection";
 import type { SampleContext } from "../src/sample-context";
 import type { TempProjectState } from "../src/local-state";
@@ -179,6 +179,29 @@ describe("monitor detail rollup windows", () => {
     for (const name of ["monitor-detail-rollups-7d", "monitor-detail-rollups-30d", "monitor-detail-rollups-90d"]) {
       expect(findCase(name).source).toMatch(/^lib\/reporting\/queries\/monitors\.ts/);
     }
+  });
+});
+
+describe("public status incident overfetch limits", () => {
+  it("fetches 60 resolved-history rows to mirror RECENT_INCIDENTS_FETCH_LIMIT, not the display count of 10", () => {
+    const built = findCase("public-status-recent-incidents-resolved").build(fakeConnection(), FAKE_SAMPLE_CONTEXT);
+    expect(built.text).toMatch(/limit \$\d+$/i);
+    expect(built.params.at(-1)).toBe(60);
+  });
+
+  it("fetches 500 current-incident rows to mirror CURRENT_INCIDENTS_FETCH_LIMIT", () => {
+    const built = findCase("public-status-current-incidents").build(fakeConnection(), FAKE_SAMPLE_CONTEXT);
+    expect(built.text).toMatch(/limit \$\d+$/i);
+    expect(built.params.at(-1)).toBe(500);
+  });
+});
+
+describe("public report query exclusions", () => {
+  it("explicitly excludes every query of the getPublicReports fan-out loadPublicStatus always runs", () => {
+    const sources = excludedQueries.map((entry) => entry.source);
+    expect(sources).toContain("lib/api/status-reports.ts:getPublicReportRows");
+    expect(sources).toContain("lib/api/status-reports.ts:getLatestUpdates");
+    expect(sources).toContain("lib/api/status-reports.ts:getAffected");
   });
 });
 

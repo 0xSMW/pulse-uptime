@@ -31,7 +31,12 @@ export const FIXTURE_CLOCK = new Date();
 const NOW = FIXTURE_CLOCK;
 
 const CHECK_INTERVAL_MINUTES = 1;
-const CHECK_HISTORY_HOURS = 6;
+// The dashboard uptime query scans the last COMPLETED 24h of quarter-hour
+// buckets before the rollup anti-join, and its window end floors the clock
+// down by up to 15 minutes, so seeded raw checks must reach back 24 hours
+// plus that alignment slack. 25 hours covers the whole scan range at
+// one-minute cadence, 1,500 rows per monitor and 150,000 total.
+export const CHECK_HISTORY_HOURS = 25;
 // Eight days cover the seven-day production scan with one day of margin.
 const ROLLUP_15M_DAYS = 8;
 const ROLLUP_HOUR_DAYS = 31;

@@ -313,9 +313,11 @@ export const queryCases: QueryCase[] = [
   },
   {
     name: "public-status-current-incidents",
-    description: "Public status page: currently-open incidents across the visible monitor set.",
+    description: "Public status page: currently-open incidents across the visible monitor set, overfetched to CURRENT_INCIDENTS_FETCH_LIMIT (500) because promoted-report exclusion runs after this query returns.",
     source: "lib/reporting/queries/status.ts:loadPublicStatus",
     mutating: false,
+    // LIMIT mirrors CURRENT_INCIDENTS_FETCH_LIMIT in lib/reporting/queries/
+    // status.ts. That module connects during import, so the value is inlined.
     build: (conn, ctx) => toSQL(conn.db.select({
       id: schema.incidents.id,
       monitorName: schema.monitorRegistry.name,
@@ -325,13 +327,16 @@ export const queryCases: QueryCase[] = [
       .innerJoin(schema.monitorRegistry, eq(schema.monitorRegistry.id, schema.incidents.monitorId))
       .where(and(inArray(schema.incidents.monitorId, ctx.monitorIds), isNull(schema.incidents.resolvedAt)))
       .orderBy(desc(schema.incidents.openedAt))
-      .limit(100)),
+      .limit(500)),
   },
   {
     name: "public-status-recent-incidents-resolved",
-    description: "Public status page: 10 most recently resolved incidents across the visible monitor set.",
+    description: "Public status page: resolved-incident history overfetch of RECENT_INCIDENTS_FETCH_LIMIT (60) rows that production filters for duration and promotion, then slices to 10 in JS.",
     source: "lib/reporting/queries/status.ts:loadPublicStatus",
     mutating: false,
+    // LIMIT mirrors RECENT_INCIDENTS_FETCH_LIMIT in lib/reporting/queries/
+    // status.ts, not the display count of 10. The short-duration and
+    // promoted-origin filters run in JS over this overfetch before the slice.
     build: (conn, ctx) => toSQL(conn.db.select({
       id: schema.incidents.id,
       monitorName: schema.monitorRegistry.name,
@@ -341,7 +346,7 @@ export const queryCases: QueryCase[] = [
       .innerJoin(schema.monitorRegistry, eq(schema.monitorRegistry.id, schema.incidents.monitorId))
       .where(and(inArray(schema.incidents.monitorId, ctx.monitorIds), isNotNull(schema.incidents.resolvedAt)))
       .orderBy(desc(schema.incidents.resolvedAt))
-      .limit(10)),
+      .limit(60)),
   },
   {
     name: "notification-outbox-claim",
@@ -367,6 +372,21 @@ export const queryCases: QueryCase[] = [
 ];
 
 export const excludedQueries: ExcludedQuery[] = [
+  {
+    name: "public-status-report-rows",
+    source: "lib/api/status-reports.ts:getPublicReportRows",
+    reason: "loadPublicStatus always runs this UNION ALL of the unresolved and resolved published-report branches via getPublicReports, but the fixture seeds no status_reports rows, so EXPLAIN would only ever see degenerate empty-table scans that say nothing about the production partial-index and ordered-bucket shape. Benchmarking it honestly requires seeding reports, updates, and affected rows with their own cardinality checks, deferred until report volume becomes a measured concern.",
+  },
+  {
+    name: "public-status-latest-updates",
+    source: "lib/api/status-reports.ts:getLatestUpdates",
+    reason: "DISTINCT ON over status_report_updates fanned out over the report ids getPublicReportRows returns. The fixture seeds no status reports, so the id list is always empty and production short-circuits before issuing this query at all, leaving nothing representative to measure.",
+  },
+  {
+    name: "public-status-affected-rows",
+    source: "lib/api/status-reports.ts:getAffected",
+    reason: "Bounded IN scan over status_report_affected keyed by the same report ids as public-status-latest-updates. Excluded for the same reason, the fixture seeds no status reports and production skips this query entirely when the id list is empty.",
+  },
   {
     name: "scheduler-fill-gaps",
     source: "lib/storage/sql.ts:FILL_SCHEDULER_GAPS_SQL",
