@@ -252,6 +252,10 @@ describe("deriveNotificationEvent", () => {
   it("fires incident for a reopen: an existing match observed active again on an incident stored resolved", () => {
     expect(deriveNotificationEvent(false, true, new Date(NOW.getTime() - 1000))).toBe("incident");
   });
+
+  it("fires incident for a reopen even when the dependency first matches the reopened active incident on this poll", () => {
+    expect(deriveNotificationEvent(true, true, new Date(NOW.getTime() - 1000))).toBe("incident");
+  });
 });
 
 describe("notificationKeyExternalId", () => {
@@ -1067,6 +1071,102 @@ describe("persistSnapshot: reopen lifecycle under one external id", () => {
     expect(poll2.notificationsEnqueued).toBe(0);
     expect(poll3.notificationsEnqueued).toBe(0);
     expect(db.notifications).toHaveLength(0);
+  });
+});
+
+// -- Reopen first matched on the reopening poll: a dependency that never
+// matched during the incident's first active cycle, because the incident
+// then named different components, first intersects it only once the
+// incident has reopened active under the same external id. isNewMatch is
+// true and the incident was stored resolved as of the prior poll, so this
+// is still a reopen transition and must fire "incident" with an
+// occurrence-discriminated key rather than the bare external id.
+
+describe("persistSnapshot: reopen first matched on the reopening poll", () => {
+  it("fires incident with a discriminated key when the dependency first matches a reopened active incident", async () => {
+    const db = emptyDb([dependencyRow({ currentState: "OPERATIONAL" })]);
+    const store = createFakeStore(db);
+    const source = baseSource();
+    const t0 = NOW;
+    const t1 = new Date(NOW.getTime() + 60_000);
+
+    // Poll 1: the incident is already resolved and names a component this
+    // dependency's selector does not cover, so no match row is recorded and
+    // nothing is enqueued, but the incident row is stored resolved.
+    const resolvedElsewhere: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({
+        components: { c1: { state: "OPERATIONAL", updatedAt: null } },
+        incidents: [incident({ componentIds: ["other"], resolvedAt: t0.toISOString(), updatedAt: t0.toISOString() })],
+      }),
+      etag: null, lastModified: null,
+    };
+    // Poll 2: the same external id reopens active and now names c1, so this
+    // dependency intersects it for the first time (isNewMatch true) against
+    // an incident stored resolved as of the prior poll.
+    const reopenedHere: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({
+        components: { c1: { state: "OUTAGE", updatedAt: null } },
+        incidents: [incident({ componentIds: ["c1"], resolvedAt: null, updatedAt: t1.toISOString() })],
+      }),
+      etag: null, lastModified: null,
+    };
+
+    const poll1 = await persistSnapshot(store, resolvedElsewhere, source, { now: t0, defaultRecipients: ["ops@example.com"] });
+    const poll2 = await persistSnapshot(store, reopenedHere, source, { now: t1, defaultRecipients: ["ops@example.com"] });
+
+    expect(poll1.notificationsEnqueued).toBe(0);
+    expect(poll2.notificationsEnqueued).toBe(1);
+    expect(db.notifications).toHaveLength(1);
+    expect(db.notifications[0]?.event).toBe("incident");
+    // The reopen alert carries the occurrence-discriminated key, not the
+    // bare external id, so it can never dedupe against a first-cycle
+    // incident alert for the same external id.
+    expect(db.notifications[0]?.incidentExternalId).toBe(`inc-1#${t0.getTime()}`);
+    expect(db.installed[0]?.currentState).toBe("OUTAGE");
+    // One match row: the first-ever match, created on the reopening poll.
+    expect(db.matches.size).toBe(1);
+  });
+
+  it("stays silent when a dependency first matches an already-resolved historical incident", async () => {
+    const db = emptyDb([dependencyRow({ currentState: "OPERATIONAL" })]);
+    const store = createFakeStore(db);
+    const source = baseSource();
+    const t0 = NOW;
+    const t1 = new Date(NOW.getTime() + 60_000);
+
+    // Poll 1: resolved incident names a component the dependency does not
+    // cover. No match, nothing enqueued, incident stored resolved.
+    const resolvedElsewhere: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({
+        components: { c1: { state: "OPERATIONAL", updatedAt: null } },
+        incidents: [incident({ componentIds: ["other"], resolvedAt: t0.toISOString(), updatedAt: t0.toISOString() })],
+      }),
+      etag: null, lastModified: null,
+    };
+    // Poll 2: the still-resolved incident now also names c1, so the
+    // dependency matches for the first time (isNewMatch true) but against an
+    // incident that stayed resolved. That is backfill, not a transition.
+    const resolvedNowNamingC1: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({
+        components: { c1: { state: "OPERATIONAL", updatedAt: null } },
+        incidents: [incident({ componentIds: ["c1"], resolvedAt: t0.toISOString(), updatedAt: t1.toISOString() })],
+      }),
+      etag: null, lastModified: null,
+    };
+
+    const poll1 = await persistSnapshot(store, resolvedElsewhere, source, { now: t0, defaultRecipients: ["ops@example.com"] });
+    const poll2 = await persistSnapshot(store, resolvedNowNamingC1, source, { now: t1, defaultRecipients: ["ops@example.com"] });
+
+    expect(poll1.notificationsEnqueued).toBe(0);
+    expect(poll2.notificationsEnqueued).toBe(0);
+    expect(db.notifications).toHaveLength(0);
+    // The match row is still recorded on the second poll: only the
+    // notification is suppressed.
+    expect(db.matches.size).toBe(1);
   });
 });
 

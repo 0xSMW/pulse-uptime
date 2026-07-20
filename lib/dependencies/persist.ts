@@ -150,15 +150,20 @@ export function selectorIntersectsIncident(selector: DependencySelector, scopeId
  * this source before this poll), `null` means it existed and was open, and a
  * Date means it existed and was already resolved.
  *
- * "incident" fires in two cases. First, a brand-new match against a
- * still-open incident that was not already known-resolved, whether the
- * incident itself is new this poll or was already open: a match newly
- * created against an already-resolved incident (a historical incident found
- * on install, or one that opened and closed within a single poll gap) is
- * backfill, not a transition, and produces no event. Second, an existing
- * match observed active again on an incident that was stored resolved as of
- * the prior poll: the same external id reopening after a prior resolution,
- * observed through the match row that already existed from the first cycle.
+ * "incident" fires whenever the incident is observed active (resolved_at
+ * null) and this poll is a transition into a matched-active state, which is
+ * true in exactly two ways regardless of whether the match row is new or
+ * old. Either the dependency is matched to an incident that was open, or new
+ * this poll, and not already known-resolved (a fresh active match), or the
+ * incident was stored resolved as of the prior poll and is now active again
+ * (a reopen). A reopen fires whether the match row already existed from an
+ * earlier cycle or was first created against the reopened incident on this
+ * poll. The one active case that fires nothing is an unchanged still-open
+ * match: the incident was already open as of the prior poll (priorResolvedAt
+ * null) and the match row is not new, so no transition happened. A match
+ * created against an already-resolved incident (isActive false: a historical
+ * incident found on install, or one that opened and closed within a single
+ * poll gap) is backfill, not a transition, and never fires "incident".
  *
  * "recovery" fires only on the poll where the incident is observed resolved
  * for the first time: the incident must have existed before this poll with
@@ -175,9 +180,8 @@ export function deriveNotificationEvent(
   priorResolvedAt: Date | null | undefined,
 ): "incident" | "recovery" | null {
   const priorKnownResolved = priorResolvedAt !== undefined && priorResolvedAt !== null;
-  if (isActive && isNewMatch && !priorKnownResolved) return "incident";
-  if (isActive && !isNewMatch && priorKnownResolved) return "incident";
-  if (!isActive && priorResolvedAt === null) return "recovery";
+  if (isActive) return isNewMatch || priorKnownResolved ? "incident" : null;
+  if (priorResolvedAt === null) return "recovery";
   return null;
 }
 
@@ -187,8 +191,9 @@ export function deriveNotificationEvent(
  * external id used for storage and matching. A first-time "incident" event
  * (isReopen false) carries the bare external id unchanged, so an
  * already-enqueued row for it keeps deduplicating exactly as before. A
- * reopen "incident" event (isReopen true: an existing match observed active
- * again after having been stored resolved) appends the timestamp of the
+ * reopen "incident" event (isReopen true: the incident was stored resolved
+ * as of the prior poll and is now active again, whether the match row is new
+ * this poll or predates the resolution) appends the timestamp of the
  * resolution the reopen transitioned away from, since that timestamp is
  * stable across polls and retries of the same reopen. A "recovery" event
  * always appends the resolvedAt timestamp reported for that resolution, so
@@ -482,11 +487,13 @@ export async function persistSnapshot(
         if (event === null) continue;
         if (!dependency.notificationsEnabled || context.defaultRecipients.length === 0) continue;
 
-        // An "incident" event through an existing match (rather than a new
-        // one) is the reopen case: give it, and every "recovery", a key
-        // distinct from the cycle that first used this external id (see
-        // notificationKeyExternalId).
-        const isReopen = event === "incident" && !isNewMatch;
+        // An "incident" event on an incident that was stored resolved as of
+        // the prior poll is the reopen case, regardless of whether the match
+        // row is new this poll or predates the resolution: give it, and every
+        // "recovery", a key distinct from the cycle that first used this
+        // external id (see notificationKeyExternalId).
+        const priorKnownResolved = priorResolvedAt !== undefined && priorResolvedAt !== null;
+        const isReopen = event === "incident" && priorKnownResolved;
         const keyExternalId = notificationKeyExternalId(event, incident.externalId, isReopen, priorResolvedAt, incident.resolvedAt);
 
         const enqueued = await tx.enqueueNotification({
