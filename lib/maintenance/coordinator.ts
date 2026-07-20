@@ -29,8 +29,8 @@ export interface MaintenanceStore {
   retainExceptionPayloads(now: Date, limit: number): Promise<number>;
   /** Orphan images: unattached for 24h, plus a hard cap keeping the newest N. */
   deleteOrphanImages(cutoff: Date, keepNewest: number, limit: number): Promise<number>;
-  /** Fetches every enabled dependency source once (read-only, live) and disables only the presets whose selector ids have drifted. Runs once per maintenance pass, same cadence as the doc's "daily thereafter". */
-  validateDependencyCatalog(now: Date): Promise<{ checkedSources: number; disabledPresets: number }>;
+  /** Fetches every enabled dependency source once (read-only, live) and disables only the presets whose selector ids have drifted. Runs once per maintenance pass inside a reserved slice, stopping at deadlineAtMs so it cannot overrun the maintenance window. */
+  validateDependencyCatalog(now: Date, deadlineAtMs?: number): Promise<{ checkedSources: number; disabledPresets: number }>;
   /** Empties provider_incident_updates body text older than two years. Incident identity and timing outlive this. */
   retainDependencyIncidentUpdates(cutoff: Date, limit: number): Promise<number>;
   /** Closed dependency_state_intervals older than two years, compacted to one row per dependency/day/state. */
@@ -49,6 +49,10 @@ export type MaintenanceSummary = {
 
 export const RETENTION_BATCH_SIZE = 10_000;
 export const MAINTENANCE_WORK_BUDGET_MS = 45_000;
+// Catalog validation gets this slice reserved from the maintenance window. The
+// reservation means heavy retention can never starve it, and its own deadline
+// caps it to the slice so it can never overrun the window or starve retention.
+export const CATALOG_VALIDATION_BUDGET_MS = 10_000;
 export const ORPHAN_IMAGE_KEEP_NEWEST = 20;
 export const SWEEP_WORK_BUDGET_MS = 20_000;
 
@@ -75,6 +79,9 @@ export async function performMaintenance(
 ): Promise<MaintenanceSummary> {
   const nowMs = options.nowMs ?? Date.now;
   const deadlineAtMs = options.deadlineAtMs ?? nowMs() + MAINTENANCE_WORK_BUDGET_MS;
+  // Gap recovery and retention stop this far before the window ends, reserving
+  // the tail slice for catalog validation so a heavy night can never starve it.
+  const retentionDeadlineAtMs = deadlineAtMs - CATALOG_VALIDATION_BUDGET_MS;
   const rawCutoff = new Date(now.getTime() - 30 * 86_400_000);
   const sentCutoff = new Date(now.getTime() - 90 * 86_400_000);
   const shortCutoff = new Date(now.getTime() - 7 * 86_400_000);
@@ -90,7 +97,7 @@ export async function performMaintenance(
   const staleCronRuns = await store.reconcileStaleCronRuns(now);
   let rollups = 0;
   let coverageCursor = await store.schedulerCoverageStart(now);
-  while (coverageCursor < now && nowMs() < deadlineAtMs) {
+  while (coverageCursor < now && nowMs() < retentionDeadlineAtMs) {
     const chunkEnd = new Date(Math.min(now.getTime(), coverageCursor.getTime() + 86_400_000));
     await store.fillSchedulerGaps(coverageCursor, chunkEnd, now);
     rollups += await store.compact15Minute(coverageCursor, chunkEnd, now)
@@ -103,31 +110,36 @@ export async function performMaintenance(
     + await store.promoteRollups("hour", "day", recentCompactStart, now);
   const governorMode = await store.measureAndSnapshotUsage(now);
   const deleted =
-    await drainBatches((limit) => store.enforceTelemetryRetention(now, governorMode, limit), nowMs, deadlineAtMs) +
-    await drainBatches((limit) => store.retainUsageSnapshots(now, limit), nowMs, deadlineAtMs) +
-    await drainBatches((limit) => store.retainExceptions(now, limit), nowMs, deadlineAtMs) +
-    await drainBatches((limit) => store.retainExceptionPayloads(now, limit), nowMs, deadlineAtMs) +
-    await drainBatches((limit) => store.deleteRawChecks(rawCutoff, limit), nowMs, deadlineAtMs) +
-    await drainBatches((limit) => store.deleteSentNotifications(sentCutoff, limit), nowMs, deadlineAtMs) +
-    await drainBatches((limit) => store.retainConfigSnapshots(rejectedCutoff, 50, limit), nowMs, deadlineAtMs) +
-    await drainBatches((limit) => store.deleteOldCronRuns(cronCutoff, limit), nowMs, deadlineAtMs) +
-    await drainBatches((limit) => store.deleteOldRollups(rollupCutoff, limit), nowMs, deadlineAtMs) +
-    await drainBatches((limit) => store.deleteOrphanImages(orphanImageCutoff, ORPHAN_IMAGE_KEEP_NEWEST, limit), nowMs, deadlineAtMs) +
-    await drainBatches((limit) => store.retainDependencyIncidentUpdates(dependencyRetentionCutoff, limit), nowMs, deadlineAtMs) +
-    await drainBatches((limit) => store.compactDependencyStateIntervals(dependencyRetentionCutoff, limit), nowMs, deadlineAtMs);
+    await drainBatches((limit) => store.enforceTelemetryRetention(now, governorMode, limit), nowMs, retentionDeadlineAtMs) +
+    await drainBatches((limit) => store.retainUsageSnapshots(now, limit), nowMs, retentionDeadlineAtMs) +
+    await drainBatches((limit) => store.retainExceptions(now, limit), nowMs, retentionDeadlineAtMs) +
+    await drainBatches((limit) => store.retainExceptionPayloads(now, limit), nowMs, retentionDeadlineAtMs) +
+    await drainBatches((limit) => store.deleteRawChecks(rawCutoff, limit), nowMs, retentionDeadlineAtMs) +
+    await drainBatches((limit) => store.deleteSentNotifications(sentCutoff, limit), nowMs, retentionDeadlineAtMs) +
+    await drainBatches((limit) => store.retainConfigSnapshots(rejectedCutoff, 50, limit), nowMs, retentionDeadlineAtMs) +
+    await drainBatches((limit) => store.deleteOldCronRuns(cronCutoff, limit), nowMs, retentionDeadlineAtMs) +
+    await drainBatches((limit) => store.deleteOldRollups(rollupCutoff, limit), nowMs, retentionDeadlineAtMs) +
+    await drainBatches((limit) => store.deleteOrphanImages(orphanImageCutoff, ORPHAN_IMAGE_KEEP_NEWEST, limit), nowMs, retentionDeadlineAtMs) +
+    await drainBatches((limit) => store.retainDependencyIncidentUpdates(dependencyRetentionCutoff, limit), nowMs, retentionDeadlineAtMs) +
+    await drainBatches((limit) => store.compactDependencyStateIntervals(dependencyRetentionCutoff, limit), nowMs, retentionDeadlineAtMs);
   const expired =
-    await drainBatches((limit) => store.expireConfigApprovals(now, consumedApprovalCutoff, limit), nowMs, deadlineAtMs) +
-    await drainBatches((limit) => store.expireApiIdempotency(now, limit), nowMs, deadlineAtMs) +
-    await drainBatches((limit) => store.markDeviceAuthorizationsExpired(now, limit), nowMs, deadlineAtMs) +
-    await drainBatches((limit) => store.deleteExpiredDeviceAuthorizations(shortCutoff, limit), nowMs, deadlineAtMs) +
-    await drainBatches((limit) => store.expireRateLimitBuckets(now, limit), nowMs, deadlineAtMs);
+    await drainBatches((limit) => store.expireConfigApprovals(now, consumedApprovalCutoff, limit), nowMs, retentionDeadlineAtMs) +
+    await drainBatches((limit) => store.expireApiIdempotency(now, limit), nowMs, retentionDeadlineAtMs) +
+    await drainBatches((limit) => store.markDeviceAuthorizationsExpired(now, limit), nowMs, retentionDeadlineAtMs) +
+    await drainBatches((limit) => store.deleteExpiredDeviceAuthorizations(shortCutoff, limit), nowMs, retentionDeadlineAtMs) +
+    await drainBatches((limit) => store.expireRateLimitBuckets(now, limit), nowMs, retentionDeadlineAtMs);
   // Dependency catalog validation makes live, sequential multi-source http
-  // fetches and is a daily-cadence drift check, lower urgency than the storage
-  // retention above. It runs last and only when budget remains, so a slow set of
-  // provider feeds can never starve the cleanup that bounds storage growth. A
-  // skipped pass reports zero checked sources so the summary stays truthful.
-  const dependencyCatalog = nowMs() < deadlineAtMs
-    ? await store.validateDependencyCatalog(now)
+  // fetches and is a daily-cadence drift check. It runs last inside the slice
+  // reserved above, bounded in both directions. Retention drains stop at the
+  // reserved boundary, so heavy retention can never starve validation, and
+  // validation runs against its own deadline one slice wide, so it can never
+  // overrun the maintenance window or starve retention. It is skipped only when
+  // earlier work already spent the whole window, and a skipped pass reports zero
+  // checked sources so the summary stays truthful.
+  const catalogStartMs = nowMs();
+  const catalogDeadlineAtMs = Math.min(deadlineAtMs, catalogStartMs + CATALOG_VALIDATION_BUDGET_MS);
+  const dependencyCatalog = catalogStartMs < deadlineAtMs
+    ? await store.validateDependencyCatalog(now, catalogDeadlineAtMs)
     : { checkedSources: 0, disabledPresets: 0 };
   return { staleOutbox, staleCronRuns, rollups, deleted, expired, governorMode, dependencyCatalog };
 }
