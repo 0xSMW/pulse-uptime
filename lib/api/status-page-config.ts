@@ -54,6 +54,26 @@ export function statusPageConfigEtag(version: number): string {
   return `"${version}"`;
 }
 
+/**
+ * Opaque-tag of an ETag with the weak-validator prefix stripped. Our ETag is a
+ * strong quoted version counter, but a compression or CDN layer in front of the
+ * route can re-emit it in weak form (`W/"1"`) because the transferred bytes
+ * changed. A client that records the response ETag verbatim (the CLI export
+ * writes it into _etag, apply sends it back in If-Match) then presents that weak
+ * form, which a byte-for-byte precondition check would never match. Comparing on
+ * the opaque tag alone lets an untouched export apply cleanly, following the weak
+ * comparison function of RFC 9110 section 8.8.3.2.
+ */
+function etagOpaqueTag(etag: string): string {
+  const trimmed = etag.trim();
+  return trimmed.startsWith("W/") ? trimmed.slice(2).trim() : trimmed;
+}
+
+/** True when two ETags identify the same representation under weak comparison. */
+export function statusPageConfigEtagMatches(current: string, ifMatch: string): boolean {
+  return etagOpaqueTag(current) === etagOpaqueTag(ifMatch);
+}
+
 export type StatusPageConfigRow = StatusPageConfigDocument & { updatedAt: Date | null; version: number };
 
 export interface StatusPageConfigStore {
@@ -133,7 +153,7 @@ export async function putStatusPageConfig(
   if (!current) {
     throw new StatusPageConfigError("CONFIG_UNAVAILABLE", "The status page configuration row is missing; run database migrations");
   }
-  if (statusPageConfigEtag(current.version) !== ifMatchEtag.trim()) {
+  if (!statusPageConfigEtagMatches(statusPageConfigEtag(current.version), ifMatchEtag)) {
     throw new StatusPageConfigError("PRECONDITION_FAILED", "The status page configuration changed since it was read");
   }
 

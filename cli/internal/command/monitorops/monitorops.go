@@ -271,6 +271,9 @@ func newCreateCommand(d Dependencies) *cobra.Command {
 func newUpdateCommand(d Dependencies) *cobra.Command {
 	var f editFlags
 	cmd := &cobra.Command{Use: "update <id>", Short: "Update a monitor", Args: cobra.ExactArgs(1), Annotations: annotations("monitors:write"), RunE: func(cmd *cobra.Command, args []string) error {
+		if err := requireMonitorID(args[0]); err != nil {
+			return err
+		}
 		body, err := editBody(cmd, f, false)
 		if err != nil {
 			return err
@@ -298,7 +301,7 @@ func addEditFlags(cmd *cobra.Command, f *editFlags, create bool) {
 	flags.IntVar(&f.failure, "failure-threshold", 0, "Failures before opening")
 	flags.IntVar(&f.recovery, "recovery-threshold", 0, "Successes before recovery")
 	flags.StringVar(&f.group, "group", "", "Monitor group")
-	flags.StringVar(&f.groupID, "group-id", "", "Monitor group ID")
+	flags.StringVar(&f.groupID, "group-id", "", "Monitor group ID, empty clears the group")
 	flags.BoolVar(&f.clearGroup, "clear-group", false, "Clear monitor group")
 	flags.StringSliceVar(&f.recipients, "recipient", nil, "Notification recipient")
 	flags.BoolVar(&f.clearRecipients, "clear-recipients", false, "Clear notification recipients")
@@ -371,7 +374,10 @@ func editBody(cmd *cobra.Command, f editFlags, create bool) (map[string]any, err
 		}
 		body["recoveryThreshold"] = f.recovery
 	}
-	if f.clearGroup {
+	// An empty --group-id can only mean clear: an empty string is never a valid
+	// group id, so it maps to null rather than surfacing a server format error.
+	// --clear-group is the discoverable flag, and --group-id "" reaches the same null.
+	if f.clearGroup || (groupByID && f.groupID == "") {
 		body["groupId"] = nil
 	} else if groupByID {
 		body["groupId"] = f.groupID
@@ -395,6 +401,9 @@ func editBody(cmd *cobra.Command, f editFlags, create bool) (map[string]any, err
 func newActionCommand(d Dependencies, action string) *cobra.Command {
 	summary := map[string]string{"pause": "Pause a monitor", "resume": "Resume a monitor", "test": "Test a monitor target"}[action]
 	cmd := &cobra.Command{Use: action + " <id>", Short: summary, Args: cobra.ExactArgs(1), Annotations: annotations("monitors:write"), RunE: func(cmd *cobra.Command, args []string) error {
+		if err := requireMonitorID(args[0]); err != nil {
+			return err
+		}
 		key, err := idempotencyKey(d)
 		if err != nil {
 			return err
@@ -426,6 +435,9 @@ func newActionCommand(d Dependencies, action string) *cobra.Command {
 func newDeleteCommand(d Dependencies) *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{Use: "delete <id>", Short: "Delete a monitor", Args: cobra.ExactArgs(1), Annotations: annotations("monitors:write"), RunE: func(cmd *cobra.Command, args []string) error {
+		if err := requireMonitorID(args[0]); err != nil {
+			return err
+		}
 		if !yes {
 			if !d.StdinTTY {
 				return invalid("noninteractive deletion requires --yes")
@@ -654,6 +666,16 @@ func machine(format string) bool {
 func invalid(message string) error {
 	return &Error{Exit: ExitInvalidInput, Code: "INVALID_ARGUMENT", Message: message}
 }
+
+// requireMonitorID rejects an empty or whitespace-only id before a request is
+// built. An empty id would otherwise produce a trailing-slash path that the
+// service redirects, surfacing as an opaque error.
+func requireMonitorID(id string) error {
+	if strings.TrimSpace(id) == "" {
+		return invalid("monitor id is required")
+	}
+	return nil
+}
 func exactID(args []string, flag string) (string, error) {
 	if len(args) == 1 && flag != "" {
 		return "", invalid("provide the monitor ID as an argument or --id, not both")
@@ -767,6 +789,9 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 				uptime := "—"
 				if m.Uptime != "" {
 					if f, e := strconv.ParseFloat(string(m.Uptime), 64); e == nil {
+						// Four decimals per CLI-31: operators must distinguish
+						// 99.9900% from 99.9990%. Compact web lists round, human
+						// CLI tables do not.
 						uptime = fmt.Sprintf("%.4f%%", f)
 					}
 				}

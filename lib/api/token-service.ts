@@ -7,6 +7,13 @@ import { canDelegateScopes, normalizeScopes, type ApiScope } from "./scopes";
 import { createBearerToken } from "./tokens";
 
 const MAX_TOKEN_LIFETIME_MS = 365 * 24 * 60 * 60_000;
+// Applied when a create request omits an explicit expiry. Callers that want a
+// different lifetime pass expiresAt directly.
+const DEFAULT_TOKEN_LIFETIME_MS = 90 * 24 * 60 * 60_000;
+// Kept below the creator's own expiry when a default is clamped so the child
+// still expires strictly before its creator even with clock skew between mint
+// and validation.
+const CREATOR_LIFETIME_MARGIN_MS = 60_000;
 
 export type TokenRecord = {
   id: string;
@@ -51,8 +58,29 @@ export function validateTokenInput(input: unknown, principal: { type?: string; s
   if (principal.type && principal.type !== "human" && requestedScopes.includes("tokens:manage")) {
     throw new TokenServiceError("SCOPE_DENIED", "Machine credentials cannot delegate the tokens:manage scope");
   }
+  // No explicit expiry: apply the default lifetime, clamped down to the
+  // creator's remaining lifetime (minus a safety margin) when the creator is
+  // itself time-bounded. This keeps the common create path usable for CLI
+  // sessions instead of rejecting it. An explicit expiry beyond the creator is
+  // still an error below.
+  if (value.expiresAt === undefined) {
+    const target = new Date(now.getTime() + DEFAULT_TOKEN_LIFETIME_MS);
+    let expiresAt = target;
+    let clamped = false;
+    if (principal.expiresAt) {
+      const creatorBound = new Date(principal.expiresAt.getTime() - CREATOR_LIFETIME_MARGIN_MS);
+      if (creatorBound < target) {
+        expiresAt = creatorBound;
+        clamped = true;
+      }
+    }
+    if (expiresAt <= now) {
+      throw new TokenServiceError("INVALID_TOKEN", "The creating credential expires too soon to delegate a token");
+    }
+    return { name: value.name.trim(), scopes: normalizeScopes(requestedScopes), expiresAt, clamped };
+  }
   if (typeof value.expiresAt !== "string") {
-    throw new TokenServiceError("INVALID_TOKEN", "Token expiry is required");
+    throw new TokenServiceError("INVALID_TOKEN", "Token expiry must be an ISO 8601 timestamp");
   }
   const expiresAt = new Date(value.expiresAt);
   if (Number.isNaN(expiresAt.getTime()) || expiresAt <= now || expiresAt.getTime() > now.getTime() + MAX_TOKEN_LIFETIME_MS) {
@@ -61,7 +89,7 @@ export function validateTokenInput(input: unknown, principal: { type?: string; s
   if (principal.expiresAt && expiresAt > principal.expiresAt) {
     throw new TokenServiceError("INVALID_TOKEN", "A delegated token cannot outlive its creator");
   }
-  return { name: value.name.trim(), scopes: normalizeScopes(requestedScopes), expiresAt };
+  return { name: value.name.trim(), scopes: normalizeScopes(requestedScopes), expiresAt, clamped: false };
 }
 
 export async function createApiToken(input: {

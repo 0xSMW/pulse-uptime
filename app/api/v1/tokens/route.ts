@@ -12,7 +12,7 @@ export async function POST(request: Request) {
   const context = await authorize(request, { scope: "tokens:manage", rateLimit: TOKEN_CREATE_LIMIT });
   if (isApiResponse(context)) return context;
   try {
-    const input = validateTokenInput(await request.json(), context.principal);
+    const { clamped, ...input } = validateTokenInput(await request.json(), context.principal);
     const canonicalInput = { ...input, expiresAt: input.expiresAt.toISOString() };
     const idempotencyKey = requireIdempotencyKey(request);
     const result = await executeIdempotent<CreatedTokenData>({
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
           operationId,
         }));
         const created = await createApiToken({ ...input, principal: context.principal, credential }, new Date(), tx);
-        return { status: 201, body: { ...serializeToken(created.token), token: created.secret } };
+        return { status: 201, body: { ...serializeToken(created.token), token: created.secret, expiryClamped: clamped } };
       }),
       persistBody: (body) => ({
         id: body.id,
@@ -60,7 +60,7 @@ export async function POST(request: Request) {
   }
 }
 
-type CreatedTokenData = ReturnType<typeof serializeToken> & { token: string };
+type CreatedTokenData = ReturnType<typeof serializeToken> & { token: string; expiryClamped?: boolean };
 
 export async function GET(request: Request) {
   const context = await authorize(request, { scope: "tokens:manage" });

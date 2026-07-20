@@ -320,6 +320,12 @@ func (c *Client) DoRaw(ctx context.Context, request Request) (*Response, error) 
 		if len(responseBody) > maxResponseBytes {
 			return nil, &Error{Status: httpResp.StatusCode, Code: "RESPONSE_TOO_LARGE", Message: "service response exceeded 10 MiB", RequestID: responseID}
 		}
+		// API endpoints never redirect. A 3xx here means the request path was
+		// malformed, most often an empty or trailing-slash id segment. Surface it
+		// as an actionable error naming the path rather than a bare status.
+		if httpResp.StatusCode >= 300 && httpResp.StatusCode < 400 {
+			return nil, &Error{Status: httpResp.StatusCode, Code: "UNEXPECTED_REDIRECT", Message: fmt.Sprintf("the service redirected %s %s. API endpoints do not redirect, so the request path is malformed.", method, request.Path), RequestID: responseID}
+		}
 		if httpResp.StatusCode >= 200 && httpResp.StatusCode < 300 {
 			return &Response{StatusCode: httpResp.StatusCode, Header: httpResp.Header.Clone(), RequestID: responseID, Body: json.RawMessage(responseBody)}, nil
 		}

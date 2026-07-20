@@ -161,6 +161,9 @@ func NewPromoteCommand(d Dependencies) *cobra.Command {
 		Annotations: annotations("reports:write"),
 		Example:     "pulsectl incident promote inc_123",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := requireArg("incident id", args[0]); err != nil {
+				return err
+			}
 			return mutateAndRender(cmd.Context(), d, http.MethodPost, "/api/v1/incidents/"+url.PathEscape(args[0])+"/promote", nil)
 		},
 	}
@@ -235,6 +238,9 @@ func newGetCommand(d Dependencies) *cobra.Command {
 		Annotations: annotations("reports:read"),
 		Example:     "pulsectl report get rep_123",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := requireArg("report id", args[0]); err != nil {
+				return err
+			}
 			var doc Envelope
 			if err := d.Client.Do(cmd.Context(), Request{Method: http.MethodGet, Path: reportPath(args[0]), Result: &doc}); err != nil {
 				return d.MapError(err)
@@ -329,6 +335,9 @@ func newUpdateCommand(d Dependencies) *cobra.Command {
 		Annotations: annotations("reports:write"),
 		Example:     "pulsectl report update rep_123 --title \"API outage (US)\"",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := requireArg("report id", args[0]); err != nil {
+				return err
+			}
 			body := map[string]any{}
 			var err error
 			if cmd.Flags().Changed("title") {
@@ -380,6 +389,9 @@ func newPostCommand(d Dependencies) *cobra.Command {
 		Annotations: annotationsStdin("reports:write"),
 		Example:     "pulsectl report post rep_123 --status monitoring --message \"A fix is deployed; watching recovery.\"",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := requireArg("report id", args[0]); err != nil {
+				return err
+			}
 			if err := anyStatus(status); err != nil {
 				return err
 			}
@@ -415,6 +427,12 @@ func newEditUpdateCommand(d Dependencies) *cobra.Command {
 		Annotations: annotationsStdin("reports:write"),
 		Example:     "pulsectl report edit-update rep_123 upd_456 --published-at 2026-07-18T03:00:00Z",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := requireArg("report id", args[0]); err != nil {
+				return err
+			}
+			if err := requireArg("update id", args[1]); err != nil {
+				return err
+			}
 			body := map[string]any{}
 			if cmd.Flags().Changed("status") {
 				if err := anyStatus(status); err != nil {
@@ -460,6 +478,9 @@ func newDeleteCommand(d Dependencies) *cobra.Command {
 		Annotations: annotations("reports:write"),
 		Example:     "pulsectl report delete rep_123 --yes",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := requireArg("report id", args[0]); err != nil {
+				return err
+			}
 			if !yes {
 				if !d.StdinTTY {
 					return invalid("noninteractive deletion requires --yes")
@@ -496,16 +517,19 @@ func newDeleteCommand(d Dependencies) *cobra.Command {
 func newResolveCommand(d Dependencies) *cobra.Command {
 	var message string
 	cmd := &cobra.Command{
-		Use:         "resolve <id>",
-		Short:       "Resolve a status report",
-		Long:        "Post the closing update for a report: resolved for incidents, completed for\nmaintenance windows. The report type is read from the service first.",
-		Args:        cobra.ExactArgs(1),
+		Use:   "resolve <id>",
+		Short: "Resolve a status report",
+		Long:  "Post the closing update for a report: resolved for incidents, completed for\nmaintenance windows. The report type is read from the service first.",
+		Args:  cobra.ExactArgs(1),
 		// GETs the report (reports:read) before POSTing its closing update
 		// (reports:write). It is the only reportops subcommand that reads
 		// before it mutates, so it must advertise both scopes.
 		Annotations: annotations("reports:read,reports:write"),
 		Example:     "pulsectl report resolve rep_123 --message \"Error rates returned to normal.\"",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := requireArg("report id", args[0]); err != nil {
+				return err
+			}
 			var doc Envelope
 			if err := d.Client.Do(cmd.Context(), Request{Method: http.MethodGet, Path: reportPath(args[0]), Result: &doc}); err != nil {
 				return d.MapError(err)
@@ -537,6 +561,9 @@ func newPublishCommand(d Dependencies) *cobra.Command {
 		Annotations: annotations("reports:write"),
 		Example:     "pulsectl report publish rep_123",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := requireArg("report id", args[0]); err != nil {
+				return err
+			}
 			return mutateAndRender(cmd.Context(), d, http.MethodPost, reportPath(args[0])+"/publish", nil)
 		},
 	}
@@ -786,6 +813,16 @@ func formatOr(d Dependencies, asJSON bool) string {
 
 func invalid(message string) error {
 	return &Error{Exit: ExitInvalidInput, Code: "INVALID_ARGUMENT", Message: message}
+}
+
+// requireArg rejects an empty or whitespace-only path argument before a request
+// is built. An empty id would otherwise produce a trailing-slash path that the
+// service redirects, surfacing as an opaque error.
+func requireArg(kind, value string) error {
+	if strings.TrimSpace(value) == "" {
+		return invalid(kind + " is required")
+	}
+	return nil
 }
 
 const (

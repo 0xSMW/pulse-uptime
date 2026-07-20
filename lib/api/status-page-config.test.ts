@@ -117,6 +117,24 @@ describe("putStatusPageConfig", () => {
     expect(store.write).not.toHaveBeenCalled();
   });
 
+  // A compression or CDN layer can re-emit our strong ETag in weak form
+  // (W/"3"). The CLI records that response ETag verbatim and sends it straight
+  // back in If-Match, so an untouched export-then-apply round-trip must still
+  // pass the precondition. The comparison is on the opaque tag, not byte-exact.
+  it("accepts a weakened W/ prefixed If-Match against the strong current ETag", async () => {
+    const store = fakeStore();
+    const result = await putStatusPageConfig(document({ name: "Round-tripped" }), `W/${etag}`, { store, now: () => UPDATED_AT, env: {} });
+    expect(store.write).toHaveBeenCalledWith({ document: document({ name: "Round-tripped" }), expectedVersion: CURRENT_VERSION, now: UPDATED_AT });
+    expect(result.etag).toBe(`"${CURRENT_VERSION + 1}"`);
+  });
+
+  it("still 412s a weakened If-Match whose opaque tag is genuinely stale", async () => {
+    const store = fakeStore();
+    await expect(putStatusPageConfig(document(), 'W/"12345"', { store }))
+      .rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(store.write).not.toHaveBeenCalled();
+  });
+
   it("treats a conditional-write miss as a concurrent conflict", async () => {
     const store = fakeStore({ write: vi.fn().mockResolvedValue(false) });
     await expect(putStatusPageConfig(document(), etag, { store }))

@@ -175,6 +175,78 @@ func TestGroupSelectorsAreMutuallyExclusive(t *testing.T) {
 	}
 }
 
+func TestUpdateClearsGroup(t *testing.T) {
+	// Both the discoverable --clear-group flag and an empty --group-id send an
+	// explicit null groupId, which the API reads as clear rather than unchanged.
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{"clear-group flag", []string{"update", "api", "--clear-group"}},
+		{"empty group-id", []string{"update", "api", "--group-id", ""}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var body map[string]any
+			client := clientFunc(func(_ context.Context, r Request) error {
+				body, _ = r.Body.(map[string]any)
+				doc := r.Result.(*Envelope)
+				doc.APIVersion, doc.Kind, doc.Data = "v1", "Monitor", json.RawMessage(`{"id":"api"}`)
+				return nil
+			})
+			d := Dependencies{Client: client, Format: func() string { return "json" }, NewID: func() (string, error) { return "key", nil }}
+			cmd := NewGroup(d)
+			cmd.SetArgs(tc.args)
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			value, ok := body["groupId"]
+			if !ok {
+				t.Fatalf("groupId absent from body %#v", body)
+			}
+			if value != nil {
+				t.Fatalf("groupId = %#v, want nil", value)
+			}
+		})
+	}
+}
+
+func TestGetRendersRuntimeState(t *testing.T) {
+	data := json.RawMessage(`{"id":"api","name":"API","url":"https://example.com","state":"UP","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-02T00:00:00Z"}`)
+	client := clientFunc(func(_ context.Context, r Request) error {
+		doc := r.Result.(*Envelope)
+		doc.APIVersion, doc.Kind, doc.Data = "v1", "Monitor", data
+		return nil
+	})
+
+	var table bytes.Buffer
+	tableCmd := NewGroup(Dependencies{Client: client, Out: &table, Format: func() string { return "table" }})
+	tableCmd.SetArgs([]string{"get", "api"})
+	if err := tableCmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(table.Bytes(), []byte("State    UP")) {
+		t.Fatalf("table missing state: %s", table.String())
+	}
+
+	var out bytes.Buffer
+	jsonCmd := NewGroup(Dependencies{Client: client, Out: &out, Format: func() string { return "json" }})
+	jsonCmd.SetArgs([]string{"get", "api"})
+	if err := jsonCmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var env Envelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	var m Monitor
+	if err := json.Unmarshal(env.Data, &m); err != nil {
+		t.Fatal(err)
+	}
+	if m.State != "UP" || m.CreatedAt != "2026-01-01T00:00:00Z" || m.UpdatedAt != "2026-01-02T00:00:00Z" {
+		t.Fatalf("monitor runtime fields = %#v", m)
+	}
+}
+
 func TestDeleteRequiresYesWhenNoninteractive(t *testing.T) {
 	called := false
 	d := Dependencies{Client: clientFunc(func(context.Context, Request) error { called = true; return nil }), Format: func() string { return "json" }, NewID: func() (string, error) { return "key", nil }}
