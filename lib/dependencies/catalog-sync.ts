@@ -51,6 +51,69 @@ export async function syncCatalog(
   });
 }
 
+/** The stored fields validateCatalog actually checks against the live feed, as opposed to display copy that never affects validation state. */
+export interface StoredPresetDefinition {
+  sourceId: string;
+  selector: DependencySelector;
+  scope: DependencyScope | null;
+}
+
+export interface PresetUpsertPlan {
+  insert: typeof dependencyCatalog.$inferInsert;
+  update: Partial<typeof dependencyCatalog.$inferInsert>;
+}
+
+/** JSON.stringify with object keys sorted, so a jsonb round-trip's key reordering never reads as a definition change. */
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, val) => {
+    if (val && typeof val === "object" && !Array.isArray(val)) {
+      return Object.keys(val).sort().reduce<Record<string, unknown>>((sorted, key) => {
+        sorted[key] = (val as Record<string, unknown>)[key];
+        return sorted;
+      }, {});
+    }
+    return val;
+  });
+}
+
+/** True when the preset's source, selector, or scope differs from what's stored, the only fields validateCatalog checks. A brand new preset (no stored row) always counts as changed. */
+function presetDefinitionChanged(existing: StoredPresetDefinition | null, preset: DependencyPresetManifest): boolean {
+  if (!existing) return true;
+  return existing.sourceId !== preset.sourceId
+    || canonicalJson(existing.selector) !== canonicalJson(preset.selector)
+    || canonicalJson(existing.scope) !== canonicalJson(preset.scope);
+}
+
+/**
+ * Values for upserting one preset. A catalog version bump alone must never
+ * erase what catalog validation already found, so the update only resets
+ * validatedAt and validationError to null when the source, selector, or
+ * scope materially changed from what's stored. Display copy (name,
+ * description, category, sourceScopeNote) changing on its own preserves the
+ * existing validation state. A brand new preset always starts unvalidated.
+ */
+export function presetUpsertPlan(
+  existing: StoredPresetDefinition | null,
+  preset: DependencyPresetManifest,
+  catalogVersion: string,
+): PresetUpsertPlan {
+  const shared = {
+    id: preset.id,
+    sourceId: preset.sourceId,
+    displayName: preset.name,
+    category: preset.category,
+    description: preset.description,
+    selector: preset.selector,
+    scopeOptions: preset.scope,
+    sourceScopeNote: preset.sourceScopeNote,
+    catalogVersion,
+    enabled: preset.enabled,
+  };
+  const insert = { ...shared, validatedAt: null, validationError: null };
+  const update = presetDefinitionChanged(existing, preset) ? insert : shared;
+  return { insert, update };
+}
+
 export function createSqlCatalogSyncStore(db: Database): CatalogSyncStore {
   return {
     transaction: (work) => db.transaction(async (tx) => work({
@@ -80,23 +143,25 @@ export function createSqlCatalogSyncStore(db: Database): CatalogSyncStore {
         });
       },
       upsertPreset: async (preset, catalogVersion) => {
-        const values = {
-          id: preset.id,
-          sourceId: preset.sourceId,
-          displayName: preset.name,
-          category: preset.category,
-          description: preset.description,
-          selector: preset.selector,
-          scopeOptions: preset.scope,
-          sourceScopeNote: preset.sourceScopeNote,
+        const [existing] = await tx.select({
+          sourceId: dependencyCatalog.sourceId,
+          selector: dependencyCatalog.selector,
+          scopeOptions: dependencyCatalog.scopeOptions,
+        }).from(dependencyCatalog).where(eq(dependencyCatalog.id, preset.id)).limit(1);
+        const plan = presetUpsertPlan(
+          existing
+            ? {
+                sourceId: existing.sourceId,
+                selector: existing.selector as DependencySelector,
+                scope: (existing.scopeOptions as DependencyScope | null) ?? null,
+              }
+            : null,
+          preset,
           catalogVersion,
-          enabled: preset.enabled,
-          validatedAt: null,
-          validationError: null,
-        };
-        await tx.insert(dependencyCatalog).values(values).onConflictDoUpdate({
+        );
+        await tx.insert(dependencyCatalog).values(plan.insert).onConflictDoUpdate({
           target: dependencyCatalog.id,
-          set: values,
+          set: plan.update,
         });
       },
     })),

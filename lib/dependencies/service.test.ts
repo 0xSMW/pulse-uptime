@@ -43,7 +43,7 @@ function fakeStore(overrides: Partial<DependenciesStore> = {}): DependenciesStor
 }
 
 function preset(overrides: Partial<DependencyPresetRow> = {}): DependencyPresetRow {
-  return { id: "vercel_runtime", sourceId: "vercel", enabled: true, validatedAt: NOW, scope: null, ...overrides };
+  return { id: "vercel_runtime", sourceId: "vercel", enabled: true, validatedAt: NOW, validationError: null, scope: null, ...overrides };
 }
 
 beforeEach(() => {
@@ -65,8 +65,18 @@ describe("installDependency validation matrix", () => {
       .rejects.toMatchObject({ code: "PRESET_UNAVAILABLE" });
   });
 
-  it("rejects a preset that has never passed catalog validation with PRESET_UNAVAILABLE", async () => {
-    const store = fakeStore({ loadPreset: vi.fn().mockResolvedValue(preset({ validatedAt: null })) });
+  it("accepts a preset that has never passed catalog validation (validatedAt and validationError both null)", async () => {
+    const store = fakeStore({
+      loadPreset: vi.fn().mockResolvedValue(preset({ validatedAt: null, validationError: null })),
+    });
+    await installDependency({ presetId: "vercel_runtime" }, { store, now: () => NOW, newId: () => "id" });
+    expect(store.insertDependency).toHaveBeenCalled();
+  });
+
+  it("rejects a preset with a recorded validation error with PRESET_UNAVAILABLE, even when enabled", async () => {
+    const store = fakeStore({
+      loadPreset: vi.fn().mockResolvedValue(preset({ enabled: true, validationError: "Missing upstream component ids: renamed-id" })),
+    });
     await expect(installDependency({ presetId: "vercel_runtime" }, { store, now: () => NOW }))
       .rejects.toMatchObject({ code: "PRESET_UNAVAILABLE" });
   });
@@ -190,7 +200,16 @@ describe("installDependency duplicates and defaults", () => {
     expect(store.insertDependency).toHaveBeenCalledWith(expect.objectContaining({
       dependency: expect.objectContaining({ id: "op-123" }),
     }));
-    expect(queries.getDependencyDetail).toHaveBeenCalledWith("op-123");
+    expect(queries.getDependencyDetail).toHaveBeenCalledWith("op-123", db);
+  });
+
+  it("reads the detail back on the same transaction handle the insert ran on, not the pooled db", async () => {
+    const store = fakeStore({ loadPreset: vi.fn().mockResolvedValue(preset()) });
+    const tx = { transaction: vi.fn(), update: vi.fn() } as unknown as typeof db;
+    await installDependency({ presetId: "vercel_runtime" }, { store, now: () => NOW, newId: () => "id" }, tx);
+    expect(store.insertDependency).toHaveBeenCalledWith(expect.objectContaining({ handle: tx }));
+    expect(queries.getDependencyDetail).toHaveBeenCalledWith("id", tx);
+    expect(queries.getDependencyDetail).not.toHaveBeenCalledWith("id", db);
   });
 
   it("returns the freshly built detail projection, not a bespoke shape", async () => {

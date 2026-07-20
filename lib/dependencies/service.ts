@@ -39,6 +39,7 @@ export type DependencyPresetRow = {
   sourceId: string;
   enabled: boolean;
   validatedAt: Date | null;
+  validationError: string | null;
   scope: DependencyScope | null;
 };
 
@@ -141,8 +142,13 @@ export async function installDependency(
 
   const preset = await store.loadPreset(input.presetId);
   if (!preset) throw new DependencyApiError("PRESET_NOT_FOUND", "Preset was not found");
-  if (!preset.enabled || !preset.validatedAt) {
-    throw new DependencyApiError("PRESET_UNAVAILABLE", "Preset is disabled or has not passed catalog validation");
+  // Catalog validation is drift detection against a preset already shipped in
+  // the curated bundled catalog, not pre-clearance for installing it. A
+  // never-validated preset (validatedAt and validationError both null) is
+  // installable. Only a disabled preset or one with a recorded validation
+  // error is blocked.
+  if (!preset.enabled || preset.validationError) {
+    throw new DependencyApiError("PRESET_UNAVAILABLE", "Preset is disabled or catalog validation found it no longer matches its upstream feed");
   }
   const scopeId = validateScope(preset.scope, input.scopeId);
 
@@ -176,7 +182,10 @@ export async function installDependency(
     throw new DependencyApiError("DEPENDENCY_EXISTS", "An active dependency already exists for this preset and scope");
   }
 
-  const detail = await queryDependencyDetail(dependency.id);
+  // Reads back on the same handle as the insert above, so an install running
+  // inside a caller's transaction sees its own uncommitted row instead of a
+  // second pooled connection that has not yet observed it.
+  const detail = await queryDependencyDetail(dependency.id, handle);
   if (!detail) throw new Error("Dependency vanished immediately after insert");
   return detail;
 }
@@ -240,6 +249,7 @@ export const databaseDependenciesStore: DependenciesStore = {
       sourceId: dependencyCatalog.sourceId,
       enabled: dependencyCatalog.enabled,
       validatedAt: dependencyCatalog.validatedAt,
+      validationError: dependencyCatalog.validationError,
       scope: dependencyCatalog.scopeOptions,
     }).from(dependencyCatalog).where(eq(dependencyCatalog.id, presetId)).limit(1);
     return row ? { ...row, scope: (row.scope as DependencyScope | null) ?? null } : null;

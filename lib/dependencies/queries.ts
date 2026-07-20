@@ -2,7 +2,7 @@ import "server-only";
 
 import { and, asc, desc, eq, gte, inArray, isNull, or } from "drizzle-orm";
 
-import { db } from "@/lib/db/client";
+import { db, type DatabaseHandle } from "@/lib/db/client";
 import {
   dependencies,
   dependencyCatalog,
@@ -186,8 +186,11 @@ export type DependencyDetail = {
   timeline7d: StateBucket[];
 };
 
-export async function getDependencyDetail(id: string): Promise<DependencyDetail | null> {
-  const [row] = await db.select({
+// Accepts a handle so a caller inside a transaction (installDependency) can read
+// its own uncommitted insert back on the same connection, instead of a pooled
+// connection that would not see it yet under READ COMMITTED.
+export async function getDependencyDetail(id: string, handle: DatabaseHandle = db): Promise<DependencyDetail | null> {
+  const [row] = await handle.select({
     id: dependencies.id,
     catalogId: dependencies.catalogId,
     scopeId: dependencies.scopeId,
@@ -217,7 +220,7 @@ export async function getDependencyDetail(id: string): Promise<DependencyDetail 
   const now = new Date();
   const sevenDaysAgo = new Date(now.getTime() - 7 * 86_400_000);
   const [intervals, incidentRows] = await Promise.all([
-    db.select({
+    handle.select({
       state: dependencyStateIntervals.state,
       startedAt: dependencyStateIntervals.startedAt,
       endedAt: dependencyStateIntervals.endedAt,
@@ -227,7 +230,7 @@ export async function getDependencyDetail(id: string): Promise<DependencyDetail 
         or(isNull(dependencyStateIntervals.endedAt), gte(dependencyStateIntervals.endedAt, sevenDaysAgo)),
       ))
       .orderBy(asc(dependencyStateIntervals.startedAt)),
-    db.select({
+    handle.select({
       id: providerIncidents.id,
       title: providerIncidents.title,
       state: providerIncidents.state,
@@ -243,7 +246,7 @@ export async function getDependencyDetail(id: string): Promise<DependencyDetail 
       .limit(20),
   ]);
 
-  const updateRows = incidentRows.length === 0 ? [] : await db.select({
+  const updateRows = incidentRows.length === 0 ? [] : await handle.select({
     incidentId: providerIncidentUpdates.incidentId,
     state: providerIncidentUpdates.state,
     bodyText: providerIncidentUpdates.bodyText,

@@ -1,13 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { CatalogManifest } from "./manifest";
+import type { DependencyPresetManifest } from "./manifest";
 import {
+  presetUpsertPlan,
   syncCatalog,
   validateCatalog,
   type CatalogSyncExecutor,
   type CatalogSyncStore,
   type CatalogValidationExecutor,
   type CatalogValidationStore,
+  type StoredPresetDefinition,
 } from "./catalog-sync";
 
 function manifestWith(catalogVersion: string): CatalogManifest {
@@ -92,6 +95,76 @@ describe("syncCatalog", () => {
     const result = await syncCatalog(fakeSyncStore(executor), manifest);
     expect(result.synced).toBe(true);
     expect(executor.upsertSource).toHaveBeenCalledTimes(1);
+  });
+});
+
+function manifestPreset(overrides: Partial<DependencyPresetManifest> = {}): DependencyPresetManifest {
+  return {
+    id: "vercel_runtime",
+    sourceId: "vercel",
+    name: "Vercel Runtime",
+    category: "hosting",
+    description: "Vercel Functions, CDN, routing middleware, and DNS.",
+    selector: { kind: "component_ids", aggregation: "worst_of", ids: ["kgcsn9c73xzf"] },
+    scope: null,
+    sourceScopeNote: null,
+    enabled: true,
+    ...overrides,
+  };
+}
+
+function storedDefinition(overrides: Partial<StoredPresetDefinition> = {}): StoredPresetDefinition {
+  return {
+    sourceId: "vercel",
+    selector: { kind: "component_ids", aggregation: "worst_of", ids: ["kgcsn9c73xzf"] },
+    scope: null,
+    ...overrides,
+  };
+}
+
+describe("presetUpsertPlan", () => {
+  it("starts a brand new preset (no stored row) unvalidated", () => {
+    const plan = presetUpsertPlan(null, manifestPreset(), "2026-07-19.2");
+    expect(plan.insert).toMatchObject({ validatedAt: null, validationError: null });
+    expect(plan.update).toEqual(plan.insert);
+  });
+
+  it("preserves validation state across a version bump when the source, selector, and scope are unchanged", () => {
+    const plan = presetUpsertPlan(storedDefinition(), manifestPreset({ name: "Vercel Runtime (renamed)" }), "2026-07-19.2");
+    expect(plan.update).not.toHaveProperty("validatedAt");
+    expect(plan.update).not.toHaveProperty("validationError");
+    expect(plan.update).toMatchObject({ displayName: "Vercel Runtime (renamed)", catalogVersion: "2026-07-19.2" });
+  });
+
+  it("preserves validation state when the scope's option key order differs (jsonb round-trip reordering, not a real change)", () => {
+    const stored = storedDefinition({
+      selector: { ids: ["kgcsn9c73xzf"], kind: "component_ids", aggregation: "worst_of" } as never,
+    });
+    const plan = presetUpsertPlan(stored, manifestPreset(), "2026-07-19.2");
+    expect(plan.update).not.toHaveProperty("validatedAt");
+  });
+
+  it("resets validation state when the selector's component ids changed", () => {
+    const plan = presetUpsertPlan(
+      storedDefinition(),
+      manifestPreset({ selector: { kind: "component_ids", aggregation: "worst_of", ids: ["a-different-id"] } }),
+      "2026-07-19.2",
+    );
+    expect(plan.update).toMatchObject({ validatedAt: null, validationError: null });
+  });
+
+  it("resets validation state when the source changed", () => {
+    const plan = presetUpsertPlan(storedDefinition({ sourceId: "aws" }), manifestPreset(), "2026-07-19.2");
+    expect(plan.update).toMatchObject({ validatedAt: null, validationError: null });
+  });
+
+  it("resets validation state when the scope changed", () => {
+    const plan = presetUpsertPlan(
+      storedDefinition({ scope: null }),
+      manifestPreset({ scope: { kind: "required_options", options: [{ id: "us-east-1", label: "AWS us-east-1" }] } }),
+      "2026-07-19.2",
+    );
+    expect(plan.update).toMatchObject({ validatedAt: null, validationError: null });
   });
 });
 
