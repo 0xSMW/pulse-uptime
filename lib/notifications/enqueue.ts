@@ -1,4 +1,8 @@
 import { randomUUID } from "node:crypto";
+
+import type { DatabaseHandle } from "@/lib/db/client";
+import { notificationOutbox } from "@/lib/db/schema";
+
 import { dependencyNotificationKey, incidentNotificationKey, normalizeRecipient, type DependencyNotificationEvent } from "./idempotency";
 import type { SqlExecutor } from "./sql";
 import type { DependencyIncidentPayload, DependencyRecoveryPayload, IncidentOpenedPayload, IncidentResolvedPayload } from "./types";
@@ -105,33 +109,12 @@ export async function enqueueIncidentNotifications(
 // dependency_id identifies the subject instead. Everything the email needs
 // to render travels in the payload, so delivery never joins back to
 // dependency tables.
-
-const DEPENDENCY_COLUMNS_PER_ROW = 7;
-
-function buildEnqueueDependencyRowValues(rowCount: number): string {
-  const rows: string[] = [];
-  for (let row = 0; row < rowCount; row++) {
-    const base = row * DEPENDENCY_COLUMNS_PER_ROW;
-    const p = (offset: number) => `$${base + offset}`;
-    rows.push(`(${p(1)}, null, null, ${p(2)}, ${p(3)}, ${p(4)}, ${p(5)}, ${p(6)}, 'pending', 0, ${p(7)}, ${p(7)}, ${p(7)})`);
-  }
-  return rows.join(",\n");
-}
-
-export function buildEnqueueDependencyNotificationSql(rowCount: number): string {
-  return `
-insert into notification_outbox (
-  id, incident_id, monitor_id, dependency_id, event_type, recipient, idempotency_key,
-  payload, status, attempt_count, next_attempt_at, created_at, updated_at
-)
-values
-${buildEnqueueDependencyRowValues(rowCount)}
-on conflict (idempotency_key) do nothing
-returning id
-`;
-}
-
-export const ENQUEUE_DEPENDENCY_NOTIFICATION_SQL = buildEnqueueDependencyNotificationSql(1);
+//
+// Takes a Drizzle database handle (a plain connection or a transaction)
+// rather than a SqlExecutor: persist.ts calls this with the same
+// transaction handle it uses for the state, interval, and match writes in
+// the same poll, so the row inserted here commits or rolls back with them
+// instead of autocommitting on a separate connection.
 
 type DependencyNotificationInput = {
   event: DependencyNotificationEvent;
@@ -150,7 +133,7 @@ type DependencyNotificationInput = {
 };
 
 export async function enqueueDependencyNotifications(
-  db: SqlExecutor,
+  db: DatabaseHandle,
   input: DependencyNotificationInput,
   options: { now?: Date; createId?: () => string } = {},
 ): Promise<number> {
@@ -160,41 +143,43 @@ export async function enqueueDependencyNotifications(
 
   if (recipients.length === 0) return 0;
 
-  const values: unknown[] = [];
-  for (const recipient of recipients) {
-    const payload: DependencyIncidentPayload | DependencyRecoveryPayload = input.event === "incident"
-      ? {
-          type: "dependency.incident",
-          dependencyName: input.dependencyName,
-          provider: input.provider,
-          incidentTitle: input.incidentTitle,
-          state: input.state,
-          canonicalUrl: input.canonicalUrl,
-          providerTimestamp: input.providerTimestamp,
-        }
-      : {
-          type: "dependency.recovery",
-          dependencyName: input.dependencyName,
-          provider: input.provider,
-          incidentTitle: input.incidentTitle,
-          state: input.state,
-          canonicalUrl: input.canonicalUrl,
-          providerTimestamp: input.providerTimestamp,
-        };
-    values.push(
-      createId(),
-      input.dependencyId,
-      payload.type,
-      recipient,
-      dependencyNotificationKey(input.sourceId, input.incidentExternalId, input.presetId, input.scopeId, input.event, recipient),
-      JSON.stringify(payload),
-      now,
-    );
-  }
+  const payload: DependencyIncidentPayload | DependencyRecoveryPayload = input.event === "incident"
+    ? {
+        type: "dependency.incident",
+        dependencyName: input.dependencyName,
+        provider: input.provider,
+        incidentTitle: input.incidentTitle,
+        state: input.state,
+        canonicalUrl: input.canonicalUrl,
+        providerTimestamp: input.providerTimestamp,
+      }
+    : {
+        type: "dependency.recovery",
+        dependencyName: input.dependencyName,
+        provider: input.provider,
+        incidentTitle: input.incidentTitle,
+        state: input.state,
+        canonicalUrl: input.canonicalUrl,
+        providerTimestamp: input.providerTimestamp,
+      };
 
-  const rows = await db.query<{ id: string }>(
-    buildEnqueueDependencyNotificationSql(recipients.length),
-    values,
-  );
-  return rows.length;
+  const rows = recipients.map((recipient) => ({
+    id: createId(),
+    dependencyId: input.dependencyId,
+    eventType: payload.type,
+    recipient,
+    idempotencyKey: dependencyNotificationKey(input.sourceId, input.incidentExternalId, input.presetId, input.scopeId, input.event, recipient),
+    payload,
+    status: "pending" as const,
+    attemptCount: 0,
+    nextAttemptAt: now,
+    createdAt: now,
+    updatedAt: now,
+  }));
+
+  const inserted = await db.insert(notificationOutbox)
+    .values(rows)
+    .onConflictDoNothing({ target: notificationOutbox.idempotencyKey })
+    .returning({ id: notificationOutbox.id });
+  return inserted.length;
 }

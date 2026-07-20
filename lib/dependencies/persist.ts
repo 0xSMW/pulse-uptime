@@ -17,7 +17,6 @@ import {
   providerIncidents,
 } from "@/lib/db/schema";
 import { enqueueDependencyNotifications } from "@/lib/notifications/enqueue";
-import type { SqlExecutor } from "@/lib/notifications/sql";
 
 import type { PollOutcome } from "./poller";
 import type { DependencyAdapterName, DependencySelector, DependencyState, NormalizedProviderSnapshot } from "./types";
@@ -522,7 +521,7 @@ function errorCodeOf(error: Error): string {
 
 // -- Real Drizzle-backed store -------------------------------------------
 
-export function createSqlPersistStore(db: Database, sqlExecutor: SqlExecutor): PersistStore {
+export function createSqlPersistStore(db: Database): PersistStore {
   return {
     transaction: (work) => db.transaction(async (tx) => work({
       async loadInstalledDependencies(sourceId) {
@@ -659,7 +658,11 @@ export function createSqlPersistStore(db: Database, sqlExecutor: SqlExecutor): P
       },
 
       async enqueueNotification(input, now) {
-        return enqueueDependencyNotifications(sqlExecutor, {
+        // Runs on the same tx handle as every other write in this
+        // transaction, so the outbox row commits and rolls back with the
+        // state, interval, and match writes rather than autocommitting on
+        // a separate connection.
+        return enqueueDependencyNotifications(tx, {
           event: input.event,
           sourceId: input.sourceId,
           incidentExternalId: input.incidentExternalId,

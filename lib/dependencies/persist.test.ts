@@ -292,8 +292,42 @@ interface FakeDb {
   sourceHealth: Array<{ kind: string; sourceId: string; patch: unknown }>;
 }
 
-function createFakeStore(db: FakeDb): PersistStore {
-  const executor: PersistExecutor = {
+// Deep-copies every mutable container on the fake db, so a transaction that
+// throws partway through can restore exactly the state that existed before
+// it started, the same way a real Postgres transaction's rollback discards
+// every write made on its connection, not just the last one.
+function snapshotFakeDb(db: FakeDb): FakeDb {
+  return {
+    installed: db.installed.map((row) => ({ ...row })),
+    intervals: db.intervals.map((interval) => ({ ...interval })),
+    incidentsBySourceExternal: new Map(db.incidentsBySourceExternal),
+    incidentResolvedAt: new Map(db.incidentResolvedAt),
+    upsertedCanonicalUrls: new Map(db.upsertedCanonicalUrls),
+    incidentComponentPairs: new Set(db.incidentComponentPairs),
+    incidentUpdatePairs: new Set(db.incidentUpdatePairs),
+    matches: new Set(db.matches),
+    outboxKeys: new Set(db.outboxKeys),
+    notifications: [...db.notifications],
+    sourceHealth: [...db.sourceHealth],
+  };
+}
+
+function restoreFakeDb(db: FakeDb, snapshot: FakeDb): void {
+  db.installed = snapshot.installed;
+  db.intervals = snapshot.intervals;
+  db.incidentsBySourceExternal = snapshot.incidentsBySourceExternal;
+  db.incidentResolvedAt = snapshot.incidentResolvedAt;
+  db.upsertedCanonicalUrls = snapshot.upsertedCanonicalUrls;
+  db.incidentComponentPairs = snapshot.incidentComponentPairs;
+  db.incidentUpdatePairs = snapshot.incidentUpdatePairs;
+  db.matches = snapshot.matches;
+  db.outboxKeys = snapshot.outboxKeys;
+  db.notifications = snapshot.notifications;
+  db.sourceHealth = snapshot.sourceHealth;
+}
+
+function createExecutor(db: FakeDb): PersistExecutor {
+  return {
     async loadInstalledDependencies(sourceId) {
       void sourceId;
       return db.installed.map((row) => ({ ...row }));
@@ -369,7 +403,26 @@ function createFakeStore(db: FakeDb): PersistStore {
       db.sourceHealth.push({ kind: "failure", sourceId, patch });
     },
   };
-  return { transaction: (work) => work(executor) };
+}
+
+// Mirrors a real Postgres transaction's atomicity: every write the executor
+// makes lands on `db` immediately (so existing assertions that inspect `db`
+// mid-test still work), but a throw anywhere in `work` restores the
+// pre-transaction snapshot before propagating, so nothing the failed
+// transaction wrote is left behind. Every test below that never throws
+// commits exactly as before this wrapper existed.
+function createFakeStore(db: FakeDb, executor: PersistExecutor = createExecutor(db)): PersistStore {
+  return {
+    transaction: async (work) => {
+      const snapshot = snapshotFakeDb(db);
+      try {
+        return await work(executor);
+      } catch (error) {
+        restoreFakeDb(db, snapshot);
+        throw error;
+      }
+    },
+  };
 }
 
 function emptyDb(installed: InstalledDependencyRow[]): FakeDb {
@@ -1016,3 +1069,51 @@ describe("persistSnapshot: reopen lifecycle under one external id", () => {
     expect(db.notifications).toHaveLength(0);
   });
 });
+
+// -- The outbox insert rolls back with the rest of the poll transaction ---
+//
+// enqueueNotification must run on the same transaction as the state,
+// interval, and match writes, so a later failure in that same transaction
+// (e.g. an interval-order constraint violation) rolls the outbox insert
+// back with everything else instead of leaving an orphaned row that the
+// delivery cron would send for a state change the dashboard never shows.
+
+describe("persistSnapshot: outbox insert shares the poll transaction's rollback", () => {
+  it("leaves no outbox row, and no state or match write either, when a later statement in the same transaction throws after enqueueNotification ran", async () => {
+    const db = emptyDb([dependencyRow()]);
+    const executor: PersistExecutor = {
+      ...createExecutor(db),
+      // Stands in for a later write in the same poll transaction failing
+      // (e.g. dependency_state_intervals' ended_at >= started_at check).
+      // This runs after every dependency's applyDependencyState, match, and
+      // enqueueNotification call in persistSnapshot's loop, so by the time
+      // it throws the fake db already recorded the outbox row.
+      async updateSourceHealthSuccess(sourceId, patch) {
+        await createExecutor(db).updateSourceHealthSuccess(sourceId, patch);
+        throw new Error("simulated interval-order constraint violation");
+      },
+    };
+    const store = createFakeStore(db, executor);
+    const outcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({ components: { c1: { state: "OUTAGE", updatedAt: null } }, incidents: [incident()] }),
+      etag: "\"v3\"", lastModified: null,
+    };
+
+    await expect(
+      persistSnapshot(store, outcome, baseSource(), { now: NOW, defaultRecipients: ["ops@example.com"] }),
+    ).rejects.toThrow("simulated interval-order constraint violation");
+
+    // The outbox row enqueueNotification recorded mid-transaction is gone:
+    // it never survives past the throw that follows it in the same
+    // transaction.
+    expect(db.notifications).toHaveLength(0);
+    expect(db.outboxKeys.size).toBe(0);
+    // Everything else the same transaction wrote rolls back with it too,
+    // since it's all one transaction, not just the outbox row.
+    expect(db.installed[0]?.currentState).toBe("OPERATIONAL");
+    expect(db.matches.size).toBe(0);
+    expect(db.sourceHealth).toHaveLength(0);
+  });
+});
+

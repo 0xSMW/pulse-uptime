@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+
+import type { DatabaseHandle } from "@/lib/db/client";
+
 import {
-  ENQUEUE_DEPENDENCY_NOTIFICATION_SQL,
   ENQUEUE_NOTIFICATION_SQL,
-  buildEnqueueDependencyNotificationSql,
   buildEnqueueNotificationSql,
   enqueueDependencyNotifications,
   enqueueIncidentNotifications,
@@ -172,39 +173,66 @@ const baseDependencyInput = {
   providerTimestamp: "2026-07-19T12:00:00.000Z",
 };
 
+// Fakes the Drizzle chain enqueueDependencyNotifications now runs on
+// (db.insert(...).values(...).onConflictDoNothing(...).returning(...))
+// instead of the raw SqlExecutor the incident-notification path above still
+// uses. This is the same handle shape a transaction exposes, which is the
+// point: persist.ts passes its tx here so the outbox insert joins whatever
+// transaction the caller is already in.
+function fakeDependencyDb(resultRows: { id: string }[] = [{ id: "inserted" }]) {
+  const calls: { rows?: readonly Record<string, unknown>[]; target?: unknown } = {};
+  const db = {
+    insert: () => ({
+      values: (rows: readonly Record<string, unknown>[]) => {
+        calls.rows = rows;
+        return {
+          onConflictDoNothing: (options: { target: unknown }) => {
+            calls.target = options.target;
+            return { returning: async () => resultRows };
+          },
+        };
+      },
+    }),
+  } as unknown as DatabaseHandle;
+  return { db, calls };
+}
+
 describe("dependency notification enqueue", () => {
-  it("returns 0 and issues no query when there are no recipients", async () => {
-    const query = vi.fn(async () => []);
-    const inserted = await enqueueDependencyNotifications({ query } as SqlExecutor, {
+  it("returns 0 and issues no insert when there are no recipients", async () => {
+    const { db, calls } = fakeDependencyDb();
+    const inserted = await enqueueDependencyNotifications(db, {
       ...baseDependencyInput,
       recipients: [],
     });
     expect(inserted).toBe(0);
-    expect(query).not.toHaveBeenCalled();
+    expect(calls.rows).toBeUndefined();
   });
 
-  it("enqueues a dependency incident with monitor_id and incident_id left null", async () => {
-    const query = vi.fn<(text: string, values: readonly unknown[]) => Promise<{ id: string }[]>>(async () => [{ id: "inserted" }]);
-    const inserted = await enqueueDependencyNotifications({ query } as SqlExecutor, {
+  it("enqueues a dependency incident with monitor_id and incident_id left unset", async () => {
+    const { db, calls } = fakeDependencyDb();
+    const inserted = await enqueueDependencyNotifications(db, {
       ...baseDependencyInput,
       recipients: ["ops@example.com"],
     }, { now: new Date("2026-07-19T12:00:00Z"), createId: () => "notification-1" });
 
     expect(inserted).toBe(1);
-    expect(query.mock.calls[0]?.[0]).toBe(ENQUEUE_DEPENDENCY_NOTIFICATION_SQL);
-    expect(ENQUEUE_DEPENDENCY_NOTIFICATION_SQL).toContain("null, null,");
-    const values = query.mock.calls[0]?.[1] as unknown[];
-    expect(values).toEqual([
-      "notification-1",
-      "dep-1",
-      "dependency.incident",
-      "ops@example.com",
-      expect.stringMatching(/^dependency\/vercel\/inc-1\/vercel_runtime\/\/incident\/[a-f0-9]{64}$/),
-      expect.any(String),
-      new Date("2026-07-19T12:00:00Z"),
-    ]);
-    const payload = JSON.parse(values[5] as string);
-    expect(payload).toStrictEqual({
+    expect(calls.rows).toHaveLength(1);
+    const row = calls.rows![0]!;
+    expect(row.monitorId).toBeUndefined();
+    expect(row.incidentId).toBeUndefined();
+    expect(row).toMatchObject({
+      id: "notification-1",
+      dependencyId: "dep-1",
+      eventType: "dependency.incident",
+      recipient: "ops@example.com",
+      idempotencyKey: expect.stringMatching(/^dependency\/vercel\/inc-1\/vercel_runtime\/\/incident\/[a-f0-9]{64}$/),
+      status: "pending",
+      attemptCount: 0,
+      nextAttemptAt: new Date("2026-07-19T12:00:00Z"),
+      createdAt: new Date("2026-07-19T12:00:00Z"),
+      updatedAt: new Date("2026-07-19T12:00:00Z"),
+    });
+    expect(row.payload).toStrictEqual({
       type: "dependency.incident",
       dependencyName: "Vercel Runtime",
       provider: "Vercel",
@@ -216,64 +244,64 @@ describe("dependency notification enqueue", () => {
   });
 
   it("builds a dependency.recovery payload for the recovery event", async () => {
-    const query = vi.fn<(text: string, values: readonly unknown[]) => Promise<{ id: string }[]>>(async () => [{ id: "inserted" }]);
-    await enqueueDependencyNotifications({ query } as SqlExecutor, {
+    const { db, calls } = fakeDependencyDb();
+    await enqueueDependencyNotifications(db, {
       ...baseDependencyInput,
       event: "recovery",
       recipients: ["ops@example.com"],
     }, { now: new Date("2026-07-19T12:00:00Z"), createId: () => "notification-1" });
-    const values = query.mock.calls[0]?.[1] as unknown[];
-    expect(values[4]).toMatch(/^dependency\/vercel\/inc-1\/vercel_runtime\/\/recovery\//);
-    expect(JSON.parse(values[5] as string).type).toBe("dependency.recovery");
+    const row = calls.rows![0]!;
+    expect(row.idempotencyKey).toMatch(/^dependency\/vercel\/inc-1\/vercel_runtime\/\/recovery\//);
+    expect((row.payload as { type: string }).type).toBe("dependency.recovery");
   });
 
   it("deduplicates normalized duplicate recipients", async () => {
-    const query = vi.fn<(text: string, values: readonly unknown[]) => Promise<{ id: string }[]>>(async () => [{ id: "inserted" }]);
-    const inserted = await enqueueDependencyNotifications({ query } as SqlExecutor, {
+    const { db, calls } = fakeDependencyDb();
+    const inserted = await enqueueDependencyNotifications(db, {
       ...baseDependencyInput,
       recipients: ["Ops@example.com", " ops@EXAMPLE.com "],
     }, { now: new Date("2026-07-19T12:00:00Z"), createId: () => "notification-1" });
     expect(inserted).toBe(1);
-    expect(query).toHaveBeenCalledTimes(1);
+    expect(calls.rows).toHaveLength(1);
   });
 
   it("relies on the idempotency key constraint to report only newly inserted rows", async () => {
     const recipients = ["a@example.com", "b@example.com", "c@example.com"];
-    const query = vi.fn(async () => [{ id: "kept-1" }]);
-    const inserted = await enqueueDependencyNotifications({ query } as SqlExecutor, {
+    const { db, calls } = fakeDependencyDb([{ id: "kept-1" }]);
+    const inserted = await enqueueDependencyNotifications(db, {
       ...baseDependencyInput,
       recipients,
     }, { now: new Date("2026-07-19T12:00:00Z"), createId: () => "generated-id" });
     expect(inserted).toBe(1);
-    expect(query).toHaveBeenCalledTimes(1);
+    expect(calls.rows).toHaveLength(3);
   });
 
-  it("builds distinct positional placeholders per row with monitor_id and incident_id literals", () => {
-    const sql = buildEnqueueDependencyNotificationSql(2);
-    expect(sql).toContain(
-      "($1, null, null, $2, $3, $4, $5, $6, 'pending', 0, $7, $7, $7),\n" +
-      "($8, null, null, $9, $10, $11, $12, $13, 'pending', 0, $14, $14, $14)",
-    );
-    expect(sql).toMatch(/on conflict \(idempotency_key\) do nothing/i);
-    expect(sql).toMatch(/returning id/i);
+  it("targets the idempotency key column on conflict, one row per recipient", async () => {
+    const { db, calls } = fakeDependencyDb();
+    await enqueueDependencyNotifications(db, {
+      ...baseDependencyInput,
+      recipients: ["a@example.com", "b@example.com"],
+    }, { now: new Date("2026-07-19T12:00:00Z"), createId: () => "generated-id" });
+    expect(calls.rows).toHaveLength(2);
+    expect(calls.target).toBeDefined();
   });
 
   it("gives two scoped installs of the same preset distinct idempotency keys (FIX C)", async () => {
-    const query = vi.fn<(text: string, values: readonly unknown[]) => Promise<{ id: string }[]>>(async () => [{ id: "inserted" }]);
-    await enqueueDependencyNotifications({ query } as SqlExecutor, {
+    const us = fakeDependencyDb();
+    await enqueueDependencyNotifications(us.db, {
       ...baseDependencyInput,
       scopeId: "us-east-1",
       recipients: ["ops@example.com"],
     }, { now: new Date("2026-07-19T12:00:00Z"), createId: () => "notification-1" });
-    const usKey = query.mock.calls[0]?.[1]?.[4] as string;
+    const usKey = us.calls.rows![0]!.idempotencyKey as string;
 
-    query.mockClear();
-    await enqueueDependencyNotifications({ query } as SqlExecutor, {
+    const eu = fakeDependencyDb();
+    await enqueueDependencyNotifications(eu.db, {
       ...baseDependencyInput,
       scopeId: "eu-west-2",
       recipients: ["ops@example.com"],
     }, { now: new Date("2026-07-19T12:00:00Z"), createId: () => "notification-2" });
-    const euKey = query.mock.calls[0]?.[1]?.[4] as string;
+    const euKey = eu.calls.rows![0]!.idempotencyKey as string;
 
     expect(usKey).not.toBe(euKey);
     expect(usKey).toContain("/us-east-1/");

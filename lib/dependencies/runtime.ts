@@ -225,7 +225,7 @@ export async function runDependencyCronCoordinator(deps: DependencyCronCoordinat
 
 export async function runDependencyCron(): Promise<DependencyCronRunResult> {
   const manifest = loadCatalogManifest();
-  const persistStore = createSqlPersistStore(db, queryExecutor);
+  const persistStore = createSqlPersistStore(db);
 
   return runDependencyCronCoordinator({
     leases: createSqlLeaseStore(queryExecutor),
