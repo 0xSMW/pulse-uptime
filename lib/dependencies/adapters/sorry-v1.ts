@@ -1,9 +1,14 @@
 // Sorry (Postmark's status API) adapter. Components and the present,
-// unplanned notice list can each span multiple pages, and a notice's
+// unplanned notice list can each span multiple pages. The past, unplanned
+// notice list is fetched too, but only its first page, so a notice that
+// ends between polls and moves from present to past still surfaces its
+// ended_at in the snapshot instead of vanishing unresolved. A notice's
 // impacted components and full update history only come from its own detail
-// document. requests() is called twice: once with no prior documents to get
-// the first page of each, and again with everything fetched so far so it
-// can ask for whatever pagination or per-notice detail is still missing.
+// document, fetched the same way whether the notice came from the present
+// list or the past list. requests() is called repeatedly: once with no
+// prior documents to get the first page of each list, and again with
+// everything fetched so far so it can ask for whatever pagination or
+// per-notice detail is still missing.
 
 import { z } from "zod";
 
@@ -101,14 +106,28 @@ function noticeDetailUrlOf(source: DependencySourceManifest, noticeId: number): 
   return template.replace("{id}", String(noticeId));
 }
 
-function presentUnplannedNoticesUrl(source: DependencySourceManifest): string {
+function unplannedNoticesUrl(source: DependencySourceManifest, timelineState: "present" | "past"): string {
   if (!source.incidentsUrl) {
     throw new AdapterParseError("SCHEMA_INVALID", `${source.id}: incidentsUrl is required for sorry_v1`);
   }
   const url = new URL(source.incidentsUrl);
-  url.searchParams.set("filter[timeline_state_eq]", "present");
+  url.searchParams.set("filter[timeline_state_eq]", timelineState);
   url.searchParams.set("filter[type_eq]", "unplanned");
   return url.toString();
+}
+
+function presentUnplannedNoticesUrl(source: DependencySourceManifest): string {
+  return unplannedNoticesUrl(source, "present");
+}
+
+/** First page only, a notice that ended since the prior poll still needs its ended_at observed once, not a full history walk. */
+function pastUnplannedNoticesUrl(source: DependencySourceManifest): string {
+  return unplannedNoticesUrl(source, "past");
+}
+
+/** The timeline_state filter value a notices-list URL was fetched with, or null when the URL carries none (e.g. a raw next_page link). */
+function timelineStateOfNoticesListUrl(url: string): string | null {
+  return new URL(url).searchParams.get("filter[timeline_state_eq]");
 }
 
 function resolveNextPage(nextPage: string | null | undefined, base: string): string | null {
@@ -137,6 +156,7 @@ export const sorryV1Adapter: DependencyAdapter = {
       return [
         { kind: "current", url: componentsUrlOf(source), optional: false },
         { kind: "incidents", url: presentUnplannedNoticesUrl(source), optional: false },
+        { kind: "incidents", url: pastUnplannedNoticesUrl(source), optional: false },
       ];
     }
 
@@ -152,7 +172,9 @@ export const sorryV1Adapter: DependencyAdapter = {
     for (const document of documentsOfKind(fetchedSoFar, "incidents")) {
       const list = peekNoticesList(document);
       if (!list) continue;
-      const nextUrl = resolveNextPage(list.meta.next_page, document.url);
+      // The past list is bounded to its first page, only the present list is followed across pages.
+      const isPastList = timelineStateOfNoticesListUrl(document.url) === "past";
+      const nextUrl = isPastList ? null : resolveNextPage(list.meta.next_page, document.url);
       if (nextUrl && !fetchedUrls.has(nextUrl)) next.push({ kind: "incidents", url: nextUrl, optional: false });
       for (const notice of list.notices) {
         if (notice.type !== "unplanned") continue;
@@ -189,14 +211,14 @@ export const sorryV1Adapter: DependencyAdapter = {
     const listDocuments = incidentDocuments.filter((document) => !isNoticeDetailDocument(document));
     const detailDocuments = incidentDocuments.filter((document) => isNoticeDetailDocument(document));
 
-    const presentUnplannedIds = new Set<number>();
+    const observedUnplannedIds = new Set<number>();
     for (const document of listDocuments) {
       const parsed = noticesListDocSchema.safeParse(document.json);
       if (!parsed.success) {
         throw new AdapterParseError("SCHEMA_INVALID", `${source.id}: notices document failed schema validation: ${parsed.error.message}`);
       }
       for (const notice of parsed.data.notices) {
-        if (notice.type === "unplanned") presentUnplannedIds.add(notice.id);
+        if (notice.type === "unplanned") observedUnplannedIds.add(notice.id);
       }
     }
 
@@ -230,9 +252,9 @@ export const sorryV1Adapter: DependencyAdapter = {
       });
     }
 
-    // Every present, unplanned notice in the list needs its own detail document; the poller's follow-up
-    // request round is expected to have fetched one for each before normalize() runs.
-    for (const id of presentUnplannedIds) {
+    // Every present or past unplanned notice in a fetched list needs its own detail document, the poller's
+    // follow-up request round is expected to have fetched one for each before normalize() runs.
+    for (const id of observedUnplannedIds) {
       if (!seenNoticeIds.has(id)) {
         throw new AdapterParseError("MISSING_DOCUMENT", `${source.id}: missing notice detail document for notice ${id}`);
       }
