@@ -17,8 +17,10 @@ const anthropicManifestSource = manifest.sources.find((source) => source.id === 
 const postmarkManifestSource = manifest.sources.find((source) => source.id === "postmark")!;
 // Neon uses statusio_public, whose requests() returns a single document, so it
 // is the genuine single-document source that keeps the 304 fast-path. Anthropic
-// is statuspage_v2, which also fetches optional incidents.json and
-// scheduled-maintenances, so a summary 304 no longer stands in for the source.
+// is statuspage_v2, whose only required document is summary.json (incidents.json
+// and scheduled-maintenances are optional), so its summary 304 also stands in
+// for the whole source. Postmark is sorry_v1, whose required notice lists mean
+// its primary never stands alone.
 const neonManifestSource = manifest.sources.find((source) => source.id === "neon")!;
 
 type ManifestSource = typeof anthropicManifestSource;
@@ -293,7 +295,7 @@ describe("pollDueSources orchestration", () => {
     expect(urlsFetched.has(noticeDetailUrl)).toBe(true);
   });
 
-  it("persists the primary document's own etag, and a multi-document source replays no validators so its secondaries are refetched every cycle", async () => {
+  it("persists the primary document's own etag and replays it on the primary alone next cycle", async () => {
     const currentEtag = "\"current-etag\"";
     const currentLastModified = "Mon, 01 Jan 2024 00:00:00 GMT";
     const incidentsEtag = "\"incidents-etag\"";
@@ -327,12 +329,14 @@ describe("pollDueSources orchestration", () => {
 
     const secondRow = sourceRow({ etag: firstOutcome.etag, lastModified: firstOutcome.lastModified });
     const secondCycleFetch = vi.fn(async (_source: PollerSourceRow, request: { url: string; validators?: { etag: string | null; lastModified: string | null } }) => {
-      // A statuspage_v2 source has optional incidents.json and
-      // scheduled-maintenances, so no document is sent validators: the summary
-      // is forced to a full 200 and the secondaries are refetched every cycle,
-      // which is what lets a resolution in incidents.json ever be observed.
+      // The summary is the source's one required document, so it alone carries
+      // the stored conditional validators. Its optional secondaries are fetched
+      // without validators once the summary returns a full 200.
+      if (request.url === anthropicManifestSource.currentUrl) {
+        expect(request.validators).toEqual({ etag: currentEtag, lastModified: currentLastModified });
+        return { status: "ok" as const, statusCode: 200, json: anthropicOperational, etag: currentEtag, lastModified: currentLastModified };
+      }
       expect(request.validators).toBeUndefined();
-      if (request.url === anthropicManifestSource.currentUrl) return { status: "ok" as const, statusCode: 200, json: anthropicOperational, etag: currentEtag, lastModified: currentLastModified };
       if (request.url === anthropicManifestSource.incidentsUrl) return { status: "ok" as const, statusCode: 200, json: emptyIncidentsDoc, etag: incidentsEtag, lastModified: incidentsLastModified };
       if (request.url === maintenanceDocUrl) return { status: "ok" as const, statusCode: 200, json: emptyMaintenanceDoc, etag: null, lastModified: null };
       throw new Error(`unexpected url ${request.url}`);
@@ -348,10 +352,38 @@ describe("pollDueSources orchestration", () => {
     expect(secondCycleFetch).toHaveBeenCalledTimes(3);
   });
 
-  it("still fetches incidents.json on a summary that would 304, so a resolved incident absent from the summary is observed", async () => {
-    // A statuspage incident that resolved is no longer listed inline in
-    // summary.json, only in incidents.json. Even though the summary is cache
-    // unchanged, the poller must fetch incidents.json to see the resolution.
+  it("short-circuits a statuspage summary 304 to not_modified without fetching the optional secondaries", async () => {
+    // The summary is the source's one required document and lists every active
+    // incident inline, so an unchanged summary means nothing resolved. The
+    // cycle stops on the 304 and the optional incidents.json and maintenance
+    // are never fetched, which is the conditional-GET fast path this source
+    // spends most cycles on.
+    const persist = vi.fn();
+    const row = sourceRow({ etag: "\"summary-cached\"" });
+    const fetchDocument = vi.fn(async (_source: PollerSourceRow, request: { url: string; validators?: { etag: string | null; lastModified: string | null } }) => {
+      expect(request.url).toBe(anthropicManifestSource.currentUrl);
+      expect(request.validators).toEqual({ etag: "\"summary-cached\"", lastModified: null });
+      return { status: "not_modified" as const, etag: "\"summary-cached\"", lastModified: null };
+    });
+
+    const result = await pollDueSources({
+      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      fetchDocument,
+      persist,
+      now: () => NOW,
+    });
+
+    expect(result).toEqual({ sourcesDue: 1, polled: 0, notModified: 1, failed: 0 });
+    expect(fetchDocument).toHaveBeenCalledTimes(1);
+    const [outcome] = persist.mock.calls[0] as [PollOutcome];
+    expect(outcome.kind).toBe("not_modified");
+  });
+
+  it("observes a resolved incident on the 200 the summary returns when it changes, replaying validators the server answers full", async () => {
+    // A resolution drops the incident from summary.json's inline set, so the
+    // summary changes and the conditional request comes back 200, not 304. The
+    // poller then fetches incidents.json and the resolution surfaces with its
+    // real resolved_at.
     const resolvedIncidentsDoc = {
       page: { id: "tymt9n04zgry", updated_at: NOW.toISOString() },
       incidents: [{
@@ -368,12 +400,17 @@ describe("pollDueSources orchestration", () => {
       }],
     };
     const persist = vi.fn();
-    // The row carries a cached summary validator a prior operational cycle stored.
-    const row = sourceRow({ etag: "\"summary-cached\"" });
+    // The row carries a stale summary validator from the prior active cycle.
+    const row = sourceRow({ etag: "\"summary-active\"" });
     const fetchDocument = vi.fn(async (_source: PollerSourceRow, request: { url: string; validators?: { etag: string | null; lastModified: string | null } }) => {
       if (request.url === maintenanceDocUrl) return { status: "ok" as const, statusCode: 200, json: emptyMaintenanceDoc, etag: null, lastModified: null };
       if (request.url === anthropicManifestSource.incidentsUrl) return { status: "ok" as const, statusCode: 200, json: resolvedIncidentsDoc, etag: null, lastModified: null };
-      if (request.url === anthropicManifestSource.currentUrl) return { status: "ok" as const, statusCode: 200, json: anthropicOperational, etag: "\"summary-cached\"", lastModified: null };
+      if (request.url === anthropicManifestSource.currentUrl) {
+        // The stored validator is replayed, but the summary changed so the
+        // server answers a full 200 with a fresh etag.
+        expect(request.validators).toEqual({ etag: "\"summary-active\"", lastModified: null });
+        return { status: "ok" as const, statusCode: 200, json: anthropicOperational, etag: "\"summary-resolved\"", lastModified: null };
+      }
       throw new Error(`unexpected url ${request.url}`);
     });
 
@@ -385,10 +422,6 @@ describe("pollDueSources orchestration", () => {
     });
 
     expect(result).toEqual({ sourcesDue: 1, polled: 1, notModified: 0, failed: 0 });
-    // The summary is fetched without a conditional validator, so it returns full content instead of a 304 that would abort the cycle.
-    const summaryCall = fetchDocument.mock.calls.find((call) => (call[1] as { url: string }).url === anthropicManifestSource.currentUrl);
-    expect((summaryCall?.[1] as { validators?: unknown }).validators).toBeUndefined();
-    // incidents.json is fetched every cycle now.
     const urlsFetched = new Set(fetchDocument.mock.calls.map((call) => (call[1] as { url: string }).url));
     expect(urlsFetched.has(anthropicManifestSource.incidentsUrl!)).toBe(true);
     const [outcome] = persist.mock.calls[0] as [PollOutcome];
@@ -397,6 +430,8 @@ describe("pollDueSources orchestration", () => {
       expect(outcome.snapshot.incidents).toHaveLength(1);
       expect(outcome.snapshot.incidents[0].externalId).toBe("inc-resolved-1");
       expect(outcome.snapshot.incidents[0].resolvedAt).toBe("2026-07-18T12:00:00.000Z");
+      // The primary summary's own new etag is persisted for the next cycle.
+      expect(outcome.etag).toBe("\"summary-resolved\"");
     }
   });
 

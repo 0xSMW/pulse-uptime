@@ -112,17 +112,21 @@ async function runBounded<T>(items: readonly T[], concurrency: number, worker: (
  * repeatedly, each time handing back every document fetched so far, until it
  * returns nothing new: this is what lets sorry_v1 paginate components and
  * notices, and fetch one detail document per present notice, without the
- * poller knowing anything about Postmark's API shape. A 304 on the primary
- * "current" document short-circuits the whole cycle only when that document
- * is the source's one and only document. When the source has any other
- * document, required or optional, the primary is fetched without validators
- * to force a full 200 and every other document is fetched too. A secondary
- * document holds independent state, so an unchanged primary says nothing
- * about a statuspage incident that resolved in incidents.json or a sorry_v1
- * notice that ended, and normalize() runs on real content, applying its
- * documented fallback for any secondary that is genuinely absent. A per-cycle
- * document budget bounds pagination so a feed that emits fresh follow-up URLs
- * without end cannot starve the other due sources.
+ * poller knowing anything about Postmark's API shape. The primary "current"
+ * document is always fetched with the source's stored conditional validators,
+ * so a 304 stays possible. A 304 on the primary short-circuits the whole cycle
+ * only when the primary is the source's one required document: then its
+ * secondaries are all optional and enrich state the primary already carries,
+ * so an unchanged primary means an unchanged source. statuspage_v2's
+ * summary.json enumerates every active incident inline, so a summary 304 means
+ * no incident resolved and the cached snapshot still holds. When the source
+ * has a required secondary the primary cannot stand in for it, so the primary
+ * is fetched without validators to force a full 200 and every document is
+ * fetched: sorry_v1's notice lists hold independent state an unchanged
+ * components page says nothing about, and normalize() runs on real content,
+ * applying its documented fallback for any optional secondary that is absent.
+ * A per-cycle document budget bounds pagination so a feed that emits fresh
+ * follow-up URLs without end cannot starve the other due sources.
  */
 async function pollOneSource(
   source: PollerSourceRow,
@@ -138,16 +142,17 @@ async function pollOneSource(
     let cacheLastModified = source.lastModified;
     let fetchedDocumentCount = 0;
 
-    // The primary "current" document may stand in for the whole source on a 304
-    // only when it is the source's one and only document. Any other document,
-    // required or optional, holds independent state the primary cannot vouch
-    // for: statuspage_v2's incidents.json carries the resolution of an incident
-    // that summary.json no longer lists inline, and sorry_v1's notice lists
-    // carry a notice that ended. So when the source has more than one document
-    // the primary is fetched without validators to force a full 200, the
-    // secondaries are fetched unconditionally too, and normalize() runs on real
-    // content with its documented fallback for any secondary that is absent.
-    const primaryStandsAlone = adapter.requests(manifestSource, undefined).length <= 1;
+    // The primary "current" document is always fetched with stored validators,
+    // and stands in for the whole source on a 304 only when it is the source's
+    // one required document. A required secondary holds independent state the
+    // primary cannot vouch for, so a source that has one fetches the primary
+    // without validators to force a full 200 and fetches every secondary too:
+    // sorry_v1's notice lists carry a notice that ended, which an unchanged
+    // components page never reveals. An optional secondary only enriches state
+    // the primary already carries inline, so it never blocks the 304 fast path:
+    // statuspage_v2's summary.json enumerates every active incident inline, so
+    // a summary 304 means nothing resolved and normalize() need not run.
+    const primaryStandsAlone = adapter.requests(manifestSource, undefined).filter((request) => request.optional !== true).length <= 1;
 
     // Optional secondary documents whose fetch failed this cycle. They are held
     // out of subsequent request rounds so the cycle can complete, and normalize()

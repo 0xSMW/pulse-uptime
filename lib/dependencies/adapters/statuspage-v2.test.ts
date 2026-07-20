@@ -123,6 +123,18 @@ describe("statuspageV2Adapter.normalize: incidents", () => {
   });
 });
 
+describe("statuspageV2Adapter.normalize: incidentsComplete", () => {
+  it("is complete from summary.json alone, so a skipped incidents.json never false-closes an open incident", () => {
+    // summary.json authoritatively lists active incidents inline, so the open
+    // set is complete even on a cycle where the optional incidents.json was not
+    // fetched and normalize() fell back to summary.incidents.
+    const fromSummaryOnly = statuspageV2Adapter.normalize({ source: anthropicSource, documents: [currentDoc(degraded)], observedAt: "2026-07-19T15:10:00Z" });
+    expect(fromSummaryOnly.incidentsComplete).toBe(true);
+    const withIncidentsDoc = statuspageV2Adapter.normalize({ source: anthropicSource, documents: [currentDoc(operational), incidentsDoc(incidentsResolved)], observedAt: "2026-07-17T20:00:00Z" });
+    expect(withIncidentsDoc.incidentsComplete).toBe(true);
+  });
+});
+
 describe("statuspageV2Adapter.normalize: failure handling", () => {
   it("throws AdapterParseError on an unrecognized top-level shape", () => {
     expect(() => statuspageV2Adapter.normalize({ source: anthropicSource, documents: [currentDoc(malformed)], observedAt: "2026-07-19T15:00:00Z" })).toThrow(AdapterParseError);

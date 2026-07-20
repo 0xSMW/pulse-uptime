@@ -203,10 +203,13 @@ export const statuspageV2Adapter: DependencyAdapter = {
       observedAt,
       providerUpdatedAt,
       componentsComplete: true,
-      // summary.json enumerates every currently-unresolved incident inline,
-      // and incidents.json is the full history, so on a 200 snapshot the
-      // open-incident set is complete: an open incident absent from it has
-      // resolved.
+      // summary.json authoritatively enumerates every currently-unresolved
+      // incident inline, and normalize() requires that summary document, so the
+      // authoritative open set is present on every snapshot. incidents.json only
+      // adds resolved history, never a still-open incident summary.json omitted,
+      // so the open set stays complete even on a cycle where the optional
+      // incidents.json failed and this fell back to summary.incidents. An open
+      // incident absent from the set has genuinely resolved.
       incidentsComplete: true,
       components,
       incidents,
