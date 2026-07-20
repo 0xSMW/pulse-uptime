@@ -31,7 +31,14 @@ import { pollDueSources, type PollerSourceRow, type PollerStore } from "./poller
 // cron_runs tables rather than widening shared types it doesn't own.
 
 const DEPENDENCY_LEASE = "dependency-check";
-const DEPENDENCY_LEASE_DURATION_MS = 45_000;
+// The lease must outlive a maximal run so a slow run never loses exclusivity.
+// The check-dependencies route (app/api/cron/check-dependencies/route.ts) caps
+// a run at maxDuration = 60s, so a 90s lease leaves a 30s margin above the
+// worst case. This mirrors the monitoring cron, whose 60s route holds the 90s
+// LEASE_DURATION_MS in lib/scheduler/lease.ts. A shorter lease would expire
+// mid-run and let the next minute's invocation steal it and double-poll
+// overlapping sources concurrently with the still-running first run.
+const DEPENDENCY_LEASE_DURATION_MS = 90_000;
 const DEPENDENCY_CRON_JOB_NAME = "check-dependencies";
 
 interface DependencyLeaseStore {

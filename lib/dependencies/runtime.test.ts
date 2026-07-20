@@ -64,10 +64,10 @@ describe("runDependencyCronCoordinator", () => {
     expect(deps.leases.release).toHaveBeenCalledTimes(1);
   });
 
-  it("acquires and releases the lease named dependency-check with a 45 second duration", async () => {
+  it("acquires and releases the lease named dependency-check with a 90 second duration", async () => {
     const deps = fakeDeps();
     await runDependencyCronCoordinator(deps);
-    expect(deps.leases.acquire).toHaveBeenCalledWith("dependency-check", "id-0", 45_000);
+    expect(deps.leases.acquire).toHaveBeenCalledWith("dependency-check", "id-0", 90_000);
     expect(deps.leases.release).toHaveBeenCalledWith("dependency-check", "id-0");
   });
 
