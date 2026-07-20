@@ -516,11 +516,18 @@ export async function persistSnapshot(
         if (!incidentInternalId) continue;
 
         let isNewMatch: boolean;
+        // A page-level match is an active explicit incident that names no
+        // component, so its scope is the whole source rather than any single
+        // component. The F1 gate below exempts it, since its dependencies
+        // resolve OPERATIONAL from their own components yet the incident still
+        // affects them.
+        let isPageLevelMatch = false;
         if (incident.componentIds.length > 0) {
           if (!selectorIntersectsIncident(dependency.selector, dependency.scopeId, incident.componentIds)) continue;
           const matchKind = associationKind === "inferred" ? "inferred" : "component_match";
           isNewMatch = await tx.upsertDependencyIncidentMatch(dependency.id, incidentInternalId, matchKind, context.now);
         } else if (associationKind === "explicit" && incident.resolvedAt === null) {
+          isPageLevelMatch = true;
           // An explicit provider (statuspage, sorry) can post an active
           // page-level incident that names no component (components: []). It
           // affects the whole source, so it associates with every installed
@@ -546,6 +553,25 @@ export async function persistSnapshot(
         const priorResolvedAt = priorIncidentResolution.get(incident.externalId);
         const event = deriveNotificationEvent(isNewMatch, isActive, priorResolvedAt);
         if (event === null) continue;
+
+        // F1: an "incident" event only notifies when the incident actually
+        // degraded this dependency's resolved scope. A scoped install
+        // (google_product, statusio_component_container, or component_ids with
+        // a scopeId) matches through its parent aggregate id in
+        // matchingIdsForSelector, so an incident naming only a sibling scope
+        // still intersects it, yet its scoped nextState stays OPERATIONAL.
+        // Suppress the alert in that case. The match row is already written
+        // above, so correlation is preserved. A page-level match is exempt,
+        // since its scope is the whole source rather than one component.
+        if (event === "incident" && nextState === "OPERATIONAL" && !isPageLevelMatch) continue;
+
+        // F2: a "recovery" event only notifies when the dependency is fully
+        // back to OPERATIONAL. A dependency matched to two concurrent
+        // incidents that is still degraded by the other one when this one
+        // resolves keeps a non-OPERATIONAL nextState, so its premature
+        // recovery is suppressed until it truly recovers.
+        if (event === "recovery" && nextState !== "OPERATIONAL") continue;
+
         if (!dependency.notificationsEnabled || context.defaultRecipients.length === 0) continue;
 
         // An "incident" event on an incident that was stored resolved as of
@@ -594,6 +620,12 @@ export async function persistSnapshot(
           for (const dependency of installed) {
             if (!matchesForDisappeared.has(`${dependency.id}:${open.internalId}`)) continue;
             if (!dependency.notificationsEnabled || context.defaultRecipients.length === 0) continue;
+            // F2: only fire recovery when the dependency is fully back to
+            // OPERATIONAL, so a dependency still degraded by another active
+            // matching incident does not send a premature recovery when this
+            // disappeared one closes.
+            const resolvedState = finalStates.get(dependency.id) ?? dependency.currentState;
+            if (resolvedState !== "OPERATIONAL") continue;
             const keyExternalId = notificationKeyExternalId("recovery", open.externalId, false, null, context.now.toISOString());
             const enqueued = await tx.enqueueNotification({
               event: "recovery",
@@ -605,7 +637,7 @@ export async function persistSnapshot(
               provider: source.provider,
               incidentExternalId: keyExternalId,
               incidentTitle: open.title,
-              state: finalStates.get(dependency.id) ?? dependency.currentState,
+              state: resolvedState,
               canonicalUrl: open.canonicalUrl,
               providerTimestamp: context.now.toISOString(),
               recipients: context.defaultRecipients,
@@ -687,10 +719,16 @@ export function createSqlPersistStore(db: Database): PersistStore {
       },
 
       async closeIncident(internalId, resolvedAt) {
+        // greatest(resolvedAt, started_at) rather than a bare resolvedAt,
+        // matching the interval-close guard: a stored-open incident whose
+        // provider started_at is ahead of server now would otherwise land its
+        // resolved_at before its own started_at and fail the
+        // provider_incidents_resolution_order check, aborting the whole poll.
+        const guardedResolvedAt = sql`greatest(${resolvedAt}, ${providerIncidents.startedAt})`;
         await tx.update(providerIncidents).set({
           state: "resolved" as (typeof providerIncidents.$inferInsert)["state"],
-          resolvedAt,
-          providerUpdatedAt: resolvedAt,
+          resolvedAt: guardedResolvedAt,
+          providerUpdatedAt: guardedResolvedAt,
         }).where(eq(providerIncidents.id, internalId));
       },
 
@@ -782,6 +820,14 @@ export function createSqlPersistStore(db: Database): PersistStore {
         // ended_at >= started_at check, aborting the whole poll transaction.
         await tx.update(dependencyStateIntervals).set({ endedAt: sql`greatest(${now}, ${dependencyStateIntervals.startedAt})` })
           .where(and(eq(dependencyStateIntervals.dependencyId, dependencyId), isNull(dependencyStateIntervals.endedAt)));
+        // F4: tolerate a lost close-then-insert race. This close-then-insert
+        // is not atomic against the maintenance cron's flip, so a concurrent
+        // transaction can close this interval between the update above (which
+        // then matches zero rows) and this insert. Without the guard the
+        // insert would then violate dependency_state_intervals_one_open and
+        // abort the whole poll. Targeting that partial unique index with DO
+        // NOTHING turns the lost race into a no-op: the interval the other
+        // transaction opened stands, and this poll's other writes commit.
         await tx.insert(dependencyStateIntervals).values({
           id: randomUUID(),
           dependencyId,
@@ -789,6 +835,12 @@ export function createSqlPersistStore(db: Database): PersistStore {
           startedAt: now,
           endedAt: null,
           sourceObservedAt: next.observedAt,
+        }).onConflictDoNothing({
+          // target plus this predicate name the partial unique index
+          // dependency_state_intervals_one_open (dependency_id where ended_at
+          // is null), so the conflict is caught rather than raised.
+          target: dependencyStateIntervals.dependencyId,
+          where: sql`${dependencyStateIntervals.endedAt} is null`,
         });
       },
 

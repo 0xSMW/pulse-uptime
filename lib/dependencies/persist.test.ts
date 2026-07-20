@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
@@ -453,7 +455,11 @@ function createExecutor(db: FakeDb): PersistExecutor {
     async closeIncident(internalId, resolvedAt) {
       const meta = db.incidentMeta.get(internalId);
       if (!meta) return;
-      db.incidentResolvedAt.set(`${meta.sourceId}:${meta.externalId}`, resolvedAt);
+      // Mirrors the real greatest(resolvedAt, started_at) guard (FIX F3): a
+      // stored-open incident whose started_at is ahead of now resolves at its
+      // own started_at, never before it, so the resolution-order check holds.
+      const guarded = resolvedAt.getTime() >= meta.startedAt.getTime() ? resolvedAt : meta.startedAt;
+      db.incidentResolvedAt.set(`${meta.sourceId}:${meta.externalId}`, guarded);
     },
     async upsertIncidentComponents(incidentId, componentIds) {
       for (const componentId of componentIds) db.incidentComponentPairs.add(`${incidentId}:${componentId}`);
@@ -917,13 +923,16 @@ describe("persistSnapshot: FIX C scoped dedup", () => {
       dependencyRow({ id: "dep-eu", catalogId: "neon_database", scopeId: "eu-west-2", selector: { kind: "statusio_component_container", componentId: "c1", container: { required: true } } }),
     ]);
     const store = createFakeStore(db);
+    // Both scoped containers are themselves out, so each dependency's own
+    // scoped nextState is non-OPERATIONAL and the F1 gate lets both alert. The
+    // incident names the parent c1, which both match through.
     const outcome: PollOutcome = {
       sourceId: "vercel", kind: "snapshot",
       snapshot: snapshotWith({
         components: {
           c1: { state: "OUTAGE", updatedAt: null },
-          "us-east-1": { state: "OPERATIONAL", updatedAt: null },
-          "eu-west-2": { state: "OPERATIONAL", updatedAt: null },
+          "us-east-1": { state: "OUTAGE", updatedAt: null },
+          "eu-west-2": { state: "OUTAGE", updatedAt: null },
         },
         incidents: [incident({ componentIds: ["c1"] })],
       }),
@@ -1606,6 +1615,163 @@ describe("persistSnapshot: FIX F-A5 last_successful_poll_at only advances on suc
     expect(db.installed[0]?.currentState).toBe("UNKNOWN");
     // The success timestamp still points at the real snapshot, not the failure.
     expect(db.lastSuccessfulPollAt.get("dep-1")).toEqual(NOW);
+  });
+});
+
+// -- F1: a scoped install matched only through its parent aggregate id must
+// not receive a spurious "incident" alert when its own scope resolves
+// OPERATIONAL. The match row is still recorded for correlation.
+
+describe("persistSnapshot: F1 scoped install spurious-incident suppression", () => {
+  it("records the match but suppresses the incident alert when only a sibling scope is affected", async () => {
+    const db = emptyDb([
+      dependencyRow({ id: "dep-us", catalogId: "neon_database", scopeId: "us-east-1", currentState: "OPERATIONAL", selector: { kind: "statusio_component_container", componentId: "c1", container: { required: true } } }),
+    ]);
+    const store = createFakeStore(db);
+    const outcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({
+        components: {
+          // The parent aggregates a sibling region's outage, the scoped
+          // container itself is fine, and the incident names the parent.
+          c1: { state: "OUTAGE", updatedAt: null },
+          "us-east-1": { state: "OPERATIONAL", updatedAt: null },
+        },
+        incidents: [incident({ componentIds: ["c1"] })],
+      }),
+      etag: null, lastModified: null,
+    };
+    const summary = await persistSnapshot(store, outcome, baseSource(), { now: NOW, defaultRecipients: ["ops@example.com"] });
+
+    // No incident alert: the incident did not degrade this dependency's scope.
+    expect(summary.notificationsEnqueued).toBe(0);
+    expect(db.notifications).toHaveLength(0);
+    // The match row is still recorded, for correlation.
+    expect(db.matches.size).toBe(1);
+    expect(db.installed[0]?.currentState).toBe("OPERATIONAL");
+  });
+
+  it("still fires the incident alert for a scoped install when its own scope is the one affected", async () => {
+    const db = emptyDb([
+      dependencyRow({ id: "dep-us", catalogId: "neon_database", scopeId: "us-east-1", currentState: "OPERATIONAL", selector: { kind: "statusio_component_container", componentId: "c1", container: { required: true } } }),
+    ]);
+    const store = createFakeStore(db);
+    const outcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({
+        components: {
+          c1: { state: "OUTAGE", updatedAt: null },
+          "us-east-1": { state: "OUTAGE", updatedAt: null },
+        },
+        incidents: [incident({ componentIds: ["c1"] })],
+      }),
+      etag: null, lastModified: null,
+    };
+    const summary = await persistSnapshot(store, outcome, baseSource(), { now: NOW, defaultRecipients: ["ops@example.com"] });
+
+    expect(summary.notificationsEnqueued).toBe(1);
+    expect(db.notifications[0]?.event).toBe("incident");
+    expect(db.installed[0]?.currentState).toBe("OUTAGE");
+  });
+});
+
+// -- F2: recovery is gated on the dependency's overall resolved state, not a
+// single incident. A dependency matched to two concurrent incidents does not
+// send a premature "recovered" alert when the first resolves while the second
+// still degrades it. Its one recovery fires only when it truly returns to
+// OPERATIONAL.
+
+describe("persistSnapshot: F2 recovery gated on overall state", () => {
+  it("suppresses recovery for one resolved incident while another matching incident still degrades the dependency", async () => {
+    const db = emptyDb([dependencyRow({ id: "dep-1", currentState: "OPERATIONAL", selector: { kind: "component_ids", aggregation: "worst_of", ids: ["c1"] } })]);
+    const store = createFakeStore(db);
+    const source = baseSource();
+    const t0 = NOW;
+    const t1 = new Date(NOW.getTime() + 60_000);
+    const t2 = new Date(NOW.getTime() + 120_000);
+
+    const incE = (resolvedAt: string | null, updatedAt: string) => incident({ externalId: "inc-E", componentIds: ["c1"], resolvedAt, updatedAt });
+    const incF = (resolvedAt: string | null, updatedAt: string) => incident({ externalId: "inc-F", componentIds: ["c1"], resolvedAt, updatedAt });
+
+    // Poll 1: both incidents active, dependency OUTAGE, one incident alert each.
+    const bothActive: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({ components: { c1: { state: "OUTAGE", updatedAt: null } }, incidents: [incE(null, t0.toISOString()), incF(null, t0.toISOString())] }),
+      etag: null, lastModified: null,
+    };
+    // Poll 2: E resolves, F still active, dependency still OUTAGE from F.
+    const eResolved: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({ components: { c1: { state: "OUTAGE", updatedAt: null } }, incidents: [incE(t1.toISOString(), t1.toISOString()), incF(null, t1.toISOString())] }),
+      etag: null, lastModified: null,
+    };
+    // Poll 3: F resolves too, dependency finally OPERATIONAL.
+    const bothResolved: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({ components: { c1: { state: "OPERATIONAL", updatedAt: null } }, incidents: [incE(t1.toISOString(), t1.toISOString()), incF(t2.toISOString(), t2.toISOString())] }),
+      etag: null, lastModified: null,
+    };
+
+    const poll1 = await persistSnapshot(store, bothActive, source, { now: t0, defaultRecipients: ["ops@example.com"] });
+    const poll2 = await persistSnapshot(store, eResolved, source, { now: t1, defaultRecipients: ["ops@example.com"] });
+    const poll3 = await persistSnapshot(store, bothResolved, source, { now: t2, defaultRecipients: ["ops@example.com"] });
+
+    expect(poll1.notificationsEnqueued).toBe(2);
+    // E's recovery is suppressed: the dependency is still OUTAGE from F.
+    expect(poll2.notificationsEnqueued).toBe(0);
+    // Only when F resolves and the dependency is OPERATIONAL does one recovery fire.
+    expect(poll3.notificationsEnqueued).toBe(1);
+    expect(db.notifications.map((n) => n.event)).toEqual(["incident", "incident", "recovery"]);
+    expect(db.installed[0]?.currentState).toBe("OPERATIONAL");
+  });
+});
+
+// -- F3: closeIncident resolves at greatest(now, started_at), so a
+// stored-open incident whose provider started_at is ahead of server now never
+// lands a resolved_at before its own started_at and never trips the
+// provider_incidents_resolution_order check.
+
+describe("persistSnapshot: F3 closeIncident greatest(now, started_at) guard", () => {
+  it("resolves a disappeared incident at its own started_at when that is ahead of the close-time now", async () => {
+    const db = emptyDb([dependencyRow({ id: "dep-1", currentState: "OPERATIONAL" })]);
+    const store = createFakeStore(db);
+    // The incident's provider started_at is well ahead of both poll times.
+    const futureStart = new Date(NOW.getTime() + 300_000);
+    const openOutcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({ components: { c1: { state: "OUTAGE", updatedAt: null } }, incidents: [incident({ startedAt: futureStart.toISOString(), updatedAt: NOW.toISOString() })] }),
+      etag: null, lastModified: null,
+    };
+    // The incident vanishes from the next complete snapshot and is closed.
+    const closeAt = new Date(NOW.getTime() + 60_000);
+    const vanishedOutcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({ incidentsComplete: true, components: { c1: { state: "OPERATIONAL", updatedAt: null } }, incidents: [] }),
+      etag: null, lastModified: null,
+    };
+
+    await persistSnapshot(store, openOutcome, baseSource(), { now: NOW, defaultRecipients: ["ops@example.com"] });
+    await persistSnapshot(store, vanishedOutcome, baseSource(), { now: closeAt, defaultRecipients: ["ops@example.com"] });
+
+    // resolved_at is clamped up to started_at, never the earlier close-time now.
+    expect(db.incidentResolvedAt.get("vercel:inc-1")).toEqual(futureStart);
+    expect(db.incidentResolvedAt.get("vercel:inc-1")).not.toEqual(closeAt);
+  });
+});
+
+// -- F4: the new-open-interval insert tolerates a lost close-then-insert race
+// by targeting the dependency_state_intervals_one_open partial unique index
+// with ON CONFLICT DO NOTHING, so a concurrent close no longer aborts the
+// whole poll. The real fix lives in the Drizzle-backed store, which the
+// in-memory fake never exercises, so this asserts the clause shape.
+
+describe("createSqlPersistStore: F4 tolerant open-interval insert", () => {
+  it("targets the one-open partial unique index with ON CONFLICT DO NOTHING", () => {
+    const source = readFileSync(new URL("./persist.ts", import.meta.url), "utf8");
+    const insertBlock = source.slice(source.indexOf("await tx.insert(dependencyStateIntervals).values({"));
+    expect(insertBlock).toMatch(/onConflictDoNothing\(\{/);
+    expect(insertBlock).toMatch(/target:\s*dependencyStateIntervals\.dependencyId/);
+    expect(insertBlock).toMatch(/where:\s*sql`\$\{dependencyStateIntervals\.endedAt\} is null`/);
   });
 });
 
