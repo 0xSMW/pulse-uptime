@@ -158,18 +158,24 @@ const DELETE_ORPHAN_IMAGES_SQL = `with referenced as (
 )
 delete from images using doomed where images.id = doomed.id returning images.id`;
 
+// Empties body_text on provider_incident_updates older than the cutoff and
+// leaves state, timing, and the row itself intact so dependency detail
+// timelines keep incident identity while only the two-year-old prose drops.
+// The body_text <> '' guard keeps already-emptied rows out of the batch, so
+// drainBatches sees a shrinking count and stops instead of rewriting the same
+// rows forever.
 const RETAIN_DEPENDENCY_INCIDENT_UPDATES_SQL = `with doomed as (
   select incident_id, external_update_id from provider_incident_updates
-  where provider_created_at < $1
+  where provider_created_at < $1 and body_text <> ''
   order by provider_created_at limit $2
 ),
-deleted as (
-  delete from provider_incident_updates using doomed
+pruned as (
+  update provider_incident_updates set body_text = '' from doomed
   where provider_incident_updates.incident_id = doomed.incident_id
     and provider_incident_updates.external_update_id = doomed.external_update_id
   returning 1
 )
-select count(*)::int as affected from deleted`;
+select count(*)::int as affected from pruned`;
 
 // Compacts closed dependency_state_intervals older than the cutoff into one
 // row per (dependency, day, state): a day with only a single interval for a

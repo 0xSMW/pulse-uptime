@@ -125,15 +125,17 @@ describe("maintenance SQL store", () => {
   });
 
   describe("dependency retention and compaction", () => {
-    it("prunes provider_incident_updates by provider_created_at with the exact retention batch limit", async () => {
+    it("empties old provider_incident_updates body text without deleting rows and skips already-empty bodies", async () => {
       const query = vi.fn().mockResolvedValue([{ affected: 7 }]);
       const cutoff = new Date("2024-07-19T00:00:00Z");
       const result = await createSqlMaintenanceStore({ query }).retainDependencyIncidentUpdates(cutoff, 10_000);
       expect(result).toBe(7);
       const [sql, values] = query.mock.calls[0]!;
-      expect(sql).toContain("delete from provider_incident_updates");
-      expect(sql).toContain("provider_created_at < $1");
+      expect(sql).toContain("update provider_incident_updates set body_text = ''");
+      expect(sql).not.toContain("delete from provider_incident_updates");
+      expect(sql).toContain("provider_created_at < $1 and body_text <> ''");
       expect(sql).toContain("limit $2");
+      expect(sql).toMatch(/select count\(\*\)::int as affected from pruned$/);
       expect(values).toEqual([cutoff, 10_000]);
     });
 
