@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
+import { ProviderFetchError } from "./fetch";
 import { loadCatalogManifest } from "./manifest";
 import { pollDueSources, type PollerSourceRow, type PollOutcome } from "./poller";
 
@@ -119,6 +120,56 @@ describe("pollDueSources orchestration", () => {
     const outcomes = persist.mock.calls.map((call) => call[0] as PollOutcome);
     expect(outcomes.find((outcome) => outcome.sourceId === "broken")?.kind).toBe("failure");
     expect(outcomes.find((outcome) => outcome.sourceId === anthropicManifestSource.id)?.kind).toBe("snapshot");
+  });
+
+  it("skips an optional secondary document whose fetch throws and still yields a snapshot", async () => {
+    const persist = vi.fn();
+    const row = sourceRow();
+    const fetchDocument = vi.fn(async (source: PollerSourceRow, request: { url: string }) => {
+      // The optional scheduled-maintenances document is unreachable this cycle.
+      // normalize() falls back to the summary's inline maintenances.
+      if (request.url === maintenanceDocUrl) throw new ProviderFetchError("HTTP_STATUS", "anthropic: unexpected status 404", 404);
+      return anthropicFetchDocument(anthropicOperational)(source, request);
+    });
+    const result = await pollDueSources({
+      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      fetchDocument,
+      persist,
+      now: () => NOW,
+    });
+    expect(result).toEqual({ sourcesDue: 1, polled: 1, notModified: 0, failed: 0 });
+    const [outcome] = persist.mock.calls[0] as [PollOutcome];
+    expect(outcome.kind).toBe("snapshot");
+    if (outcome.kind === "snapshot") {
+      expect(outcome.snapshot.components["k8w3r06qmzrp"].state).toBe("OPERATIONAL");
+    }
+    // The failed optional document is requested exactly once, not re-fetched in a loop.
+    const maintenanceCalls = fetchDocument.mock.calls.filter((call) => (call[1] as { url: string }).url === maintenanceDocUrl);
+    expect(maintenanceCalls).toHaveLength(1);
+  });
+
+  it("fails the whole source when a required document's fetch throws, carrying its retry-after", async () => {
+    const persist = vi.fn();
+    const row = sourceRow();
+    const fetchDocument = vi.fn(async (_source: PollerSourceRow, request: { url: string }) => {
+      // The primary summary document is required, so its fetch error is fatal.
+      if (request.url === anthropicManifestSource.currentUrl) {
+        throw new ProviderFetchError("HTTP_STATUS", "anthropic: unexpected status 503", 503, 30_000);
+      }
+      throw new Error(`unexpected url ${request.url}`);
+    });
+    const result = await pollDueSources({
+      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      fetchDocument,
+      persist,
+      now: () => NOW,
+    });
+    expect(result).toEqual({ sourcesDue: 1, polled: 0, notModified: 0, failed: 1 });
+    const [outcome] = persist.mock.calls[0] as [PollOutcome];
+    expect(outcome.kind).toBe("failure");
+    if (outcome.kind === "failure") {
+      expect(outcome.retryAfterMs).toBe(30_000);
+    }
   });
 
   it("drives the sorry_v1 two-pass protocol end to end: pagination-free components, notice list, then per-notice detail", async () => {

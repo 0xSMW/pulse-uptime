@@ -115,15 +115,36 @@ async function pollOneSource(
     // secondaries and normalize() needs the primary's own body.
     const primaryStandsAlone = adapter.requests(manifestSource, undefined).filter((request) => request.optional !== true).length <= 1;
 
+    // Optional secondary documents whose fetch failed this cycle. They are held
+    // out of subsequent request rounds so the cycle can complete, and normalize()
+    // applies its documented fallback for each absent document.
+    const skippedOptionalUrls = new Set<string>();
+
     while (true) {
       const requests = adapter.requests(manifestSource, documents.length > 0 ? documents : undefined);
-      const pending = requests.filter((request) => !documents.some((document) => document.url === request.url));
+      const pending = requests.filter(
+        (request) => !documents.some((document) => document.url === request.url) && !skippedOptionalUrls.has(request.url),
+      );
       if (pending.length === 0) break;
 
       for (const request of pending) {
         const isPrimaryDocument = documents.length === 0 && primaryStandsAlone;
         const validators = isPrimaryDocument ? { etag: source.etag, lastModified: source.lastModified } : undefined;
-        const result = await fetchDocument(source, { url: request.url, validators });
+
+        let result: FetchDocumentResult;
+        try {
+          result = await fetchDocument(source, { url: request.url, validators });
+        } catch (error) {
+          // A fetch failure on an optional document never fails the source. It is
+          // skipped and the cycle continues on the primary summary that already
+          // succeeded. A required document's fetch error still propagates to the
+          // outer catch, carrying its retry-after for failure backoff.
+          if (request.optional === true && error instanceof ProviderFetchError) {
+            skippedOptionalUrls.add(request.url);
+            continue;
+          }
+          throw error;
+        }
 
         if (result.status === "not_modified") {
           if (request.kind === "current" && isPrimaryDocument) {
