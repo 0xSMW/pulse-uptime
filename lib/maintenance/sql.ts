@@ -287,12 +287,13 @@ export function createSqlMaintenanceStore(db: QueryExecutor, drizzle?: Database)
     async deleteOrphanImages(cutoff, keepNewest, limit) {
       return count(await db.query(DELETE_ORPHAN_IMAGES_SQL, [cutoff, keepNewest, limit]));
     },
-    async reconcileDependencyCatalog(now) {
+    async reconcileDependencyCatalog(now, deadlineAtMs) {
       if (!drizzle) return { checkedSources: 0, disabledPresets: 0 };
       const summary = await reconcileCatalog({
         store: createSqlCatalogReconcileStore(drizzle),
         fetchSourceComponents: createLiveFetchSourceComponents(),
         now: () => now,
+        deadlineAtMs,
       });
       return { checkedSources: summary.checkedSources, disabledPresets: summary.disabledPresets.length };
     },

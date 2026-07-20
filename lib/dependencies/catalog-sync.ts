@@ -364,6 +364,10 @@ export interface ReconcileCatalogDeps {
   store: CatalogReconcileStore;
   fetchSourceComponents: FetchSourceComponents;
   now?: () => Date;
+  /** Monotonic epoch-ms clock, injected so a test can drive the deadline. Defaults to Date.now. */
+  nowMs?: () => number;
+  /** Epoch-ms budget boundary. No new source fetch starts once nowMs reaches it, so validation cannot overrun the reserved maintenance slice. Undefined means no bound. */
+  deadlineAtMs?: number;
 }
 
 export interface ReconcileCatalogSummary {
@@ -401,25 +405,35 @@ function missingIds(preset: PresetRow, known: ReadonlySet<string>): string[] {
 
 export async function reconcileCatalog(deps: ReconcileCatalogDeps): Promise<ReconcileCatalogSummary> {
   const now = deps.now ?? (() => new Date());
+  const nowMs = deps.nowMs ?? Date.now;
+  const deadlineAtMs = deps.deadlineAtMs ?? Infinity;
   const sources = await deps.store.loadEnabledSources();
 
-  // Fetch every source's component directory with no transaction open. These
-  // are live, sequential, multi-source HTTP calls that can take tens of
+  // Fetch each enabled source's component directory with no transaction open.
+  // These are live, sequential, multi-source HTTP calls that can take tens of
   // seconds, so running them inside a transaction would pin a connection and
   // risk an idle_in_transaction abort that rolls back all partial validation.
+  // The loop stops before starting the next source's fetch once the deadline
+  // is reached, so validation stays inside its reserved maintenance slice.
+  // Sources fetched this pass keep their results, the rest are simply left for
+  // the next maintenance pass, and only the processed sources are validated
+  // and counted below.
+  const processed: EnabledSourceRow[] = [];
   const directories = new Map<string, CatalogComponentDirectory | null>();
   for (const source of sources) {
+    if (nowMs() >= deadlineAtMs) break;
     directories.set(source.id, await deps.fetchSourceComponents(source));
+    processed.push(source);
   }
 
   const disabledPresets: string[] = [];
   let validatedPresets = 0;
   let unknownDependencies = 0;
 
-  // One short write transaction per source. Network already happened above,
-  // so each transaction only issues local writes, and a failure isolates to
-  // its own source instead of discarding every source's validation.
-  for (const source of sources) {
+  // One short write transaction per processed source. Network already happened
+  // above, so each transaction only issues local writes, and a failure
+  // isolates to its own source instead of discarding every source's validation.
+  for (const source of processed) {
     const directory = directories.get(source.id) ?? null;
     const perSource = await deps.store.transaction(async (tx) => {
       const validatedAt = now();
@@ -461,7 +475,7 @@ export async function reconcileCatalog(deps: ReconcileCatalogDeps): Promise<Reco
     unknownDependencies += perSource.unknown;
   }
 
-  return { checkedSources: sources.length, validatedPresets, disabledPresets, unknownDependencies };
+  return { checkedSources: processed.length, validatedPresets, disabledPresets, unknownDependencies };
 }
 
 export function createSqlCatalogReconcileStore(db: Database): CatalogReconcileStore {

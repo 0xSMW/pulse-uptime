@@ -459,6 +459,43 @@ describe("reconcileCatalog", () => {
 
     expect(events).toEqual(["fetch:vercel", "fetch:neon", "transaction", "transaction"]);
   });
+
+  it("stops starting new source fetches once the deadline passes, leaving the rest for the next pass", async () => {
+    const state: FakeReconcileState = {
+      sources: Array.from({ length: 5 }, (_, index) => ({
+        id: `source-${index}`,
+        adapter: "statuspage_v2",
+        currentUrl: `https://example.com/${index}`,
+      })),
+      presetsBySource: {},
+      installedBySource: {},
+    };
+    const { store } = fakeReconcile(state);
+
+    // Each live fetch burns 100ms of the slice. With a 200ms deadline only the
+    // first two sources start before nowMs reaches it, and the loop breaks
+    // before the third fetch.
+    let clock = 0;
+    const fetched: string[] = [];
+    const fetchSourceComponents = vi.fn(async (source: { id: string }) => {
+      fetched.push(source.id);
+      clock += 100;
+      return { componentIds: new Set<string>() };
+    });
+
+    const summary = await reconcileCatalog({
+      store,
+      fetchSourceComponents,
+      nowMs: () => clock,
+      deadlineAtMs: 200,
+    });
+
+    expect(fetched).toEqual(["source-0", "source-1"]);
+    expect(fetchSourceComponents).toHaveBeenCalledTimes(2);
+    // checkedSources reports only the sources actually processed, so the summary
+    // never claims to have validated the sources left for the next pass.
+    expect(summary.checkedSources).toBe(2);
+  });
 });
 
 describe("sourceUpsertPlan (F-B2)", () => {
