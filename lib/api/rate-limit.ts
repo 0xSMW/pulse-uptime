@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 import { apiRateLimitBuckets } from "@/lib/db/schema";
+import { clientIpFromHeaders } from "@/lib/net/client-ip";
 
 import { digestBearerToken } from "./tokens";
 
@@ -64,7 +65,7 @@ export async function enforceRateLimit(
 }
 
 export function sourceIpKey(request: Request): string {
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const ip = clientIpFromHeaders(request.headers) ?? "unknown";
   return `ip:${digestBearerToken(`source-ip:${ip}`).toString("hex")}`;
 }
 

@@ -2,6 +2,7 @@ import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { DependencyOverlapCard } from "@/components/dependencies/dependency-overlap-card";
 import { IncidentEventTrail } from "@/components/incidents/incident-event-trail";
 import { formatIncidentDuration } from "@/components/incidents/incident-format";
 import { IncidentTime } from "@/components/incidents/incident-time";
@@ -48,10 +49,15 @@ export default async function IncidentDetailPage({ params }: { params: Promise<{
         <h2 id="incident-cause-title" className="text-xs font-medium text-[var(--fg-muted)]">Opening Failure</h2>
         <p className="mt-2 font-data text-[13px]">{incident.openingFailure}</p>
         <div className="mt-4 flex flex-wrap gap-x-8 gap-y-2 text-xs text-[var(--fg-muted)]">
-          <span>Status <span className="font-data text-[var(--fg)]">{incident.status ?? "—"}</span></span>
           <span className="inline-flex gap-2">Notifications <NotificationSummary summary={incident.notificationSummary} /></span>
         </div>
       </section>
+
+      {incident.overlaps.length > 0 ? (
+        <div className="mb-6">
+          <DependencyOverlapCard overlaps={incident.overlaps} />
+        </div>
+      ) : null}
 
       <IncidentEventTrail events={incident.events} />
     </>

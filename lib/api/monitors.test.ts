@@ -11,7 +11,7 @@ import type { DatabaseHandle } from "@/lib/db/client";
 import { db } from "@/lib/db/client";
 
 import { mutateConfig } from "./config-mutation";
-import { createMonitor, deleteMonitor, mergeMonitorPatch, MonitorApiError, parseCreateMonitor, parsePatchMonitor, setMonitorEnabled, updateMonitor } from "./monitors";
+import { archiveMonitor, createMonitor, mergeMonitorPatch, MonitorApiError, parseCreateMonitor, parsePatchMonitor, setMonitorEnabled, updateMonitor } from "./monitors";
 
 const EXISTING = parseCreateMonitor({ id: "site-home", name: "Site", url: "https://example.com" });
 const BASE_CONFIG = { schemaVersion: 2, configVersion: 1, groups: [], monitors: [EXISTING] };
@@ -64,7 +64,7 @@ describe("handle threading to mutateConfig (finding: the mutation and the idempo
     expect(mutateConfig).toHaveBeenLastCalledWith("human:1", expect.any(Function), routeTx);
   });
 
-  it("deleteMonitor forwards the given handle to mutateConfig and to the archived-registry fallback read on MONITOR_NOT_FOUND", async () => {
+  it("archiveMonitor forwards the given handle to mutateConfig and to the archived-registry fallback read on MONITOR_NOT_FOUND", async () => {
     vi.mocked(mutateConfig).mockRejectedValueOnce(new MonitorApiError("MONITOR_NOT_FOUND", "Monitor was not found"));
     const chain: Record<string, unknown> = {};
     chain.from = vi.fn(() => chain);
@@ -72,10 +72,10 @@ describe("handle threading to mutateConfig (finding: the mutation and the idempo
     chain.limit = vi.fn(async () => [{ id: "site-missing" }]);
     const fallbackHandle = { select: vi.fn(() => chain) } as unknown as DatabaseHandle;
 
-    const result = await deleteMonitor("site-missing", "human:1", fallbackHandle);
+    const result = await archiveMonitor("site-missing", "human:1", fallbackHandle);
 
     expect(mutateConfig).toHaveBeenLastCalledWith("human:1", expect.any(Function), fallbackHandle);
     expect(fallbackHandle.select).toHaveBeenCalled();
-    expect(result).toEqual({ id: "site-missing", deleted: true });
+    expect(result).toEqual({ id: "site-missing", archived: true });
   });
 });

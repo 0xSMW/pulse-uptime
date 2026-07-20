@@ -10,7 +10,7 @@ import { Sheet } from "./sheet";
 const scopes = [
   "monitors:read", "monitors:write", "incidents:read", "config:read",
   "config:write", "notifications:test", "tokens:manage", "status:read",
-  "reports:read", "reports:write",
+  "reports:read", "reports:write", "dependencies:read", "dependencies:write",
 ] as const;
 
 type CreatedToken = { token: string };

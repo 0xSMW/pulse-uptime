@@ -19,7 +19,7 @@ import {
   monitorState,
 } from "@/lib/db/schema";
 
-import { ConfigMutationError, loadAcceptedConfig as loadConfigSnapshot, mutateConfig as mutateConfiguration, nextConfig } from "./config-mutation";
+import { ConfigMutationError, requireAcceptedConfig as loadConfigSnapshot, mutateConfig as mutateConfiguration, nextConfig } from "./config-mutation";
 import { decodeCursor, encodeCursor } from "./pagination";
 
 const idSchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).min(3).max(64);
@@ -57,7 +57,7 @@ function translateConfigError(error: unknown): never {
   throw error;
 }
 
-async function loadAcceptedConfig() {
+async function requireAcceptedConfig() {
   try { return await loadConfigSnapshot(); } catch (error) { return translateConfigError(error); }
 }
 
@@ -129,7 +129,7 @@ export async function updateMonitor(id: string, input: unknown, principalKey: st
   return monitorResponse(result.monitors.find((item) => item.id === id)!, result.groups);
 }
 
-export async function deleteMonitor(id: string, principalKey: string, handle: DatabaseHandle = db) {
+export async function archiveMonitor(id: string, principalKey: string, handle: DatabaseHandle = db) {
   try {
     await mutateConfig(principalKey, (current) => {
       if (!current.monitors.some((item) => item.id === id)) throw new MonitorApiError("MONITOR_NOT_FOUND", "Monitor was not found");
@@ -141,7 +141,7 @@ export async function deleteMonitor(id: string, principalKey: string, handle: Da
       .where(and(eq(monitorRegistry.id, id), drizzleSql`${monitorRegistry.archivedAt} is not null`)).limit(1);
     if (!archived) throw error;
   }
-  return { id, deleted: true };
+  return { id, archived: true };
 }
 
 export async function setMonitorEnabled(id: string, enabled: boolean, principalKey: string, handle: DatabaseHandle = db) {
@@ -152,8 +152,8 @@ export async function setMonitorEnabled(id: string, enabled: boolean, principalK
   return monitorResponse(result.monitors.find((item) => item.id === id)!, result.groups);
 }
 
-export async function getMonitor(id: string) {
-  const accepted = await loadAcceptedConfig();
+export async function requireMonitor(id: string) {
+  const accepted = await requireAcceptedConfig();
   const monitor = accepted.config.monitors.find((item) => item.id === id);
   if (!monitor) throw new MonitorApiError("MONITOR_NOT_FOUND", "Monitor was not found");
   return monitorResponse(monitor, accepted.config.groups);
@@ -175,7 +175,7 @@ export async function listMonitors(options: {
   const sort = options.sort ?? "state";
   const fingerprint = JSON.stringify({ state: options.state ?? null, group: options.group ?? null, groupId: options.groupId ?? null, enabled: options.enabled ?? null, sort });
   if (options.cursor && !cursor) throw new MonitorApiError("INVALID_REQUEST", "Cursor is invalid");
-  const accepted = await loadAcceptedConfig();
+  const accepted = await requireAcceptedConfig();
   const ids = accepted.config.monitors.map((monitor) => monitor.id);
   const states = ids.length
     ? await db.select({
@@ -222,7 +222,7 @@ export async function listMonitors(options: {
 }
 
 export async function testMonitor(id: string) {
-  const accepted = await loadAcceptedConfig();
+  const accepted = await requireAcceptedConfig();
   const monitor = accepted.config.monitors.find((item) => item.id === id);
   if (!monitor) throw new MonitorApiError("MONITOR_NOT_FOUND", "Monitor was not found");
   const result = await runManualCheck(monitor.url, {

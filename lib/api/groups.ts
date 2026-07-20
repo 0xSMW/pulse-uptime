@@ -5,7 +5,7 @@ import { z } from "zod";
 import { groupConfigSchema, type GroupConfig, type MonitoringConfig } from "@/lib/config";
 import { db, type DatabaseHandle } from "@/lib/db/client";
 
-import { loadAcceptedConfig, mutateConfig, nextConfig } from "./config-mutation";
+import { requireAcceptedConfig, mutateConfig, nextConfig } from "./config-mutation";
 
 const createGroupSchema = groupConfigSchema;
 const renameGroupSchema = z.object({ name: groupConfigSchema.shape.name }).strict();
@@ -49,7 +49,7 @@ function withCounts(config: MonitoringConfig) {
   return config.groups.map((group) => ({ ...group, monitorCount: config.monitors.filter((monitor) => monitor.groupId === group.id).length }));
 }
 
-export async function listGroups() { return withCounts((await loadAcceptedConfig()).config); }
+export async function listGroups() { return withCounts((await requireAcceptedConfig()).config); }
 
 export async function createGroup(input: unknown, principalKey: string, handle: DatabaseHandle = db) {
   const group = createGroupSchema.parse(input);

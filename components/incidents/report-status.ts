@@ -1,23 +1,29 @@
 import type { MonitorState } from "@/components/monitors/status-dot";
+import {
+  impactOptions,
+  isResolvingStatus,
+  REPORT_STATUS_LABELS,
+  REPORT_STATUSES,
+  type ReportImpact,
+  type ReportType,
+  type ReportUpdateStatus,
+} from "@/lib/status-reports/domain";
 
 /**
- * Client-safe status-report types and helpers. The shapes mirror the JSON
- * serialization of lib/api/status-reports (StatusReportData). That module is
- * server-only, so client components use these structural twins instead.
+ * Client-safe status-report form types and helpers. The DTO shapes mirror the
+ * JSON serialization of lib/api/status-reports (StatusReportData). The shared
+ * vocabulary (types, status lists, labels, impact options, resolving test)
+ * comes from lib/status-reports/domain, re-exported here so client consumers
+ * keep one import surface.
  */
 
-export type ReportType = "incident" | "maintenance";
-
-export type ReportUpdateStatus =
-  | "investigating"
-  | "identified"
-  | "monitoring"
-  | "resolved"
-  | "scheduled"
-  | "in_progress"
-  | "completed";
-
-export type ReportImpact = "down" | "degraded" | "maintenance";
+export {
+  impactOptions,
+  isResolvingStatus,
+  REPORT_STATUS_LABELS,
+  REPORT_STATUSES,
+};
+export type { ReportImpact, ReportType, ReportUpdateStatus };
 
 export type ReportUpdateData = {
   id: string;
@@ -71,21 +77,6 @@ export type ReportListRowData = {
 export type ReportListState = "all" | "draft" | "ongoing" | "resolved";
 export type ReportListType = "all" | "incident" | "maintenance";
 
-export const REPORT_STATUSES: Record<ReportType, readonly ReportUpdateStatus[]> = {
-  incident: ["investigating", "identified", "monitoring", "resolved"],
-  maintenance: ["scheduled", "in_progress", "completed"],
-};
-
-export const REPORT_STATUS_LABELS: Record<ReportUpdateStatus, string> = {
-  investigating: "Investigating",
-  identified: "Identified",
-  monitoring: "Monitoring",
-  resolved: "Resolved",
-  scheduled: "Scheduled",
-  in_progress: "In progress",
-  completed: "Completed",
-};
-
 /** Maps a report's current status onto the house StatusDot vocabulary. */
 export function reportDotState(status: ReportUpdateStatus): MonitorState {
   switch (status) {
@@ -101,10 +92,6 @@ export function reportDotState(status: ReportUpdateStatus): MonitorState {
     case "scheduled":
       return "PENDING";
   }
-}
-
-export function isResolvingStatus(status: ReportUpdateStatus): boolean {
-  return status === "resolved" || status === "completed";
 }
 
 export type UpdateEdit = {
@@ -206,21 +193,6 @@ export const STATE_FLIP_COPY: Record<StateFlipDirection, string> = {
   to_ongoing: "This moves the report back to Ongoing — it will reappear at the top of your status page.",
   to_resolved: "This marks the report as Resolved — it will move into your status page history.",
 };
-
-export function impactOptions(type: ReportType): Array<{ value: ReportImpact | "none"; label: string }> {
-  if (type === "incident") {
-    return [
-      { value: "none", label: "Not affected" },
-      { value: "degraded", label: "Degraded" },
-      { value: "down", label: "Down" },
-    ];
-  }
-  return [
-    { value: "none", label: "Not affected" },
-    { value: "maintenance", label: "Maintenance" },
-    { value: "degraded", label: "Degraded" },
-  ];
-}
 
 export function formatUpdateCount(count: number): string {
   return count === 1 ? "1 update" : `${count} updates`;

@@ -1,11 +1,10 @@
-import { isIP } from "node:net";
-
 import { apiError, apiJson, objectEnvelope, requestIdFrom } from "@/lib/api/envelopes";
-import { executeIdempotent, IdempotencyError } from "@/lib/api/idempotency";
+import { executeIdempotent, requireIdempotencyKey } from "@/lib/api/idempotency";
 import { enforceRateLimit, sourceIpKey } from "@/lib/api/rate-limit";
 import { routeError } from "@/lib/api/route";
 import { DeviceAuthorizationError, startDeviceAuthorization } from "@/lib/api/device-authorization";
 import { credentialDerivationContext, deriveDeviceCode } from "@/lib/api/tokens";
+import { validClientIpFromHeaders } from "@/lib/net/client-ip";
 
 const DEVICE_START_LIMIT = { routeKey: "cli-device-start", limit: 10, windowSeconds: 10 * 60 };
 
@@ -16,7 +15,7 @@ export async function POST(request: Request) {
   try {
     const input = validateDeviceInput(await request.json());
     const ipKey = sourceIpKey(request);
-    const idempotencyKey = requiredIdempotencyKey(request);
+    const idempotencyKey = requireIdempotencyKey(request);
     const origin = new URL(request.url).origin;
     const verificationUri = `${origin}/cli/authorize`;
     const result = await executeIdempotent<DeviceAuthorizationData>({
@@ -34,7 +33,7 @@ export async function POST(request: Request) {
         }));
         const authorization = await startDeviceAuthorization({
           ...input,
-          requestIp: requestSourceIp(request),
+          requestIp: validClientIpFromHeaders(request.headers),
           deviceCredential: credential,
         }, new Date(), tx);
         return {
@@ -108,16 +107,3 @@ type DeviceAuthorizationData = {
   verificationUri: string;
   verificationUriComplete: string;
 };
-
-function requiredIdempotencyKey(request: Request) {
-  const key = request.headers.get("idempotency-key")?.trim();
-  if (!key || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key)) {
-    throw new IdempotencyError("IDEMPOTENCY_KEY_REQUIRED", "A UUID Idempotency-Key is required");
-  }
-  return key;
-}
-
-function requestSourceIp(request: Request): string | null {
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "";
-  return isIP(ip) ? ip : null;
-}

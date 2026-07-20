@@ -1,0 +1,20 @@
+[
+  {
+    "id": "geminidegraded01",
+    "number": "2",
+    "begin": "2026-07-19T10:00:00+00:00",
+    "created": "2026-07-19T10:15:00+00:00",
+    "modified": "2026-07-19T11:00:00+00:00",
+    "external_desc": "Vertex Gemini API is experiencing elevated latency for a subset of requests in one region.",
+    "severity": "medium",
+    "status_impact": "SERVICE_DISRUPTION",
+    "uri": "incidents/geminidegraded01",
+    "affected_products": [{ "id": "Z0FZJAMvEB4j3NbCJs6B", "title": "Vertex Gemini API" }],
+    "currently_affected_locations": [{ "id": "us-east4", "title": "Ashburn (us-east4)" }],
+    "previously_affected_locations": [],
+    "updates": [
+      { "created": "2026-07-19T11:00:00+00:00", "modified": "2026-07-19T11:00:00+00:00", "text": "We continue to see elevated latency and are working on mitigation.", "status": "SERVICE_DISRUPTION" },
+      { "created": "2026-07-19T10:15:00+00:00", "modified": "2026-07-19T10:15:00+00:00", "text": "We are investigating elevated latency for a subset of Vertex Gemini API requests.", "status": "SERVICE_DISRUPTION" }
+    ]
+  }
+]

@@ -1,0 +1,20 @@
+{
+  "page": { "id": "01JMDK9XYNY6RXSED6SDWW50WY", "name": "OpenAI", "url": "https://status.openai.com/", "updated_at": "2026-07-19T12:00:00Z" },
+  "status": { "description": "All Systems Operational", "indicator": "none" },
+  "components": [
+    { "id": "01JP8CD9JR3HR6Y7G4Q75N4DVW", "name": "Responses", "status": "operational", "created_at": "2025-01-01T00:00:00Z", "updated_at": "2026-07-19T12:00:00Z" },
+    { "id": "01JMXBRMFE6N2NNT7DG6XZQ6PW", "name": "Chat Completions", "status": "operational", "created_at": "2025-01-01T00:00:00Z", "updated_at": "2026-07-19T12:00:00Z" },
+    { "id": "01JMXBRMFEQW613TFE89F45035", "name": "Realtime", "status": "operational", "created_at": "2025-01-01T00:00:00Z", "updated_at": "2026-07-19T12:00:00Z" },
+    { "id": "01JMXBRMFEV0AJ0VVS68N9CD6R", "name": "Embeddings", "status": "operational", "created_at": "2025-01-01T00:00:00Z", "updated_at": "2026-07-19T12:00:00Z" },
+    { "id": "01JMXBRMFESJCBGJR10PDD3WCQ", "name": "Files", "status": "operational", "created_at": "2025-01-01T00:00:00Z", "updated_at": "2026-07-19T12:00:00Z" },
+    { "id": "01JMXBRMFEVZ7E0X9GD9FWR9WX", "name": "Moderations", "status": "operational", "created_at": "2025-01-01T00:00:00Z", "updated_at": "2026-07-19T12:00:00Z" },
+    { "id": "01JMXBRMFE5ESNNV8JDHVCGSRD", "name": "Batch", "status": "operational", "created_at": "2025-01-01T00:00:00Z", "updated_at": "2026-07-19T12:00:00Z" },
+    { "id": "01JMXBRMFEMZK0HPK19RYET250", "name": "Fine-tuning", "status": "operational", "created_at": "2025-01-01T00:00:00Z", "updated_at": "2026-07-19T12:00:00Z" },
+    { "id": "01JMXBRMFEKVBWKK82B44QFMCE", "name": "Audio", "status": "operational", "created_at": "2025-01-01T00:00:00Z", "updated_at": "2026-07-19T12:00:00Z" },
+    { "id": "01JMXBRMFE4MAP2BHSJNZ787WX", "name": "Images", "status": "operational", "created_at": "2025-01-01T00:00:00Z", "updated_at": "2026-07-19T12:00:00Z" },
+    { "id": "01JMXBNJXGV1T5GT2M9XA83XNG", "name": "Conversations", "status": "operational", "created_at": "2025-01-01T00:00:00Z", "updated_at": "2026-07-19T12:00:00Z" },
+    { "id": "01JMXBNJXG1S2D9V65P1ZZTD94", "name": "ChatGPT Login", "status": "operational", "created_at": "2025-01-01T00:00:00Z", "updated_at": "2026-07-19T12:00:00Z" },
+    { "id": "01JMXBNJXG1YMQPPCPCQX3MPA2", "name": "File uploads", "status": "operational", "created_at": "2025-01-01T00:00:00Z", "updated_at": "2026-07-19T12:00:00Z" }
+  ],
+  "incidents": []
+}

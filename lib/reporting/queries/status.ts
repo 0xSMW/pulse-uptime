@@ -2,15 +2,8 @@ import { cache } from "react";
 
 import { and, desc, eq, gte, inArray, isNotNull, isNull, lt } from "drizzle-orm";
 
-import { getImage } from "@/lib/api/images";
+import { findImage } from "@/lib/api/images";
 import { getStatusPageConfig, StatusPageConfigError } from "@/lib/api/status-page-config";
-import {
-  getPublicReports,
-  getStatusReport,
-  StatusReportError,
-  type PublicReports,
-  type StatusReportData,
-} from "@/lib/api/status-reports";
 import { db } from "@/lib/db/client";
 import { isDatabaseUnavailableError } from "@/lib/db/errors";
 import { incidents, metricRollups, monitorRegistry, monitorState } from "@/lib/db/schema";
@@ -25,9 +18,16 @@ import {
   deriveOverallState,
   excludePromotedIncidents,
   promotedIncidentIds,
-  type PublicReportEntry,
 } from "@/lib/status-page/reports-display";
 import type { StatusPageConfigDocument } from "@/lib/status-page/schema";
+import { filterReportsForGroup } from "@/lib/status-reports/domain";
+import {
+  getPublicReports,
+  requireStatusReport,
+  StatusReportError,
+  type PublicReports,
+  type StatusReportData,
+} from "@/lib/status-reports/queries";
 
 import { rollupsSinceActivation } from "./first-run";
 import { buildRollupTimeline, statusGroupSlug, summarizeRollupCoverage } from "./timeline";
@@ -68,29 +68,6 @@ const RECENT_INCIDENTS_DISPLAY_LIMIT = 10;
  * scale this dashboard isn't designed to display anyway.
  */
 const CURRENT_INCIDENTS_FETCH_LIMIT = 500;
-
-/**
- * A report belongs on /status/[group] iff it affects that group, matched by a
- * currently visible monitor id or by the SLUG of the snapshotted group name.
- * Slug matching (not exact-name matching against visible monitors) is what
- * keeps a report reachable when every monitor it affected has since been
- * archived: the affected rows still carry the group-name snapshot, and its
- * slug is exactly what the URL segment encodes. Null snapshot group names
- * collapse to the "Other" bucket exactly as the page groups live monitors.
- */
-function filterReportsForGroupSlug<T extends Pick<PublicReportEntry, "affected">>(
-  reports: readonly T[],
-  slug: string,
-  visibleMonitorIds: ReadonlySet<string>,
-): T[] {
-  return reports.filter((report) =>
-    report.affected.some(
-      (entry) =>
-        visibleMonitorIds.has(entry.monitorId) ||
-        statusGroupSlug(entry.groupName ?? "Other") === slug,
-    ),
-  );
-}
 
 // Groups rows by monitor ID while preserving input order.
 export function groupByMonitorId<T extends { monitorId: string }>(rows: T[]): Map<string, T[]> {
@@ -141,7 +118,7 @@ export const getStatusFaviconDataUri = cache(async (): Promise<string | null> =>
   const config = await getStatusPageDisplayConfig();
   if (!config.faviconImageId) return null;
   try {
-    const image = await getImage(config.faviconImageId);
+    const image = await findImage(config.faviconImageId);
     if (!image || image.kind !== "favicon") return null;
     return imageDataUri(image.mimeType, image.bytes);
   } catch (error) {
@@ -216,7 +193,7 @@ async function loadPublicStatus(group?: string) {
   // resolves it back to the exact snapshotted group names, keeping a report
   // matched even when the snapshot spells the group differently (accents,
   // case, punctuation) than the live monitors do. The root page (no `group`)
-  // stays unfiltered so its caps stay global. filterReportsForGroupSlug
+  // stays unfiltered so its caps stay global. filterReportsForGroup
   // below still runs as a defense-in-depth pass over whatever this returns.
   const publicReportsFilter = group ? { monitorIds: ids, groupSlug: group } : undefined;
   // One parallel fan-out per revalidation: the three monitor-scoped queries
@@ -278,14 +255,16 @@ async function loadPublicStatus(group?: string) {
 
   // Group filtering: a report appears on /status/[group] iff it affects
   // a monitor in that group, matched by visible monitor id or by the slug of
-  // the snapshotted group name (see filterReportsForGroupSlug).
+  // the snapshotted group name (see filterReportsForGroup in
+  // lib/status-reports/domain).
   const visibleIds = new Set(ids);
+  const groupFilter = { slug: group ?? "", visibleMonitorIds: visibleIds };
   const reports: PublicReports = group
     ? {
-        ongoing: filterReportsForGroupSlug(publicReports.ongoing, group, visibleIds),
-        upcoming: filterReportsForGroupSlug(publicReports.upcoming, group, visibleIds),
-        windowEnded: filterReportsForGroupSlug(publicReports.windowEnded, group, visibleIds),
-        resolved: filterReportsForGroupSlug(publicReports.resolved, group, visibleIds),
+        ongoing: filterReportsForGroup(publicReports.ongoing, groupFilter),
+        upcoming: filterReportsForGroup(publicReports.upcoming, groupFilter),
+        windowEnded: filterReportsForGroup(publicReports.windowEnded, groupFilter),
+        resolved: filterReportsForGroup(publicReports.resolved, groupFilter),
       }
     : publicReports;
   // A group URL is absent (null, the page 404s) only when it has NEITHER
@@ -430,7 +409,7 @@ export const getPublicStatus = cache(async (group?: string) => {
 export const getPublicReportDetail = cache(
   async (reportId: string): Promise<StatusReportData | null | "unavailable"> => {
     try {
-      const report = await getStatusReport(reportId);
+      const report = await requireStatusReport(reportId);
       if (!report.publishedAt) return null;
       return report;
     } catch (error) {

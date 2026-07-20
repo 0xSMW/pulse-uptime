@@ -10,7 +10,8 @@ export const PROVIDER_IDEMPOTENCY_RETRY_MARGIN_MS = 5 * 60_000;
 interface ClaimedRow {
   id: string;
   incident_id: string | null;
-  monitor_id: string;
+  monitor_id: string | null;
+  dependency_id: string | null;
   event_type: ClaimedNotification["eventType"];
   recipient: string;
   idempotency_key: string;
@@ -37,7 +38,7 @@ set status = 'sending',
     updated_at = $1
 from due
 where outbox.id = due.id
-returning outbox.id, outbox.incident_id, outbox.monitor_id, outbox.event_type,
+returning outbox.id, outbox.incident_id, outbox.monitor_id, outbox.dependency_id, outbox.event_type,
           outbox.recipient, outbox.idempotency_key, outbox.payload,
           outbox.attempt_count, outbox.claim_token
 `;
@@ -103,6 +104,7 @@ export async function claimNotifications(
     id: row.id,
     incidentId: row.incident_id,
     monitorId: row.monitor_id,
+    dependencyId: row.dependency_id,
     eventType: row.event_type,
     recipient: row.recipient,
     idempotencyKey: row.idempotency_key,

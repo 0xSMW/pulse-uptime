@@ -41,7 +41,7 @@ const live = {
   recentIncidents: [],
   recentChecks: [],
   rollupVersion: null,
-  configVersion: null,
+  acceptedConfigToken: null,
   windowVersion: "2026-07-19T12:00:00.000Z",
 };
 

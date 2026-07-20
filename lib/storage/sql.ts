@@ -1,3 +1,4 @@
+import { GOVERNOR_THRESHOLD_PERCENTS } from "./governor";
 import type { GovernorMode } from "./governor";
 
 export const FILL_SCHEDULER_GAPS_SQL = `
@@ -196,7 +197,7 @@ with relations as (
     coalesce(sum(index_bytes), 0)::bigint index_bytes,
     jsonb_build_object(
       'recentCheckBatches', coalesce(sum(table_bytes) filter (where relname = 'check_batches'), 0),
-      'rollups', coalesce(sum(table_bytes) filter (where relname in ('metric_rollups','daily_rollups')), 0),
+      'rollups', coalesce(sum(table_bytes) filter (where relname = 'metric_rollups'), 0),
       'exceptions', coalesce(sum(table_bytes) filter (where relname in ('monitor_exceptions','exception_payloads')), 0),
       'incidents', coalesce(sum(table_bytes) filter (where relname in ('incidents','incident_events')), 0),
       'coreData', coalesce(sum(table_bytes) filter (where relname in ('monitor_registry','monitor_state','monitoring_config_snapshots','admin_users')), 0),
@@ -217,10 +218,10 @@ with relations as (
   from totals cross join growth
 ), classified as (
   select *, case
-    when projected_bytes * 100 < $2::bigint * 60 then 'full'
-    when projected_bytes * 100 < $2::bigint * 75 then 'compact_early'
-    when projected_bytes * 100 < $2::bigint * 85 then 'shortened'
-    when projected_bytes * 100 <= $2::bigint * 95 then 'incident_only'
+    when projected_bytes * 100 < $2::bigint * ${GOVERNOR_THRESHOLD_PERCENTS.compactEarly} then 'full'
+    when projected_bytes * 100 < $2::bigint * ${GOVERNOR_THRESHOLD_PERCENTS.shortened} then 'compact_early'
+    when projected_bytes * 100 < $2::bigint * ${GOVERNOR_THRESHOLD_PERCENTS.incidentOnly} then 'shortened'
+    when projected_bytes * 100 <= $2::bigint * ${GOVERNOR_THRESHOLD_PERCENTS.essential} then 'incident_only'
     else 'essential' end governor_mode
   from measured
 ), coverage as (

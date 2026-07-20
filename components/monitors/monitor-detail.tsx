@@ -7,6 +7,8 @@ import { useEffect, useState } from "react";
 import type { LatencyPoint } from "@/components/charts/latency-chart";
 import { LazyLatencyChart } from "@/components/charts/lazy-latency-chart";
 import { useTimezone } from "@/components/dashboard/timezone-provider";
+import { DependencyOverlapCard } from "@/components/dependencies/dependency-overlap-card";
+import type { DependencyIncidentOverlap } from "@/components/incidents/types";
 import {
   useMonitorLive,
   type MonitorLiveStatus,
@@ -85,6 +87,7 @@ export type MonitorDetailData = {
     resolvedAt: string | null;
     durationSeconds: number;
     openingFailure: string;
+    overlaps: DependencyIncidentOverlap[];
   } | null;
   recentIncidents: Array<{
     id: string;
@@ -101,7 +104,7 @@ export type MonitorDetailData = {
     latencyMs: number | null;
   }>;
   rollupVersion: string | null;
-  configVersion: string | null;
+  acceptedConfigToken: string | null;
   windowVersion: string;
 };
 
@@ -312,7 +315,7 @@ export function MonitorDetail({ monitor: snapshot }: { monitor: MonitorDetailDat
     phase: snapshot.firstRun.phase,
     state: snapshot.state,
     rollupVersion: snapshot.rollupVersion,
-    configVersion: snapshot.configVersion,
+    acceptedConfigToken: snapshot.acceptedConfigToken,
     windowVersion: snapshot.windowVersion,
     rangeUnlocked: snapshot.rangeUnlocked,
   });
@@ -338,6 +341,22 @@ export function MonitorDetail({ monitor: snapshot }: { monitor: MonitorDetailDat
           d30: snapshot.rangeUnlocked.d30,
           d90: snapshot.rangeUnlocked.d90,
         },
+        // The live payload carries the incident's live fields but not the
+        // dependency overlaps, which ride the server snapshot and only change on
+        // a full refresh. Carry them across only when the live incident is the
+        // same incident as the snapshot's, matched by id, so a live update never
+        // drops the overlap card. A brand-new incident the poll surfaces first
+        // has a different id, so it shows no overlaps until router.refresh
+        // recomputes them and never inherits the prior incident's overlaps.
+        latestIncident: live.data.latestIncident
+          ? {
+              ...live.data.latestIncident,
+              overlaps:
+                live.data.latestIncident.id === snapshot.latestIncident?.id
+                  ? snapshot.latestIncident?.overlaps ?? []
+                  : [],
+            }
+          : null,
       }
     : snapshot;
   const [availabilityRange, setAvailabilityRange] =
@@ -457,33 +476,36 @@ export function MonitorDetail({ monitor: snapshot }: { monitor: MonitorDetailDat
       ) : null}
 
       {monitor.latestIncident ? (
-        <Link
-          href={`/incidents/${encodeURIComponent(monitor.latestIncident.id)}`}
-          className={cn(
-            "flex flex-col justify-between gap-2 rounded-xl border p-4 text-[13px] transition-colors hover:border-[var(--border-hover)] sm:flex-row sm:items-center",
-            monitor.latestIncident.state === "ONGOING"
-              ? "border-[var(--down-border)] bg-[var(--down-bg)]"
-              : "border-[var(--border)] bg-[var(--bg)]",
-          )}
-        >
-          <span className="flex min-w-0 items-center gap-2">
-            <StatusDot
-              state={monitor.latestIncident.state === "ONGOING" ? "DOWN" : "UP"}
-            />
-            <span className="font-medium">
-              {monitor.latestIncident.state === "ONGOING"
-                ? "Ongoing incident"
-                : "Recently resolved"}
+        <>
+          <Link
+            href={`/incidents/${encodeURIComponent(monitor.latestIncident.id)}`}
+            className={cn(
+              "flex flex-col justify-between gap-2 rounded-xl border p-4 text-[13px] transition-colors hover:border-[var(--border-hover)] sm:flex-row sm:items-center",
+              monitor.latestIncident.state === "ONGOING"
+                ? "border-[var(--down-border)] bg-[var(--down-bg)]"
+                : "border-[var(--border)] bg-[var(--bg)]",
+            )}
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <StatusDot
+                state={monitor.latestIncident.state === "ONGOING" ? "DOWN" : "UP"}
+              />
+              <span className="font-medium">
+                {monitor.latestIncident.state === "ONGOING"
+                  ? "Ongoing incident"
+                  : "Recently resolved"}
+              </span>
+              <span className="truncate font-data text-[var(--fg-muted)]">
+                {monitor.latestIncident.openingFailure}
+              </span>
             </span>
-            <span className="truncate font-data text-[var(--fg-muted)]">
-              {monitor.latestIncident.openingFailure}
+            <span className="shrink-0 font-data text-[var(--fg-muted)]">
+              {formatTimestamp(monitor.latestIncident.openedAt, resolvedTimeZone)} ·{" "}
+              {formatDuration(monitor.latestIncident.durationSeconds)}
             </span>
-          </span>
-          <span className="shrink-0 font-data text-[var(--fg-muted)]">
-            {formatTimestamp(monitor.latestIncident.openedAt, resolvedTimeZone)} ·{" "}
-            {formatDuration(monitor.latestIncident.durationSeconds)}
-          </span>
-        </Link>
+          </Link>
+          <DependencyOverlapCard overlaps={monitor.latestIncident.overlaps} />
+        </>
       ) : null}
 
       <Card>

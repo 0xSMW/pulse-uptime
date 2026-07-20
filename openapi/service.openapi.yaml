@@ -47,6 +47,9 @@
     },
     {
       "name": "Status reports"
+    },
+    {
+      "name": "Dependencies"
     }
   ],
   "paths": {
@@ -432,6 +435,227 @@
         }
       }
     },
+    "/api/v1/dependency-catalog": {
+      "get": {
+        "operationId": "listDependencyCatalog",
+        "tags": ["Dependencies"],
+        "summary": "List the dependency catalog",
+        "description": "Validated presets grouped by category, with installed markers so the add sheet can block duplicates. Never returns provider credentials.",
+        "x-required-scopes": ["dependencies:read"],
+        "security": [
+          {"bearerAuth": []},
+          {"humanSession": []}
+        ],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"}
+        ],
+        "responses": {
+          "200": {
+            "description": "Catalog grouped by category",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/DependencyCatalogEnvelope"}
+              }
+            }
+          },
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      }
+    },
+    "/api/v1/dependencies": {
+      "get": {
+        "operationId": "listDependencies",
+        "tags": ["Dependencies"],
+        "summary": "List installed dependencies",
+        "description": "Current provider-reported state, active incident title, provider updated time, and a 24-hour observation timeline for each installed dependency.",
+        "x-required-scopes": ["dependencies:read"],
+        "security": [
+          {"bearerAuth": []},
+          {"humanSession": []}
+        ],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"}
+        ],
+        "responses": {
+          "200": {
+            "description": "Dependency page",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/DependencyListEnvelope"}
+              }
+            }
+          },
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      },
+      "post": {
+        "operationId": "addDependency",
+        "tags": ["Dependencies"],
+        "summary": "Install a dependency",
+        "description": "One-click install from a catalog preset. Accepts only presetId, an optional catalog-defined scopeId, and notification settings; never a source URL or upstream component ID.",
+        "x-required-scopes": ["dependencies:write"],
+        "security": [
+          {"bearerAuth": []},
+          {"humanSession": []}
+        ],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/DependencyCreate"}
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Installed dependency",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/DependencyEnvelope"}
+              }
+            }
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      }
+    },
+    "/api/v1/dependencies/{dependencyId}": {
+      "parameters": [
+        {"$ref": "#/components/parameters/DependencyId"}
+      ],
+      "get": {
+        "operationId": "getDependency",
+        "tags": ["Dependencies"],
+        "summary": "Get dependency detail",
+        "description": "Current state, incidents with updates, 24-hour and seven-day observation timelines, selected component and region, feed health, and notification setting.",
+        "x-required-scopes": ["dependencies:read"],
+        "security": [
+          {"bearerAuth": []},
+          {"humanSession": []}
+        ],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"}
+        ],
+        "responses": {
+          "200": {
+            "description": "Dependency detail",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/DependencyEnvelope"}
+              }
+            }
+          },
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      },
+      "patch": {
+        "operationId": "updateDependency",
+        "tags": ["Dependencies"],
+        "summary": "Update dependency notification setting",
+        "description": "notificationsEnabled only. Dependency notifications are configured independently from endpoint-monitor notifications.",
+        "x-required-scopes": ["dependencies:write"],
+        "security": [
+          {"bearerAuth": []},
+          {"humanSession": []}
+        ],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/DependencyUpdate"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated dependency",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/DependencyEnvelope"}
+              }
+            }
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      },
+      "delete": {
+        "operationId": "removeDependency",
+        "tags": ["Dependencies"],
+        "summary": "Remove a dependency",
+        "description": "Soft removal: closes the open state interval. History is preserved for prior incident overlap context.",
+        "x-required-scopes": ["dependencies:write"],
+        "security": [
+          {"bearerAuth": []},
+          {"humanSession": []}
+        ],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "responses": {
+          "204": {"description": "Dependency removed"},
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      }
+    },
+    "/api/v1/dependencies/{dependencyId}/refresh": {
+      "post": {
+        "operationId": "scheduleDependencyPoll",
+        "tags": ["Dependencies"],
+        "summary": "Request an immediate refresh",
+        "description": "Sets the dependency's source next_poll_at to now; the dependency cron performs the fetch. Never fetches inline.",
+        "x-required-scopes": ["dependencies:write"],
+        "security": [
+          {"bearerAuth": []},
+          {"humanSession": []}
+        ],
+        "parameters": [
+          {"$ref": "#/components/parameters/DependencyId"},
+          {"$ref": "#/components/parameters/RequestId"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "responses": {
+          "202": {
+            "description": "Refresh scheduled",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/DependencyRefreshEnvelope"}
+              }
+            }
+          },
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      }
+    },
     "/api/v1/version": {
       "get": {
         "operationId": "getVersion",
@@ -603,7 +827,7 @@
         "responses": {
           "200": {
             "description": "The status page configuration document",
-            "headers": {"ETag": {"description": "Quoted updatedAt-derived configuration ETag; resend in If-Match on PUT", "schema": {"type": "string"}}},
+            "headers": {"ETag": {"description": "Quoted version-derived configuration ETag; resend in If-Match on PUT", "schema": {"type": "string"}}},
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StatusPageConfigEnvelope"}}}
           },
           "401": {"$ref": "#/components/responses/AuthenticationRequired"},
@@ -622,13 +846,13 @@
         "parameters": [
           {"$ref": "#/components/parameters/RequestId"},
           {"$ref": "#/components/parameters/IdempotencyKey"},
-          {"name": "If-Match", "in": "header", "required": true, "schema": {"type": "string"}, "description": "Quoted updatedAt-derived ETag captured on the last read"}
+          {"name": "If-Match", "in": "header", "required": true, "schema": {"type": "string"}, "description": "Quoted version-derived ETag captured on the last read"}
         ],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StatusPageConfig"}}}},
         "responses": {
           "200": {
             "description": "The stored configuration document",
-            "headers": {"ETag": {"description": "The new updatedAt-derived configuration ETag", "schema": {"type": "string"}}},
+            "headers": {"ETag": {"description": "The new version-derived configuration ETag", "schema": {"type": "string"}}},
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StatusPageConfigEnvelope"}}}
           },
           "400": {"$ref": "#/components/responses/BadRequest"},
@@ -2131,6 +2355,15 @@
           "type": "string"
         }
       },
+      "DependencyId": {
+        "name": "dependencyId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
       "IncidentId": {
         "name": "incidentId",
         "in": "path",
@@ -2491,7 +2724,9 @@
           "tokens:manage",
           "status:read",
           "reports:read",
-          "reports:write"
+          "reports:write",
+          "dependencies:read",
+          "dependencies:write"
         ]
       },
       "Meta": {
@@ -3025,7 +3260,7 @@
       "MonitorLive": {
         "type": "object",
         "unevaluatedProperties": false,
-        "required": ["id", "state", "enabled", "latestLatencyMs", "lastCheckedAt", "p95LatencyMs", "uptime", "coverage", "rangeUnlocked", "firstRun", "latestIncident", "recentIncidents", "recentChecks", "rollupVersion", "configVersion", "windowVersion"],
+        "required": ["id", "state", "enabled", "latestLatencyMs", "lastCheckedAt", "p95LatencyMs", "uptime", "coverage", "rangeUnlocked", "firstRun", "latestIncident", "recentIncidents", "recentChecks", "rollupVersion", "acceptedConfigToken", "windowVersion"],
         "properties": {
           "id": {"type": "string", "description": "The monitor this payload describes, so a client merges the live fields only under the matching page after a direct navigation between monitors."},
           "state": {"type": "string"},
@@ -3041,7 +3276,7 @@
           "recentIncidents": {"type": "array", "items": {"type": "object"}, "description": "Recent incident summaries. Withheld as an empty array unless the principal holds incidents:read."},
           "recentChecks": {"type": "array", "items": {"type": "object"}},
           "rollupVersion": {"type": ["string", "null"], "description": "Latest completed rollup bucket start. It advances when a new bucket finalizes."},
-          "configVersion": {"type": ["string", "null"], "description": "Accepted config snapshot version. It advances when a config edit is accepted, so a client refreshes even when no rollup finalizes."},
+          "acceptedConfigToken": {"type": ["string", "null"], "description": "Accepted config snapshot acceptedAt as an opaque change token, not a counter. It advances when a config edit is accepted, so a client refreshes even when no rollup finalizes."},
           "windowVersion": {"type": "string", "format": "date-time", "description": "Completed 15-minute window boundary the h24 and d7 scores read against. It advances every 15 minutes even on a paused monitor, so a client refreshes once to recompute the timeline and chart against the current window."}
         }
       },
@@ -3190,6 +3425,17 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "openingFailure": {
+            "type": "string",
+            "description": "Human-readable label for the failure that opened the incident, e.g. HTTP 503 or a transport error code."
+          },
+          "openingStatusCode": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "HTTP status code observed when the incident opened, or null when the opening failure was not an HTTP response."
           }
         }
       },
@@ -3240,6 +3486,281 @@
           "meta": {
             "$ref": "#/components/schemas/ListMeta"
           }
+        }
+      },
+      "DependencyState": {
+        "type": "string",
+        "enum": ["OPERATIONAL", "DEGRADED", "OUTAGE", "MAINTENANCE", "UNKNOWN"],
+        "description": "Provider-reported state normalized by Pulse. Reflects the upstream status feed, not an independent Pulse check."
+      },
+      "DependencyTimelineBucket": {
+        "type": "object",
+        "required": ["start", "state"],
+        "properties": {
+          "start": {"type": "string", "format": "date-time"},
+          "state": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/DependencyState"},
+              {"type": "null"}
+            ],
+            "description": "Null before the dependency existed for this bucket."
+          }
+        }
+      },
+      "DependencyIncidentUpdate": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["state", "bodyText", "createdAt", "updatedAt"],
+        "properties": {
+          "state": {"type": "string"},
+          "bodyText": {"type": "string"},
+          "createdAt": {"type": "string", "format": "date-time"},
+          "updatedAt": {"type": "string", "format": "date-time"}
+        }
+      },
+      "DependencyIncident": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["id", "title", "state", "impact", "startedAt", "resolvedAt", "providerUpdatedAt", "canonicalUrl", "updates"],
+        "properties": {
+          "id": {"type": "string"},
+          "title": {"type": "string"},
+          "state": {"type": "string", "description": "Provider-reported incident state, e.g. investigating, identified, resolved."},
+          "impact": {"type": ["string", "null"]},
+          "startedAt": {"type": "string", "format": "date-time"},
+          "resolvedAt": {"type": ["string", "null"], "format": "date-time"},
+          "providerUpdatedAt": {"type": "string", "format": "date-time"},
+          "canonicalUrl": {"type": ["string", "null"]},
+          "updates": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/DependencyIncidentUpdate"}
+          }
+        }
+      },
+      "Dependency": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Full dependency detail returned by get, install, and update. State and incidents are provider reported: they reflect the upstream status feed, not an independent Pulse check.",
+        "required": [
+          "id", "presetId", "scopeId", "name", "description", "category", "provider",
+          "componentLabel", "sourceScopeNote", "notificationsEnabled", "createdAt",
+          "state", "checking", "stateStartedAt", "providerUpdatedAt", "observedAt",
+          "lastSuccessfulPollAt", "canonicalUrl", "incidents", "timeline24h", "timeline7d"
+        ],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "presetId": {"type": "string"},
+          "scopeId": {"type": ["string", "null"]},
+          "name": {"type": "string"},
+          "description": {"type": "string"},
+          "category": {"type": "string"},
+          "provider": {"type": "string"},
+          "componentLabel": {"type": ["string", "null"]},
+          "sourceScopeNote": {"type": ["string", "null"]},
+          "notificationsEnabled": {"type": "boolean"},
+          "createdAt": {"type": "string", "format": "date-time"},
+          "state": {"$ref": "#/components/schemas/DependencyState"},
+          "checking": {"type": "boolean"},
+          "stateStartedAt": {"type": "string", "format": "date-time"},
+          "providerUpdatedAt": {"type": ["string", "null"], "format": "date-time"},
+          "observedAt": {"type": "string", "format": "date-time"},
+          "lastSuccessfulPollAt": {"type": ["string", "null"], "format": "date-time"},
+          "canonicalUrl": {"type": "string"},
+          "incidents": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/DependencyIncident"}
+          },
+          "timeline24h": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/DependencyTimelineBucket"}
+          },
+          "timeline7d": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/DependencyTimelineBucket"}
+          }
+        }
+      },
+      "DependencyEnvelope": {
+        "type": "object",
+        "required": ["apiVersion", "kind", "data", "meta"],
+        "properties": {
+          "apiVersion": {"$ref": "#/components/schemas/ApiVersion"},
+          "kind": {"const": "Dependency"},
+          "data": {"$ref": "#/components/schemas/Dependency"},
+          "meta": {"$ref": "#/components/schemas/Meta"}
+        }
+      },
+      "DependencyListItem": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Dashboard row for the installed-dependency list. State is provider reported: it reflects the upstream status feed, not an independent Pulse check.",
+        "required": [
+          "id", "presetId", "scopeId", "name", "provider", "category", "state",
+          "checking", "providerUpdatedAt", "activeIncidentTitle", "timeline24h"
+        ],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "presetId": {"type": "string"},
+          "scopeId": {"type": ["string", "null"]},
+          "name": {"type": "string"},
+          "provider": {"type": "string"},
+          "category": {"type": "string"},
+          "state": {"$ref": "#/components/schemas/DependencyState"},
+          "checking": {"type": "boolean"},
+          "providerUpdatedAt": {"type": ["string", "null"], "format": "date-time"},
+          "activeIncidentTitle": {"type": ["string", "null"]},
+          "timeline24h": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/DependencyTimelineBucket"}
+          }
+        }
+      },
+      "DependencyListEnvelope": {
+        "type": "object",
+        "required": ["apiVersion", "kind", "data", "meta"],
+        "properties": {
+          "apiVersion": {"$ref": "#/components/schemas/ApiVersion"},
+          "kind": {"const": "DependencyList"},
+          "data": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/DependencyListItem"}
+          },
+          "meta": {"$ref": "#/components/schemas/ListMeta"}
+        }
+      },
+      "DependencyRefreshEnvelope": {
+        "type": "object",
+        "required": ["apiVersion", "kind", "data", "meta"],
+        "properties": {
+          "apiVersion": {"$ref": "#/components/schemas/ApiVersion"},
+          "kind": {"const": "DependencyRefresh"},
+          "data": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["id", "queued"],
+            "properties": {
+              "id": {"type": "string", "format": "uuid"},
+              "queued": {"type": "boolean"}
+            }
+          },
+          "meta": {"$ref": "#/components/schemas/Meta"}
+        }
+      },
+      "DependencyScope": {
+        "description": "A preset's scope requirement. required_options ships a fixed validated list; discovered_children and discovered_locations carry their own required flag.",
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "options"],
+            "properties": {
+              "kind": {"const": "required_options"},
+              "options": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["id", "label"],
+                  "properties": {
+                    "id": {"type": "string"},
+                    "label": {"type": "string"}
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "groupId", "required"],
+            "properties": {
+              "kind": {"const": "discovered_children"},
+              "groupId": {"type": "string"},
+              "required": {"type": "boolean"}
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "required"],
+            "properties": {
+              "kind": {"const": "discovered_locations"},
+              "required": {"type": "boolean"}
+            }
+          }
+        ]
+      },
+      "DependencyCatalogPreset": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["id", "name", "provider", "description", "scope", "sourceScopeNote", "enabled", "validated", "installed"],
+        "properties": {
+          "id": {"type": "string"},
+          "name": {"type": "string"},
+          "provider": {"type": "string"},
+          "description": {"type": "string"},
+          "scope": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/DependencyScope"},
+              {"type": "null"}
+            ]
+          },
+          "sourceScopeNote": {"type": ["string", "null"]},
+          "enabled": {"type": "boolean"},
+          "validated": {"type": "boolean"},
+          "installed": {"type": "boolean"},
+          "installedScopeIds": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
+        }
+      },
+      "DependencyCatalogCategory": {
+        "type": "object",
+        "required": ["category", "presets"],
+        "properties": {
+          "category": {"type": "string"},
+          "presets": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/DependencyCatalogPreset"}
+          }
+        }
+      },
+      "DependencyCatalogEnvelope": {
+        "type": "object",
+        "required": ["apiVersion", "kind", "data", "meta"],
+        "properties": {
+          "apiVersion": {"$ref": "#/components/schemas/ApiVersion"},
+          "kind": {"const": "DependencyCatalog"},
+          "data": {
+            "type": "object",
+            "required": ["categories"],
+            "properties": {
+              "categories": {
+                "type": "array",
+                "items": {"$ref": "#/components/schemas/DependencyCatalogCategory"}
+              }
+            }
+          },
+          "meta": {"$ref": "#/components/schemas/Meta"}
+        }
+      },
+      "DependencyCreate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["presetId"],
+        "properties": {
+          "presetId": {"type": "string", "minLength": 1},
+          "scopeId": {"type": "string", "minLength": 1},
+          "notificationsEnabled": {"type": "boolean"}
+        }
+      },
+      "DependencyUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["notificationsEnabled"],
+        "properties": {
+          "notificationsEnabled": {"type": "boolean"}
         }
       },
       "StatusEnvelope": {

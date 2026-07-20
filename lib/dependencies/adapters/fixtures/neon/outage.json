@@ -1,0 +1,19 @@
+{
+  "result": {
+    "status_overall": { "updated": "2026-07-19T14:00:00.000Z", "status": "Service Disruption", "status_code": 400 },
+    "status": [
+      {
+        "id": "690ccc238c3745059f2b33b2",
+        "name": "Database Connectivity",
+        "status": "Service Disruption",
+        "status_code": 400,
+        "updated": "2026-07-19T14:00:00.000Z",
+        "containers": [
+          { "id": "690ccb48769e0d058c5c353d", "name": "AWS us-east-1", "updated": "2026-07-19T14:00:00.000Z", "status": "Service Disruption", "status_code": 400 }
+        ]
+      }
+    ],
+    "incidents": [],
+    "maintenance": { "active": [], "upcoming": [] }
+  }
+}

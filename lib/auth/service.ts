@@ -6,6 +6,7 @@ import { after } from "next/server";
 import { db } from "@/lib/db/client";
 import { adminUsers, humanSessions, onboardingProgress } from "@/lib/db/schema";
 import { enforceRateLimit, type RateLimitPolicy, type RateLimitResult } from "@/lib/api/rate-limit";
+import { clientIpFromHeaders, firstForwardedIp } from "@/lib/net/client-ip";
 import { digestBearerToken } from "@/lib/api/tokens";
 import { verifyBootstrapToken } from "@/lib/onboarding/bootstrap";
 import type { ReadinessReport } from "@/lib/readiness/types";
@@ -225,19 +226,9 @@ export function loginRateLimitKey(
   return `login-${kind}:${digest(`human-login:${kind}:${value}`).toString("hex")}`;
 }
 
-/** First forwarded hop only. Proxies append, so later entries are spoofable. */
-export function firstForwardedIp(forwardedFor: string | null): string | null {
-  return forwardedFor?.split(",")[0]?.trim() || null;
-}
-
-/**
- * Client IP for stored session rows and rate-limit keys: x-real-ip is set by
- * the fronting platform and cannot be influenced by the caller, so it wins.
- * The first x-forwarded-for hop is the fallback.
- */
-export function clientIpFromHeaders(headers: { get(name: string): string | null }): string | null {
-  return headers.get("x-real-ip")?.trim() || firstForwardedIp(headers.get("x-forwarded-for"));
-}
+// Client IP extraction lives in the shared server module. Re-exported so existing
+// auth callers keep importing it from here.
+export { clientIpFromHeaders, firstForwardedIp };
 
 export async function login(
   input: {

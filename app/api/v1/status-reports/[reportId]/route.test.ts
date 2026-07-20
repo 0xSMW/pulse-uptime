@@ -18,7 +18,7 @@ vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
 }));
 vi.mock("@/lib/api/status-reports", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/status-reports")>()),
-  getStatusReport: vi.fn(),
+  requireStatusReport: vi.fn(),
   updateStatusReport: vi.fn(),
   deleteStatusReport: vi.fn(),
 }));
@@ -29,7 +29,7 @@ import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, type ApiContext } from "@/lib/api/middleware";
 import {
   deleteStatusReport,
-  getStatusReport,
+  requireStatusReport,
   StatusReportError,
   updateStatusReport,
   type StatusReportData,
@@ -66,7 +66,7 @@ function request(method: string, body?: unknown) {
 beforeEach(() => {
   vi.mocked(authorize).mockReset().mockResolvedValue(context);
   vi.mocked(revalidatePath).mockReset();
-  vi.mocked(getStatusReport).mockReset().mockResolvedValue(report);
+  vi.mocked(requireStatusReport).mockReset().mockResolvedValue(report);
   vi.mocked(updateStatusReport).mockReset().mockResolvedValue(report);
   vi.mocked(deleteStatusReport).mockReset().mockResolvedValue({ id: "rep-1" });
   vi.mocked(executeIdempotent).mockClear();
@@ -83,7 +83,7 @@ describe("GET /api/v1/status-reports/{reportId}", () => {
   });
 
   it("maps REPORT_NOT_FOUND to 404", async () => {
-    vi.mocked(getStatusReport).mockRejectedValue(new StatusReportError("REPORT_NOT_FOUND", "missing"));
+    vi.mocked(requireStatusReport).mockRejectedValue(new StatusReportError("REPORT_NOT_FOUND", "missing"));
     const response = await GET(request("GET"), params);
     expect(response.status).toBe(404);
     expect((await response.json()).error.code).toBe("REPORT_NOT_FOUND");
@@ -109,7 +109,7 @@ describe("PATCH /api/v1/status-reports/{reportId}", () => {
   });
 
   it("revalidates both the pre-patch and post-patch group pages when affected is replaced", async () => {
-    vi.mocked(getStatusReport).mockResolvedValue({
+    vi.mocked(requireStatusReport).mockResolvedValue({
       ...report,
       affected: [{ monitorId: "db-prod", monitorName: "Database", groupName: "Data", impact: "down" }],
     });
@@ -141,7 +141,7 @@ describe("DELETE /api/v1/status-reports/{reportId}", () => {
   });
 
   it("maps a missing report to 404", async () => {
-    vi.mocked(getStatusReport).mockRejectedValue(new StatusReportError("REPORT_NOT_FOUND", "missing"));
+    vi.mocked(requireStatusReport).mockRejectedValue(new StatusReportError("REPORT_NOT_FOUND", "missing"));
     const response = await DELETE(request("DELETE"), params);
     expect(response.status).toBe(404);
     expect((await response.json()).error.code).toBe("REPORT_NOT_FOUND");
@@ -149,7 +149,7 @@ describe("DELETE /api/v1/status-reports/{reportId}", () => {
   });
 
   it("maps REPORT_NOT_FOUND inside work() itself, not thrown past executeIdempotent (finding: a thrown 404 left the idempotency record stuck 'running' until a stale reclaim, which now simply reruns work() from scratch rather than trying to recover)", async () => {
-    vi.mocked(getStatusReport).mockRejectedValue(new StatusReportError("REPORT_NOT_FOUND", "missing"));
+    vi.mocked(requireStatusReport).mockRejectedValue(new StatusReportError("REPORT_NOT_FOUND", "missing"));
     const response = await DELETE(request("DELETE"), params);
     expect(response.status).toBe(404);
     expect((await response.json()).error.code).toBe("REPORT_NOT_FOUND");

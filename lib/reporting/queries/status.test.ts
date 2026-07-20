@@ -10,19 +10,19 @@ vi.mock("@/lib/api/status-page-config", async (importOriginal) => {
   return { ...actual, getStatusPageConfig: vi.fn() };
 });
 
-vi.mock("@/lib/api/status-reports", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/api/status-reports")>();
-  return { ...actual, getPublicReports: vi.fn(), getStatusReport: vi.fn() };
+vi.mock("@/lib/status-reports/queries", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/status-reports/queries")>();
+  return { ...actual, getPublicReports: vi.fn(), requireStatusReport: vi.fn() };
 });
 
 vi.mock("@/lib/api/images", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api/images")>();
-  return { ...actual, getImage: vi.fn() };
+  return { ...actual, findImage: vi.fn() };
 });
 
-import { getImage } from "@/lib/api/images";
+import { findImage } from "@/lib/api/images";
 import { getStatusPageConfig, StatusPageConfigError } from "@/lib/api/status-page-config";
-import { getPublicReports, getStatusReport, StatusReportError } from "@/lib/api/status-reports";
+import { getPublicReports, requireStatusReport, StatusReportError } from "@/lib/status-reports/queries";
 import { defaultStatusPageDocument } from "@/lib/status-page/display";
 
 import {
@@ -100,7 +100,7 @@ describe("getStatusFaviconDataUri", () => {
       ...resolvedConfig(),
       data: { ...resolvedConfig().data, faviconImageId: "11111111-1111-4111-8111-111111111111" },
     });
-    vi.mocked(getImage).mockRejectedValue(connectionError("ETIMEDOUT"));
+    vi.mocked(findImage).mockRejectedValue(connectionError("ETIMEDOUT"));
     await expect(getStatusFaviconDataUri()).resolves.toBeNull();
   });
 
@@ -109,7 +109,7 @@ describe("getStatusFaviconDataUri", () => {
       ...resolvedConfig(),
       data: { ...resolvedConfig().data, faviconImageId: "11111111-1111-4111-8111-111111111111" },
     });
-    vi.mocked(getImage).mockRejectedValue(new TypeError("boom"));
+    vi.mocked(findImage).mockRejectedValue(new TypeError("boom"));
     await expect(getStatusFaviconDataUri()).rejects.toThrow(TypeError);
   });
 });
@@ -559,17 +559,17 @@ describe("getPublicStatus", () => {
 
 describe("getPublicReportDetail", () => {
   it("returns the distinct \"unavailable\" sentinel (not null) on an ECONNREFUSED-shaped error", async () => {
-    vi.mocked(getStatusReport).mockRejectedValue(connectionError("ECONNREFUSED"));
+    vi.mocked(requireStatusReport).mockRejectedValue(connectionError("ECONNREFUSED"));
     await expect(getPublicReportDetail("report-1")).resolves.toBe("unavailable");
   });
 
   it("still returns null (404) for an unknown report id", async () => {
-    vi.mocked(getStatusReport).mockRejectedValue(new StatusReportError("REPORT_NOT_FOUND", "not found"));
+    vi.mocked(requireStatusReport).mockRejectedValue(new StatusReportError("REPORT_NOT_FOUND", "not found"));
     await expect(getPublicReportDetail("report-1")).resolves.toBeNull();
   });
 
   it("rethrows a plain app error", async () => {
-    vi.mocked(getStatusReport).mockRejectedValue(new TypeError("boom"));
+    vi.mocked(requireStatusReport).mockRejectedValue(new TypeError("boom"));
     await expect(getPublicReportDetail("report-1")).rejects.toThrow(TypeError);
   });
 });

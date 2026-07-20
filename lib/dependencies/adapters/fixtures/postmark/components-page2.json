@@ -1,0 +1,63 @@
+{
+  "components": [
+    {
+      "id": 93625,
+      "name": "Webhooks",
+      "state": "operational",
+      "updated_at": "2026-07-06T19:51:23.284Z"
+    },
+    {
+      "id": 46330,
+      "name": "Web App",
+      "state": "operational",
+      "updated_at": "2026-03-27T19:37:50.139Z"
+    },
+    {
+      "id": 91954,
+      "name": "General",
+      "state": "operational",
+      "updated_at": "2026-03-27T19:37:50.141Z"
+    },
+    {
+      "id": 91955,
+      "name": "Login",
+      "state": "operational",
+      "updated_at": "2026-03-04T17:43:18.694Z"
+    },
+    {
+      "id": 94198,
+      "name": "Billing & Subscriptions",
+      "state": "operational",
+      "updated_at": "2026-03-26T17:24:04.641Z"
+    },
+    {
+      "id": 86718,
+      "name": "Analytics",
+      "state": "operational",
+      "updated_at": "2026-06-11T21:25:37.166Z"
+    },
+    {
+      "id": 87156,
+      "name": "General",
+      "state": "operational",
+      "updated_at": "2026-03-26T17:13:03.288Z"
+    },
+    {
+      "id": 91956,
+      "name": "Statistics",
+      "state": "operational",
+      "updated_at": "2026-06-11T21:25:37.168Z"
+    },
+    {
+      "id": 86719,
+      "name": "Link Tracking",
+      "state": "operational",
+      "updated_at": "2026-03-26T17:13:03.310Z"
+    }
+  ],
+  "meta": {
+    "count": 9,
+    "total_count": 19,
+    "next_page": null
+  }
+}

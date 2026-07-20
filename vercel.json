@@ -2,6 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
     { "path": "/api/cron/check-monitors", "schedule": "* * * * *" },
+    { "path": "/api/cron/check-dependencies", "schedule": "* * * * *" },
     { "path": "/api/cron/sweep", "schedule": "*/10 * * * *" },
     { "path": "/api/cron/maintenance", "schedule": "17 3 * * *" }
   ]

@@ -1,17 +1,22 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 
-import type { HealthWarning } from "@/components/dashboard/health-banner";
+import type { HealthWarning } from "@/lib/monitoring/types";
 import { db } from "@/lib/db/client";
-import { cronRuns, monitoringConfigSnapshots, notificationOutbox } from "@/lib/db/schema";
+import { cronRuns, dependencies, monitoringConfigSnapshots, notificationOutbox } from "@/lib/db/schema";
 
 export async function getHealthWarnings(now = new Date()): Promise<HealthWarning[]> {
-  const [checkRun, maintenanceRun, rejected, dead] = await Promise.all([
+  const [checkRun, maintenanceRun, dependencyRun, installedDependency, rejected, dead] = await Promise.all([
     db.select({ completedAt: cronRuns.completedAt }).from(cronRuns)
       .where(and(eq(cronRuns.jobName, "monitor-check"), eq(cronRuns.status, "completed")))
       .orderBy(desc(cronRuns.scheduledMinute)).limit(1),
     db.select({ completedAt: cronRuns.completedAt }).from(cronRuns)
       .where(and(eq(cronRuns.jobName, "maintenance"), eq(cronRuns.status, "completed")))
       .orderBy(desc(cronRuns.scheduledMinute)).limit(1),
+    db.select({ completedAt: cronRuns.completedAt }).from(cronRuns)
+      .where(and(eq(cronRuns.jobName, "check-dependencies"), eq(cronRuns.status, "completed")))
+      .orderBy(desc(cronRuns.scheduledMinute)).limit(1),
+    db.select({ id: dependencies.id }).from(dependencies)
+      .where(isNull(dependencies.removedAt)).limit(1),
     db.select({ status: monitoringConfigSnapshots.status }).from(monitoringConfigSnapshots)
       .orderBy(desc(monitoringConfigSnapshots.seenAt)).limit(1),
     db.select({ id: notificationOutbox.id }).from(notificationOutbox)
@@ -24,6 +29,21 @@ export async function getHealthWarnings(now = new Date()): Promise<HealthWarning
     warnings.push({
       code: "MONITORING_STALE",
       message: "Scheduled checks are delayed",
+      action: "Check Vercel Cron",
+    });
+  }
+  // check-dependencies runs every minute like monitor-check, so it shares the
+  // same 3 minute staleness bound. Only a completed run advances completedAt,
+  // so a poller stuck failing or not running goes stale here just as the
+  // monitor cron does. A source is polled only when it has an installed,
+  // non-removed dependency, so a fresh install with nothing installed has no
+  // poller work and must not raise a stale poller warning.
+  const lastDependencyCheck = dependencyRun[0]?.completedAt;
+  if (installedDependency.length > 0
+    && (!lastDependencyCheck || now.getTime() - lastDependencyCheck.getTime() > 3 * 60_000)) {
+    warnings.push({
+      code: "DEPENDENCY_POLLER_STALE",
+      message: "Dependency updates are delayed",
       action: "Check Vercel Cron",
     });
   }

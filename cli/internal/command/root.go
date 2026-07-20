@@ -17,6 +17,7 @@ import (
 	"github.com/0xSMW/pulse-uptime/cli/internal/buildinfo"
 	"github.com/0xSMW/pulse-uptime/cli/internal/command/adminops"
 	"github.com/0xSMW/pulse-uptime/cli/internal/command/configops"
+	"github.com/0xSMW/pulse-uptime/cli/internal/command/dependencyops"
 	"github.com/0xSMW/pulse-uptime/cli/internal/command/groupops"
 	"github.com/0xSMW/pulse-uptime/cli/internal/command/monitorops"
 	"github.com/0xSMW/pulse-uptime/cli/internal/command/readops"
@@ -192,6 +193,7 @@ func (a *App) newRoot() *cobra.Command {
 	root.AddCommand(adminops.NewTokenCommand(a.adminDependencies()))
 	root.AddCommand(monitorops.NewGroup(a.monitorDependencies()))
 	root.AddCommand(groupops.NewGroup(a.groupDependencies()))
+	root.AddCommand(dependencyops.NewGroup(a.dependencyDependencies()))
 	incidents := readops.NewIncidentGroup(a.readDependencies())
 	incidents.AddCommand(reportops.NewPromoteCommand(a.reportDependencies()))
 	root.AddCommand(incidents)
@@ -295,7 +297,7 @@ func (a *App) renderMe(format string, envelope meEnvelope) error {
 }
 
 func fullAccess(scopes []string) bool {
-	want := []string{"config:read", "config:write", "incidents:read", "monitors:read", "monitors:write", "notifications:test", "reports:read", "reports:write", "status:read", "tokens:manage"}
+	want := []string{"config:read", "config:write", "dependencies:read", "dependencies:write", "incidents:read", "monitors:read", "monitors:write", "notifications:test", "reports:read", "reports:write", "status:read", "tokens:manage"}
 	return len(scopes) == len(want) && strings.Join(scopes, "\x00") == strings.Join(want, "\x00")
 }
 
@@ -510,7 +512,7 @@ func buildManifest(root, target *cobra.Command) manifest {
 
 func commandIsMutation(path []string) bool {
 	joined := strings.Join(path, " ")
-	for _, prefix := range []string{"monitor create", "monitor update", "monitor pause", "monitor resume", "monitor delete", "monitor test", "group create", "group rename", "group delete", "config validate", "config plan", "config apply", "notification test", "token create", "token revoke", "auth logout", "auth login", "report create", "report update", "report post", "report edit-update", "report delete", "report resolve", "report publish", "incident promote", "status-page set", "status-page apply"} {
+	for _, prefix := range []string{"monitor create", "monitor update", "monitor pause", "monitor resume", "monitor delete", "monitor test", "group create", "group rename", "group delete", "config validate", "config plan", "config apply", "notification test", "token create", "token revoke", "auth logout", "auth login", "report create", "report update", "report post", "report edit-update", "report delete", "report resolve", "report publish", "incident promote", "status-page set", "status-page apply", "dependency add", "dependency remove"} {
 		if joined == prefix {
 			return true
 		}

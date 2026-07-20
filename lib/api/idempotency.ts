@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { and, eq, lt, lte } from "drizzle-orm";
 
 import { canonicalSerialize } from "@/lib/config/canonical";
+import { isUuid } from "@/lib/ids/uuid";
 import { db } from "@/lib/db/client";
 import type { DatabaseHandle } from "@/lib/db/client";
 import { apiIdempotency } from "@/lib/db/schema";
@@ -74,10 +75,7 @@ export async function executeIdempotent<T>(input: {
   replayBody?: (storedBody: unknown, context: IdempotencyContext) => Promise<T> | T;
   persistence?: IdempotencyPersistence;
 }): Promise<StoredResponse<T> & { replayed: boolean }> {
-  const key = input.request.headers.get("idempotency-key")?.trim();
-  if (!key || !isUuid(key)) {
-    throw new IdempotencyError("IDEMPOTENCY_KEY_REQUIRED", "A UUID Idempotency-Key is required");
-  }
+  const key = requireIdempotencyKey(input.request);
   const now = input.now ?? new Date();
   const persistence = input.persistence ?? databaseIdempotencyPersistence;
   const retentionSeconds = input.retentionSeconds ?? 86_400;
@@ -310,6 +308,13 @@ const databaseIdempotencyPersistence: IdempotencyPersistence = {
   },
 };
 
-function isUuid(value: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+// Preflight the Idempotency-Key header before any work. executeIdempotent runs
+// this too, so routes that derive credentials from the key can reject a missing
+// or malformed key up front and reuse the same trimmed value.
+export function requireIdempotencyKey(request: Request): string {
+  const key = request.headers.get("idempotency-key")?.trim();
+  if (!key || !isUuid(key)) {
+    throw new IdempotencyError("IDEMPOTENCY_KEY_REQUIRED", "A UUID Idempotency-Key is required");
+  }
+  return key;
 }

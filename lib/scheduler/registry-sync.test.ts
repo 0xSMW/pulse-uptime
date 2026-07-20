@@ -16,6 +16,7 @@ vi.mock("drizzle-orm", async (importOriginal) => {
 
 import type { MonitoringConfig } from "@/lib/config";
 import { incidents, monitorExceptions, monitorRegistry, monitorState } from "@/lib/db/schema";
+import { deterministicUuid } from "@/lib/ids/deterministic-uuid";
 import type { MonitorStateSnapshot } from "@/lib/monitoring/types";
 
 import type { DbTransaction } from "./registry-sync";
@@ -65,14 +66,6 @@ type ExceptionRow = {
   lastSeenAt: Date;
   occurrenceCount: number;
 };
-
-function deterministicUuid(value: string): string {
-  const bytes = Buffer.from(createHash("sha256").update(value).digest().subarray(0, 16));
-  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
-  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
-  const hex = bytes.toString("hex");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
 
 function createFakeTx(seed: { registry: RegistryRow[]; state: MonitorStateSnapshot[]; incidents: IncidentRow[] }) {
   const registryRows = new Map(seed.registry.map((row) => [row.id, { ...row }]));
@@ -306,8 +299,8 @@ function buildConfig(monitors: MonitoringConfig["monitors"], groups: MonitoringC
 }
 
 const now = new Date("2026-07-19T00:00:00.000Z");
-const RUNTIME_MODE = { trackExceptions: true, assertIncidentResolution: true };
-const API_MODE = { trackExceptions: false, assertIncidentResolution: false };
+const RUNTIME_MODE = "runtime" as const;
+const API_MODE = "api" as const;
 
 describe("synchronizeRegistry - statement bounds", () => {
   it("uses a bounded, fixed number of statements for a steady-state 100-monitor sync", async () => {

@@ -39,9 +39,11 @@ describe("principal resolution", () => {
       }),
     });
     expect(principal).toMatchObject({ type: "human", id: "usr_1" });
-    expect(principal?.scopes).toHaveLength(10);
+    expect(principal?.scopes).toHaveLength(12);
     expect(principal?.scopes).toContain("reports:read");
     expect(principal?.scopes).toContain("reports:write");
+    expect(principal?.scopes).toContain("dependencies:read");
+    expect(principal?.scopes).toContain("dependencies:write");
   });
 
   it("verifies an API token by digest and performs a bounded touch", async () => {

@@ -9,8 +9,8 @@ import {
 } from "./command-palette";
 
 const monitors: PaletteMonitor[] = [
-  { id: "api", name: "Public API", state: "DOWN", lastLatencyMs: 503 },
-  { id: "web", name: "Website", state: "UP", lastLatencyMs: 42 },
+  { id: "api", name: "Public API", state: "DOWN", latestLatencyMs: 503 },
+  { id: "web", name: "Website", state: "UP", latestLatencyMs: 42 },
 ];
 const incidents: PaletteIncident[] = [{
   id: "11111111-1111-4111-8111-111111111111",

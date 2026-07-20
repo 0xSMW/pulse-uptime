@@ -3,7 +3,7 @@
 // and the polled live payload. No database access lives here, which keeps the
 // payload logic pure and testable.
 
-import type { MonitorState } from "@/components/monitors/status-dot";
+import type { MonitorState } from "@/lib/monitoring/types";
 
 import {
   firstRunPhase,
@@ -104,11 +104,11 @@ export type MonitorLiveData = {
   recentIncidents: LiveRecentIncident[];
   recentChecks: LiveRecentCheck[];
   rollupVersion: string | null;
-  // Accepted-snapshot acceptedAt, the config version governing this monitor. It
+  // Accepted-snapshot acceptedAt as an opaque change token, not a counter. It
   // advances whenever an edit from any session accepts a new snapshot, the only
   // freshness signal for a paused monitor whose rollup version never moves, so a
   // name, url, threshold, or recipient change lands on the open page.
-  configVersion: string | null;
+  acceptedConfigToken: string | null;
   // The completed 15-minute window boundary the h24 and d7 scores read against.
   // It advances every 15 minutes even on a paused monitor whose rollup version
   // never moves, so the client refreshes once when it advances to recompute the

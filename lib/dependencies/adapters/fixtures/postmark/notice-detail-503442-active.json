@@ -1,0 +1,25 @@
+{
+  "notice": {
+    "id": 503442,
+    "type": "unplanned",
+    "state": "investigating",
+    "subject": "Elevated latency on a subset of inbound SMTP connections",
+    "url": "https://status.postmarkapp.com/notices/sample-inbound-smtp-latency",
+    "began_at": "2026-07-18T09:00:00.000Z",
+    "ended_at": null,
+    "created_at": "2026-07-18T09:00:00.000Z",
+    "updated_at": "2026-07-18T09:10:00.000Z",
+    "components": [
+      { "id": 93625, "name": "Webhooks" }
+    ],
+    "updates": [
+      {
+        "id": 51400001,
+        "state": "investigating",
+        "content": "We are investigating elevated latency on a subset of inbound SMTP connections.",
+        "created_at": "2026-07-18T09:00:00.000Z",
+        "updated_at": "2026-07-18T09:10:00.000Z"
+      }
+    ]
+  }
+}

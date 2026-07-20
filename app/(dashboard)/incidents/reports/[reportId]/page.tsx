@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 
 import { ReportBackLink } from "@/components/incidents/report-back-link";
 import { ReportEditor } from "@/components/incidents/report-editor";
-import { getStatusReport, StatusReportError } from "@/lib/api/status-reports";
+import { requireStatusReport, StatusReportError } from "@/lib/api/status-reports";
 import { getMonitorSettings } from "@/lib/reporting/queries/settings";
 
 export default async function EditStatusReportPage({ params }: { params: Promise<{ reportId: string }> }) {
@@ -10,7 +10,7 @@ export default async function EditStatusReportPage({ params }: { params: Promise
   // Load the report and monitor settings in parallel. notFound() is decided
   // only after both settle so a settings failure still surfaces as an error.
   const [reportResult, settingsResult] = await Promise.allSettled([
-    getStatusReport(reportId),
+    requireStatusReport(reportId),
     getMonitorSettings(),
   ]);
   if (reportResult.status === "rejected") {

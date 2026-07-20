@@ -1,4 +1,4 @@
-import type { TimelineBucket } from "@/components/monitors/timeline-bar";
+import type { TimelineBucket } from "@/lib/monitoring/types";
 
 export type DailyAvailability = {
   day: string;

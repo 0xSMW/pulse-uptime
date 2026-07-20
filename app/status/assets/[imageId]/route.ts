@@ -1,4 +1,4 @@
-import { getImage, imageResponse } from "@/lib/api/images";
+import { findImage, imageResponse } from "@/lib/api/images";
 import { isDatabaseUnavailableError } from "@/lib/db/errors";
 
 /**
@@ -16,9 +16,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ima
   // Route handlers don't run at build time, so this never affects the
   // no-DATABASE_URL Preview build, but a runtime DB outage should return a
   // plain, retryable 503 instead of an uncaught 500.
-  let image: Awaited<ReturnType<typeof getImage>>;
+  let image: Awaited<ReturnType<typeof findImage>>;
   try {
-    image = await getImage(imageId);
+    image = await findImage(imageId);
   } catch (error) {
     if (!isDatabaseUnavailableError(error)) throw error;
     return new Response(null, { status: 503, headers: { "Cache-Control": "no-store" } });

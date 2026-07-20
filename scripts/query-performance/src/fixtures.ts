@@ -41,7 +41,6 @@ export const CHECK_HISTORY_HOURS = 25;
 const ROLLUP_15M_DAYS = 8;
 const ROLLUP_HOUR_DAYS = 31;
 const ROLLUP_DAY_DAYS = 91;
-const DAILY_ROLLUP_DAYS = 30;
 const SCHEDULER_BATCH_MINUTES = 60;
 // Use the production five-minute stale-claim window.
 export const STALE_CLAIM_CUTOFF_MS = 5 * 60_000;
@@ -123,7 +122,6 @@ async function resetFixtureData(conn: GatedConnection): Promise<void> {
   await db.delete(schema.incidents).where(dsql`${schema.incidents.monitorId} like 'qh-%'`);
   await db.delete(schema.checkResults).where(dsql`${schema.checkResults.monitorId} like 'qh-%'`);
   await db.delete(schema.metricRollups).where(dsql`${schema.metricRollups.monitorId} like 'qh-%'`);
-  await db.delete(schema.dailyRollups).where(dsql`${schema.dailyRollups.monitorId} like 'qh-%'`);
   await db.delete(schema.monitorState).where(dsql`${schema.monitorState.monitorId} like 'qh-%'`);
   // Tagged monitor IDs establish batch ownership. Commit ownership comes from
   // the associated owned batch, so commits are deleted first.
@@ -401,7 +399,7 @@ function* bucketStarts(end: Date, count: number, stepMs: number): Generator<Date
   for (let index = count; index >= 1; index -= 1) yield new Date(end.getTime() - index * stepMs);
 }
 
-async function insertRollups(conn: GatedConnection, plan: MonitorPlan[]): Promise<{ metricRollupCount: number; dailyRollupCount: number }> {
+async function insertRollups(conn: GatedConnection, plan: MonitorPlan[]): Promise<{ metricRollupCount: number }> {
   const { db } = conn;
   const rand = mulberry32(SEED + 3);
   const end15m = new Date(NOW);
@@ -469,32 +467,7 @@ async function insertRollups(conn: GatedConnection, plan: MonitorPlan[]): Promis
   }
   for (const rows of chunk(metricRows, CHUNK_SIZE)) await db.insert(schema.metricRollups).values(rows);
 
-  const dailyRows: (typeof schema.dailyRollups.$inferInsert)[] = [];
-  let dailyRollupCount = 0;
-  for (const monitor of plan) {
-    const healthy = monitor.state === "UP" || monitor.state === "PENDING";
-    for (const bucketStart of bucketStarts(endDay, DAILY_ROLLUP_DAYS, 86_400_000)) {
-      const total = 96;
-      const successful = healthy ? intBetween(rand, 92, 96) : intBetween(rand, 60, 90);
-      const day = bucketStart.toISOString().slice(0, 10);
-      dailyRows.push({
-        monitorId: monitor.id,
-        day,
-        totalChecks: total,
-        successfulChecks: successful,
-        failedChecks: total - successful,
-        uptimePercentage: ((successful / total) * 100).toFixed(4),
-        averageLatencyMs: intBetween(rand, 60, 500),
-        p50LatencyMs: intBetween(rand, 50, 300),
-        p95LatencyMs: intBetween(rand, 200, 900),
-        incidentSeconds: (total - successful) * 900,
-      });
-      dailyRollupCount += 1;
-    }
-  }
-  for (const rows of chunk(dailyRows, CHUNK_SIZE)) await db.insert(schema.dailyRollups).values(rows);
-
-  return { metricRollupCount, dailyRollupCount };
+  return { metricRollupCount };
 }
 
 export type FixtureConfigMonitor = Pick<MonitorPlan, "id" | "name" | "url" | "groupName" | "enabled">;
@@ -860,7 +833,7 @@ export async function seedFixture(conn: GatedConnection): Promise<FixtureCardina
   const plan = buildMonitorPlan();
   await insertMonitors(conn, plan);
   const { incidentCount, outboxCount, checkCount } = await insertChecksIncidentsAndOutbox(conn, plan);
-  const { metricRollupCount, dailyRollupCount } = await insertRollups(conn, plan);
+  const { metricRollupCount } = await insertRollups(conn, plan);
   await insertConfigAndOperations(conn, plan);
   const { cronRunCount, checkBatchCount } = await insertMaintenanceAndScheduler(conn, plan);
   const { exceptionCount, adminCount } = await insertExceptionsAndAuth(conn, plan);
@@ -870,7 +843,6 @@ export async function seedFixture(conn: GatedConnection): Promise<FixtureCardina
     monitor_state: plan.length,
     check_results: checkCount,
     metric_rollups: metricRollupCount,
-    daily_rollups: dailyRollupCount,
     incidents: incidentCount,
     notification_outbox: outboxCount,
     monitoring_config_snapshots: 2,

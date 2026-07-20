@@ -25,7 +25,8 @@ import {
  * Name seeding mechanic: the migration seeds row 1 with name NULL and
  * updatedAt NULL (version 0). The read path coalesces NULL name to
  * NEXT_PUBLIC_STATUS_PAGE_NAME (trimmed) and then falls back to the runtime
- * literal "System Status", and never persists the coalesced value. The first
+ * literal "Pulse Status" (DEFAULT_STATUS_PAGE_NAME via STATUS_PAGE_NAME_FALLBACK),
+ * and never persists the coalesced value. The first
  * successful PUT is the first write, so env-configured deployments keep their
  * title with no magic markers. Version 0 (the seed/unwritten state) still
  * produces the "0" ETag.

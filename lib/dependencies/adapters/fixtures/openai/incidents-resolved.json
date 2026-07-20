@@ -1,0 +1,37 @@
+{
+  "page": { "id": "01JMDK9XYNY6RXSED6SDWW50WY", "name": "OpenAI", "url": "https://status.openai.com/", "updated_at": "2026-07-18T12:58:14Z" },
+  "incidents": [
+    {
+      "id": "01KXT44TAQQ2R0AZDDVSJGAC4H",
+      "name": "Some users unable to access a developer tool",
+      "status": "resolved",
+      "created_at": "2026-07-18T08:05:37Z",
+      "updated_at": "2026-07-18T12:58:14Z",
+      "resolved_at": "2026-07-18T12:58:14Z",
+      "impact": "minor",
+      "incident_updates": [
+        {
+          "id": "01KXTMWKJWCEMSFJMEAX0KPQGF",
+          "body": "All impacted services have now fully recovered.",
+          "created_at": "2026-07-18T12:58:14Z",
+          "updated_at": "2026-07-18T12:58:14Z",
+          "status": "resolved"
+        },
+        {
+          "id": "01KXT5MK9M5JDR7DCST5RGHAV4",
+          "body": "We have applied the mitigation and are monitoring the recovery.",
+          "created_at": "2026-07-18T08:31:42Z",
+          "updated_at": "2026-07-18T08:31:42Z",
+          "status": "monitoring"
+        },
+        {
+          "id": "01KXT44TAQSBYE98DD6FM08V34",
+          "body": "We have identified an issue causing some users to receive access-denied errors.",
+          "created_at": "2026-07-18T08:05:37Z",
+          "updated_at": "2026-07-18T08:05:37Z",
+          "status": "identified"
+        }
+      ]
+    }
+  ]
+}

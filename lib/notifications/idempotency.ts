@@ -21,3 +21,36 @@ export function incidentNotificationKey(
 export function testNotificationKey(testId: string, recipient: string): string {
   return `test/${testId}/${recipientHash(recipient)}`;
 }
+
+export type DependencyNotificationEvent = "incident" | "recovery";
+
+/**
+ * Dedup key for dependency notifications: source, provider incident id,
+ * installed preset, scope, event kind, and recipient. Stable across
+ * repeated polls of the same still-open (or still-resolved) incident, so
+ * persist.ts can attempt to enqueue on a qualifying transition and rely on
+ * this key's uniqueness to send exactly one alert per event.
+ *
+ * scopeId is required (pass null for an unscoped preset, normalized to
+ * empty below) so two scoped installs of the same preset (e.g. two Neon
+ * regions) that both match one incident get distinct keys instead of
+ * colliding and losing one region's alert.
+ *
+ * occurrence is an optional trailing component for the same external id
+ * recurring across more than one open/resolved cycle (a provider incident
+ * that reopens under the same id after a prior resolution). Omitting it
+ * keeps the key identical to before this parameter existed, so a first
+ * occurrence's already-enqueued row keeps deduplicating unchanged.
+ */
+export function dependencyNotificationKey(
+  sourceId: string,
+  incidentExternalId: string,
+  catalogId: string,
+  scopeId: string | null,
+  event: DependencyNotificationEvent,
+  recipient: string,
+  occurrence?: string,
+): string {
+  const base = `dependency/${sourceId}/${incidentExternalId}/${catalogId}/${scopeId ?? ""}/${event}/${recipientHash(recipient)}`;
+  return occurrence === undefined ? base : `${base}/${occurrence}`;
+}

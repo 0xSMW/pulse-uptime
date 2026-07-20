@@ -39,6 +39,10 @@ const expectedOperations = [
   "POST /api/v1/status-reports/{reportId}/publish", "POST /api/v1/status-reports/{reportId}/updates",
   "PATCH /api/v1/status-reports/{reportId}/updates/{updateId}", "DELETE /api/v1/status-reports/{reportId}/updates/{updateId}",
   "POST /api/v1/incidents/{incidentId}/promote",
+  "GET /api/v1/dependency-catalog",
+  "GET /api/v1/dependencies", "POST /api/v1/dependencies",
+  "GET /api/v1/dependencies/{dependencyId}", "PATCH /api/v1/dependencies/{dependencyId}", "DELETE /api/v1/dependencies/{dependencyId}",
+  "POST /api/v1/dependencies/{dependencyId}/refresh",
 ];
 
 describe("committed OpenAPI v1 source", () => {
@@ -134,7 +138,7 @@ describe("committed OpenAPI v1 source", () => {
         const route = relative(root, dirname(join(root, file))).split(sep)
           .map((segment) => segment.replace(/^\[(.+)]$/, "{$1}"))
           .join("/");
-        return [...source.matchAll(/export async function (GET|POST|PUT|PATCH|DELETE)\b/g)]
+        return [...source.matchAll(/export (?:async function|const) (GET|POST|PUT|PATCH|DELETE)\b/g)]
           .map((match) => `${match[1]} /api/v1/${route}`.replace(/\/$/, ""));
       });
     expect(implemented.sort()).toEqual(expectedOperations.sort());

@@ -84,7 +84,7 @@ describe("getStatusPageConfig", () => {
     expect(withEnv.etag).toBe('"0"');
 
     const withoutEnv = await getStatusPageConfig({ store: seeded, env: {} });
-    expect(withoutEnv.data.name).toBe("System Status");
+    expect(withoutEnv.data.name).toBe("Pulse Status");
   });
 
   it("never persists the coalesced name", async () => {

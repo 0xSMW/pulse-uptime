@@ -32,6 +32,7 @@ describe("URL validation", () => {
     "http://localhost",
     "http://127.0.0.1",
     "http://169.254.169.254/latest/meta-data",
+    "http://203.0.113.10/health",
     "http://[::1]",
     "relative/path",
   ])("rejects unsafe or unsupported URL %s", (url) => {

@@ -19,7 +19,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var SupportedScopes = []string{"config:read", "config:write", "incidents:read", "monitors:read", "monitors:write", "notifications:test", "reports:read", "reports:write", "status:read", "tokens:manage"}
+var SupportedScopes = []string{"config:read", "config:write", "dependencies:read", "dependencies:write", "incidents:read", "monitors:read", "monitors:write", "notifications:test", "reports:read", "reports:write", "status:read", "tokens:manage"}
 
 // Hostile-server pagination bounds. A malicious server that returns a repeating
 // or non-advancing cursor, or an endless stream of pages, must not drive the
@@ -27,6 +27,7 @@ var SupportedScopes = []string{"config:read", "config:write", "incidents:read", 
 const (
 	maxListPages   = 1000
 	maxListRecords = 100_000
+	maxListBytes   = 64 << 20
 )
 
 type Transport interface {
@@ -244,12 +245,13 @@ func tokenList(d Dependencies) *cobra.Command {
 		if d.Client == nil {
 			return unavailable()
 		}
-		var records []any
+		var records []json.RawMessage
 		next := cursor
 		seen := map[string]struct{}{}
 		if cursor != "" {
 			seen[cursor] = struct{}{}
 		}
+		totalBytes := 0
 		for pages := 0; ; pages++ {
 			if pages >= maxListPages {
 				return pageLimit("server returned more token pages than the client will follow")
@@ -270,9 +272,9 @@ func tokenList(d Dependencies) *cobra.Command {
 				path += "?" + encoded
 			}
 			var page struct {
-				APIVersion string `json:"apiVersion"`
-				Kind       string `json:"kind"`
-				Data       []any  `json:"data"`
+				APIVersion string            `json:"apiVersion"`
+				Kind       string            `json:"kind"`
+				Data       []json.RawMessage `json:"data"`
 				Meta       struct {
 					NextCursor *string `json:"nextCursor"`
 					RequestID  string  `json:"requestId"`
@@ -281,12 +283,21 @@ func tokenList(d Dependencies) *cobra.Command {
 			if _, err := d.Client.Do(cmd.Context(), http.MethodGet, path, nil, nil, &page); err != nil {
 				return err
 			}
-			records = append(records, page.Data...)
+			accepted := page.Data
+			if limit > 0 && len(records)+len(accepted) > limit {
+				accepted = accepted[:limit-len(records)]
+			}
+			for _, raw := range accepted {
+				totalBytes += len(raw)
+			}
+			if totalBytes > maxListBytes {
+				return pageLimit("server exceeded the maximum aggregate response size")
+			}
+			records = append(records, accepted...)
 			if len(records) > maxListRecords {
 				return pageLimit("server returned more tokens than the client will aggregate")
 			}
 			if limit > 0 && len(records) >= limit {
-				records = records[:limit]
 				break
 			}
 			if page.Meta.NextCursor == nil || *page.Meta.NextCursor == "" || (!all && d.Output("table") == "table") {

@@ -10,7 +10,6 @@ export interface IncidentSummary {
   resolvedAt: string | null;
   durationSeconds: number;
   openingFailure: string;
-  status: string | null;
   notificationSummary: {
     state: NotificationState;
     sentCount: number;
@@ -32,6 +31,25 @@ export interface IncidentEvent {
   at: string;
 }
 
+/**
+ * Neutral timing context from an installed dependency's provider incident,
+ * per Docs/DEPENDENCY-MONITORING.md "Incident correlation". Timing and
+ * source only, never a causal claim.
+ */
+export interface DependencyIncidentOverlap {
+  dependencyId: string;
+  dependencyName: string;
+  provider: string;
+  incidentId: string;
+  incidentTitle: string;
+  providerStartedAt: string;
+  providerResolvedAt: string | null;
+  canonicalUrl: string | null;
+  matchKind: string;
+  offsetSeconds: number;
+}
+
 export interface IncidentDetail extends IncidentSummary {
   events: IncidentEvent[];
+  overlaps: DependencyIncidentOverlap[];
 }

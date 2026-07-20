@@ -1,0 +1,25 @@
+{
+  "notice": {
+    "id": 503441,
+    "type": "unplanned",
+    "state": "investigating",
+    "subject": "Elevated errors on a subset of API Sending requests",
+    "url": "https://status.postmarkapp.com/notices/sample-api-sending-errors",
+    "began_at": "2026-07-19T10:00:00.000Z",
+    "ended_at": null,
+    "created_at": "2026-07-19T10:00:00.000Z",
+    "updated_at": "2026-07-19T10:00:00.000Z",
+    "components": [
+      { "id": 87154, "name": "Sending" }
+    ],
+    "updates": [
+      {
+        "id": 51300001,
+        "state": "investigating",
+        "content": "We are investigating elevated errors on a subset of API Sending requests.",
+        "created_at": "2026-07-19T10:00:00.000Z",
+        "updated_at": "2026-07-19T10:00:00.000Z"
+      }
+    ]
+  }
+}

@@ -15,7 +15,7 @@ import {
   deriveResolvedAt,
   editReportUpdate,
   getPublicReports,
-  getStatusReport,
+  requireStatusReport,
   listStatusReports,
   listStatusReportSummaries,
   MAX_AFFECTED_PER_REPORT,
@@ -791,7 +791,7 @@ describe("deleteStatusReport", () => {
     const deps = dependencies(store);
     const created = await createStatusReport(validCreate, deps);
     await expect(deleteStatusReport(created.id, deps)).resolves.toEqual({ id: created.id });
-    await expect(getStatusReport(created.id, deps)).rejects.toMatchObject({ code: "REPORT_NOT_FOUND" });
+    await expect(requireStatusReport(created.id, deps)).rejects.toMatchObject({ code: "REPORT_NOT_FOUND" });
     await expect(deleteStatusReport(created.id, deps)).rejects.toMatchObject({ code: "REPORT_NOT_FOUND" });
   });
 });
@@ -979,7 +979,7 @@ describe("database store UUID guards", () => {
   });
 
   it("maps guarded non-UUID lookups to the existing 404 error codes", async () => {
-    await expect(getStatusReport("not-a-uuid")).rejects.toMatchObject({ code: "REPORT_NOT_FOUND" });
+    await expect(requireStatusReport("not-a-uuid")).rejects.toMatchObject({ code: "REPORT_NOT_FOUND" });
     await expect(promoteIncident("inc_9")).rejects.toMatchObject({ code: "INCIDENT_NOT_FOUND" });
   });
 });

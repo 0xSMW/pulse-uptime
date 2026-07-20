@@ -22,6 +22,21 @@ import (
 	"github.com/spf13/pflag"
 )
 
+func TestFullAccessRequiresEveryScope(t *testing.T) {
+	all := []string{"config:read", "config:write", "dependencies:read", "dependencies:write", "incidents:read", "monitors:read", "monitors:write", "notifications:test", "reports:read", "reports:write", "status:read", "tokens:manage"}
+	if !fullAccess(all) {
+		t.Fatalf("full scope set was not recognized as full access")
+	}
+	if fullAccess(all[:len(all)-1]) {
+		t.Fatalf("partial scope set was recognized as full access")
+	}
+	missingDependencies := append([]string{}, all...)
+	missingDependencies[2] = "monitors:read"
+	if fullAccess(missingDependencies) {
+		t.Fatalf("scope set without dependencies:read was recognized as full access")
+	}
+}
+
 func TestMeCallsCanonicalEndpointWithHeaders(t *testing.T) {
 	token := "pulse_live_do_not_print"
 	uuid := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
@@ -141,7 +156,7 @@ func TestRootHelpListsEveryLeafAndFitsBudget(t *testing.T) {
 	if code != 0 || stderr != "" {
 		t.Fatalf("code=%d stderr=%q", code, stderr)
 	}
-	for _, path := range []string{"auth login", "context remove", "token create", "monitor watch", "group rename", "incident get", "incident promote", "report create", "report publish", "status-page set", "status-page apply", "config apply", "notification test", "status", "doctor", "completion", "version"} {
+	for _, path := range []string{"auth login", "context remove", "token create", "monitor watch", "group rename", "incident get", "incident promote", "report create", "report publish", "status-page set", "status-page apply", "config apply", "notification test", "status", "doctor", "completion", "version", "dependency catalog", "dependency add", "dependency remove"} {
 		if !strings.Contains(stdout, path) {
 			t.Errorf("root help missing %q", path)
 		}
@@ -161,7 +176,7 @@ func TestJSONHelpIsGeneratedFromCommandTree(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.SchemaVersion != 1 || got.Binary != "pulsectl" || len(got.Commands) != 51 {
+	if got.SchemaVersion != 1 || got.Binary != "pulsectl" || len(got.Commands) != 56 {
 		t.Fatalf("incomplete manifest: %#v", got)
 	}
 	for _, item := range got.Commands {

@@ -1,0 +1,19 @@
+{
+  "result": {
+    "status_overall": { "updated": "2026-07-19T12:00:00.000Z", "status": "Operational", "status_code": 100 },
+    "status": [
+      {
+        "id": "690ccc238c3745059f2b33b2",
+        "name": "Database Connectivity",
+        "status": "Operational",
+        "status_code": 100,
+        "updated": "not a real timestamp",
+        "containers": [
+          { "id": "690ccafbbfd4c50578f181cc", "name": "AWS ap-southeast-1", "updated": "2026-07-19T12:00:00.000Z", "status": "Operational", "status_code": 100 }
+        ]
+      }
+    ],
+    "incidents": [],
+    "maintenance": { "active": [], "upcoming": [] }
+  }
+}

@@ -2,7 +2,7 @@
 // and the staleness threshold are pure functions so the client hook stays thin
 // and the behavior is unit tested without a browser.
 
-import type { MonitorState } from "@/components/monitors/status-dot";
+import type { MonitorState } from "@/lib/monitoring/types";
 import type { MonitorPhase } from "./queries/first-run";
 
 // Steady monitors refresh every 30 seconds. A monitor mid-setup, verifying, or
@@ -67,16 +67,17 @@ export function livePollUnlockAdvanced(
 }
 
 // A config edit from any session accepts a new snapshot, advancing its
-// acceptedAt. The live poll carries that version while the page holds the config
-// fields from the server snapshot. A paused monitor produces no new rollup, so
-// this is the only signal that lands an out-of-band name, url, threshold, or
-// recipient edit on the open page. Returns true when the live version is present
-// and differs from the snapshot, so the client refreshes once to pull the edit.
+// acceptedAt. The live poll carries that opaque change token while the page holds
+// the config fields from the server snapshot. A paused monitor produces no new
+// rollup, so this is the only signal that lands an out-of-band name, url,
+// threshold, or recipient edit on the open page. Returns true when the live token
+// is present and differs from the snapshot, so the client refreshes once to pull
+// the edit.
 export function livePollConfigChanged(
-  snapshotVersion: string | null,
-  liveVersion: string | null,
+  snapshotToken: string | null,
+  liveToken: string | null,
 ): boolean {
-  return liveVersion !== null && liveVersion !== snapshotVersion;
+  return liveToken !== null && liveToken !== snapshotToken;
 }
 
 // The completed 15-minute window boundary the live poll recomputes h24 and d7

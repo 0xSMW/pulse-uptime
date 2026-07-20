@@ -1,23 +1,24 @@
 import "server-only";
 
-import { desc, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import {
   ConfigApplyError,
   createConfigurationPlan,
   exportDeclarativeConfig,
-  hashMonitoringConfig,
   toMonitoringConfig,
   validateApplyPreconditions,
   validateDeclarativeConfig,
-  validateMonitoringConfig,
+  type AcceptedConfigSnapshot,
   type ConfigurationApplyRequest,
   type ConfigurationPlan,
   type DeclarativeConfig,
   type MonitoringConfig,
 } from "@/lib/config";
+import { findAcceptedSnapshot } from "@/lib/config/accepted-config";
+import { writeMonitoringEdgeConfig } from "@/lib/config/edge-config-write";
 import { db } from "@/lib/db/client";
-import { configChangeApprovals, configOperations, monitoringConfigSnapshots } from "@/lib/db/schema";
+import { configChangeApprovals, configOperations } from "@/lib/db/schema";
 
 export const CONFIG_OPERATION_RETENTION_SECONDS = 7 * 24 * 60 * 60;
 
@@ -42,20 +43,18 @@ export class ConfigurationServiceError extends Error {
   }
 }
 
-type AcceptedConfiguration = { config: MonitoringConfig; hash: string };
-
 export type EdgeConfigWriter = (config: MonitoringConfig) => Promise<{ version: number | null }>;
 
 type OperationInsert = Omit<typeof configOperations.$inferInsert, "id"> & { id?: string };
 type ApprovalInsert = typeof configChangeApprovals.$inferInsert;
 export type ConfigurationStore = {
-  readAccepted(): Promise<AcceptedConfiguration | null>;
-  transaction<T>(work: (tx: { lockConfiguration(): Promise<void>; readAccepted(): Promise<AcceptedConfiguration | null>; findOperation(principalKey: string, idempotencyKey: string): Promise<ConfigOperation | null>; insertApproval(value: ApprovalInsert): Promise<void>; insertOperation(value: OperationInsert): Promise<ConfigOperation> }) => Promise<T>): Promise<T>;
+  readAccepted(): Promise<AcceptedConfigSnapshot | null>;
+  transaction<T>(work: (tx: { lockConfiguration(): Promise<void>; readAccepted(): Promise<AcceptedConfigSnapshot | null>; findOperation(principalKey: string, idempotencyKey: string): Promise<ConfigOperation | null>; insertApproval(value: ApprovalInsert): Promise<void>; insertOperation(value: OperationInsert): Promise<ConfigOperation> }) => Promise<T>): Promise<T>;
   readOperation(id: string): Promise<ConfigOperation | null>;
 };
 
 export type ConfigurationService = {
-  get(): Promise<AcceptedConfiguration>;
+  get(): Promise<AcceptedConfigSnapshot>;
   schema(): unknown;
   validate(document: unknown): Promise<DeclarativeConfig>;
   plan(input: { baseConfigHash: string; targetConfig: unknown }): Promise<ConfigurationPlan>;
@@ -102,45 +101,26 @@ function serializeOperation(row: OperationRow): ConfigOperation {
 }
 
 async function defaultWriteEdgeConfig(config: MonitoringConfig): Promise<{ version: number | null }> {
-  const configId = process.env.EDGE_CONFIG_ID;
-  const token = process.env.VERCEL_API_TOKEN;
-  if (!configId || !token) throw new ConfigurationServiceError("EDGE_CONFIG_WRITE_FAILED", "Edge Config is unavailable");
-  const teamQuery = process.env.VERCEL_TEAM_ID ? `?teamId=${encodeURIComponent(process.env.VERCEL_TEAM_ID)}` : "";
-  let response: Response;
   try {
-    response = await fetch(`https://api.vercel.com/v1/edge-config/${encodeURIComponent(configId)}/items${teamQuery}`, {
-      method: "PATCH",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ items: [{ operation: "upsert", key: "monitoring", value: config }] }),
-      signal: AbortSignal.timeout(8_000),
-    });
+    return { version: await writeMonitoringEdgeConfig(config) };
   } catch {
     throw new ConfigurationServiceError("EDGE_CONFIG_WRITE_FAILED", "Could not write Edge Config");
   }
-  if (!response.ok) throw new ConfigurationServiceError("EDGE_CONFIG_WRITE_FAILED", "Could not write Edge Config");
-  const versionHeader = response.headers.get("x-vercel-edge-config-version");
-  const version = versionHeader && /^\d+$/.test(versionHeader) ? Number(versionHeader) : null;
-  return { version };
 }
 
 function createDatabaseStore(): ConfigurationStore {
-  const parseAccepted = (row: { configJson: unknown; configHash: string } | undefined): AcceptedConfiguration | null => {
-    if (!row) return null;
-    const raw = row.configJson as Parameters<typeof hashMonitoringConfig>[0];
-    const config = validateMonitoringConfig(row.configJson);
-    const hash = hashMonitoringConfig(raw);
-    if (hash !== row.configHash) throw new ConfigurationServiceError("CONFIG_NOT_INITIALIZED", "Accepted configuration hash is invalid");
-    return { config, hash };
+  const readAcceptedVia = async (executor: typeof db): Promise<AcceptedConfigSnapshot | null> => {
+    try {
+      return await findAcceptedSnapshot(executor);
+    } catch {
+      throw new ConfigurationServiceError("CONFIG_NOT_INITIALIZED", "Accepted configuration hash is invalid");
+    }
   };
   return {
-    readAccepted: async () => parseAccepted((await db.select({ configJson: monitoringConfigSnapshots.configJson, configHash: monitoringConfigSnapshots.configHash })
-      .from(monitoringConfigSnapshots).where(eq(monitoringConfigSnapshots.status, "accepted"))
-      .orderBy(desc(monitoringConfigSnapshots.acceptedAt), desc(monitoringConfigSnapshots.seenAt)).limit(1))[0]),
+    readAccepted: () => readAcceptedVia(db),
     transaction: async (work) => await db.transaction(async (tx) => await work({
       lockConfiguration: async () => { await tx.execute(sql`select pg_advisory_xact_lock(hashtext('pulse:configuration'))`); },
-      readAccepted: async () => parseAccepted((await tx.select({ configJson: monitoringConfigSnapshots.configJson, configHash: monitoringConfigSnapshots.configHash })
-        .from(monitoringConfigSnapshots).where(eq(monitoringConfigSnapshots.status, "accepted"))
-        .orderBy(desc(monitoringConfigSnapshots.acceptedAt), desc(monitoringConfigSnapshots.seenAt)).limit(1))[0]),
+      readAccepted: () => readAcceptedVia(tx as unknown as typeof db),
       findOperation: async (principalKey, idempotencyKey) => {
         const [row] = await tx.select(OPERATION_COLUMNS).from(configOperations).where(sql`${configOperations.principalKey} = ${principalKey} and ${configOperations.idempotencyKey} = ${idempotencyKey}`).limit(1);
         return row ? serializeOperation(row) : null;
@@ -158,7 +138,7 @@ function createDatabaseStore(): ConfigurationStore {
 export function createConfigurationService(options: { writeEdgeConfig?: EdgeConfigWriter; store?: ConfigurationStore } = {}): ConfigurationService {
   const writeEdgeConfig = options.writeEdgeConfig ?? defaultWriteEdgeConfig;
   const store = options.store ?? createDatabaseStore();
-  const loadCurrent = async (): Promise<AcceptedConfiguration> => {
+  const loadCurrent = async (): Promise<AcceptedConfigSnapshot> => {
     const current = await store.readAccepted();
     if (!current) throw new ConfigurationServiceError("CONFIG_NOT_INITIALIZED", "No accepted configuration is available");
     return current;
@@ -189,9 +169,6 @@ export function createConfigurationService(options: { writeEdgeConfig?: EdgeConf
         currentConfig: exportDeclarativeConfig(currentConfig),
         currentConfigHash: currentHash,
       });
-      if (plan.destructiveApprovalRequired && !input.request.allowDelete) {
-        throw new ConfigApplyError("DELETE_NOT_ALLOWED", "allowDelete is required for destructive configuration changes");
-      }
       const target = toMonitoringConfig(plan.targetConfig, currentConfig.configVersion + 1);
       const now = new Date();
       if (plan.destructiveApprovalRequired) {

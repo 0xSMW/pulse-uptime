@@ -1,6 +1,6 @@
 import {
   AccountServiceError,
-  getAccountProfile,
+  findAccountProfile,
   updateAccountProfile,
   validateProfilePatch,
 } from "@/lib/api/account";
@@ -13,7 +13,7 @@ export async function GET(request: Request) {
   const context = await authorize(request);
   if (isApiResponse(context)) return context;
   const profile = context.principal.type === "human"
-    ? await getAccountProfile(context.principal.id)
+    ? await findAccountProfile(context.principal.id)
     : null;
   return apiJson(objectEnvelope("Me", serializePrincipal(context.principal, profile), context.requestId));
 }

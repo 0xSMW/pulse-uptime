@@ -23,7 +23,6 @@ const incident: IncidentSummary = {
   resolvedAt: "2026-07-18T09:30:00.000Z",
   durationSeconds: 1800,
   openingFailure: "HTTP 503",
-  status: "resolved",
   notificationSummary: { state: "sent", sentCount: 1 },
 };
 

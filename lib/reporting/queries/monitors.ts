@@ -11,6 +11,7 @@ import {
 } from "@/lib/db/schema";
 import { DEFAULT_MONITOR_VALUES } from "@/lib/config/defaults";
 import { validateMonitoringConfig, type MonitorConfig } from "@/lib/config";
+import { listOverlappingDependencyIncidents } from "@/lib/dependencies/overlap";
 import { portableQueryValues } from "@/lib/db/query-values";
 import { RECENT_MINUTE_CHECKS_SQL, RECENT_MINUTE_CHECK_TAIL_COUNTS_SQL } from "@/lib/storage/sql";
 
@@ -293,6 +294,25 @@ export async function getMonitorDetail(id: string) {
       successful: row.failedChecks === 0 && row.completedChecks === row.expectedChecks,
     }));
 
+  // Neutral timing context only, for the active or recently resolved
+  // incident: never a causal claim. See Docs/DEPENDENCY-MONITORING.md
+  // "Incident correlation".
+  const latestIncidentRow = recentIncidents[0] && (
+    recentIncidents[0].resolvedAt === null ||
+    recentIncidents[0].resolvedAt.getTime() >= now.getTime() - 86_400_000
+  ) ? recentIncidents[0] : null;
+  const latestIncidentOverlaps = latestIncidentRow
+    ? await listOverlappingDependencyIncidents({ openedAt: latestIncidentRow.openedAt, resolvedAt: latestIncidentRow.resolvedAt })
+    : [];
+  // Origin's first-run refactor builds the incident through buildLatestIncident,
+  // so attach the dependency overlaps onto that result rather than the removed
+  // hand-built object. Overlaps ride the detail snapshot only, the live poll
+  // stays lean, and a full refresh recomputes them.
+  const builtLatestIncident = buildLatestIncident(recentIncidents, now);
+  const latestIncidentWithOverlaps = builtLatestIncident
+    ? { ...builtLatestIncident, overlaps: latestIncidentOverlaps }
+    : null;
+
   return {
     id: monitor.id,
     name: monitor.name,
@@ -341,9 +361,9 @@ export async function getMonitorDetail(id: string) {
     firstRun: buildFirstRun(monitor, observedCollecting, now),
     rollupVersion: rollupVersionOf(rollups7d),
     // The accepted snapshot governs every field the config drives above, so its
-    // acceptedAt is the version the live poll watches to land an out-of-band
-    // config edit on a paused monitor whose rollup version never advances.
-    configVersion: accepted[0]?.acceptedAt?.toISOString() ?? null,
+    // acceptedAt is the opaque change token the live poll watches to land an
+    // out-of-band config edit on a paused monitor whose rollup version never advances.
+    acceptedConfigToken: accepted[0]?.acceptedAt?.toISOString() ?? null,
     // The completed 15-minute boundary the h24 and d7 scores read against. The
     // live poll watches it to refresh the timeline and response chart once when
     // the window slides, even on a paused monitor whose rollup version is fixed.
@@ -377,7 +397,7 @@ export async function getMonitorDetail(id: string) {
       d7: responsePoints(rollupsSinceActivation(rollups7d, activatedAt)),
       d30: responsePoints(rollupsSinceActivation(rollups30d, activatedAt)),
     },
-    latestIncident: buildLatestIncident(recentIncidents, now),
+    latestIncident: latestIncidentWithOverlaps,
     recentIncidents: buildRecentIncidents(recentIncidents, now),
     // Recent Checks hide pre-activation setup minutes the same way uptime,
     // timelines, latency, and incidents do. The raw path filters to checks at or
@@ -426,9 +446,9 @@ export async function getMonitorLive(
           .limit(5)
       : Promise.resolve([]),
     getRecentRawChecks(id, now),
-    // Config version only. This one-column single-row read rides the accepted
-    // snapshot index and skips the configJson decode the detail query runs, so
-    // the poll stays lean while still carrying the signal that lands an
+    // Accepted config token only. This one-column single-row read rides the
+    // accepted snapshot index and skips the configJson decode the detail query
+    // runs, so the poll stays lean while still carrying the signal that lands an
     // out-of-band config edit on a paused monitor.
     db.select({ acceptedAt: monitoringConfigSnapshots.acceptedAt })
       .from(monitoringConfigSnapshots)
@@ -495,7 +515,7 @@ export async function getMonitorLive(
       ? buildRecentChecksFromRaw(activeRawChecks)
       : buildRecentChecks(rollupsSinceActivation(rollups24h, activatedAt)),
     rollupVersion: rollupVersionOf(rollups7d),
-    configVersion: accepted[0]?.acceptedAt?.toISOString() ?? null,
+    acceptedConfigToken: accepted[0]?.acceptedAt?.toISOString() ?? null,
     // The completed 15-minute boundary the h24 and d7 scores read against. The
     // client refreshes once when it advances so the server recomputes the
     // timeline and chart, even on a paused monitor whose rollup version is fixed.

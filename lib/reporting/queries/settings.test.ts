@@ -2,12 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-const { dbMock } = vi.hoisted(() => ({ dbMock: { select: vi.fn() } }));
+const { dbMock, findAcceptedSnapshotMock } = vi.hoisted(() => ({
+  dbMock: { select: vi.fn() },
+  findAcceptedSnapshotMock: vi.fn(),
+}));
 vi.mock("@/lib/db/client", () => ({ db: dbMock }));
+vi.mock("@/lib/config/accepted-config", () => ({ findAcceptedSnapshot: findAcceptedSnapshotMock }));
 
 import { ADMINISTRATOR_SCOPES } from "@/lib/api/scopes";
 
-import { getAccessSettings, getSecuritySettings } from "./settings";
+import { getAccessSettings, getNotificationSettings, getSecuritySettings } from "./settings";
 
 /** A chainable stand-in for a drizzle `db.select(...).from(...)....limit(...)` call. */
 function selectChain(rows: unknown[]) {
@@ -40,6 +44,21 @@ function sessionRow(overrides: Partial<{
 
 beforeEach(() => {
   dbMock.select.mockReset();
+  findAcceptedSnapshotMock.mockReset();
+});
+
+describe("getAcceptedConfig graceful degradation (finding: a bad accepted snapshot must degrade to defaults, not crash the settings render)", () => {
+  it("returns notification defaults when the accepted snapshot is invalid or hash-mismatched", async () => {
+    findAcceptedSnapshotMock.mockRejectedValueOnce(new Error("Accepted monitoring configuration hash is invalid"));
+    const result = await getNotificationSettings();
+    expect(result.defaultRecipients).toEqual([]);
+  });
+
+  it("returns notification defaults when there is no accepted snapshot", async () => {
+    findAcceptedSnapshotMock.mockResolvedValueOnce(null);
+    const result = await getNotificationSettings();
+    expect(result.defaultRecipients).toEqual([]);
+  });
 });
 
 describe("getSecuritySettings (finding: the 100-row cap ranked by recency could exclude the current session entirely, showing no 'current session' row at all)", () => {

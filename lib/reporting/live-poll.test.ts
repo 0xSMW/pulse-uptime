@@ -121,14 +121,14 @@ describe("livePollConfigChanged", () => {
     expect(livePollConfigChanged(null, "2026-07-19T00:00:00.000Z")).toBe(true);
   });
 
-  it("holds steady while the version matches the snapshot", () => {
+  it("holds steady while the token matches the snapshot", () => {
     expect(
       livePollConfigChanged("2026-07-19T00:00:00.000Z", "2026-07-19T00:00:00.000Z"),
     ).toBe(false);
     expect(livePollConfigChanged(null, null)).toBe(false);
   });
 
-  it("does not refresh when the poll carries no config version yet", () => {
+  it("does not refresh when the poll carries no config token yet", () => {
     expect(livePollConfigChanged("2026-07-19T00:00:00.000Z", null)).toBe(false);
   });
 });

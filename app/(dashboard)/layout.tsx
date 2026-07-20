@@ -20,7 +20,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   // Not awaited: the palette overlay resolves these with use(), so palette
   // data never blocks first paint.
   const monitorsPromise = listCommandPaletteMonitors()
-    .then((monitors) => monitors.map(({ id, name, state, lastLatencyMs }) => ({ id, name, state, lastLatencyMs })))
+    .then((monitors) => monitors.map(({ id, name, state, lastLatencyMs }) => ({ id, name, state, latestLatencyMs: lastLatencyMs })))
     .catch(() => []);
   const incidentsPromise = listCommandPaletteIncidents()
     .then((incidents) => incidents.map(({ id, monitorId, monitorName, openedAt, openingFailure }) => ({

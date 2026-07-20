@@ -1,4 +1,7 @@
 import type { MaintenanceStore } from "./coordinator";
+import type { Database } from "@/lib/db/client";
+import { createSqlCatalogReconcileStore, reconcileCatalog } from "@/lib/dependencies/catalog-sync";
+import { createLiveFetchSourceComponents } from "@/lib/dependencies/catalog-revalidation";
 import { reconcileStaleClaims } from "@/lib/notifications/sql";
 import { retentionFor, STORAGE_BUDGET_BYTES } from "@/lib/storage/governor";
 import {
@@ -45,11 +48,6 @@ select count(*)::int as affected from deleted`;
 const DELETE_CRON_SQL = `with doomed as (select id from cron_runs where started_at < $1 order by started_at, id limit $2),
 deleted as (
   delete from cron_runs using doomed where cron_runs.id = doomed.id returning 1
-)
-select count(*)::int as affected from deleted`;
-const DELETE_ROLLUPS_SQL = `with doomed as (select monitor_id, day from daily_rollups where day < $1::date order by day, monitor_id limit $2),
-deleted as (
-  delete from daily_rollups using doomed where daily_rollups.monitor_id = doomed.monitor_id and daily_rollups.day = doomed.day returning 1
 )
 select count(*)::int as affected from deleted`;
 const EXPIRE_APPROVALS_SQL = `with doomed as (select id from config_change_approvals where (expires_at < $1 and consumed_at is null) or consumed_at < $2 order by created_at, id limit $3),
@@ -155,7 +153,57 @@ const DELETE_ORPHAN_IMAGES_SQL = `with referenced as (
 )
 delete from images using doomed where images.id = doomed.id returning images.id`;
 
-export function createSqlMaintenanceStore(db: QueryExecutor): MaintenanceStore {
+// Empties body_text on provider_incident_updates older than the cutoff and
+// leaves state, timing, and the row itself intact so dependency detail
+// timelines keep incident identity while only the two-year-old prose drops.
+// The body_text <> '' guard keeps already-emptied rows out of the batch, so
+// drainBatches sees a shrinking count and stops instead of rewriting the same
+// rows forever.
+const RETAIN_DEPENDENCY_INCIDENT_UPDATES_SQL = `with doomed as (
+  select incident_id, external_update_id from provider_incident_updates
+  where provider_created_at < $1 and body_text <> ''
+  order by provider_created_at limit $2
+),
+pruned as (
+  update provider_incident_updates set body_text = '' from doomed
+  where provider_incident_updates.incident_id = doomed.incident_id
+    and provider_incident_updates.external_update_id = doomed.external_update_id
+  returning 1
+)
+select count(*)::int as affected from pruned`;
+
+// Compacts closed dependency_state_intervals older than the cutoff into one
+// row per (dependency, day, state): a day with only a single interval for a
+// state has nothing to merge and is left untouched. This is lossy across a
+// same-day same-state gap (e.g. two separate OPERATIONAL stretches around a
+// same-day OUTAGE become one OPERATIONAL span), an accepted trade for
+// keeping two-year-old history at daily granularity per the storage
+// contract, matching decision 10's "no new mode, no new table" note.
+const COMPACT_DEPENDENCY_STATE_INTERVALS_SQL = `with candidates as (
+  select id, dependency_id, state, date_trunc('day', started_at) as day, started_at, ended_at
+  from dependency_state_intervals
+  where ended_at is not null and ended_at < $1
+), groups as (
+  select dependency_id, day, state,
+    min(started_at) as started_at, max(ended_at) as ended_at,
+    array_agg(id) as ids, count(*) as row_count
+  from candidates
+  group by dependency_id, day, state
+  having count(*) > 1
+  limit $2
+), deleted as (
+  delete from dependency_state_intervals
+  where id in (select unnest(ids) from groups)
+  returning 1
+), inserted as (
+  insert into dependency_state_intervals (id, dependency_id, state, started_at, ended_at, source_observed_at)
+  select gen_random_uuid()::text, dependency_id, state, started_at, ended_at, started_at
+  from groups
+  returning 1
+)
+select (select count(*)::int from deleted) as affected`;
+
+export function createSqlMaintenanceStore(db: QueryExecutor, drizzle?: Database): MaintenanceStore {
   return {
     async reconcileStaleOutbox(now) {
       return reconcileStaleClaims(db, now);
@@ -190,8 +238,10 @@ export function createSqlMaintenanceStore(db: QueryExecutor): MaintenanceStore {
     async deleteOldCronRuns(cutoff, limit) {
       return affected(await db.query<AffectedRow>(DELETE_CRON_SQL, [cutoff, limit]));
     },
-    async deleteOldRollups(dayCutoff, limit) {
-      return affected(await db.query<AffectedRow>(DELETE_ROLLUPS_SQL, [dayCutoff, limit]));
+    async deleteOldRollups() {
+      // daily_rollups is dropped. metric_rollups day retention runs through
+      // enforceTelemetryRetention, so this ladder has nothing to delete.
+      return 0;
     },
     async compact15Minute(start, end, now) {
       return count(await db.query(COMPACT_15_MINUTE_SQL, [start, end, now]));
@@ -233,6 +283,22 @@ export function createSqlMaintenanceStore(db: QueryExecutor): MaintenanceStore {
     },
     async deleteOrphanImages(cutoff, keepNewest, limit) {
       return count(await db.query(DELETE_ORPHAN_IMAGES_SQL, [cutoff, keepNewest, limit]));
+    },
+    async reconcileDependencyCatalog(now, deadlineAtMs) {
+      if (!drizzle) return { checkedSources: 0, disabledPresets: 0 };
+      const summary = await reconcileCatalog({
+        store: createSqlCatalogReconcileStore(drizzle),
+        fetchSourceComponents: createLiveFetchSourceComponents(),
+        now: () => now,
+        deadlineAtMs,
+      });
+      return { checkedSources: summary.checkedSources, disabledPresets: summary.disabledPresets.length };
+    },
+    async retainDependencyIncidentUpdates(cutoff, limit) {
+      return affected(await db.query<AffectedRow>(RETAIN_DEPENDENCY_INCIDENT_UPDATES_SQL, [cutoff, limit]));
+    },
+    async compactDependencyStateIntervals(cutoff, limit) {
+      return affected(await db.query<AffectedRow>(COMPACT_DEPENDENCY_STATE_INTERVALS_SQL, [cutoff, limit]));
     },
   };
 }

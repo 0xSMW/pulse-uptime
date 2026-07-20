@@ -21,6 +21,8 @@ describe("API scopes", () => {
       "status:read",
       "reports:read",
       "reports:write",
+      "dependencies:read",
+      "dependencies:write",
     ]);
   });
 

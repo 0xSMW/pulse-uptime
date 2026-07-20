@@ -4,7 +4,7 @@ import { createEmailProbe } from "./probes";
 
 const env = {
   RESEND_API_KEY: "re_send_only",
-  RESEND_FROM_EMAIL: "alerts@productos.ai",
+  RESEND_FROM_EMAIL: "alerts@example.com",
 };
 
 describe("email readiness probe", () => {
@@ -17,8 +17,8 @@ describe("email readiness probe", () => {
 
     await expect(probe()).resolves.toMatchObject({ state: "ready", code: "EMAIL_READY" });
     expect(send).toHaveBeenCalledWith(
-      expect.objectContaining({ from: "alerts@productos.ai", to: "delivered@resend.dev" }),
-      { idempotencyKey: "pulse-readiness-productos.ai" },
+      expect.objectContaining({ from: "alerts@example.com", to: "delivered@resend.dev" }),
+      { idempotencyKey: "pulse-readiness-example.com" },
     );
   });
 
@@ -26,7 +26,7 @@ describe("email readiness probe", () => {
     const send = vi.fn();
     const probe = createEmailProbe(env, () => ({
       domains: { list: vi.fn().mockResolvedValue({
-        data: { data: [{ name: "example.com", status: "verified" }] },
+        data: { data: [{ name: "other.example.com", status: "verified" }] },
         error: null,
       }) },
       emails: { send },

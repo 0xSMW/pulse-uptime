@@ -11,6 +11,7 @@ function claimed(overrides: Partial<ClaimedNotification> = {}): ClaimedNotificat
     id: "notification-1",
     incidentId: "incident-1",
     monitorId: "api",
+    dependencyId: null,
     eventType: "incident.opened",
     recipient: "ops@example.com",
     idempotencyKey: "incident/incident-1/opened/hash",
@@ -80,6 +81,65 @@ describe("notification messages", () => {
     }), "https://pulse.example.com");
     expect(test.subject).toBe("Pulse notification test");
     expect(renderToStaticMarkup(test.react)).toContain("Production can deliver");
+  });
+
+  it("renders a dependency incident notification with neutral provider-reported wording", () => {
+    const message = createNotificationMessage(claimed({
+      eventType: "dependency.incident",
+      incidentId: null,
+      monitorId: null,
+      dependencyId: "dep-1",
+      payload: {
+        type: "dependency.incident",
+        dependencyName: "Vercel Runtime",
+        provider: "Vercel",
+        incidentTitle: "Elevated function errors",
+        state: "OUTAGE",
+        canonicalUrl: "https://www.vercel-status.com/incidents/inc-1",
+        providerTimestamp: "Jul 19 at 12:00 UTC",
+      },
+    }), "https://pulse.example.com");
+    expect(message.subject).toBe("Vercel Runtime: provider reported incident");
+    const html = renderToStaticMarkup(message.react);
+    expect(html).toContain("Vercel reports Elevated function errors");
+    expect(html).toContain("https://www.vercel-status.com/incidents/inc-1");
+    expect(html).toContain("not an independent Pulse check");
+  });
+
+  it("renders a dependency recovery notification", () => {
+    const message = createNotificationMessage(claimed({
+      eventType: "dependency.recovery",
+      incidentId: null,
+      monitorId: null,
+      dependencyId: "dep-1",
+      payload: {
+        type: "dependency.recovery",
+        dependencyName: "Vercel Runtime",
+        provider: "Vercel",
+        incidentTitle: "Elevated function errors",
+        state: "OPERATIONAL",
+        canonicalUrl: null,
+        providerTimestamp: "Jul 19 at 12:30 UTC",
+      },
+    }), "https://pulse.example.com");
+    expect(message.subject).toBe("Vercel Runtime: provider incident resolved");
+    expect(renderToStaticMarkup(message.react)).toContain("Elevated function errors resolved");
+  });
+
+  it("rejects a payload whose type does not match its event", () => {
+    expect(() => createNotificationMessage(claimed({
+      eventType: "dependency.incident",
+      incidentId: null,
+      payload: {
+        type: "dependency.recovery",
+        dependencyName: "Vercel Runtime",
+        provider: "Vercel",
+        incidentTitle: "x",
+        state: "OPERATIONAL",
+        canonicalUrl: null,
+        providerTimestamp: "now",
+      },
+    }), "https://pulse.example.com")).toThrow(/does not match/);
   });
 });
 

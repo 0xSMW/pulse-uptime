@@ -8,10 +8,12 @@ import {
   acquireIdempotencyOwner,
   ATOMIC_PROTOCOL,
   executeIdempotent,
+  IdempotencyError,
   type IdempotencyPersistence,
   type IdempotencyRecord,
   LEGACY_PROTOCOL,
   reclaimExpiredRecord,
+  requireIdempotencyKey,
 } from "./idempotency";
 
 const key = "00000000-0000-4000-8000-000000000001";
@@ -117,6 +119,31 @@ function request(body: unknown) {
     body,
   };
 }
+
+describe("requireIdempotencyKey", () => {
+  function post(headers: Record<string, string>) {
+    return new Request("https://pulse.example/api/v1/test", { method: "POST", headers });
+  }
+
+  it("returns the trimmed key for a strict UUID", () => {
+    expect(requireIdempotencyKey(post({ "Idempotency-Key": `  ${key}  ` }))).toBe(key);
+  });
+
+  it("throws IDEMPOTENCY_KEY_REQUIRED when the header is absent", () => {
+    expect(() => requireIdempotencyKey(post({}))).toThrow(IdempotencyError);
+    try {
+      requireIdempotencyKey(post({}));
+    } catch (error) {
+      expect((error as IdempotencyError).code).toBe("IDEMPOTENCY_KEY_REQUIRED");
+    }
+  });
+
+  it("rejects a loose-shaped but non-strict UUID", () => {
+    // variant nibble 7 passes the loose 8-4-4-4-12 shape but fails the strict one.
+    expect(() => requireIdempotencyKey(post({ "Idempotency-Key": "00000000-0000-4000-7000-000000000001" })))
+      .toThrow(IdempotencyError);
+  });
+});
 
 describe("idempotency retention reclamation", () => {
   it("executes a new operation for a different body after completed-row expiry", async () => {

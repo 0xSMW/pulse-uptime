@@ -1,5 +1,5 @@
 import { apiError } from "@/lib/api/envelopes";
-import { getImage, imageResponse } from "@/lib/api/images";
+import { findImage, imageResponse } from "@/lib/api/images";
 import { authorize, isApiResponse } from "@/lib/api/middleware";
 
 /**
@@ -14,7 +14,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ imag
     return apiError(context.requestId, 403, "SESSION_REQUIRED", "Image previews require a dashboard session");
   }
   const { imageId } = await params;
-  const image = await getImage(imageId);
+  const image = await findImage(imageId);
   if (!image) {
     return apiError(context.requestId, 404, "IMAGE_NOT_FOUND", "The image was not found");
   }

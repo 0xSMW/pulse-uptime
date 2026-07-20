@@ -37,7 +37,7 @@ function DirtyReader() {
   return <span data-testid="dirty">{String(context?.dirty ?? false)}</span>;
 }
 
-function renderAccount(data: AccountSettingsData = { name: "Stephen Walker", email: "stephen@klu.ai", timezone: null, avatarImageId: null }) {
+function renderAccount(data: AccountSettingsData = { name: "Test User", email: "user@example.com", timezone: null, avatarImageId: null }) {
   return render(
     <ThemeProvider>
       <TimezoneProvider>
@@ -52,9 +52,9 @@ function renderAccount(data: AccountSettingsData = { name: "Stephen Walker", ema
 
 describe("initialsFor", () => {
   it("derives initials from the name, falling back to the email", () => {
-    expect(initialsFor("Stephen Walker", "stephen@klu.ai")).toBe("SW");
-    expect(initialsFor("Stephen", "stephen@klu.ai")).toBe("S");
-    expect(initialsFor(null, "stephen@klu.ai")).toBe("S");
+    expect(initialsFor("Test User", "user@example.com")).toBe("TU");
+    expect(initialsFor("Test", "user@example.com")).toBe("T");
+    expect(initialsFor(null, "user@example.com")).toBe("U");
     expect(initialsFor("  ", "ops@example.com")).toBe("O");
   });
 });
@@ -62,7 +62,7 @@ describe("initialsFor", () => {
 describe("AccountSettings", () => {
   it("renders profile fields with the avatar upload control", () => {
     renderAccount();
-    expect(screen.getByText("stephen@klu.ai")).toBeDefined();
+    expect(screen.getByText("user@example.com")).toBeDefined();
     expect(screen.getByRole("button", { name: "Upload Avatar" })).toBeDefined();
     expect(screen.getByLabelText("Upload avatar")).toBeDefined();
     expect(screen.getByLabelText("Name")).toBeDefined();
@@ -71,8 +71,8 @@ describe("AccountSettings", () => {
 
   it("renders the stored avatar from the authenticated image route", () => {
     const { container } = renderAccount({
-      name: "Stephen Walker",
-      email: "stephen@klu.ai",
+      name: "Test User",
+      email: "user@example.com",
       timezone: null,
       avatarImageId: "11111111-1111-4111-8111-111111111111",
     });
