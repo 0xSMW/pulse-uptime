@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleUser, Monitor, Moon, Sun } from "lucide-react";
+import { Monitor, Moon, Sun, User } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -15,6 +15,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { initialsFor } from "@/lib/account/initials";
 import { cn } from "@/lib/utils";
 
 const themeOptions: { label: string; value: Theme; Icon: typeof Monitor }[] = [
@@ -52,8 +53,20 @@ export function MenuAppearanceControl() {
   );
 }
 
-export function UserMenu({ email }: { email: string }) {
+export function UserMenu({
+  email,
+  name = null,
+  avatarImageId = null,
+}: {
+  email: string;
+  name?: string | null;
+  avatarImageId?: string | null;
+}) {
   const [signingOut, setSigningOut] = useState(false);
+  const displayName = name?.trim() || "";
+  // Initials stand in for the avatar only when a name is set. Without one the
+  // frame keeps the neutral User glyph rather than an email-derived letter.
+  const initials = displayName ? initialsFor(displayName, email) : "";
 
   async function signOut() {
     if (signingOut) return;
@@ -72,14 +85,45 @@ export function UserMenu({ email }: { email: string }) {
       <DropdownMenuTrigger
         title="Account"
         aria-label="Account"
-        className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full border border-[var(--border-strong)] bg-[var(--chip-bg)] text-[var(--fg)] hover:border-[var(--border-hover)] data-[popup-open]:border-[var(--border-hover)]"
+        className="flex size-8 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-[var(--border-strong)] bg-[var(--chip-bg)] text-[11px] font-medium text-[var(--fg)] hover:border-[var(--border-hover)] data-[popup-open]:border-[var(--border-hover)]"
       >
-        <CircleUser className="size-4" aria-hidden="true" />
+        {avatarImageId ? (
+          // eslint-disable-next-line @next/next/no-img-element -- authenticated dynamic bytes, not an optimizable static asset
+          <img src={`/api/v1/images/${avatarImageId}`} alt="" className="size-full object-cover" />
+        ) : initials ? (
+          initials
+        ) : (
+          <User className="size-4" aria-hidden="true" />
+        )}
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-[248px]">
         <div className="flex items-center gap-2.5 px-2.5 py-2">
-          <CircleUser className="size-4 shrink-0 text-[var(--fg-muted)]" aria-hidden="true" />
-          <span className="min-w-0 truncate text-[13px] text-[var(--fg)]">{email}</span>
+          <span
+            aria-hidden="true"
+            className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[var(--border-strong)] bg-[var(--chip-bg)] text-[11px] font-medium text-[var(--fg-muted)]"
+          >
+            {avatarImageId ? (
+              // eslint-disable-next-line @next/next/no-img-element -- authenticated dynamic bytes, not an optimizable static asset
+              <img src={`/api/v1/images/${avatarImageId}`} alt="" className="size-full object-cover" />
+            ) : initials ? (
+              initials
+            ) : (
+              <User className="size-4" aria-hidden="true" />
+            )}
+          </span>
+          <span className="flex min-w-0 flex-col">
+            {displayName ? (
+              <span className="min-w-0 truncate text-[13px] text-[var(--fg)]">{displayName}</span>
+            ) : null}
+            <span
+              className={cn(
+                "min-w-0 truncate text-[13px]",
+                displayName ? "text-[var(--fg-muted)]" : "text-[var(--fg)]",
+              )}
+            >
+              {email}
+            </span>
+          </span>
         </div>
         <DropdownMenuSeparator />
         <DropdownMenuLinkItem render={<Link href="/settings/account" />}>Settings</DropdownMenuLinkItem>

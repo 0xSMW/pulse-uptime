@@ -5,6 +5,7 @@ import { CommandPaletteProvider } from "@/components/dashboard/command-palette";
 import { SettingsReturnTracker } from "@/components/dashboard/settings-return-tracker";
 import { TimezoneServerSync } from "@/components/dashboard/timezone-provider";
 import { TopNav } from "@/components/dashboard/top-nav";
+import { findAccountProfile } from "@/lib/api/account";
 import { getCurrentSession } from "@/lib/auth/session";
 import { listCommandPaletteMonitors } from "@/lib/monitoring/queries";
 import { listCommandPaletteIncidents } from "@/lib/reporting/queries/incidents";
@@ -17,6 +18,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const session = await getCurrentSession();
   if (!session) redirect("/onboarding");
   if (!session.onboardingCompletedAt) redirect("/onboarding");
+  // Identity for the user menu. The session query intentionally omits name and
+  // avatar, so load them from the profile here.
+  const profile = await findAccountProfile(session.userId);
   // Not awaited: the palette overlay resolves these with use(), so palette
   // data never blocks first paint.
   const monitorsPromise = listCommandPaletteMonitors()
@@ -38,7 +42,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         <SettingsReturnTracker />
         <TimezoneServerSync timezone={session.timezone} />
         <AutoRefresh intervalMs={60_000} />
-        <TopNav email={session.email} />
+        <TopNav email={session.email} name={profile?.name ?? null} avatarImageId={profile?.avatarImageId ?? null} />
         <main className="mx-auto max-w-[1200px] px-6 py-8 lg:px-8">{children}</main>
       </div>
     </CommandPaletteProvider>
