@@ -49,6 +49,28 @@ describe("performMaintenance", () => {
     expect(calls.find(([name]) => name === "dependency-compact")?.[1]).toEqual(twoYearsAgo);
   });
 
+  it("skips dependency catalog validation when the deadline is already spent, and zeroes its summary", async () => {
+    const dependencyCatalog = vi.fn().mockResolvedValue({ checkedSources: 4, disabledPresets: 1 });
+    const zero = vi.fn().mockResolvedValue(0);
+    // The clock is already past the deadline before any drain runs, so every
+    // deadline-guarded step, including validation, is skipped.
+    const summary = await performMaintenance({
+      reconcileStaleOutbox: zero, reconcileStaleCronRuns: zero, deleteRawChecks: zero,
+      deleteSentNotifications: zero, expireConfigApprovals: zero, expireApiIdempotency: zero,
+      markDeviceAuthorizationsExpired: zero, deleteExpiredDeviceAuthorizations: zero,
+      expireRateLimitBuckets: zero, retainConfigSnapshots: zero, deleteOldCronRuns: zero,
+      deleteOldRollups: zero, compact15Minute: zero, fillSchedulerGaps: zero,
+      schedulerCoverageStart: async (now) => now,
+      promoteRollups: zero, measureAndSnapshotUsage: async () => "full",
+      enforceTelemetryRetention: zero, retainUsageSnapshots: zero, retainExceptions: zero,
+      retainExceptionPayloads: zero, deleteOrphanImages: zero,
+      validateDependencyCatalog: dependencyCatalog,
+      retainDependencyIncidentUpdates: zero, compactDependencyStateIntervals: zero,
+    }, new Date(), { nowMs: () => 100, deadlineAtMs: 1 });
+    expect(dependencyCatalog).not.toHaveBeenCalled();
+    expect(summary.dependencyCatalog).toEqual({ checkedSources: 0, disabledPresets: 0 });
+  });
+
   it("performSweep expires only short-lived rows and sums their counts", async () => {
     const calls: string[] = [];
     const count = (name: string, value: number) => async () => { calls.push(name); return value; };

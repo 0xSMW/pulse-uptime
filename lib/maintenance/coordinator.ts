@@ -31,7 +31,7 @@ export interface MaintenanceStore {
   deleteOrphanImages(cutoff: Date, keepNewest: number, limit: number): Promise<number>;
   /** Fetches every enabled dependency source once (read-only, live) and disables only the presets whose selector ids have drifted. Runs once per maintenance pass, same cadence as the doc's "daily thereafter". */
   validateDependencyCatalog(now: Date): Promise<{ checkedSources: number; disabledPresets: number }>;
-  /** provider_incident_updates body text older than two years; incident identity and timing outlive this. */
+  /** Empties provider_incident_updates body text older than two years. Incident identity and timing outlive this. */
   retainDependencyIncidentUpdates(cutoff: Date, limit: number): Promise<number>;
   /** Closed dependency_state_intervals older than two years, compacted to one row per dependency/day/state. */
   compactDependencyStateIntervals(cutoff: Date, limit: number): Promise<number>;
@@ -88,7 +88,6 @@ export async function performMaintenance(
 
   const staleOutbox = await store.reconcileStaleOutbox(now);
   const staleCronRuns = await store.reconcileStaleCronRuns(now);
-  const dependencyCatalog = await store.validateDependencyCatalog(now);
   let rollups = 0;
   let coverageCursor = await store.schedulerCoverageStart(now);
   while (coverageCursor < now && nowMs() < deadlineAtMs) {
@@ -122,6 +121,14 @@ export async function performMaintenance(
     await drainBatches((limit) => store.markDeviceAuthorizationsExpired(now, limit), nowMs, deadlineAtMs) +
     await drainBatches((limit) => store.deleteExpiredDeviceAuthorizations(shortCutoff, limit), nowMs, deadlineAtMs) +
     await drainBatches((limit) => store.expireRateLimitBuckets(now, limit), nowMs, deadlineAtMs);
+  // Dependency catalog validation makes live, sequential multi-source http
+  // fetches and is a daily-cadence drift check, lower urgency than the storage
+  // retention above. It runs last and only when budget remains, so a slow set of
+  // provider feeds can never starve the cleanup that bounds storage growth. A
+  // skipped pass reports zero checked sources so the summary stays truthful.
+  const dependencyCatalog = nowMs() < deadlineAtMs
+    ? await store.validateDependencyCatalog(now)
+    : { checkedSources: 0, disabledPresets: 0 };
   return { staleOutbox, staleCronRuns, rollups, deleted, expired, governorMode, dependencyCatalog };
 }
 
