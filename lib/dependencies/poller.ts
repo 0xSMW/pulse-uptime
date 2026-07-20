@@ -89,7 +89,11 @@ async function runBounded<T>(items: readonly T[], concurrency: number, worker: (
  * returns nothing new: this is what lets sorry_v1 paginate components and
  * notices, and fetch one detail document per present notice, without the
  * poller knowing anything about Postmark's API shape. A 304 on the primary
- * "current" document short-circuits the whole cycle before normalize() runs.
+ * "current" document short-circuits the whole cycle only when that document
+ * is the source's one required document. When the cycle also fetches required
+ * secondary documents, sorry_v1's present and past notice lists, those hold
+ * independent state, so an unchanged primary says nothing about a notice that
+ * ended. Such a cycle runs in full and normalize() runs on real content.
  */
 async function pollOneSource(
   source: PollerSourceRow,
@@ -104,18 +108,25 @@ async function pollOneSource(
     let cacheEtag = source.etag;
     let cacheLastModified = source.lastModified;
 
+    // The primary "current" document may stand in for the whole source on a 304
+    // only when it is the source's one required document. When the cycle also
+    // fetches required secondary documents, the primary is fetched without
+    // validators to force a full 200, because a 304 would abort before those
+    // secondaries and normalize() needs the primary's own body.
+    const primaryStandsAlone = adapter.requests(manifestSource, undefined).filter((request) => request.optional !== true).length <= 1;
+
     while (true) {
       const requests = adapter.requests(manifestSource, documents.length > 0 ? documents : undefined);
       const pending = requests.filter((request) => !documents.some((document) => document.url === request.url));
       if (pending.length === 0) break;
 
       for (const request of pending) {
-        const isFirstDocumentOfCycle = documents.length === 0;
-        const validators = isFirstDocumentOfCycle ? { etag: source.etag, lastModified: source.lastModified } : undefined;
+        const isPrimaryDocument = documents.length === 0 && primaryStandsAlone;
+        const validators = isPrimaryDocument ? { etag: source.etag, lastModified: source.lastModified } : undefined;
         const result = await fetchDocument(source, { url: request.url, validators });
 
         if (result.status === "not_modified") {
-          if (request.kind === "current" && isFirstDocumentOfCycle) {
+          if (request.kind === "current" && isPrimaryDocument) {
             return { sourceId: source.id, kind: "not_modified", etag: result.etag, lastModified: result.lastModified };
           }
           continue;
@@ -126,7 +137,7 @@ async function pollOneSource(
         // cycle, so only its own etag/lastModified may be persisted here.
         // Capturing a later document's validators would let a stale-by-then
         // 304 on the first document short-circuit the whole cycle.
-        if (isFirstDocumentOfCycle) {
+        if (documents.length === 1) {
           cacheEtag = result.etag ?? cacheEtag;
           cacheLastModified = result.lastModified ?? cacheLastModified;
         }

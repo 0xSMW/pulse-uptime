@@ -169,6 +169,65 @@ describe("pollDueSources orchestration", () => {
     expect(urlsFetched.size).toBe(4);
   });
 
+  it("does not let the components document's 304 abort a sorry_v1 cycle, so an ended notice is still observed", async () => {
+    const cachedEtag = "\"components-cached\"";
+    const componentsUrl = postmarkManifestSource.config.componentsUrl as string;
+    const noticeDetailUrl = (postmarkManifestSource.config.noticeDetailUrlTemplate as string).replace("{id}", "503440");
+    const postmarkRow: PollerSourceRow = {
+      id: postmarkManifestSource.id,
+      provider: postmarkManifestSource.provider,
+      adapter: postmarkManifestSource.adapter,
+      currentUrl: postmarkManifestSource.currentUrl,
+      incidentsUrl: postmarkManifestSource.incidentsUrl,
+      statusPageUrl: postmarkManifestSource.statusPageUrl,
+      allowedHosts: postmarkManifestSource.allowedHosts,
+      config: postmarkManifestSource.config,
+      operationalPollSeconds: postmarkManifestSource.operationalPollSeconds,
+      activePollSeconds: postmarkManifestSource.activePollSeconds,
+      staleAfterSeconds: postmarkManifestSource.staleAfterSeconds,
+      // A prior cycle cached the components validator.
+      etag: cachedEtag,
+      lastModified: null,
+      consecutiveFailures: 0,
+      lastSuccessAt: null,
+    };
+    const persist = vi.fn();
+    const fetchDocument = vi.fn(async (_source: PollerSourceRow, request: { url: string; validators?: { etag: string | null; lastModified: string | null } }) => {
+      if (request.url === componentsUrl) {
+        // A real server would answer a conditional request with 304. The poller
+        // must not send validators for the components document while required
+        // notice lists remain, so this stays a full 200 and the notice feeds
+        // are still fetched.
+        if (request.validators) return { status: "not_modified" as const, etag: cachedEtag, lastModified: null };
+        return { status: "ok" as const, statusCode: 200, json: postmarkComponentsOperational, etag: cachedEtag, lastModified: null };
+      }
+      if (request.url === noticeDetailUrl) return { status: "ok" as const, statusCode: 200, json: postmarkNoticeDetail, etag: null, lastModified: null };
+      if (request.url.startsWith(postmarkManifestSource.incidentsUrl!)) return { status: "ok" as const, statusCode: 200, json: postmarkNoticesListOne, etag: null, lastModified: null };
+      throw new Error(`unexpected url ${request.url}`);
+    });
+
+    const result = await pollDueSources({
+      store: { listDueSources: vi.fn().mockResolvedValue([postmarkRow]) },
+      fetchDocument,
+      persist,
+      now: () => NOW,
+    });
+
+    expect(result).toEqual({ sourcesDue: 1, polled: 1, notModified: 0, failed: 0 });
+    const componentsCall = fetchDocument.mock.calls.find((call) => (call[1] as { url: string }).url === componentsUrl);
+    expect((componentsCall?.[1] as { validators?: unknown }).validators).toBeUndefined();
+    const [outcome] = persist.mock.calls[0] as [PollOutcome];
+    expect(outcome.kind).toBe("snapshot");
+    if (outcome.kind === "snapshot") {
+      expect(outcome.snapshot.incidents).toHaveLength(1);
+      expect(outcome.snapshot.incidents[0].externalId).toBe("503440");
+      // The ended notice's resolvedAt is observed, which a 304-aborted cycle would never see.
+      expect(outcome.snapshot.incidents[0].resolvedAt).toBe("2026-07-07T01:06:26.688Z");
+    }
+    const urlsFetched = new Set(fetchDocument.mock.calls.map((call) => (call[1] as { url: string }).url));
+    expect(urlsFetched.has(noticeDetailUrl)).toBe(true);
+  });
+
   it("persists validators from the primary document only, and replays them on the next cycle's first request only", async () => {
     const currentEtag = "\"current-etag\"";
     const currentLastModified = "Mon, 01 Jan 2024 00:00:00 GMT";
