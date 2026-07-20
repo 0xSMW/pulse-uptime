@@ -7,13 +7,14 @@ vi.mock("@/lib/db/client", () => ({ db: dbMock }));
 
 import { listOverlappingDependencyIncidents } from "./overlap";
 
-/** A chainable stand-in for `db.select(...).from(...).innerJoin(...).where(...).orderBy(...)`, matching the lib/reporting/queries/status.test.ts convention. orderBy is the terminal call here (overlap.ts never paginates). */
+/** A chainable stand-in for `db.select(...).from(...).innerJoin(...).where(...).orderBy(...).limit(...)`, matching the lib/reporting/queries/status.test.ts convention. limit is the terminal call, capping the overlap result set. */
 function selectChain(rows: unknown[]) {
   const node = {
     from: () => node,
     innerJoin: () => node,
     where: () => node,
-    orderBy: () => Promise.resolve(rows),
+    orderBy: () => node,
+    limit: () => Promise.resolve(rows),
   };
   return node;
 }

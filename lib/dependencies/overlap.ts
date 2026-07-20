@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, eq, isNull, sql as dsql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql as dsql } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 import { dependencies, dependencyCatalog, dependencyIncidentMatches, dependencySources, providerIncidents } from "@/lib/db/schema";
@@ -10,6 +10,15 @@ import { dependencies, dependencyCatalog, dependencyIncidentMatches, dependencyS
 // dependency incidents whose window overlaps the monitor incident's window,
 // ordered by how close the provider's start sits to the monitor's start.
 // This never ranks by severity and never claims causation, only timing.
+
+// Cap on overlapping dependency incidents returned per monitor incident view.
+// dependency_incident_matches is never pruned by retention and grows forever, so
+// without a cap this query's result set and downstream render cost scale with
+// total match count. This is neutral timing context shown alongside one monitor
+// incident, so a few dozen closest-in-time provider incidents is far more than a
+// human reads. 50 stays generous while bounding the sorted output, payload, and
+// per-render mapping.
+const OVERLAP_RESULT_LIMIT = 50;
 
 export type MonitorIncidentWindow = { openedAt: Date; resolvedAt: Date | null };
 
@@ -54,7 +63,15 @@ export async function listOverlappingDependencyIncidents(
       dsql`${providerIncidents.startedAt} <= coalesce(${resolvedAtIso}::timestamptz, now())`,
       dsql`coalesce(${providerIncidents.resolvedAt}, now()) >= ${openedAtIso}::timestamptz`,
     ))
-    .orderBy(asc(dsql`abs(extract(epoch from (${providerIncidents.startedAt} - ${openedAtIso}::timestamptz)))`));
+    // Closest provider start to the monitor start ranks first, preserving the
+    // documented timing semantic. startedAt desc then id break ties so the
+    // LIMIT keeps a deterministic set of the most relevant rows.
+    .orderBy(
+      asc(dsql`abs(extract(epoch from (${providerIncidents.startedAt} - ${openedAtIso}::timestamptz)))`),
+      desc(providerIncidents.startedAt),
+      asc(providerIncidents.id),
+    )
+    .limit(OVERLAP_RESULT_LIMIT);
 
   return rows.map((row) => ({
     dependencyId: row.dependencyId,
