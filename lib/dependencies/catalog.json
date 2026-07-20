@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogVersion": "2026-07-19.2",
+  "catalogVersion": "2026-07-20.1",
   "sources": [
     {
       "id": "openai",
@@ -494,7 +494,7 @@
       },
       "scope": { "kind": "discovered_children", "groupId": "36n3k66s7n2v", "required": true },
       "sourceScopeNote": null,
-      "enabled": true
+      "enabled": false
     },
     {
       "id": "supabase_auth",
@@ -539,7 +539,7 @@
       },
       "scope": { "kind": "discovered_children", "groupId": "3wszb9kxy0n8", "required": true },
       "sourceScopeNote": null,
-      "enabled": true
+      "enabled": false
     },
     {
       "id": "stripe_api",

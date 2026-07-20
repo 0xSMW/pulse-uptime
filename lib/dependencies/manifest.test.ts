@@ -30,7 +30,7 @@ describe("loadCatalogManifest", () => {
   it("ships schemaVersion 1 and the expected catalog version", () => {
     const manifest = loadCatalogManifest();
     expect(manifest.schemaVersion).toBe(1);
-    expect(manifest.catalogVersion).toBe("2026-07-19.2");
+    expect(manifest.catalogVersion).toBe("2026-07-20.1");
   });
 
   it("includes every launch-ready provider from the registry", () => {
