@@ -1,0 +1,1 @@
+ALTER TABLE "dependency_state" RENAME COLUMN "checking" TO "pending_first_poll";

@@ -132,7 +132,7 @@ export function DependencyDetail({ dependency }: { dependency: DependencyDetailD
             <div className="flex flex-wrap items-center gap-2.5">
               <h1 className="text-xl font-semibold tracking-[-0.02em]">{dependency.name}</h1>
               <DependencyStatusBadge state={dependency.state} />
-              {dependency.checking ? (
+              {dependency.pendingFirstPoll ? (
                 <span className="text-xs text-[var(--fg-muted)]">Checking for updates</span>
               ) : null}
             </div>

@@ -62,7 +62,7 @@ export type DependencyDashboardRow = {
   provider: string;
   category: string;
   state: DependencyState;
-  checking: boolean;
+  pendingFirstPoll: boolean;
   providerUpdatedAt: string | null;
   activeIncidentTitle: string | null;
   timeline24h: StateBucket[];
@@ -77,7 +77,7 @@ export async function listDependenciesForDashboard(): Promise<DependencyDashboar
     category: dependencyCatalog.category,
     provider: dependencySources.providerName,
     state: dependencyState.state,
-    checking: dependencyState.checking,
+    pendingFirstPoll: dependencyState.pendingFirstPoll,
     providerUpdatedAt: dependencyState.providerUpdatedAt,
   }).from(dependencies)
     .innerJoin(dependencyCatalog, eq(dependencyCatalog.id, dependencies.catalogId))
@@ -135,7 +135,7 @@ export async function listDependenciesForDashboard(): Promise<DependencyDashboar
       provider: row.provider,
       category: row.category,
       state: row.state as DependencyState,
-      checking: row.checking,
+      pendingFirstPoll: row.pendingFirstPoll,
       providerUpdatedAt: (active?.providerUpdatedAt ?? row.providerUpdatedAt)?.toISOString() ?? null,
       activeIncidentTitle: active?.title ?? null,
       timeline24h: buildStateBuckets(intervalsByDependency.get(row.id) ?? [], 24, 3_600_000, now),
@@ -175,7 +175,7 @@ export type DependencyDetail = {
   notificationsEnabled: boolean;
   createdAt: string;
   state: DependencyState;
-  checking: boolean;
+  pendingFirstPoll: boolean;
   stateStartedAt: string;
   providerUpdatedAt: string | null;
   observedAt: string;
@@ -204,7 +204,7 @@ export async function getDependencyDetail(id: string, handle: DatabaseHandle = d
     provider: dependencySources.providerName,
     statusPageUrl: dependencySources.statusPageUrl,
     state: dependencyState.state,
-    checking: dependencyState.checking,
+    pendingFirstPoll: dependencyState.pendingFirstPoll,
     stateStartedAt: dependencyState.stateStartedAt,
     providerUpdatedAt: dependencyState.providerUpdatedAt,
     observedAt: dependencyState.observedAt,
@@ -283,7 +283,7 @@ export async function getDependencyDetail(id: string, handle: DatabaseHandle = d
     notificationsEnabled: row.notificationsEnabled,
     createdAt: row.createdAt.toISOString(),
     state: row.state as DependencyState,
-    checking: row.checking,
+    pendingFirstPoll: row.pendingFirstPoll,
     stateStartedAt: row.stateStartedAt.toISOString(),
     providerUpdatedAt: row.providerUpdatedAt?.toISOString() ?? null,
     observedAt: row.observedAt.toISOString(),

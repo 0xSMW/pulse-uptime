@@ -224,7 +224,7 @@ export async function flipDependenciesToUnknownSql(tx: DatabaseTransaction, cata
   if (installed.length === 0) return 0;
 
   const ids = installed.map((row) => row.id);
-  await tx.update(dependencyState).set({ state: "UNKNOWN", checking: false, observedAt })
+  await tx.update(dependencyState).set({ state: "UNKNOWN", pendingFirstPoll: false, observedAt })
     .where(inArray(dependencyState.dependencyId, ids));
 
   const transitioning = installed.filter((row) => row.state !== "UNKNOWN").map((row) => row.id);

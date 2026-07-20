@@ -69,7 +69,7 @@ export type DependencyRow = {
 
 export type DependencyStateSnapshot = {
   state: DependencyState;
-  checking: boolean;
+  pendingFirstPoll: boolean;
   observedAt: Date;
   providerUpdatedAt: Date | null;
 };
@@ -83,7 +83,7 @@ export interface DependenciesStore {
    * duplicate is rejected before this ever gets a chance to matter. This
    * lets a quick reinstall reuse the provider's last known state instead of
    * a needless UNKNOWN bounce, while a stale or first-ever install still
-   * falls through to UNKNOWN/checking.
+   * falls through to UNKNOWN with pendingFirstPoll set.
    */
   loadRecentStateForCatalogScope(catalogId: string, scopeId: string | null, freshAfter: Date): Promise<DependencyStateSnapshot | null>;
   /**
@@ -181,7 +181,7 @@ export async function addDependency(
   const recent = await store.loadRecentStateForCatalogScope(preset.id, scopeId, freshAfter);
   const state: DependencyStateSnapshot = recent ?? {
     state: "UNKNOWN",
-    checking: true,
+    pendingFirstPoll: true,
     observedAt: now,
     providerUpdatedAt: null,
   };
@@ -291,7 +291,7 @@ export const databaseDependenciesStore: DependenciesStore = {
   async loadRecentStateForCatalogScope(catalogId, scopeId, freshAfter) {
     const [row] = await db.select({
       state: dependencyState.state,
-      checking: dependencyState.checking,
+      pendingFirstPoll: dependencyState.pendingFirstPoll,
       observedAt: dependencyState.observedAt,
       providerUpdatedAt: dependencyState.providerUpdatedAt,
     }).from(dependencyState)
@@ -325,7 +325,7 @@ export const databaseDependenciesStore: DependenciesStore = {
       await tx.insert(dependencyState).values({
         dependencyId: dependency.id,
         state: state.state,
-        checking: state.checking,
+        pendingFirstPoll: state.pendingFirstPoll,
         stateStartedAt: now,
         providerUpdatedAt: state.providerUpdatedAt,
         observedAt: state.observedAt,
@@ -342,7 +342,8 @@ export const databaseDependenciesStore: DependenciesStore = {
       // Clearing etag/lastModified alongside next_poll_at forces the next
       // poll to a 200 with a full body: a stale validator would otherwise
       // let the provider answer 304, leaving this freshly installed
-      // dependency stuck UNKNOWN/checking with nothing to adopt state from.
+      // dependency stuck UNKNOWN with pendingFirstPoll set and nothing to
+      // adopt state from.
       await tx.update(dependencySources).set({ nextPollAt: now, etag: null, lastModified: null }).where(eq(dependencySources.id, sourceId));
       return true;
     };

@@ -146,21 +146,21 @@ describe("addDependency validation matrix", () => {
 });
 
 describe("addDependency ten-minute snapshot rule", () => {
-  it("seeds UNKNOWN with checking=true when no fresh snapshot exists", async () => {
+  it("seeds UNKNOWN with pendingFirstPoll=true when no fresh snapshot exists", async () => {
     const store = fakeStore({
       loadPreset: vi.fn().mockResolvedValue(preset()),
       loadRecentStateForCatalogScope: vi.fn().mockResolvedValue(null),
     });
     await addDependency({ presetId: "vercel_runtime" }, { store, now: () => NOW, newId: () => "id" });
     expect(store.insertDependency).toHaveBeenCalledWith(expect.objectContaining({
-      state: { state: "UNKNOWN", checking: true, observedAt: NOW, providerUpdatedAt: null },
+      state: { state: "UNKNOWN", pendingFirstPoll: true, observedAt: NOW, providerUpdatedAt: null },
     }));
   });
 
   it("reuses a fresh (< 10 minutes old) prior observation instead of UNKNOWN", async () => {
     const snapshot: DependencyStateSnapshot = {
       state: "DEGRADED",
-      checking: false,
+      pendingFirstPoll: false,
       observedAt: new Date(NOW.getTime() - 5 * 60_000),
       providerUpdatedAt: new Date(NOW.getTime() - 6 * 60_000),
     };
@@ -323,7 +323,7 @@ describe("databaseDependenciesStore validator clearing (FIX D)", () => {
 
     const inserted = await databaseDependenciesStore.insertDependency({
       dependency: { id: "dep-1", catalogId: "vercel_runtime", scopeId: null, notificationsEnabled: true, createdAt: NOW, removedAt: null },
-      state: { state: "UNKNOWN", checking: true, observedAt: NOW, providerUpdatedAt: null },
+      state: { state: "UNKNOWN", pendingFirstPoll: true, observedAt: NOW, providerUpdatedAt: null },
       intervalId: "interval-1",
       sourceId: "vercel",
       now: NOW,
@@ -367,7 +367,7 @@ describe("databaseDependenciesStore insertDependency race handling", () => {
 
     await expect(databaseDependenciesStore.insertDependency({
       dependency: { id: "dep-1", catalogId: "vercel_runtime", scopeId: null, notificationsEnabled: true, createdAt: NOW, removedAt: null },
-      state: { state: "UNKNOWN", checking: true, observedAt: NOW, providerUpdatedAt: null },
+      state: { state: "UNKNOWN", pendingFirstPoll: true, observedAt: NOW, providerUpdatedAt: null },
       intervalId: "interval-1",
       sourceId: "vercel",
       now: NOW,
@@ -382,7 +382,7 @@ describe("databaseDependenciesStore insertDependency race handling", () => {
 
     const inserted = await databaseDependenciesStore.insertDependency({
       dependency: { id: "dep-2", catalogId: "vercel_runtime", scopeId: null, notificationsEnabled: true, createdAt: NOW, removedAt: null },
-      state: { state: "UNKNOWN", checking: true, observedAt: NOW, providerUpdatedAt: null },
+      state: { state: "UNKNOWN", pendingFirstPoll: true, observedAt: NOW, providerUpdatedAt: null },
       intervalId: "interval-2",
       sourceId: "vercel",
       now: NOW,

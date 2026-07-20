@@ -887,7 +887,7 @@ export const dependencies = pgTable("dependencies", {
 export const dependencyState = pgTable("dependency_state", {
   dependencyId: text("dependency_id").primaryKey().references(() => dependencies.id),
   state: text("state", { enum: dependencyStates }).notNull(),
-  checking: boolean("checking").notNull().default(false),
+  pendingFirstPoll: boolean("pending_first_poll").notNull().default(false),
   stateStartedAt: timestamptz("state_started_at").notNull(),
   providerUpdatedAt: timestamptz("provider_updated_at"),
   observedAt: timestamptz("observed_at").notNull(),

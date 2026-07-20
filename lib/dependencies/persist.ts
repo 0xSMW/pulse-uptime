@@ -803,7 +803,7 @@ export function createSqlPersistStore(db: Database): PersistStore {
       async applyDependencyState(dependencyId, previousState, next, now) {
         await tx.update(dependencyState).set({
           state: next.state,
-          checking: false,
+          pendingFirstPoll: false,
           observedAt: next.observedAt,
           providerUpdatedAt: next.providerUpdatedAt,
           // Only a real snapshot advances the success timestamp. A
