@@ -225,6 +225,28 @@ describe("safeProviderUrl (FIX F)", () => {
     expect(safeProviderUrl(null, source)).toBe(source.statusPageUrl);
     expect(safeProviderUrl("not a url", source)).toBe(source.statusPageUrl);
   });
+
+  // A statuspage_v2 source. The adapter emits the incident permalink on the
+  // source's own status page host (see statuspage-v2.ts incidentPermalink),
+  // which safeProviderUrl passes through, while the shared stspg.io shortlink
+  // stays outside the allowlist and is rewritten to the generic status page.
+  describe("statuspage_v2 source permalink versus the stspg.io shortlink", () => {
+    const statuspageSource = { statusPageUrl: "https://status.anthropic.com/", allowedHosts: ["status.anthropic.com"] };
+
+    it("preserves the incident permalink on the source's own status page host", () => {
+      expect(safeProviderUrl("https://status.anthropic.com/incidents/sample1outage01", statuspageSource))
+        .toBe("https://status.anthropic.com/incidents/sample1outage01");
+    });
+
+    it("rewrites a shared stspg.io shortlink to the status page, since that host is not allowlisted", () => {
+      expect(safeProviderUrl("https://stspg.io/sample1outage01", statuspageSource)).toBe(statuspageSource.statusPageUrl);
+    });
+
+    it("still rejects a random host and a non-https permalink for the same source", () => {
+      expect(safeProviderUrl("https://attacker.example/incidents/1", statuspageSource)).toBe(statuspageSource.statusPageUrl);
+      expect(safeProviderUrl("http://status.anthropic.com/incidents/1", statuspageSource)).toBe(statuspageSource.statusPageUrl);
+    });
+  });
 });
 
 describe("associationKindForAdapter and selectorIntersectsIncident", () => {

@@ -97,7 +97,22 @@ function normalizeIncidentOrMaintenanceStatus(status: string): string {
   return status === "verifying" ? "monitoring" : status;
 }
 
-function mapIncident(incident: Incident, sourceId: string): NormalizedProviderSnapshot["incidents"][number] {
+/**
+ * The public incident permalink under the source's own status page host,
+ * status.example.com/incidents/{id}. Statuspage also returns a shortlink on
+ * the shared stspg.io shortener, but that host is in no source's
+ * allowedHosts, so safeProviderUrl rewrites it back to the generic status
+ * page and the deep link is lost (see persist.ts). The permalink keeps the
+ * per-incident deep link while staying on the host safeProviderUrl already
+ * allows. encodeURIComponent plus the URL base guarantee an untrusted id
+ * cannot escape the incidents path or the host.
+ */
+function incidentPermalink(statusPageUrl: string, incidentId: string): string {
+  return new URL(`incidents/${encodeURIComponent(incidentId)}`, statusPageUrl).toString();
+}
+
+function mapIncident(incident: Incident, source: { id: string; statusPageUrl: string }): NormalizedProviderSnapshot["incidents"][number] {
+  const sourceId = source.id;
   return {
     externalId: incident.id,
     title: incident.name,
@@ -106,7 +121,7 @@ function mapIncident(incident: Incident, sourceId: string): NormalizedProviderSn
     startedAt: requireIsoTimestamp(incident.started_at ?? incident.created_at, sourceId, "incident.started_at"),
     resolvedAt: incident.resolved_at ? requireIsoTimestamp(incident.resolved_at, sourceId, "incident.resolved_at") : null,
     updatedAt: requireIsoTimestamp(incident.updated_at, sourceId, "incident.updated_at"),
-    canonicalUrl: incident.shortlink ?? null,
+    canonicalUrl: incidentPermalink(source.statusPageUrl, incident.id),
     componentIds: incident.components.map((component) => component.id),
     updates: incident.incident_updates.map((update) => ({
       externalId: update.id,
@@ -173,7 +188,7 @@ export const statuspageV2Adapter: DependencyAdapter = {
     const incidentsSource = incidentsDocument
       ? parseJson(incidentsDocSchema, requireJson(incidentsDocument, source.id, "incidents"), source.id, "incidents.json").incidents
       : summary.incidents;
-    const incidents = incidentsSource.map((incident) => mapIncident(incident, source.id));
+    const incidents = incidentsSource.map((incident) => mapIncident(incident, source));
 
     const maintenanceDocument = findDocument(documents, "maintenance");
     const maintenancesSource = maintenanceDocument

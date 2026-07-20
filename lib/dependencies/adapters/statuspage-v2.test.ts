@@ -97,6 +97,17 @@ describe("statuspageV2Adapter.normalize: incidents", () => {
     expect(snapshot.incidents[0].externalId).toBe("sample1degraded01");
   });
 
+  it("deep-links canonicalUrl to the incident permalink on the source's own host, not the shared stspg.io shortlink", () => {
+    // The fixture's shortlink is https://stspg.io/... on the shared Statuspage
+    // shortener, a host in no source's allowedHosts. The adapter instead emits
+    // the incident permalink under the source's own status page host so
+    // safeProviderUrl preserves it and the deep link survives.
+    const snapshot = statuspageV2Adapter.normalize({ source: anthropicSource, documents: [currentDoc(degraded)], observedAt: "2026-07-19T15:10:00Z" });
+    expect(snapshot.incidents[0].canonicalUrl).toBe("https://status.anthropic.com/incidents/sample1degraded01");
+    expect(snapshot.incidents[0].canonicalUrl).not.toContain("stspg.io");
+    expect(new URL(snapshot.incidents[0].canonicalUrl!).hostname).toBe(new URL(anthropicSource.statusPageUrl).hostname);
+  });
+
   it("strips HTML and caps update bodies", () => {
     const withHtml = JSON.parse(JSON.stringify(degraded));
     withHtml.incidents[0].incident_updates[0].body = "<p>A fix has <strong>been applied</strong>.</p>";
