@@ -2,7 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import type { Database } from "@/lib/db/client";
 import {
@@ -143,6 +143,40 @@ export function selectorIntersectsIncident(selector: DependencySelector, scopeId
   return incidentComponentIds.some((id) => ids.has(id));
 }
 
+/**
+ * Notification events are derived from the incident's observed state
+ * TRANSITION, not from match-row newness alone. `priorResolvedAt` is the
+ * incident's resolved_at as stored before this poll's upserts touch it:
+ * `undefined` means the incident row did not exist yet (never observed by
+ * this source before this poll), `null` means it existed and was open, and a
+ * Date means it existed and was already resolved.
+ *
+ * "incident" fires only when a dependency starts matching an incident that
+ * is active right now and was not already known-resolved: a brand-new match
+ * against a still-open incident, whether the incident itself is new this
+ * poll or was already open. A match newly created against an
+ * already-resolved incident (a historical incident found on install, or one
+ * that opened and closed within a single poll gap) is backfill, not a
+ * transition, and produces no event.
+ *
+ * "recovery" fires only on the poll where the incident is observed resolved
+ * for the first time: the incident must have existed before this poll with
+ * resolved_at still null. An incident that was already resolved as of the
+ * prior poll never fires recovery again, regardless of whether a match row
+ * for this dependency is new or old, and regardless of the outbox's own
+ * idempotency keys.
+ */
+export function deriveNotificationEvent(
+  isNewMatch: boolean,
+  isActive: boolean,
+  priorResolvedAt: Date | null | undefined,
+): "incident" | "recovery" | null {
+  const priorKnownResolved = priorResolvedAt !== undefined && priorResolvedAt !== null;
+  if (isNewMatch && isActive && !priorKnownResolved) return "incident";
+  if (!isActive && priorResolvedAt === null) return "recovery";
+  return null;
+}
+
 /** Retry-After wins outright when the provider sent one; otherwise the fixed 5/15/30 minute ladder, indexed by how many consecutive failures this is. */
 export function failureDelayMs(consecutiveFailures: number, retryAfterMs: number | null): number {
   if (retryAfterMs !== null) return Math.max(0, retryAfterMs);
@@ -227,6 +261,14 @@ export interface DependencyNotificationInput {
 
 export interface PersistExecutor {
   loadInstalledDependencies(sourceId: string): Promise<InstalledDependencyRow[]>;
+  /**
+   * Batched read of resolved_at for this source's incidents, keyed by
+   * external id, as stored before this poll's upserts touch them. Read once
+   * up front so the event-transition check below compares against a stable
+   * prior state rather than the row this same poll just wrote. A missing key
+   * means the incident row did not exist before this poll.
+   */
+  loadPriorIncidentResolution(sourceId: string, externalIds: readonly string[]): Promise<Map<string, Date | null>>;
   /** Upsert on (source_id, external_id); updates in place only when provider_updated_at actually advanced. Returns the incident's internal id either way. */
   upsertIncident(sourceId: string, candidateId: string, incident: NormalizedIncident): Promise<string>;
   /** New (incidentId, externalComponentId) pairs only; existing pairs are left untouched. */
@@ -238,8 +280,8 @@ export interface PersistExecutor {
    * never removed even if the provider later disassociates the component.
    * Returns true only when this call newly inserted the row (INSERT ...
    * ON CONFLICT DO NOTHING RETURNING), false when the pair already existed:
-   * this is the transition signal FIX A uses to tell "just started
-   * matching" from "still matching, same as last poll" apart.
+   * combined with the incident's prior resolved_at, this tells "just started
+   * matching" apart from "still matching, same as last poll".
    */
   upsertDependencyIncidentMatch(dependencyId: string, incidentId: string, matchKind: "component_match" | "inferred", now: Date): Promise<boolean>;
   /** Updates dependency_state in place always; closes/opens dependency_state_intervals only when state changed from previousState. */
@@ -333,6 +375,11 @@ export async function persistSnapshot(
       canonicalUrl: safeProviderUrl(incident.canonicalUrl, source),
     }));
 
+    // Read every one of this poll's incidents' prior resolved_at before any
+    // upsert below overwrites it, so the transition check further down
+    // compares against the state as of the last poll, not this one.
+    const priorIncidentResolution = await tx.loadPriorIncidentResolution(source.id, incidents.map((incident) => incident.externalId));
+
     let incidentsUpserted = 0;
     const incidentInternalIds = new Map<string, string>();
     for (const incident of incidents) {
@@ -363,17 +410,14 @@ export async function persistSnapshot(
         const matchKind = associationKind === "inferred" ? "inferred" : "component_match";
         const isNewMatch = await tx.upsertDependencyIncidentMatch(dependency.id, incidentInternalId, matchKind, context.now);
 
-        // The match row's newness this poll is the transition signal, not
-        // resolved/open alone: a match created for the first time on an
-        // already-resolved incident (a historical incident found on
-        // install, or one that opened and closed within a single poll gap)
-        // sends nothing, since Pulse never sent an opening alert for it.
-        // Only a brand-new match on a still-open incident is "incident",
-        // and only an incident resolving on a match that already existed
-        // is "recovery". The outbox idempotency key still guards against
-        // repeats of the same event across later polls.
+        // The event is derived from the incident's observed state transition
+        // (see deriveNotificationEvent), using resolved_at as it stood
+        // before this poll's own upserts. This makes the event fire exactly
+        // once at transition time and holds even across an outbox purge,
+        // since nothing here depends on a previously enqueued outbox row.
         const isActive = incident.resolvedAt === null;
-        const event = isNewMatch && isActive ? "incident" : !isNewMatch && !isActive ? "recovery" : null;
+        const priorResolvedAt = priorIncidentResolution.get(incident.externalId);
+        const event = deriveNotificationEvent(isNewMatch, isActive, priorResolvedAt);
         if (event === null) continue;
         if (!dependency.notificationsEnabled || context.defaultRecipients.length === 0) continue;
 
@@ -433,6 +477,16 @@ export function createSqlPersistStore(db: Database, sqlExecutor: SqlExecutor): P
             isNull(dependencies.removedAt),
           ));
         return rows.map((row) => ({ ...row, selector: row.selector as DependencySelector, currentState: row.currentState as DependencyState }));
+      },
+
+      async loadPriorIncidentResolution(sourceId, externalIds) {
+        if (externalIds.length === 0) return new Map();
+        const rows = await tx.select({
+          externalId: providerIncidents.externalId,
+          resolvedAt: providerIncidents.resolvedAt,
+        }).from(providerIncidents)
+          .where(and(eq(providerIncidents.sourceId, sourceId), inArray(providerIncidents.externalId, [...externalIds])));
+        return new Map(rows.map((row) => [row.externalId, row.resolvedAt]));
       },
 
       async upsertIncident(sourceId, candidateId, incident) {

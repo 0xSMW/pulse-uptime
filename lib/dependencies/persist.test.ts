@@ -6,6 +6,7 @@ import {
   associationKindForAdapter,
   combinedComponentStates,
   computeNextPollAt,
+  deriveNotificationEvent,
   failureDelayMs,
   isSourceStale,
   matchingIdsForSelector,
@@ -221,12 +222,40 @@ describe("computeNextPollAt", () => {
   });
 });
 
+describe("deriveNotificationEvent", () => {
+  it("fires incident for a fresh match on a still-open incident, whether the incident row is new or was already open", () => {
+    expect(deriveNotificationEvent(true, true, undefined)).toBe("incident");
+    expect(deriveNotificationEvent(true, true, null)).toBe("incident");
+  });
+
+  it("fires nothing for a fresh match on an incident already known resolved, new or historical", () => {
+    expect(deriveNotificationEvent(true, false, undefined)).toBeNull();
+    expect(deriveNotificationEvent(true, false, new Date(NOW.getTime() - 1000))).toBeNull();
+  });
+
+  it("fires recovery only when a previously open incident is observed resolved for the first time", () => {
+    expect(deriveNotificationEvent(false, false, null)).toBe("recovery");
+    expect(deriveNotificationEvent(true, false, null)).toBe("recovery");
+  });
+
+  it("fires nothing for an incident already resolved as of the prior poll, regardless of match newness", () => {
+    expect(deriveNotificationEvent(false, false, new Date(NOW.getTime() - 1000))).toBeNull();
+    expect(deriveNotificationEvent(true, false, new Date(NOW.getTime() - 1000))).toBeNull();
+  });
+
+  it("fires nothing for an unchanged still-open match", () => {
+    expect(deriveNotificationEvent(false, true, null)).toBeNull();
+    expect(deriveNotificationEvent(false, true, undefined)).toBeNull();
+  });
+});
+
 // -- persistSnapshot orchestration, against a stateful in-memory fake ------
 
 interface FakeDb {
   installed: InstalledDependencyRow[];
   intervals: Array<{ dependencyId: string; state: string; startedAt: Date; endedAt: Date | null }>;
   incidentsBySourceExternal: Map<string, string>; // `${sourceId}:${externalId}` -> internal id
+  incidentResolvedAt: Map<string, Date | null>; // `${sourceId}:${externalId}` -> stored resolved_at
   upsertedCanonicalUrls: Map<string, string | null>; // internal incident id -> canonicalUrl as passed to upsertIncident
   incidentComponentPairs: Set<string>;
   incidentUpdatePairs: Set<string>;
@@ -242,11 +271,20 @@ function createFakeStore(db: FakeDb): PersistStore {
       void sourceId;
       return db.installed.map((row) => ({ ...row }));
     },
+    async loadPriorIncidentResolution(sourceId, externalIds) {
+      const result = new Map<string, Date | null>();
+      for (const externalId of externalIds) {
+        const key = `${sourceId}:${externalId}`;
+        if (db.incidentResolvedAt.has(key)) result.set(externalId, db.incidentResolvedAt.get(key)!);
+      }
+      return result;
+    },
     async upsertIncident(sourceId, candidateId, incident) {
       const key = `${sourceId}:${incident.externalId}`;
       const existing = db.incidentsBySourceExternal.get(key);
       const internalId = existing ?? candidateId;
       db.upsertedCanonicalUrls.set(internalId, incident.canonicalUrl);
+      db.incidentResolvedAt.set(key, incident.resolvedAt ? new Date(incident.resolvedAt) : null);
       if (existing) return existing;
       db.incidentsBySourceExternal.set(key, candidateId);
       return candidateId;
@@ -303,6 +341,7 @@ function emptyDb(installed: InstalledDependencyRow[]): FakeDb {
     installed,
     intervals: installed.map((row) => ({ dependencyId: row.id, state: row.currentState, startedAt: new Date(0), endedAt: null })),
     incidentsBySourceExternal: new Map(),
+    incidentResolvedAt: new Map(),
     upsertedCanonicalUrls: new Map(),
     incidentComponentPairs: new Set(),
     incidentUpdatePairs: new Set(),
@@ -605,6 +644,69 @@ describe("persistSnapshot: FIX A notification transitions", () => {
     expect(summary.notificationsEnqueued).toBe(0);
     expect(db.notifications).toHaveLength(0);
     expect(db.matches.size).toBe(1);
+  });
+});
+
+describe("persistSnapshot: repeated polls of an unchanged historical feed", () => {
+  it("enqueues zero notifications on the second and third poll of an install feed full of already-resolved incidents", async () => {
+    const db = emptyDb([dependencyRow({ currentState: "OPERATIONAL" })]);
+    const store = createFakeStore(db);
+    const outcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({
+        components: { c1: { state: "OPERATIONAL", updatedAt: null } },
+        incidents: [
+          incident({ externalId: "inc-old-1", resolvedAt: NOW.toISOString(), updatedAt: NOW.toISOString() }),
+          incident({ externalId: "inc-old-2", resolvedAt: NOW.toISOString(), updatedAt: NOW.toISOString() }),
+        ],
+      }),
+      etag: null, lastModified: null,
+    };
+
+    const poll1 = await persistSnapshot(store, outcome, baseSource(), { now: NOW, defaultRecipients: ["ops@example.com"] });
+    const poll2 = await persistSnapshot(store, outcome, baseSource(), { now: new Date(NOW.getTime() + 60_000), defaultRecipients: ["ops@example.com"] });
+    const poll3 = await persistSnapshot(store, outcome, baseSource(), { now: new Date(NOW.getTime() + 120_000), defaultRecipients: ["ops@example.com"] });
+
+    expect(poll1.notificationsEnqueued).toBe(0);
+    expect(poll2.notificationsEnqueued).toBe(0);
+    expect(poll3.notificationsEnqueued).toBe(0);
+    expect(db.notifications).toHaveLength(0);
+    // Both historical incidents still get their match rows recorded, just never a notification.
+    expect(db.matches.size).toBe(2);
+  });
+});
+
+describe("persistSnapshot: recovery fires once at the resolving poll and never again", () => {
+  it("sends exactly one recovery on the poll where the incident resolves, and nothing on a later poll even with the outbox purged", async () => {
+    const db = emptyDb([dependencyRow({ currentState: "OPERATIONAL" })]);
+    const store = createFakeStore(db);
+    const openOutcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({ components: { c1: { state: "OUTAGE", updatedAt: null } }, incidents: [incident()] }),
+      etag: null, lastModified: null,
+    };
+    const resolvedOutcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({
+        components: { c1: { state: "OPERATIONAL", updatedAt: null } },
+        incidents: [incident({ resolvedAt: new Date(NOW.getTime() + 60_000).toISOString(), updatedAt: new Date(NOW.getTime() + 60_000).toISOString() })],
+      }),
+      etag: null, lastModified: null,
+    };
+
+    await persistSnapshot(store, openOutcome, baseSource(), { now: NOW, defaultRecipients: ["ops@example.com"] });
+    const resolvePoll = await persistSnapshot(store, resolvedOutcome, baseSource(), { now: new Date(NOW.getTime() + 60_000), defaultRecipients: ["ops@example.com"] });
+    expect(resolvePoll.notificationsEnqueued).toBe(1);
+    expect(db.notifications.at(-1)?.event).toBe("recovery");
+
+    // Clear every sent outbox key, standing in for the 90-day purge of sent
+    // rows: with idempotency no longer in the way, only the event
+    // derivation's own prior-state check can stop a third poll of the same
+    // resolved incident from enqueuing another recovery.
+    db.outboxKeys.clear();
+    const rePoll = await persistSnapshot(store, resolvedOutcome, baseSource(), { now: new Date(NOW.getTime() + 120_000), defaultRecipients: ["ops@example.com"] });
+    expect(rePoll.notificationsEnqueued).toBe(0);
+    expect(db.notifications).toHaveLength(2);
   });
 });
 
