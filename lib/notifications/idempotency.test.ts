@@ -47,4 +47,26 @@ describe("notification idempotency", () => {
     const key = dependencyNotificationKey("vercel", "inc-123", "vercel_runtime", null, "incident", "ops@example.com");
     expect(key).toMatch(/^dependency\/vercel\/inc-123\/vercel_runtime\/\/incident\/[a-f0-9]{64}$/);
   });
+
+  it("leaves the key unchanged when occurrence is omitted", () => {
+    const withoutOccurrence = dependencyNotificationKey("vercel", "inc-123", "vercel_runtime", null, "incident", "ops@example.com");
+    const explicitUndefined = dependencyNotificationKey("vercel", "inc-123", "vercel_runtime", null, "incident", "ops@example.com", undefined);
+    expect(withoutOccurrence).toBe(explicitUndefined);
+    expect(withoutOccurrence).not.toContain("undefined");
+  });
+
+  it("appends occurrence as a trailing key component, distinct from the occurrence-less key", () => {
+    const expectedHash = createHash("sha256").update("ops@example.com").digest("hex");
+    const withOccurrence = dependencyNotificationKey("vercel", "inc-123", "vercel_runtime", null, "recovery", "ops@example.com", "1737300000000");
+    expect(withOccurrence).toBe(`dependency/vercel/inc-123/vercel_runtime//recovery/${expectedHash}/1737300000000`);
+
+    const withoutOccurrence = dependencyNotificationKey("vercel", "inc-123", "vercel_runtime", null, "recovery", "ops@example.com");
+    expect(withOccurrence).not.toBe(withoutOccurrence);
+  });
+
+  it("gives distinct keys for two occurrences of the same source, incident id, preset, scope, event, and recipient", () => {
+    const first = dependencyNotificationKey("vercel", "inc-123", "vercel_runtime", null, "recovery", "ops@example.com", "1737300000000");
+    const second = dependencyNotificationKey("vercel", "inc-123", "vercel_runtime", null, "recovery", "ops@example.com", "1737400000000");
+    expect(first).not.toBe(second);
+  });
 });

@@ -10,6 +10,7 @@ import {
   failureDelayMs,
   isSourceStale,
   matchingIdsForSelector,
+  notificationKeyExternalId,
   persistSnapshot,
   resolveDependencyState,
   safeProviderUrl,
@@ -246,6 +247,32 @@ describe("deriveNotificationEvent", () => {
   it("fires nothing for an unchanged still-open match", () => {
     expect(deriveNotificationEvent(false, true, null)).toBeNull();
     expect(deriveNotificationEvent(false, true, undefined)).toBeNull();
+  });
+
+  it("fires incident for a reopen: an existing match observed active again on an incident stored resolved", () => {
+    expect(deriveNotificationEvent(false, true, new Date(NOW.getTime() - 1000))).toBe("incident");
+  });
+});
+
+describe("notificationKeyExternalId", () => {
+  it("keeps a first-time incident's external id bare", () => {
+    expect(notificationKeyExternalId("incident", "inc-1", false, undefined, null)).toBe("inc-1");
+    expect(notificationKeyExternalId("incident", "inc-1", false, null, null)).toBe("inc-1");
+  });
+
+  it("appends the prior resolved timestamp for a reopen incident", () => {
+    const priorResolvedAt = new Date(NOW.getTime() - 60_000);
+    expect(notificationKeyExternalId("incident", "inc-1", true, priorResolvedAt, null))
+      .toBe(`inc-1#${priorResolvedAt.getTime()}`);
+  });
+
+  it("always appends the reported resolvedAt timestamp for a recovery, distinct across cycles", () => {
+    const firstResolution = NOW.toISOString();
+    const secondResolution = new Date(NOW.getTime() + 120_000).toISOString();
+    const firstKey = notificationKeyExternalId("recovery", "inc-1", false, null, firstResolution);
+    const secondKey = notificationKeyExternalId("recovery", "inc-1", false, null, secondResolution);
+    expect(firstKey).toBe(`inc-1#${new Date(firstResolution).getTime()}`);
+    expect(firstKey).not.toBe(secondKey);
   });
 });
 
@@ -888,5 +915,104 @@ describe("persistSnapshot: incidentio_compat resolved-incident recovery fallback
     expect(summary.notificationsEnqueued).toBe(0);
     expect(db.notifications).toHaveLength(0);
     expect(db.matches.size).toBe(0);
+  });
+});
+
+// -- Reopen lifecycle: a provider incident under one external id can go
+// active, resolve, reopen, and resolve again. Each of the two cycles gets
+// its own incident alert and its own recovery alert, with keys distinct
+// from the other cycle's so the outbox's ON CONFLICT DO NOTHING never
+// drops the second cycle's alerts as duplicates of the first's.
+
+describe("persistSnapshot: reopen lifecycle under one external id", () => {
+  it("fires incident, recovery, a distinct second incident on reopen, nothing on repeat, a distinct second recovery, then nothing again", async () => {
+    const db = emptyDb([dependencyRow({ currentState: "OPERATIONAL" })]);
+    const store = createFakeStore(db);
+    const source = baseSource();
+
+    const t0 = NOW;
+    const t1 = new Date(NOW.getTime() + 60_000);
+    const t2 = new Date(NOW.getTime() + 120_000);
+    const t3 = new Date(NOW.getTime() + 180_000);
+    const t4 = new Date(NOW.getTime() + 240_000);
+    const t5 = new Date(NOW.getTime() + 300_000);
+
+    const activeOutcome = (updatedAt: Date): PollOutcome => ({
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({
+        components: { c1: { state: "OUTAGE", updatedAt: null } },
+        incidents: [incident({ resolvedAt: null, updatedAt: updatedAt.toISOString() })],
+      }),
+      etag: null, lastModified: null,
+    });
+    const resolvedOutcome = (resolvedAt: Date): PollOutcome => ({
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({
+        components: { c1: { state: "OPERATIONAL", updatedAt: null } },
+        incidents: [incident({ resolvedAt: resolvedAt.toISOString(), updatedAt: resolvedAt.toISOString() })],
+      }),
+      etag: null, lastModified: null,
+    });
+
+    // Poll 1: active, first incident alert.
+    const poll1 = await persistSnapshot(store, activeOutcome(t0), source, { now: t0, defaultRecipients: ["ops@example.com"] });
+    // Poll 2: resolved, first recovery alert.
+    const poll2 = await persistSnapshot(store, resolvedOutcome(t1), source, { now: t1, defaultRecipients: ["ops@example.com"] });
+    // Poll 3: reopened under the same external id, second incident alert.
+    const poll3 = await persistSnapshot(store, activeOutcome(t2), source, { now: t2, defaultRecipients: ["ops@example.com"] });
+    // Poll 4: unchanged active, nothing.
+    const poll4 = await persistSnapshot(store, activeOutcome(t2), source, { now: t3, defaultRecipients: ["ops@example.com"] });
+    // Poll 5: resolved again, second recovery alert.
+    const poll5 = await persistSnapshot(store, resolvedOutcome(t4), source, { now: t4, defaultRecipients: ["ops@example.com"] });
+    // Poll 6: unchanged resolved, nothing.
+    const poll6 = await persistSnapshot(store, resolvedOutcome(t4), source, { now: t5, defaultRecipients: ["ops@example.com"] });
+
+    expect(poll1.notificationsEnqueued).toBe(1);
+    expect(poll2.notificationsEnqueued).toBe(1);
+    expect(poll3.notificationsEnqueued).toBe(1);
+    expect(poll4.notificationsEnqueued).toBe(0);
+    expect(poll5.notificationsEnqueued).toBe(1);
+    expect(poll6.notificationsEnqueued).toBe(0);
+
+    expect(db.notifications.map((n) => n.event)).toEqual(["incident", "recovery", "incident", "recovery"]);
+
+    // Each cycle's incident alert carries a key distinct from the other
+    // cycle's incident alert, and likewise for the two recovery alerts, so
+    // neither of the second cycle's alerts collides with the first's.
+    const [firstIncidentKey, firstRecoveryKey, secondIncidentKey, secondRecoveryKey] = db.notifications.map((n) => n.incidentExternalId);
+    expect(firstIncidentKey).not.toBe(secondIncidentKey);
+    expect(firstRecoveryKey).not.toBe(secondRecoveryKey);
+    // The first incident keeps the bare external id, unchanged from before
+    // reopen handling existed.
+    expect(firstIncidentKey).toBe("inc-1");
+
+    expect(db.installed[0]?.currentState).toBe("OPERATIONAL");
+    // One provider incident row and one match row throughout: the same
+    // external id and the same dependency across every poll.
+    expect(db.incidentsBySourceExternal.size).toBe(1);
+    expect(db.matches.size).toBe(1);
+  });
+
+  it("enqueues nothing on a second and third poll of the same already-resolved incident, even with the recovery key's occurrence discriminator", async () => {
+    const db = emptyDb([dependencyRow({ currentState: "OPERATIONAL" })]);
+    const store = createFakeStore(db);
+    const resolvedAt = new Date(NOW.getTime() + 60_000);
+    const outcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({
+        components: { c1: { state: "OPERATIONAL", updatedAt: null } },
+        incidents: [incident({ resolvedAt: resolvedAt.toISOString(), updatedAt: resolvedAt.toISOString() })],
+      }),
+      etag: null, lastModified: null,
+    };
+
+    const poll1 = await persistSnapshot(store, outcome, baseSource(), { now: NOW, defaultRecipients: ["ops@example.com"] });
+    const poll2 = await persistSnapshot(store, outcome, baseSource(), { now: new Date(NOW.getTime() + 60_000), defaultRecipients: ["ops@example.com"] });
+    const poll3 = await persistSnapshot(store, outcome, baseSource(), { now: new Date(NOW.getTime() + 120_000), defaultRecipients: ["ops@example.com"] });
+
+    expect(poll1.notificationsEnqueued).toBe(0);
+    expect(poll2.notificationsEnqueued).toBe(0);
+    expect(poll3.notificationsEnqueued).toBe(0);
+    expect(db.notifications).toHaveLength(0);
   });
 });

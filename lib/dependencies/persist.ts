@@ -151,20 +151,24 @@ export function selectorIntersectsIncident(selector: DependencySelector, scopeId
  * this source before this poll), `null` means it existed and was open, and a
  * Date means it existed and was already resolved.
  *
- * "incident" fires only when a dependency starts matching an incident that
- * is active right now and was not already known-resolved: a brand-new match
- * against a still-open incident, whether the incident itself is new this
- * poll or was already open. A match newly created against an
- * already-resolved incident (a historical incident found on install, or one
- * that opened and closed within a single poll gap) is backfill, not a
- * transition, and produces no event.
+ * "incident" fires in two cases. First, a brand-new match against a
+ * still-open incident that was not already known-resolved, whether the
+ * incident itself is new this poll or was already open: a match newly
+ * created against an already-resolved incident (a historical incident found
+ * on install, or one that opened and closed within a single poll gap) is
+ * backfill, not a transition, and produces no event. Second, an existing
+ * match observed active again on an incident that was stored resolved as of
+ * the prior poll: the same external id reopening after a prior resolution,
+ * observed through the match row that already existed from the first cycle.
  *
  * "recovery" fires only on the poll where the incident is observed resolved
  * for the first time: the incident must have existed before this poll with
  * resolved_at still null. An incident that was already resolved as of the
  * prior poll never fires recovery again, regardless of whether a match row
  * for this dependency is new or old, and regardless of the outbox's own
- * idempotency keys.
+ * idempotency keys. A later reopen-then-resolve cycle for the same external
+ * id fires recovery again the same way, since at that poll resolved_at is
+ * again observed transitioning from open (null) to resolved.
  */
 export function deriveNotificationEvent(
   isNewMatch: boolean,
@@ -172,9 +176,37 @@ export function deriveNotificationEvent(
   priorResolvedAt: Date | null | undefined,
 ): "incident" | "recovery" | null {
   const priorKnownResolved = priorResolvedAt !== undefined && priorResolvedAt !== null;
-  if (isNewMatch && isActive && !priorKnownResolved) return "incident";
+  if (isActive && isNewMatch && !priorKnownResolved) return "incident";
+  if (isActive && !isNewMatch && priorKnownResolved) return "incident";
   if (!isActive && priorResolvedAt === null) return "recovery";
   return null;
+}
+
+/**
+ * The external id value threaded into a notification's idempotency key
+ * (dependencyNotificationKey), kept separate from the incident's own
+ * external id used for storage and matching. A first-time "incident" event
+ * (isReopen false) carries the bare external id unchanged, so an
+ * already-enqueued row for it keeps deduplicating exactly as before. A
+ * reopen "incident" event (isReopen true: an existing match observed active
+ * again after having been stored resolved) appends the timestamp of the
+ * resolution the reopen transitioned away from, since that timestamp is
+ * stable across polls and retries of the same reopen. A "recovery" event
+ * always appends the resolvedAt timestamp reported for that resolution, so
+ * a later reopen-then-resolve cycle's recovery mints a key distinct from an
+ * earlier cycle's recovery instead of colliding with it.
+ */
+export function notificationKeyExternalId(
+  event: "incident" | "recovery",
+  incidentExternalId: string,
+  isReopen: boolean,
+  priorResolvedAt: Date | null | undefined,
+  resolvedAt: string | null,
+): string {
+  if (event === "incident") {
+    return isReopen && priorResolvedAt ? `${incidentExternalId}#${priorResolvedAt.getTime()}` : incidentExternalId;
+  }
+  return resolvedAt ? `${incidentExternalId}#${new Date(resolvedAt).getTime()}` : incidentExternalId;
 }
 
 /** Retry-After wins outright when the provider sent one; otherwise the fixed 5/15/30 minute ladder, indexed by how many consecutive failures this is. */
@@ -251,6 +283,7 @@ export interface DependencyNotificationInput {
   scopeId: string | null;
   dependencyName: string;
   provider: string;
+  /** The idempotency-key external id (see notificationKeyExternalId), not necessarily the incident's bare external id. */
   incidentExternalId: string;
   incidentTitle: string;
   state: string;
@@ -450,6 +483,13 @@ export async function persistSnapshot(
         if (event === null) continue;
         if (!dependency.notificationsEnabled || context.defaultRecipients.length === 0) continue;
 
+        // An "incident" event through an existing match (rather than a new
+        // one) is the reopen case: give it, and every "recovery", a key
+        // distinct from the cycle that first used this external id (see
+        // notificationKeyExternalId).
+        const isReopen = event === "incident" && !isNewMatch;
+        const keyExternalId = notificationKeyExternalId(event, incident.externalId, isReopen, priorResolvedAt, incident.resolvedAt);
+
         const enqueued = await tx.enqueueNotification({
           event,
           sourceId: source.id,
@@ -458,7 +498,7 @@ export async function persistSnapshot(
           scopeId: dependency.scopeId,
           dependencyName: dependency.presetName,
           provider: source.provider,
-          incidentExternalId: incident.externalId,
+          incidentExternalId: keyExternalId,
           incidentTitle: incident.title,
           state: nextState,
           canonicalUrl: incident.canonicalUrl,

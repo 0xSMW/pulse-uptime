@@ -35,6 +35,12 @@ export type DependencyNotificationEvent = "incident" | "recovery";
  * empty below) so two scoped installs of the same preset (e.g. two Neon
  * regions) that both match one incident get distinct keys instead of
  * colliding and losing one region's alert.
+ *
+ * occurrence is an optional trailing component for the same external id
+ * recurring across more than one open/resolved cycle (a provider incident
+ * that reopens under the same id after a prior resolution). Omitting it
+ * keeps the key identical to before this parameter existed, so a first
+ * occurrence's already-enqueued row keeps deduplicating unchanged.
  */
 export function dependencyNotificationKey(
   sourceId: string,
@@ -43,6 +49,8 @@ export function dependencyNotificationKey(
   scopeId: string | null,
   event: DependencyNotificationEvent,
   recipient: string,
+  occurrence?: string,
 ): string {
-  return `dependency/${sourceId}/${incidentExternalId}/${catalogId}/${scopeId ?? ""}/${event}/${recipientHash(recipient)}`;
+  const base = `dependency/${sourceId}/${incidentExternalId}/${catalogId}/${scopeId ?? ""}/${event}/${recipientHash(recipient)}`;
+  return occurrence === undefined ? base : `${base}/${occurrence}`;
 }
