@@ -205,7 +205,12 @@ export function AddDependencySheet({ open, onClose }: { open: boolean; onClose: 
                     const key = rowKey(preset.id, scopeId);
                     const busy = busyKey === key;
                     const rowError = rowErrors[key];
-                    const canAdd = preset.enabled && preset.validated && (!needsScope || Boolean(selectedScope));
+                    // Matches the server install gate, which accepts a
+                    // never-validated preset and rejects only a disabled one or
+                    // one with a recorded validationError. Validation is drift
+                    // detection against the shipped catalog, not pre-clearance,
+                    // so it is not required to add.
+                    const canAdd = preset.enabled && !preset.hasValidationError && (!needsScope || Boolean(selectedScope));
                     return (
                       <div
                         key={preset.id}

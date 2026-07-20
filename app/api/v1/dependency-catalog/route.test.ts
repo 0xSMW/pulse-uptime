@@ -27,7 +27,7 @@ const categories = [
   {
     category: "hosting",
     presets: [
-      { id: "vercel_runtime", name: "Vercel Runtime", provider: "Vercel", description: "Functions, CDN, routing, DNS.", scope: null, sourceScopeNote: null, enabled: true, validated: true, installed: false, installedScopeIds: [] },
+      { id: "vercel_runtime", name: "Vercel Runtime", provider: "Vercel", description: "Functions, CDN, routing, DNS.", scope: null, sourceScopeNote: null, enabled: true, validated: true, hasValidationError: false, installed: false, installedScopeIds: [] },
     ],
   },
 ];

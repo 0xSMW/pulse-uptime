@@ -7,14 +7,14 @@ const categories: DependencyCatalogCategory[] = [
   {
     category: "ai",
     presets: [
-      { id: "openai_api", name: "OpenAI API", provider: "OpenAI", description: "", scope: null, sourceScopeNote: null, enabled: true, validated: true, installed: false, installedScopeIds: [] },
-      { id: "chatgpt", name: "ChatGPT", provider: "OpenAI", description: "", scope: null, sourceScopeNote: null, enabled: true, validated: true, installed: false, installedScopeIds: [] },
+      { id: "openai_api", name: "OpenAI API", provider: "OpenAI", description: "", scope: null, sourceScopeNote: null, enabled: true, validated: true, hasValidationError: false, installed: false, installedScopeIds: [] },
+      { id: "chatgpt", name: "ChatGPT", provider: "OpenAI", description: "", scope: null, sourceScopeNote: null, enabled: true, validated: true, hasValidationError: false, installed: false, installedScopeIds: [] },
     ],
   },
   {
     category: "data",
     presets: [
-      { id: "neon_database", name: "Neon Database", provider: "Neon", description: "", scope: { kind: "required_options", options: [{ id: "aws-us-east-1", label: "AWS us-east-1" }] }, sourceScopeNote: null, enabled: true, validated: true, installed: false, installedScopeIds: [] },
+      { id: "neon_database", name: "Neon Database", provider: "Neon", description: "", scope: { kind: "required_options", options: [{ id: "aws-us-east-1", label: "AWS us-east-1" }] }, sourceScopeNote: null, enabled: true, validated: true, hasValidationError: false, installed: false, installedScopeIds: [] },
     ],
   },
 ];

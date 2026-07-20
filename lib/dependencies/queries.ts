@@ -319,6 +319,11 @@ export type DependencyCatalogPreset = {
   sourceScopeNote: string | null;
   enabled: boolean;
   validated: boolean;
+  // Mirrors the server install gate. installDependency rejects a preset with a
+  // recorded validationError, so the add sheet disables Add for the same set.
+  // Distinct from validated, which is merely whether a successful validation
+  // has ever run. A never-validated preset is installable.
+  hasValidationError: boolean;
   installed: boolean;
   installedScopeIds: string[];
 };
@@ -338,6 +343,7 @@ export async function listCatalog(): Promise<DependencyCatalogCategory[]> {
     sourceScopeNote: dependencyCatalog.sourceScopeNote,
     enabled: dependencyCatalog.enabled,
     validatedAt: dependencyCatalog.validatedAt,
+    validationError: dependencyCatalog.validationError,
     provider: dependencySources.providerName,
   }).from(dependencyCatalog)
     .innerJoin(dependencySources, eq(dependencySources.id, dependencyCatalog.sourceId))
@@ -369,6 +375,7 @@ export async function listCatalog(): Promise<DependencyCatalogCategory[]> {
       sourceScopeNote: preset.sourceScopeNote,
       enabled: preset.enabled,
       validated: preset.validatedAt !== null,
+      hasValidationError: preset.validationError !== null,
       installed: installedScopes.includes(NO_SCOPE),
       installedScopeIds: installedScopes.filter((scopeId) => scopeId !== NO_SCOPE),
     });
