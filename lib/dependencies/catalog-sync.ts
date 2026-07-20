@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
-import type { Database } from "@/lib/db/client";
+import type { Database, DatabaseTransaction } from "@/lib/db/client";
 import { dependencies, dependencyCatalog, dependencySources, dependencyState, dependencyStateIntervals } from "@/lib/db/schema";
 
 import { loadCatalogManifest, type CatalogManifest, type DependencyPresetManifest, type DependencySourceManifest } from "./manifest";
@@ -14,12 +14,30 @@ import type { DependencyScope, DependencySelector } from "./types";
 // version differs. The executor is injected so tests exercise the upsert
 // logic without a database, and the real implementation stays a thin Drizzle
 // adapter below.
+//
+// A source can only disappear from the manifest when the catalog version
+// changes, so a manifest version change is also the point where sources
+// dropped from the manifest are detected and retired: each dropped source is
+// disabled, its still-enabled presets get a validation error (the same
+// mechanism validateCatalog uses when a preset's upstream id goes missing),
+// and their installed dependencies flip to UNKNOWN through the same interval
+// bookkeeping validateCatalog uses. Without this, a renamed or removed
+// provider would leave its installs frozen at their last observed state with
+// no error surfaced anywhere.
+
+/** The message recorded on a source and its presets when the source id is no longer present in the shipped manifest. */
+export const SOURCE_DROPPED_FROM_MANIFEST_ERROR = "Source is no longer present in the catalog manifest";
 
 export interface CatalogSyncExecutor {
   lock(): Promise<void>;
   getStoredCatalogVersion(): Promise<string | null>;
   upsertSource(source: DependencySourceManifest, catalogVersion: string): Promise<void>;
   upsertPreset(preset: DependencyPresetManifest, catalogVersion: string): Promise<void>;
+  listEnabledSourceIds(): Promise<string[]>;
+  disableSource(sourceId: string, observedAt: Date, error: string): Promise<void>;
+  listEnabledPresetIdsForSource(sourceId: string): Promise<string[]>;
+  disablePreset(presetId: string, validatedAt: Date, error: string): Promise<void>;
+  flipDependenciesToUnknown(catalogId: string, observedAt: Date): Promise<number>;
 }
 
 export interface CatalogSyncStore {
@@ -29,17 +47,24 @@ export interface CatalogSyncStore {
 export interface CatalogSyncResult {
   synced: boolean;
   catalogVersion: string;
+  droppedSources: string[];
+}
+
+/** Stored source ids no longer present in the manifest. A brand new manifest with the same sources as before yields an empty list. */
+function droppedSourceIds(manifestSourceIds: ReadonlySet<string>, storedSourceIds: readonly string[]): string[] {
+  return storedSourceIds.filter((id) => !manifestSourceIds.has(id));
 }
 
 export async function syncCatalog(
   db: CatalogSyncStore,
   manifest: CatalogManifest = loadCatalogManifest(),
+  now: () => Date = () => new Date(),
 ): Promise<CatalogSyncResult> {
   return db.transaction(async (tx) => {
     await tx.lock();
     const storedVersion = await tx.getStoredCatalogVersion();
     if (storedVersion === manifest.catalogVersion) {
-      return { synced: false, catalogVersion: manifest.catalogVersion };
+      return { synced: false, catalogVersion: manifest.catalogVersion, droppedSources: [] };
     }
     for (const source of manifest.sources) {
       await tx.upsertSource(source, manifest.catalogVersion);
@@ -47,7 +72,23 @@ export async function syncCatalog(
     for (const preset of manifest.presets) {
       await tx.upsertPreset(preset, manifest.catalogVersion);
     }
-    return { synced: true, catalogVersion: manifest.catalogVersion };
+
+    const manifestSourceIds = new Set(manifest.sources.map((source) => source.id));
+    const storedSourceIds = await tx.listEnabledSourceIds();
+    const dropped = droppedSourceIds(manifestSourceIds, storedSourceIds);
+    if (dropped.length > 0) {
+      const observedAt = now();
+      for (const sourceId of dropped) {
+        await tx.disableSource(sourceId, observedAt, SOURCE_DROPPED_FROM_MANIFEST_ERROR);
+        const presetIds = await tx.listEnabledPresetIdsForSource(sourceId);
+        for (const presetId of presetIds) {
+          await tx.disablePreset(presetId, observedAt, SOURCE_DROPPED_FROM_MANIFEST_ERROR);
+          await tx.flipDependenciesToUnknown(presetId, observedAt);
+        }
+      }
+    }
+
+    return { synced: true, catalogVersion: manifest.catalogVersion, droppedSources: dropped };
   });
 }
 
@@ -114,6 +155,46 @@ export function presetUpsertPlan(
   return { insert, update };
 }
 
+/** Disables a preset and records why, shared by validateCatalog (a missing upstream id) and syncCatalog (the preset's source dropped from the manifest). */
+async function disablePresetSql(tx: DatabaseTransaction, presetId: string, validatedAt: Date, error: string): Promise<void> {
+  await tx.update(dependencyCatalog).set({ enabled: false, validatedAt, validationError: error }).where(eq(dependencyCatalog.id, presetId));
+}
+
+/**
+ * Flips every installed, non-removed dependency under a catalog preset to
+ * UNKNOWN, shared by validateCatalog and syncCatalog. Change-only storage:
+ * only dependencies not already UNKNOWN get a closed-then-reopened interval,
+ * so re-disabling an already-UNKNOWN preset doesn't churn out a fresh
+ * interval for nothing.
+ */
+async function flipDependenciesToUnknownSql(tx: DatabaseTransaction, catalogId: string, observedAt: Date): Promise<number> {
+  const installed = await tx.select({ id: dependencies.id, state: dependencyState.state })
+    .from(dependencies)
+    .innerJoin(dependencyState, eq(dependencyState.dependencyId, dependencies.id))
+    .where(and(eq(dependencies.catalogId, catalogId), isNull(dependencies.removedAt)));
+  if (installed.length === 0) return 0;
+
+  const ids = installed.map((row) => row.id);
+  await tx.update(dependencyState).set({ state: "UNKNOWN", checking: false, observedAt })
+    .where(inArray(dependencyState.dependencyId, ids));
+
+  const transitioning = installed.filter((row) => row.state !== "UNKNOWN").map((row) => row.id);
+  if (transitioning.length > 0) {
+    await tx.update(dependencyStateIntervals).set({ endedAt: observedAt })
+      .where(and(inArray(dependencyStateIntervals.dependencyId, transitioning), isNull(dependencyStateIntervals.endedAt)));
+    await tx.insert(dependencyStateIntervals).values(transitioning.map((dependencyId) => ({
+      id: randomUUID(),
+      dependencyId,
+      state: "UNKNOWN" as const,
+      startedAt: observedAt,
+      endedAt: null,
+      sourceObservedAt: observedAt,
+    })));
+  }
+
+  return ids.length;
+}
+
 export function createSqlCatalogSyncStore(db: Database): CatalogSyncStore {
   return {
     transaction: (work) => db.transaction(async (tx) => work({
@@ -164,6 +245,19 @@ export function createSqlCatalogSyncStore(db: Database): CatalogSyncStore {
           set: plan.update,
         });
       },
+      listEnabledSourceIds: async () =>
+        (await tx.select({ id: dependencySources.id }).from(dependencySources).where(eq(dependencySources.enabled, true)))
+          .map((row) => row.id),
+      disableSource: async (sourceId, observedAt, error) => {
+        await tx.update(dependencySources).set({ enabled: false, catalogValidatedAt: observedAt, catalogValidationError: error })
+          .where(eq(dependencySources.id, sourceId));
+      },
+      listEnabledPresetIdsForSource: async (sourceId) =>
+        (await tx.select({ id: dependencyCatalog.id }).from(dependencyCatalog)
+          .where(and(eq(dependencyCatalog.sourceId, sourceId), eq(dependencyCatalog.enabled, true))))
+          .map((row) => row.id),
+      disablePreset: (presetId, validatedAt, error) => disablePresetSql(tx, presetId, validatedAt, error),
+      flipDependenciesToUnknown: (catalogId, observedAt) => flipDependenciesToUnknownSql(tx, catalogId, observedAt),
     })),
   };
 }
@@ -299,39 +393,8 @@ export function createSqlCatalogValidationStore(db: Database): CatalogValidation
       recordPresetValidationOk: async (presetId, validatedAt) => {
         await tx.update(dependencyCatalog).set({ validatedAt, validationError: null }).where(eq(dependencyCatalog.id, presetId));
       },
-      disablePreset: async (presetId, validatedAt, error) => {
-        await tx.update(dependencyCatalog).set({ enabled: false, validatedAt, validationError: error }).where(eq(dependencyCatalog.id, presetId));
-      },
-      flipDependenciesToUnknown: async (catalogId, observedAt) => {
-        const installed = await tx.select({ id: dependencies.id, state: dependencyState.state })
-          .from(dependencies)
-          .innerJoin(dependencyState, eq(dependencyState.dependencyId, dependencies.id))
-          .where(and(eq(dependencies.catalogId, catalogId), isNull(dependencies.removedAt)));
-        if (installed.length === 0) return 0;
-
-        const ids = installed.map((row) => row.id);
-        await tx.update(dependencyState).set({ state: "UNKNOWN", checking: false, observedAt })
-          .where(inArray(dependencyState.dependencyId, ids));
-
-        // Change-only storage: only dependencies not already UNKNOWN get a
-        // closed-then-reopened interval, so re-disabling an already-UNKNOWN
-        // preset doesn't churn out a fresh interval for nothing.
-        const transitioning = installed.filter((row) => row.state !== "UNKNOWN").map((row) => row.id);
-        if (transitioning.length > 0) {
-          await tx.update(dependencyStateIntervals).set({ endedAt: observedAt })
-            .where(and(inArray(dependencyStateIntervals.dependencyId, transitioning), isNull(dependencyStateIntervals.endedAt)));
-          await tx.insert(dependencyStateIntervals).values(transitioning.map((dependencyId) => ({
-            id: randomUUID(),
-            dependencyId,
-            state: "UNKNOWN" as const,
-            startedAt: observedAt,
-            endedAt: null,
-            sourceObservedAt: observedAt,
-          })));
-        }
-
-        return ids.length;
-      },
+      disablePreset: (presetId, validatedAt, error) => disablePresetSql(tx, presetId, validatedAt, error),
+      flipDependenciesToUnknown: (catalogId, observedAt) => flipDependenciesToUnknownSql(tx, catalogId, observedAt),
     })),
   };
 }

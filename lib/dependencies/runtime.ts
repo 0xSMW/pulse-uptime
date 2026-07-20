@@ -117,8 +117,10 @@ async function listDueSources(now: Date): Promise<PollerSourceRow[]> {
   const due: PollerSourceRow[] = [];
   for (const row of rows) {
     const manifestSource = manifestBySourceId.get(row.id);
-    // Catalog drift: a source with an installed dependency but no longer in the
-    // shipped manifest. Skip rather than guess a polling cadence for it.
+    // syncCatalog disables any source dropped from the manifest on the same
+    // version change that drops it, so an enabled row missing from the
+    // manifest here would mean sync has not yet run for the current
+    // manifest. Skip rather than guess a polling cadence for it.
     if (!manifestSource) continue;
     due.push({
       ...row,

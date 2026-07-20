@@ -6,6 +6,7 @@ import {
   presetUpsertPlan,
   syncCatalog,
   validateCatalog,
+  SOURCE_DROPPED_FROM_MANIFEST_ERROR,
   type CatalogSyncExecutor,
   type CatalogSyncStore,
   type CatalogValidationExecutor,
@@ -48,16 +49,28 @@ function manifestWith(catalogVersion: string): CatalogManifest {
   };
 }
 
-function fakeSyncExecutor(storedVersion: string | null): CatalogSyncExecutor & {
+function fakeSyncExecutor(
+  storedVersion: string | null,
+  options: { enabledSourceIds?: string[]; presetIdsBySource?: Record<string, string[]> } = {},
+): CatalogSyncExecutor & {
   lock: ReturnType<typeof vi.fn>;
   upsertSource: ReturnType<typeof vi.fn>;
   upsertPreset: ReturnType<typeof vi.fn>;
+  disableSource: ReturnType<typeof vi.fn>;
+  disablePreset: ReturnType<typeof vi.fn>;
+  flipDependenciesToUnknown: ReturnType<typeof vi.fn>;
 } {
+  const presetIdsBySource = options.presetIdsBySource ?? {};
   return {
     lock: vi.fn(async () => undefined),
     getStoredCatalogVersion: vi.fn(async () => storedVersion),
     upsertSource: vi.fn(async () => undefined),
     upsertPreset: vi.fn(async () => undefined),
+    listEnabledSourceIds: vi.fn(async () => options.enabledSourceIds ?? []),
+    disableSource: vi.fn(async () => undefined),
+    listEnabledPresetIdsForSource: vi.fn(async (sourceId: string) => presetIdsBySource[sourceId] ?? []),
+    disablePreset: vi.fn(async () => undefined),
+    flipDependenciesToUnknown: vi.fn(async () => 0),
   };
 }
 
@@ -71,22 +84,52 @@ describe("syncCatalog", () => {
     const executor = fakeSyncExecutor("2026-07-19.1");
     const result = await syncCatalog(fakeSyncStore(executor), manifest);
 
-    expect(result).toEqual({ synced: false, catalogVersion: "2026-07-19.1" });
+    expect(result).toEqual({ synced: false, catalogVersion: "2026-07-19.1", droppedSources: [] });
     expect(executor.lock).toHaveBeenCalledTimes(1);
     expect(executor.upsertSource).not.toHaveBeenCalled();
     expect(executor.upsertPreset).not.toHaveBeenCalled();
+    expect(executor.listEnabledSourceIds).not.toHaveBeenCalled();
   });
 
   it("upserts every source and preset when the manifest version differs from the stored version", async () => {
     const manifest = manifestWith("2026-07-19.2");
-    const executor = fakeSyncExecutor("2026-07-19.1");
+    const executor = fakeSyncExecutor("2026-07-19.1", { enabledSourceIds: ["vercel"] });
     const result = await syncCatalog(fakeSyncStore(executor), manifest);
 
-    expect(result).toEqual({ synced: true, catalogVersion: "2026-07-19.2" });
+    expect(result).toEqual({ synced: true, catalogVersion: "2026-07-19.2", droppedSources: [] });
     expect(executor.upsertSource).toHaveBeenCalledTimes(1);
     expect(executor.upsertSource).toHaveBeenCalledWith(manifest.sources[0], "2026-07-19.2");
     expect(executor.upsertPreset).toHaveBeenCalledTimes(1);
     expect(executor.upsertPreset).toHaveBeenCalledWith(manifest.presets[0], "2026-07-19.2");
+    expect(executor.disableSource).not.toHaveBeenCalled();
+  });
+
+  it("disables a source dropped from the manifest, records a validation error on its presets, and flips its dependencies to UNKNOWN", async () => {
+    const manifest = manifestWith("2026-07-19.2");
+    const observedAt = new Date("2026-07-19T00:00:00.000Z");
+    const executor = fakeSyncExecutor("2026-07-19.1", {
+      enabledSourceIds: ["vercel", "retired-provider"],
+      presetIdsBySource: { "retired-provider": ["retired_runtime"] },
+    });
+
+    const result = await syncCatalog(fakeSyncStore(executor), manifest, () => observedAt);
+
+    expect(result.droppedSources).toEqual(["retired-provider"]);
+    expect(executor.disableSource).toHaveBeenCalledTimes(1);
+    expect(executor.disableSource).toHaveBeenCalledWith("retired-provider", observedAt, SOURCE_DROPPED_FROM_MANIFEST_ERROR);
+    expect(executor.disablePreset).toHaveBeenCalledTimes(1);
+    expect(executor.disablePreset).toHaveBeenCalledWith("retired_runtime", observedAt, SOURCE_DROPPED_FROM_MANIFEST_ERROR);
+    expect(executor.flipDependenciesToUnknown).toHaveBeenCalledTimes(1);
+    expect(executor.flipDependenciesToUnknown).toHaveBeenCalledWith("retired_runtime", observedAt);
+  });
+
+  it("does not treat any source as dropped when the stored catalog version already matches", async () => {
+    const manifest = manifestWith("2026-07-19.1");
+    const executor = fakeSyncExecutor("2026-07-19.1", { enabledSourceIds: ["vercel", "retired-provider"] });
+    const result = await syncCatalog(fakeSyncStore(executor), manifest);
+
+    expect(result).toEqual({ synced: false, catalogVersion: "2026-07-19.1", droppedSources: [] });
+    expect(executor.disableSource).not.toHaveBeenCalled();
   });
 
   it("syncs on first run when nothing is stored yet", async () => {
