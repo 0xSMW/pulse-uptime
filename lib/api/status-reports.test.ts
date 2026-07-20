@@ -23,13 +23,6 @@ import {
   promoteIncident,
   publicIncidentCause,
   publishStatusReport,
-  recoverAddedReportUpdate,
-  recoverCreatedStatusReport,
-  recoverDeletedReportUpdate,
-  recoverDeletedStatusReport,
-  recoverEditedReportUpdate,
-  recoverPromotedReport,
-  recoverPublishedStatusReport,
   StatusReportError,
   updateStatusReport,
   type StatusReportAffectedRow,
@@ -176,10 +169,6 @@ function memoryStore(monitors: Array<{ id: string; name: string; groupName: stri
       updates.delete(updateId);
       return "deleted";
     },
-    async getUpdate(reportId, updateId) {
-      const row = updates.get(updateId);
-      return row && row.reportId === reportId ? { ...row } : null;
-    },
     async recomputeResolution({ reportId, now }) {
       // Mirrors the FOR-UPDATE-locked transaction contract: recomputes for
       // the SAME reportId are chained through a per-report lock so a call
@@ -260,10 +249,6 @@ function memoryStore(monitors: Array<{ id: string; name: string; groupName: stri
     },
     async getAffected(reportIds) {
       return affected.filter((row) => reportIds.includes(row.reportId)).map((row) => ({ ...row }));
-    },
-    async getReportByOriginIncident(incidentId) {
-      const row = [...reports.values()].find((entry) => entry.originIncidentId === incidentId);
-      return row ? { ...row } : null;
     },
   };
   return store;
@@ -800,30 +785,6 @@ describe("publishStatusReport", () => {
   });
 });
 
-describe("recoverPublishedStatusReport (finding: publish shipped with no recover callback, so a committed-then-crashed publish replayed a false ALREADY_PUBLISHED 409 instead of its own success)", () => {
-  it("recovers with the current report when it's published (a prior attempt committed the publish before crashing)", async () => {
-    const store = memoryStore();
-    const deps = dependencies(store);
-    const draft = await createStatusReport({ ...validCreate, draft: true }, deps);
-    const published = await publishStatusReport(draft.id, deps);
-
-    const recovered = await recoverPublishedStatusReport(draft.id, deps);
-    expect(recovered).toEqual(published);
-  });
-
-  it("returns null when the report is still a draft (genuine crash before the publish committed)", async () => {
-    const store = memoryStore();
-    const deps = dependencies(store);
-    const draft = await createStatusReport({ ...validCreate, draft: true }, deps);
-    await expect(recoverPublishedStatusReport(draft.id, deps)).resolves.toBeNull();
-  });
-
-  it("returns null for an unknown report", async () => {
-    const store = memoryStore();
-    await expect(recoverPublishedStatusReport("missing", dependencies(store))).resolves.toBeNull();
-  });
-});
-
 describe("deleteStatusReport", () => {
   it("deletes and 404s afterwards", async () => {
     const store = memoryStore();
@@ -832,38 +793,6 @@ describe("deleteStatusReport", () => {
     await expect(deleteStatusReport(created.id, deps)).resolves.toEqual({ id: created.id });
     await expect(getStatusReport(created.id, deps)).rejects.toMatchObject({ code: "REPORT_NOT_FOUND" });
     await expect(deleteStatusReport(created.id, deps)).rejects.toMatchObject({ code: "REPORT_NOT_FOUND" });
-  });
-});
-
-describe("recoverDeletedStatusReport (finding: DELETE /status-reports/{id} shipped with no recover callback, so a committed-then-crashed delete replayed a false REPORT_NOT_FOUND 404 instead of its own success)", () => {
-  it("recovers (true) when the report is gone (a prior attempt committed the delete before crashing)", async () => {
-    const store = memoryStore();
-    // A genuinely-existing report always has a UUID-shaped id in production
-    // (the store's own isUuid guard rejects anything else), so this fixture
-    // must be UUID-shaped too, unlike the file's default sequential ids.
-    // Otherwise the malformed-id short-circuit added below would swallow
-    // this case for the wrong reason.
-    const deps = { store, newId: sequentialUuids(), now: () => NOW };
-    const created = await createStatusReport(validCreate, deps);
-    await deleteStatusReport(created.id, deps);
-    await expect(recoverDeletedStatusReport(created.id, deps)).resolves.toBe(true);
-  });
-
-  it("returns false when the report still exists (genuine crash before the delete committed)", async () => {
-    const store = memoryStore();
-    const deps = { store, newId: sequentialUuids(), now: () => NOW };
-    const created = await createStatusReport(validCreate, deps);
-    await expect(recoverDeletedStatusReport(created.id, deps)).resolves.toBe(false);
-  });
-
-  it("recovers (true) for a WELL-FORMED report id that never existed — accepted residual: indistinguishable from 'this recovery's own crashed delete already removed it' without a tombstone, and safe per DELETE's idempotent target-state semantics (RFC 9110 §9.3.5)", async () => {
-    const store = memoryStore();
-    await expect(recoverDeletedStatusReport("00000000-0000-4000-8000-000000000404", dependencies(store))).resolves.toBe(true);
-  });
-
-  it("returns false (does NOT recover) for a MALFORMED report id (finding: a malformed id can never have existed, so a genuine first-attempt crash against it is a real 404 — treating store.getReport's null return the same as 'already deleted' would replay a false 200 instead of letting work() record that real REPORT_NOT_FOUND)", async () => {
-    const store = memoryStore();
-    await expect(recoverDeletedStatusReport("not-a-uuid", dependencies(store))).resolves.toBe(false);
   });
 });
 
@@ -920,7 +849,7 @@ describe("promoteIncident", () => {
       .rejects.toMatchObject({ code: "INCIDENT_NOT_FOUND" });
   });
 
-  it("pins the new report's id to dependencies.reportId instead of drawing one from newId() (mirrors createStatusReport: the route sets this to the idempotency operationId so a retry after a crash mid-request can recover the row by id)", async () => {
+  it("pins the new report's id to dependencies.reportId instead of drawing one from newId() (mirrors createStatusReport: the route sets this to the idempotency operationId, so the same retried operation always names the same row)", async () => {
     const store = storeWithIncident();
     const { report, created } = await promoteIncident("inc-1", { ...dependencies(store), reportId: "op-pinned" });
     expect(created).toBe(true);
@@ -928,27 +857,6 @@ describe("promoteIncident", () => {
     expect(report.affected[0]).toMatchObject({ monitorId: "api-prod" });
     expect(store.reports.get("op-pinned")).toBeDefined();
     expect([...store.updates.values()].some((row) => row.reportId === "op-pinned")).toBe(true);
-  });
-
-  describe("recoverPromotedReport (finding: promote shipped with no recover callback; promoteIncident is already safe to rerun via the partial unique index, but recovery lets a retry short-circuit at the database instead of re-validating the incident and re-serializing fresh values)", () => {
-    it("recovers with the existing report tied to this incident (created:false semantics, mirroring a promote conflict)", async () => {
-      const store = storeWithIncident();
-      const deps = dependencies(store);
-      const { report: promoted } = await promoteIncident("inc-1", deps);
-
-      const recovered = await recoverPromotedReport("inc-1", deps);
-      expect(recovered).toEqual(promoted);
-    });
-
-    it("returns null when no report exists yet for this incident (genuine crash before the create committed)", async () => {
-      const store = storeWithIncident();
-      await expect(recoverPromotedReport("inc-1", dependencies(store))).resolves.toBeNull();
-    });
-
-    it("returns null for an unrelated/unknown incident id", async () => {
-      const store = memoryStore();
-      await expect(recoverPromotedReport("missing", dependencies(store))).resolves.toBeNull();
-    });
   });
 });
 
@@ -1067,194 +975,12 @@ describe("database store UUID guards", () => {
     await expect(databaseStatusReportsStore.deleteUpdate({
       reportId: "rep_1", updateId: "11111111-1111-4111-8111-111111111111",
     })).resolves.toBe("missing");
-    await expect(databaseStatusReportsStore.getUpdate("rep_1", "11111111-1111-4111-8111-111111111111"))
-      .resolves.toBeNull();
     await expect(databaseStatusReportsStore.recomputeResolution({ reportId: "rep_1", now: NOW })).resolves.toBeNull();
   });
 
   it("maps guarded non-UUID lookups to the existing 404 error codes", async () => {
     await expect(getStatusReport("not-a-uuid")).rejects.toMatchObject({ code: "REPORT_NOT_FOUND" });
     await expect(promoteIncident("inc_9")).rejects.toMatchObject({ code: "INCIDENT_NOT_FOUND" });
-  });
-});
-
-describe("idempotent-create recovery (finding: duplicate report/update after a crash)", () => {
-  it("pins the report id to a caller-supplied reportId and recovers it by that id", async () => {
-    const store = memoryStore();
-    const deps = dependencies(store);
-    const created = await createStatusReport(validCreate, { ...deps, reportId: "op-report-1" });
-    expect(created.id).toBe("op-report-1");
-
-    const recovered = await recoverCreatedStatusReport("op-report-1", deps);
-    expect(recovered).toEqual(created);
-  });
-
-  it("returns null when recovering an id nothing ever created", async () => {
-    const store = memoryStore();
-    const deps = dependencies(store);
-    await expect(recoverCreatedStatusReport("never-created", deps)).resolves.toBeNull();
-  });
-
-  it("pins the update id to a caller-supplied updateId and recovers the report by it", async () => {
-    const store = memoryStore();
-    const deps = dependencies(store);
-    const created = await createStatusReport(validCreate, deps);
-    const updated = await addReportUpdate(created.id, {
-      status: "monitoring", markdown: "Watching.",
-    }, { ...deps, updateId: "op-update-1" });
-    expect(updated.updates.some((update) => update.id === "op-update-1")).toBe(true);
-
-    const recovered = await recoverAddedReportUpdate(created.id, "op-update-1", deps);
-    expect(recovered).toEqual(updated);
-  });
-
-  it("returns null recovering an update id that was never added, or on an unknown report", async () => {
-    const store = memoryStore();
-    const deps = dependencies(store);
-    const created = await createStatusReport(validCreate, deps);
-    await expect(recoverAddedReportUpdate(created.id, "never-added", deps)).resolves.toBeNull();
-    await expect(recoverAddedReportUpdate("missing-report", "never-added", deps)).resolves.toBeNull();
-  });
-
-  it("recomputes and persists resolution on recovery (finding: crash between insert and the resolution recompute leaves a stale resolvedAt)", async () => {
-    const store = memoryStore();
-    const deps = dependencies(store);
-    const created = await createStatusReport(validCreate, deps);
-
-    // Simulate the insert having committed but the process dying before
-    // persistResolutionAndSerialize's recompute ran: the update row exists,
-    // but the report's resolvedAt is still the stale pre-update null.
-    await store.insertUpdate({
-      id: "op-update-1", reportId: created.id, status: "resolved", markdown: "Fixed.",
-      publishedAt: NOW, createdAt: NOW, updatedAt: NOW,
-    });
-    expect(store.reports.get(created.id)!.resolvedAt).toBeNull();
-
-    const recovered = await recoverAddedReportUpdate(created.id, "op-update-1", deps);
-    expect(recovered?.resolvedAt).toBe(NOW.toISOString());
-    expect(recovered?.currentStatus).toBe("resolved");
-    // The recompute is persisted, not just reflected in the response.
-    expect(store.reports.get(created.id)!.resolvedAt).toEqual(NOW);
-  });
-
-  it("recovers by a direct point lookup (getUpdate) rather than scanning capped detail rows (finding: a backdated update beyond the 500-row detail cap would never surface in a getReportDetails scan)", async () => {
-    const store = memoryStore();
-    const deps = dependencies(store);
-    const created = await createStatusReport(validCreate, deps);
-    const getReportDetailsSpy = vi.spyOn(store, "getReportDetails");
-
-    const updated = await addReportUpdate(created.id, {
-      status: "monitoring", markdown: "Watching.",
-    }, { ...deps, updateId: "op-update-1" });
-    getReportDetailsSpy.mockClear();
-
-    const recovered = await recoverAddedReportUpdate(created.id, "op-update-1", deps);
-    expect(recovered).toEqual(updated);
-    expect(getReportDetailsSpy).not.toHaveBeenCalled();
-  });
-});
-
-describe("idempotent-edit recovery (finding: PATCH /updates/{updateId} was the only mutation in this family shipped without a recover callback)", () => {
-  it("recovers by serializing current state when the update's fields already match the requested patch", async () => {
-    const store = memoryStore();
-    const deps = dependencies(store);
-    const created = await createStatusReport(validCreate, deps);
-    const updateId = created.updates[0].id;
-
-    // Simulate the edit having committed (and resolution recomputed) but the
-    // process dying before the idempotency record completed.
-    const edited = await editReportUpdate(created.id, updateId, { status: "monitoring", markdown: "Watching." }, deps);
-
-    const recovered = await recoverEditedReportUpdate(created.id, updateId, { status: "monitoring", markdown: "Watching." }, deps);
-    expect(recovered).toEqual(edited);
-  });
-
-  it("only compares fields the caller actually sent", async () => {
-    const store = memoryStore();
-    const deps = dependencies(store);
-    const created = await createStatusReport(validCreate, deps);
-    const updateId = created.updates[0].id;
-    const edited = await editReportUpdate(created.id, updateId, { status: "monitoring" }, deps);
-
-    // markdown wasn't part of the patch, so it must not be compared even
-    // though it (obviously) still matches the original, untouched value.
-    const recovered = await recoverEditedReportUpdate(created.id, updateId, { status: "monitoring" }, deps);
-    expect(recovered).toEqual(edited);
-  });
-
-  it("returns null when the current state genuinely differs from the requested patch (crash before the edit committed)", async () => {
-    const store = memoryStore();
-    const deps = dependencies(store);
-    const created = await createStatusReport(validCreate, deps);
-    const updateId = created.updates[0].id;
-    await expect(recoverEditedReportUpdate(created.id, updateId, { status: "monitoring" }, deps)).resolves.toBeNull();
-  });
-
-  it("returns null for an unknown report or update", async () => {
-    const store = memoryStore();
-    const deps = dependencies(store);
-    const created = await createStatusReport(validCreate, deps);
-    await expect(recoverEditedReportUpdate("missing-report", "missing-update", { status: "monitoring" }, deps)).resolves.toBeNull();
-    await expect(recoverEditedReportUpdate(created.id, "missing-update", { status: "monitoring" }, deps)).resolves.toBeNull();
-  });
-
-  it("returns null for an INVALID patch body (finding: {} or unsupported-key bodies fell through to true since no recognized field mismatched, recovering a stale retry of a genuine VALIDATION_ERROR as a false 200)", async () => {
-    const store = memoryStore();
-    const deps = dependencies(store);
-    const created = await createStatusReport(validCreate, deps);
-    const updateId = created.updates[0].id;
-    await expect(recoverEditedReportUpdate(created.id, updateId, {}, deps)).resolves.toBeNull();
-    await expect(recoverEditedReportUpdate(created.id, updateId, { foo: 1 }, deps)).resolves.toBeNull();
-  });
-});
-
-describe("recoverDeletedReportUpdate (finding: DELETE /updates/{updateId} shipped with no recover callback, so a committed-then-crashed delete replayed a false UPDATE_NOT_FOUND 404 instead of its own success)", () => {
-  it("recovers by recomputing+serializing current state when the update is gone but the report still exists", async () => {
-    const store = memoryStore();
-    // UUID-shaped ids, matching production (the store's own isUuid guard
-    // rejects anything else), unlike the file's default sequential ids,
-    // which would otherwise trip the malformed-id short-circuit added below
-    // for the wrong reason.
-    const deps = { store, newId: sequentialUuids(), now: () => NOW };
-    const created = await createStatusReport(validCreate, deps);
-    const second = await addReportUpdate(created.id, { status: "monitoring", markdown: "Watching." }, deps);
-    const updateId = second.updates.find((update) => update.status === "monitoring")!.id;
-
-    // Simulate the delete having committed before a crash.
-    const deleted = await deleteReportUpdate(created.id, updateId, deps);
-
-    const recovered = await recoverDeletedReportUpdate(created.id, updateId, deps);
-    expect(recovered).toEqual(deleted);
-  });
-
-  it("returns null when the update still exists (genuine crash before the delete committed)", async () => {
-    const store = memoryStore();
-    const deps = { store, newId: sequentialUuids(), now: () => NOW };
-    const created = await createStatusReport(validCreate, deps);
-    await addReportUpdate(created.id, { status: "monitoring", markdown: "Watching." }, deps);
-    const updateId = created.updates[0].id;
-    await expect(recoverDeletedReportUpdate(created.id, updateId, deps)).resolves.toBeNull();
-  });
-
-  it("returns null for an unknown report (can't recompute+serialize without it; work() reruns and records the truthful current REPORT_NOT_FOUND)", async () => {
-    const store = memoryStore();
-    await expect(recoverDeletedReportUpdate("missing-report", "missing-update", dependencies(store))).resolves.toBeNull();
-  });
-
-  it("recovers (success) for a WELL-FORMED update id that never existed on a report that still does — accepted residual: indistinguishable from, and safe per the same guarded-delete/DELETE-is-idempotent invariant as, recoverDeletedStatusReport's 'gone is gone' semantics", async () => {
-    const store = memoryStore();
-    const deps = { store, newId: sequentialUuids(), now: () => NOW };
-    const created = await createStatusReport(validCreate, deps);
-    const recovered = await recoverDeletedReportUpdate(created.id, "00000000-0000-4000-8000-000000000404", deps);
-    expect(recovered?.id).toBe(created.id);
-    expect(recovered?.updates).toEqual(created.updates);
-  });
-
-  it("returns null (does NOT recover) for a MALFORMED update id on a report that still exists (finding: a malformed id can never have existed, so a genuine first-attempt crash against it is a real 404 — treating store.getUpdate's null return the same as 'already deleted' would replay a false 200 instead of letting work() record that real UPDATE_NOT_FOUND)", async () => {
-    const store = memoryStore();
-    const deps = { store, newId: sequentialUuids(), now: () => NOW };
-    const created = await createStatusReport(validCreate, deps);
-    await expect(recoverDeletedReportUpdate(created.id, "not-a-uuid", deps)).resolves.toBeNull();
   });
 });
 

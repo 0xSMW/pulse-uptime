@@ -6,24 +6,44 @@ vi.mock("@/lib/api/middleware", () => ({
   authorize: vi.fn(),
   isApiResponse: (value: unknown) => value instanceof Response,
 }));
+// Mirrors executeIdempotent's real completion semantics closely enough to
+// prove the route's behavior: work() runs inside transaction(), and a key
+// only records its outcome if run() resolves. A thrown run() records nothing,
+// which is what proves the mutation rolled back.
+const idempotencyRecords = new Map<string, { status: number; body: unknown }>();
 vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/idempotency")>()),
-  executeIdempotent: vi.fn(async ({ work }: { work: (context: { operationId: string }) => Promise<{ status: number; body: unknown }> }) => ({
-    ...(await work({ operationId: "op-1" })),
-    replayed: false,
-  })),
+  executeIdempotent: vi.fn(async ({ request, work }: {
+    request: Request;
+    work: (context: {
+      operationId: string;
+      transaction: (run: (tx: unknown) => Promise<{ status: number; body: unknown }>) => Promise<{ status: number; body: unknown }>;
+    }) => Promise<{ status: number; body: unknown }>;
+  }) => {
+    const key = request.headers.get("idempotency-key")!;
+    const existing = idempotencyRecords.get(key);
+    if (existing) return { ...existing, replayed: true };
+    const result = await work({
+      operationId: "op-1",
+      transaction: async (run) => {
+        const outcome = await run("tx");
+        idempotencyRecords.set(key, outcome);
+        return outcome;
+      },
+    });
+    return { ...result, replayed: false };
+  }),
 }));
 vi.mock("@/lib/dependencies/service", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/dependencies/service")>()),
   installDependency: vi.fn(),
   listDependencies: vi.fn(),
-  recoverInstalledDependency: vi.fn(),
 }));
 
-import { apiError, objectEnvelope } from "@/lib/api/envelopes";
+import { apiError } from "@/lib/api/envelopes";
 import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, type ApiContext } from "@/lib/api/middleware";
-import { DependencyApiError, installDependency, listDependencies, recoverInstalledDependency } from "@/lib/dependencies/service";
+import { DependencyApiError, installDependency, listDependencies } from "@/lib/dependencies/service";
 
 import { GET, POST } from "./route";
 
@@ -39,8 +59,8 @@ beforeEach(() => {
   vi.mocked(authorize).mockReset().mockResolvedValue(context);
   vi.mocked(listDependencies).mockReset().mockResolvedValue([dependency] as never);
   vi.mocked(installDependency).mockReset().mockResolvedValue(dependency as never);
-  vi.mocked(recoverInstalledDependency).mockReset();
   vi.mocked(executeIdempotent).mockClear();
+  idempotencyRecords.clear();
 });
 
 describe("GET /api/v1/dependencies", () => {
@@ -93,28 +113,30 @@ describe("POST /api/v1/dependencies", () => {
     expect(installDependency).not.toHaveBeenCalled();
   });
 
-  it("pins the dependency id to the idempotency operationId", async () => {
+  it("installs inside the idempotency transaction, pinning the id and passing the tx handle", async () => {
     await POST(postRequest({ presetId: "vercel_runtime" }));
-    expect(installDependency).toHaveBeenCalledWith({ presetId: "vercel_runtime" }, { dependencyId: "op-1" });
+    expect(installDependency).toHaveBeenCalledWith({ presetId: "vercel_runtime" }, { dependencyId: "op-1" }, "tx");
   });
 
-  it("wires recover + rerunAfterRecoveryMiss: false for crash-recovery replay", async () => {
-    await POST(postRequest({ presetId: "vercel_runtime" }));
-    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
-      recover: (context: { operationId: string }) => Promise<unknown>;
-      rerunAfterRecoveryMiss: boolean;
-    };
-    expect(options.rerunAfterRecoveryMiss).toBe(false);
+  it("replays the stored response for a repeated idempotency key without reinstalling", async () => {
+    const request = postRequest({ presetId: "vercel_runtime" });
+    const first = await POST(request.clone());
+    expect(first.status).toBe(201);
+    expect(installDependency).toHaveBeenCalledTimes(1);
+    const replay = await POST(request);
+    expect(replay.status).toBe(201);
+    expect(installDependency).toHaveBeenCalledTimes(1);
+  });
 
-    vi.mocked(recoverInstalledDependency).mockResolvedValue(dependency as never);
-    await expect(options.recover({ operationId: "op-99" })).resolves.toEqual({
-      status: 201,
-      body: objectEnvelope("Dependency", dependency, context.requestId),
-    });
-    expect(recoverInstalledDependency).toHaveBeenCalledWith("op-99");
-
-    vi.mocked(recoverInstalledDependency).mockResolvedValue(null);
-    await expect(options.recover({ operationId: "op-100" })).resolves.toBeNull();
+  it("stores a duplicate as a clean 409 rather than rolling the transaction back", async () => {
+    vi.mocked(installDependency).mockRejectedValue(new DependencyApiError("DEPENDENCY_EXISTS", "Already installed"));
+    const request = postRequest({ presetId: "vercel_runtime" });
+    const response = await POST(request.clone());
+    expect(response.status).toBe(409);
+    // The 409 was recorded, so a retry with the same key replays it.
+    const replay = await POST(request);
+    expect(replay.status).toBe(409);
+    expect(installDependency).toHaveBeenCalledTimes(1);
   });
 
   it("maps PRESET_NOT_FOUND to 400", async () => {

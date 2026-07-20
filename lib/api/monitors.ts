@@ -13,7 +13,7 @@ import {
   type GroupConfig,
   type MonitorConfig,
 } from "@/lib/config";
-import { db } from "@/lib/db/client";
+import { db, type DatabaseHandle } from "@/lib/db/client";
 import {
   monitorRegistry,
   monitorState,
@@ -99,7 +99,7 @@ function monitorResponse(monitor: MonitorConfig, groups: readonly GroupConfig[])
   return { ...monitor, group: monitor.groupId ? groups.find((group) => group.id === monitor.groupId)?.name ?? null : null };
 }
 
-export async function createMonitor(input: unknown, principalKey: string) {
+export async function createMonitor(input: unknown, principalKey: string, handle: DatabaseHandle = db) {
   let created!: MonitorConfig;
   const result = await mutateConfig(principalKey, (current) => {
     const groups = groupsForLegacyInput(current.groups, input);
@@ -111,19 +111,11 @@ export async function createMonitor(input: unknown, principalKey: string) {
       throw new MonitorApiError("MONITOR_EXISTS", "A monitor with this ID already exists");
     }
     return nextConfig(current, { groups, monitors: [...current.monitors, monitor] });
-  });
+  }, handle);
   return monitorResponse(result.monitors.find((item) => item.id === created.id)!, result.groups);
 }
 
-export async function recoverCreatedMonitor(input: unknown) {
-  const current = await loadAcceptedConfig();
-  const groups = groupsForLegacyInput(current.config.groups, input);
-  const desired = parseCreateMonitor(input, groups);
-  const existing = current.config.monitors.find((monitor) => monitor.id === desired.id);
-  return existing && hashCanonical(existing) === hashCanonical(desired) ? monitorResponse(existing, current.config.groups) : null;
-}
-
-export async function updateMonitor(id: string, input: unknown, principalKey: string) {
+export async function updateMonitor(id: string, input: unknown, principalKey: string, handle: DatabaseHandle = db) {
   const patch = parsePatchMonitor(input);
   const result = await mutateConfig(principalKey, (current) => {
     const existing = current.monitors.find((item) => item.id === id);
@@ -133,55 +125,31 @@ export async function updateMonitor(id: string, input: unknown, principalKey: st
       ? { ...patch, groupId: resolveGroupId(patch, groups) }
       : patch;
     return nextConfig(current, { groups, monitors: current.monitors.map((item) => item.id === id ? mergeMonitorPatch(item, nextPatch) : item) });
-  });
+  }, handle);
   return monitorResponse(result.monitors.find((item) => item.id === id)!, result.groups);
 }
 
-export async function recoverUpdatedMonitor(id: string, input: unknown) {
-  const patch = parsePatchMonitor(input);
-  const current = await loadAcceptedConfig();
-  const existing = current.config.monitors.find((monitor) => monitor.id === id);
-  if (!existing) return null;
-  const groups = groupsForLegacyInput(current.config.groups, input);
-  const nextPatch = patch.group !== undefined || patch.groupId !== undefined
-    ? { ...patch, groupId: resolveGroupId(patch, groups) }
-    : patch;
-  return hashCanonical(mergeMonitorPatch(existing, nextPatch)) === hashCanonical(existing) ? monitorResponse(existing, current.config.groups) : null;
-}
-
-export async function deleteMonitor(id: string, principalKey: string) {
+export async function deleteMonitor(id: string, principalKey: string, handle: DatabaseHandle = db) {
   try {
     await mutateConfig(principalKey, (current) => {
       if (!current.monitors.some((item) => item.id === id)) throw new MonitorApiError("MONITOR_NOT_FOUND", "Monitor was not found");
       return nextConfig(current, { monitors: current.monitors.filter((item) => item.id !== id) });
-    });
+    }, handle);
   } catch (error) {
     if (!(error instanceof MonitorApiError) || error.code !== "MONITOR_NOT_FOUND") throw error;
-    const [archived] = await db.select({ id: monitorRegistry.id }).from(monitorRegistry)
+    const [archived] = await handle.select({ id: monitorRegistry.id }).from(monitorRegistry)
       .where(and(eq(monitorRegistry.id, id), drizzleSql`${monitorRegistry.archivedAt} is not null`)).limit(1);
     if (!archived) throw error;
   }
   return { id, deleted: true };
 }
 
-export async function recoverDeletedMonitor(id: string) {
-  const [archived] = await db.select({ id: monitorRegistry.id }).from(monitorRegistry)
-    .where(and(eq(monitorRegistry.id, id), drizzleSql`${monitorRegistry.archivedAt} is not null`)).limit(1);
-  return archived ? { id, deleted: true } : null;
-}
-
-export async function setMonitorEnabled(id: string, enabled: boolean, principalKey: string) {
+export async function setMonitorEnabled(id: string, enabled: boolean, principalKey: string, handle: DatabaseHandle = db) {
   const result = await mutateConfig(principalKey, (current) => {
     if (!current.monitors.some((item) => item.id === id)) throw new MonitorApiError("MONITOR_NOT_FOUND", "Monitor was not found");
     return nextConfig(current, { monitors: current.monitors.map((item) => item.id === id ? { ...item, enabled } : item) });
-  });
+  }, handle);
   return monitorResponse(result.monitors.find((item) => item.id === id)!, result.groups);
-}
-
-export async function recoverMonitorEnabled(id: string, enabled: boolean) {
-  const current = await loadAcceptedConfig();
-  const monitor = current.config.monitors.find((item) => item.id === id);
-  return monitor?.enabled === enabled ? monitorResponse(monitor, current.config.groups) : null;
 }
 
 export async function getMonitor(id: string) {

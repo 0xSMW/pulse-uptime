@@ -113,6 +113,8 @@ CREATE TABLE "provider_incidents" (
 	CONSTRAINT "provider_incidents_resolution_order" CHECK ("provider_incidents"."resolved_at" is null or "provider_incidents"."resolved_at" >= "provider_incidents"."started_at")
 );
 --> statement-breakpoint
+ALTER TABLE "notification_outbox" ALTER COLUMN "monitor_id" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "notification_outbox" ADD COLUMN "dependency_id" text;--> statement-breakpoint
 ALTER TABLE "dependencies" ADD CONSTRAINT "dependencies_catalog_id_dependency_catalog_id_fk" FOREIGN KEY ("catalog_id") REFERENCES "public"."dependency_catalog"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "dependency_catalog" ADD CONSTRAINT "dependency_catalog_source_id_dependency_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."dependency_sources"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "dependency_incident_matches" ADD CONSTRAINT "dependency_incident_matches_dependency_id_dependencies_id_fk" FOREIGN KEY ("dependency_id") REFERENCES "public"."dependencies"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
@@ -128,4 +130,6 @@ CREATE UNIQUE INDEX "dependency_state_intervals_one_open" ON "dependency_state_i
 CREATE INDEX "dependency_state_intervals_dependency_time" ON "dependency_state_intervals" USING btree ("dependency_id","started_at" DESC NULLS LAST);--> statement-breakpoint
 CREATE UNIQUE INDEX "provider_incidents_source_external" ON "provider_incidents" USING btree ("source_id","external_id");--> statement-breakpoint
 CREATE INDEX "provider_incidents_source_started" ON "provider_incidents" USING btree ("source_id","started_at" DESC NULLS LAST);--> statement-breakpoint
-CREATE INDEX "provider_incidents_unresolved" ON "provider_incidents" USING btree ("resolved_at") WHERE "provider_incidents"."resolved_at" is null;
+CREATE INDEX "provider_incidents_unresolved" ON "provider_incidents" USING btree ("resolved_at") WHERE "provider_incidents"."resolved_at" is null;--> statement-breakpoint
+ALTER TABLE "notification_outbox" ADD CONSTRAINT "notification_outbox_dependency_id_dependencies_id_fk" FOREIGN KEY ("dependency_id") REFERENCES "public"."dependencies"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "notification_outbox" ADD CONSTRAINT "notification_outbox_subject" CHECK (("notification_outbox"."monitor_id" is null) <> ("notification_outbox"."dependency_id" is null));

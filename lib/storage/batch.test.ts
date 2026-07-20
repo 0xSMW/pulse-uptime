@@ -30,12 +30,14 @@ describe("packed minute writer", () => {
       { expected: true, completed: false, failed: false, latencyMs: null },
       { expected: true, completed: true, failed: false, latencyMs: 42 },
     ]);
-    expect(values[10]).toMatchObject([
+    expect(typeof values[10]).toBe("string");
+    expect(JSON.parse(values[10] as string)).toMatchObject([
       { monitorId: "a", eventType: "scheduler_gap", errorCode: "SCHEDULED_CHECK_MISSING" },
     ]);
   });
 
   it("upserts identical failures without losing aggregate fields", () => {
+    expect(WRITE_PACKED_MINUTE_SQL).toContain("jsonb_to_recordset($11::text::jsonb)");
     expect(WRITE_PACKED_MINUTE_SQL).toContain("occurrence_count = monitor_exceptions.occurrence_count + 1");
     expect(WRITE_PACKED_MINUTE_SQL).toContain("worst_latency_ms = greatest");
     expect(WRITE_PACKED_MINUTE_SQL).toContain("first_seen_at = least");

@@ -44,6 +44,7 @@ type Options struct {
 	Err         io.Writer
 	StdoutTTY   bool
 	StdinTTY    bool
+	StderrTTY   bool
 	ConfigPath  string
 	HTTPClient  *http.Client
 	Credentials auth.CredentialStore

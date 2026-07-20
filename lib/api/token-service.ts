@@ -1,6 +1,6 @@
 import { and, desc, eq, isNull, lt, or } from "drizzle-orm";
 
-import { db } from "@/lib/db/client";
+import { db, type DatabaseHandle } from "@/lib/db/client";
 import { apiTokens } from "@/lib/db/schema";
 
 import { canDelegateScopes, normalizeScopes, type ApiScope } from "./scopes";
@@ -70,14 +70,14 @@ export async function createApiToken(input: {
   expiresAt: Date;
   principal: { type: string; id: string };
   credential?: ReturnType<typeof createBearerToken>;
-}, now = new Date()): Promise<{ token: TokenRecord; secret: string }> {
+}, now = new Date(), handle: DatabaseHandle = db): Promise<{ token: TokenRecord; secret: string }> {
   const credential = input.credential ?? createBearerToken();
   if (input.credential) {
-    const [existing] = await db.select(tokenSelection).from(apiTokens)
+    const [existing] = await handle.select(tokenSelection).from(apiTokens)
       .where(eq(apiTokens.tokenDigest, credential.digest)).limit(1);
     if (existing) return { token: serializeToken(existing), secret: credential.raw };
   }
-  const [row] = await db.insert(apiTokens).values({
+  const [row] = await handle.insert(apiTokens).values({
     id: crypto.randomUUID(),
     name: input.name,
     tokenPrefix: credential.prefix,
@@ -111,8 +111,8 @@ export async function listApiTokens(input: { cursor: { sort: string; id: string 
   };
 }
 
-export async function revokeApiToken(tokenId: string, now = new Date()): Promise<TokenRecord | null> {
-  return db.transaction(async (tx) => {
+export async function revokeApiToken(tokenId: string, now = new Date(), handle: DatabaseHandle = db): Promise<TokenRecord | null> {
+  return handle.transaction(async (tx) => {
     const [row] = await tx.update(apiTokens).set({ revokedAt: now }).where(and(
       eq(apiTokens.id, tokenId),
       isNull(apiTokens.revokedAt),

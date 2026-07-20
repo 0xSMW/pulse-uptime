@@ -29,6 +29,7 @@ import (
 	"github.com/0xSMW/pulse-uptime/cli/internal/command/statuspageops"
 	"github.com/0xSMW/pulse-uptime/cli/internal/config"
 	"github.com/0xSMW/pulse-uptime/cli/internal/output"
+	"github.com/0xSMW/pulse-uptime/cli/internal/progress"
 	"github.com/spf13/cobra"
 )
 
@@ -542,6 +543,11 @@ func (a *App) newClient(r config.Resolved, token string) *api.Client {
 	if a.debug {
 		client.SetDebugHook(func(event api.DebugEvent) {
 			fmt.Fprintf(a.opts.Err, "%s %s status=%d attempt=%d request_id=%s elapsed=%s\n", event.Method, event.URL, event.Status, event.Attempt, event.RequestID, event.Elapsed.Round(time.Millisecond))
+		})
+	}
+	if a.opts.StderrTTY && !a.debug && os.Getenv("TERM") != "dumb" {
+		client.SetProgressHook(func() func() {
+			return progress.Start(a.opts.Err).Stop
 		})
 	}
 	return client

@@ -19,7 +19,6 @@ import {
   listCatalog,
   listDependencies,
   patchDependency,
-  recoverInstalledDependency,
   refreshDependency,
   removeDependency,
   type DependenciesStore,
@@ -201,13 +200,6 @@ describe("installDependency duplicates and defaults", () => {
   });
 });
 
-describe("recoverInstalledDependency", () => {
-  it("looks the dependency up by the pinned id, no content comparison", async () => {
-    await recoverInstalledDependency("op-123");
-    expect(queries.getDependencyDetail).toHaveBeenCalledWith("op-123");
-  });
-});
-
 describe("read wrappers", () => {
   it("listDependencies delegates to the dashboard query", async () => {
     vi.mocked(queries.listDependenciesForDashboard).mockResolvedValue([{ id: "dep-1" }] as never);
@@ -280,6 +272,8 @@ describe("databaseDependenciesStore validator clearing (FIX D)", () => {
   it("clears the source's etag and last_modified in the same transaction that installs a dependency", async () => {
     const setCalls: Array<{ table: unknown; patch: Record<string, unknown> }> = [];
     const tx = {
+      // No existing active dependency, so the duplicate pre-check passes and the insert proceeds.
+      select: () => ({ from: () => ({ where: () => ({ limit: vi.fn().mockResolvedValue([]) }) }) }),
       insert: () => ({ values: vi.fn().mockResolvedValue(undefined) }),
       update: (table: unknown) => ({
         set: (patch: Record<string, unknown>) => {

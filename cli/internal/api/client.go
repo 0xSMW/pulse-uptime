@@ -78,6 +78,11 @@ type DebugEvent struct {
 
 type DebugHook func(DebugEvent)
 
+// ProgressHook begins a visual progress indicator for one DoRaw call and
+// returns the function that ends it. The end function must always be called
+// exactly once, even on error paths.
+type ProgressHook func() (end func())
+
 type Client struct {
 	baseURL string
 	token   string
@@ -87,6 +92,9 @@ type Client struct {
 
 	debugMu   sync.RWMutex
 	debugHook DebugHook
+
+	progressMu   sync.RWMutex
+	progressHook ProgressHook
 }
 
 type Error struct {
@@ -148,6 +156,14 @@ func (c *Client) SetDebugHook(hook DebugHook) {
 	c.debugMu.Lock()
 	c.debugHook = hook
 	c.debugMu.Unlock()
+}
+
+// SetProgressHook installs an optional visual progress indicator that spans
+// each DoRaw call, including its retries. Passing nil disables it.
+func (c *Client) SetProgressHook(hook ProgressHook) {
+	c.progressMu.Lock()
+	c.progressHook = hook
+	c.progressMu.Unlock()
 }
 
 func (c *Client) Get(ctx context.Context, path string, out any) error {
@@ -213,6 +229,10 @@ func (c *Client) DoJSON(ctx context.Context, req Request, out any) (*Response, e
 // DoRaw executes a request and returns the successful response document without
 // interpreting its envelope.
 func (c *Client) DoRaw(ctx context.Context, request Request) (*Response, error) {
+	if hook := c.progressHookFn(); hook != nil {
+		defer hook()()
+	}
+
 	method := strings.ToUpper(strings.TrimSpace(request.Method))
 	if method == "" {
 		method = http.MethodGet
@@ -457,6 +477,13 @@ func (c *Client) debug(event DebugEvent) {
 	if hook != nil {
 		hook(event)
 	}
+}
+
+func (c *Client) progressHookFn() ProgressHook {
+	c.progressMu.RLock()
+	hook := c.progressHook
+	c.progressMu.RUnlock()
+	return hook
 }
 
 func AsError(err error) (*Error, bool) {

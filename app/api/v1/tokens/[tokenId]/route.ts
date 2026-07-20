@@ -15,11 +15,11 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ t
       principalKey: context.principalKey,
       routeKey: "token-revoke",
       body: { tokenId },
-      work: async () => {
-        const token = await revokeApiToken(tokenId);
+      work: async ({ transaction }) => transaction<{ token: { id: string; revokedAt: string | null } | null }>(async (tx) => {
+        const token = await revokeApiToken(tokenId, new Date(), tx);
         if (!token) return { status: 404, body: { token: null } };
         return { status: 200, body: { token: { id: token.id, revokedAt: token.revokedAt?.toISOString() ?? null } } };
-      },
+      }),
     });
     if (!result.body.token) return apiError(context.requestId, 404, "TOKEN_NOT_FOUND", "Token was not found");
     return apiJson(objectEnvelope("TokenRevocation", result.body.token, context.requestId), { status: result.status });

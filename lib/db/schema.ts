@@ -627,6 +627,7 @@ export const apiIdempotency = pgTable("api_idempotency", {
   method: text("method").notNull(),
   routeKey: text("route_key").notNull(),
   requestHash: text("request_hash").notNull(),
+  protocol: integer("protocol").notNull().default(0),
   responseStatus: integer("response_status"),
   responseBody: jsonb("response_body"),
   state: text("state", { enum: ["running", "completed"] }).notNull(),

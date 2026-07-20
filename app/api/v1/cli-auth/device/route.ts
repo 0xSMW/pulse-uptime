@@ -24,7 +24,7 @@ export async function POST(request: Request) {
       principalKey: ipKey,
       routeKey: "cli-device-start",
       body: input,
-      work: async ({ operationId }) => {
+      work: async ({ operationId, transaction }) => transaction(async (tx) => {
         const credential = deriveDeviceCode(credentialDerivationContext({
           kind: "device-authorization",
           principalKey: ipKey,
@@ -36,7 +36,7 @@ export async function POST(request: Request) {
           ...input,
           requestIp: requestSourceIp(request),
           deviceCredential: credential,
-        });
+        }, new Date(), tx);
         return {
           status: 201,
           body: {
@@ -45,7 +45,7 @@ export async function POST(request: Request) {
             verificationUriComplete: `${verificationUri}?user_code=${encodeURIComponent(authorization.userCode)}`,
           },
         };
-      },
+      }),
       persistBody: (body) => ({
         userCode: body.userCode,
         expiresIn: body.expiresIn,

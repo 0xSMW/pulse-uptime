@@ -26,7 +26,16 @@ describe("storage maintenance SQL", () => {
     expect(FILL_SCHEDULER_GAPS_SQL).toContain("lead(accepted_at) over (order by accepted_at) next_accepted_at");
     expect(FILL_SCHEDULER_GAPS_SQL).toContain("where accepted_at <= minute.scheduled_minute");
     expect(FILL_SCHEDULER_GAPS_SQL).toContain("next_accepted_at is null or minute.scheduled_minute < next_accepted_at");
-    expect(FILL_SCHEDULER_GAPS_SQL).toContain("cross join lateral (select config_version, config_json from accepted_ranges");
+    expect(FILL_SCHEDULER_GAPS_SQL).toContain("cross join lateral (select config_version, monitors from accepted_ranges");
+  });
+
+  it("extracts the monitors array once per accepted snapshot instead of once per missing minute", () => {
+    expect(FILL_SCHEDULER_GAPS_SQL).toContain("config_json->'monitors' monitors");
+    expect(FILL_SCHEDULER_GAPS_SQL).toContain("accepted_ranges as materialized");
+    // config_json appears once as the extraction expression and once in the
+    // comment explaining why accepted_ranges must stay materialized.
+    expect(FILL_SCHEDULER_GAPS_SQL.match(/config_json/g)).toHaveLength(2);
+    expect(FILL_SCHEDULER_GAPS_SQL).toContain("jsonb_array_elements(config.monitors)");
   });
 
   it("promotes mergeable histogram buckets in database", () => {

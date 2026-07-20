@@ -3,6 +3,7 @@ import "server-only";
 import { z } from "zod";
 
 import { groupConfigSchema, type GroupConfig, type MonitoringConfig } from "@/lib/config";
+import { db, type DatabaseHandle } from "@/lib/db/client";
 
 import { loadAcceptedConfig, mutateConfig, nextConfig } from "./config-mutation";
 
@@ -50,35 +51,18 @@ function withCounts(config: MonitoringConfig) {
 
 export async function listGroups() { return withCounts((await loadAcceptedConfig()).config); }
 
-export async function createGroup(input: unknown, principalKey: string) {
+export async function createGroup(input: unknown, principalKey: string, handle: DatabaseHandle = db) {
   const group = createGroupSchema.parse(input);
-  const result = await mutateConfig(principalKey, (config) => addGroup(config, group));
+  const result = await mutateConfig(principalKey, (config) => addGroup(config, group), handle);
   return { ...result.groups.find((item) => item.id === group.id)!, monitorCount: 0 };
 }
 
-export async function recoverCreatedGroup(input: unknown) {
-  const desired = createGroupSchema.parse(input); const config = (await loadAcceptedConfig()).config;
-  const group = config.groups.find((item) => item.id === desired.id);
-  return group?.name === desired.name ? { ...group, monitorCount: config.monitors.filter((monitor) => monitor.groupId === group.id).length } : null;
-}
-
-export async function updateGroup(id: string, input: unknown, principalKey: string) {
-  const result = await mutateConfig(principalKey, (config) => renameGroup(config, id, input));
+export async function updateGroup(id: string, input: unknown, principalKey: string, handle: DatabaseHandle = db) {
+  const result = await mutateConfig(principalKey, (config) => renameGroup(config, id, input), handle);
   return withCounts(result).find((group) => group.id === id)!;
 }
 
-export async function recoverUpdatedGroup(id: string, input: unknown) {
-  const desired = renameGroupSchema.parse(input); const config = (await loadAcceptedConfig()).config;
-  const group = config.groups.find((item) => item.id === id);
-  return group?.name === desired.name ? { ...group, monitorCount: config.monitors.filter((monitor) => monitor.groupId === id).length } : null;
-}
-
-export async function recoverDeletedGroup(id: string) {
-  const config = (await loadAcceptedConfig()).config;
-  return config.groups.some((group) => group.id === id) ? null : { id, deleted: true };
-}
-
-export async function deleteGroup(id: string, principalKey: string) {
-  await mutateConfig(principalKey, (config) => removeGroup(config, id));
+export async function deleteGroup(id: string, principalKey: string, handle: DatabaseHandle = db) {
+  await mutateConfig(principalKey, (config) => removeGroup(config, id), handle);
   return { id, deleted: true };
 }

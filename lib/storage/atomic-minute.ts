@@ -32,17 +32,20 @@ function deterministicUuid(value: string): string {
 
 const iso = (value: Date | null) => value?.toISOString() ?? null;
 
+// jsonb params below are bound as text then cast to jsonb. A param described
+// as jsonb makes postgres.js JSON-encode the already-serialized string again,
+// producing a double-encoded scalar the server can't treat as an array or record.
 export const PERSIST_ATOMIC_MINUTE_SQL = `
 with batch_insert as materialized (
   insert into check_batches (
     scheduled_minute, encoding_version, config_version, monitor_ids,
     expected_bitmap, completed_bitmap, failure_bitmap, latency_values,
     scheduler_started_at, scheduler_completed_at, created_at
-  ) values ($1, $2, $3, array(select jsonb_array_elements_text($4::jsonb)),
+  ) values ($1, $2, $3, array(select jsonb_array_elements_text($4::text::jsonb)),
     decode($5, 'hex'), decode($6, 'hex'), decode($7, 'hex'), decode($8, 'hex'), $9, $10, $10)
   on conflict (scheduled_minute) do nothing returning scheduled_minute
 ), state_rows as materialized (
-  select r.* from jsonb_to_recordset($11::jsonb) as r(
+  select r.* from jsonb_to_recordset($11::text::jsonb) as r(
     "monitorId" text, "expectedVersion" integer, state text,
     "consecutiveFailures" integer, "consecutiveSuccesses" integer,
     "firstFailureAt" timestamptz, "firstSuccessAt" timestamptz,
@@ -56,7 +59,7 @@ with batch_insert as materialized (
     opening_error_code, opening_status_code, created_at, updated_at)
   select r.id, r."monitorId", r."openedAt", r."firstFailureAt", r."lastFailureAt",
     r."errorCode", r."statusCode", r."createdAt", r."createdAt"
-  from jsonb_to_recordset($12::jsonb) as r(id uuid, "monitorId" text, "openedAt" timestamptz,
+  from jsonb_to_recordset($12::text::jsonb) as r(id uuid, "monitorId" text, "openedAt" timestamptz,
     "firstFailureAt" timestamptz, "lastFailureAt" timestamptz, "errorCode" text,
     "statusCode" integer, "createdAt" timestamptz) cross join batch_insert
   on conflict (id) do nothing returning id
@@ -65,20 +68,20 @@ with batch_insert as materialized (
     last_failure_at = coalesce(r."lastFailureAt", incidents.last_failure_at),
     first_success_at = case when r."clearFirstSuccess" then null else coalesce(r."firstSuccessAt", incidents.first_success_at) end,
     updated_at = r."updatedAt"
-  from jsonb_to_recordset($13::jsonb) as r(id uuid, "lastFailureAt" timestamptz,
+  from jsonb_to_recordset($13::text::jsonb) as r(id uuid, "lastFailureAt" timestamptz,
     "firstSuccessAt" timestamptz, "clearFirstSuccess" boolean, "updatedAt" timestamptz), batch_insert
   where incidents.id = r.id and incidents.resolved_at is null returning incidents.id
 ), resolved as (
   update incidents set first_success_at = r."firstSuccessAt", resolved_at = r."firstSuccessAt",
     resolution_reason = 'recovered', updated_at = r."updatedAt"
-  from jsonb_to_recordset($14::jsonb) as r(id uuid, "firstSuccessAt" timestamptz, "updatedAt" timestamptz), batch_insert
+  from jsonb_to_recordset($14::text::jsonb) as r(id uuid, "firstSuccessAt" timestamptz, "updatedAt" timestamptz), batch_insert
   where incidents.id = r.id and incidents.resolved_at is null returning incidents.id
 ), outbox_insert as (
   insert into notification_outbox (id, incident_id, monitor_id, event_type, recipient,
     idempotency_key, payload, status, attempt_count, next_attempt_at, created_at, updated_at)
   select r.id, r."incidentId", r."monitorId", r."eventType", r.recipient,
     r."idempotencyKey", r.payload, 'pending', 0, r."createdAt", r."createdAt", r."createdAt"
-  from jsonb_to_recordset($15::jsonb) as r(id uuid, "incidentId" uuid, "monitorId" text,
+  from jsonb_to_recordset($15::text::jsonb) as r(id uuid, "incidentId" uuid, "monitorId" text,
     "eventType" text, recipient text, "idempotencyKey" text, payload jsonb,
     "createdAt" timestamptz, "requiresOpen" boolean) cross join batch_insert
   where not r."requiresOpen" or exists (select 1 from opened where opened.id = r."incidentId")
@@ -86,14 +89,14 @@ with batch_insert as materialized (
 ), payload_insert as (
   insert into exception_payloads (id, payload, created_at, expires_at)
   select r.id, r.payload, r."createdAt", r."expiresAt"
-  from jsonb_to_recordset($16::jsonb) as r(id uuid, payload jsonb, "createdAt" timestamptz, "expiresAt" timestamptz)
+  from jsonb_to_recordset($16::text::jsonb) as r(id uuid, payload jsonb, "createdAt" timestamptz, "expiresAt" timestamptz)
   cross join batch_insert on conflict (id) do nothing returning id
 ), exception_insert as (
   insert into monitor_exceptions (id, monitor_id, event_type, error_code, identity_hash,
     first_seen_at, last_seen_at, occurrence_count, worst_latency_ms, incident_id, payload_id)
   select r.id, r."monitorId", r."eventType", r."errorCode", decode(r."identityHash", 'hex'),
     r."seenAt", r."seenAt", 1, r."latencyMs", r."incidentId", r."payloadId"
-  from jsonb_to_recordset($17::jsonb) as r(id uuid, "monitorId" text, "eventType" text,
+  from jsonb_to_recordset($17::text::jsonb) as r(id uuid, "monitorId" text, "eventType" text,
     "errorCode" text, "identityHash" text, "seenAt" timestamptz, "latencyMs" integer,
     "incidentId" uuid, "payloadId" uuid) cross join batch_insert
   left join payload_insert on payload_insert.id = r."payloadId"

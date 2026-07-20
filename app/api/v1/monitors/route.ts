@@ -1,11 +1,11 @@
 import { z } from "zod";
 
-import { apiError, apiJson, listEnvelope, objectEnvelope } from "@/lib/api/envelopes";
-import { executeIdempotent } from "@/lib/api/idempotency";
+import { apiError, apiJson, errorEnvelope, listEnvelope, objectEnvelope } from "@/lib/api/envelopes";
+import { executeIdempotent, type StoredResponse } from "@/lib/api/idempotency";
 import { authorize, isApiResponse } from "@/lib/api/middleware";
 import { pageLimit } from "@/lib/api/pagination";
 import { routeError } from "@/lib/api/route";
-import { createMonitor, listMonitors, MonitorApiError, recoverCreatedMonitor } from "@/lib/api/monitors";
+import { createMonitor, listMonitors, MonitorApiError } from "@/lib/api/monitors";
 
 function monitorError(error: unknown, requestId: string): Response | null {
   if (error instanceof MonitorApiError) {
@@ -14,6 +14,18 @@ function monitorError(error: unknown, requestId: string): Response | null {
   }
   if (error instanceof z.ZodError) return apiError(requestId, 400, "INVALID_REQUEST", "Monitor request is invalid", { issues: error.issues });
   return null;
+}
+
+// MONITOR_EXISTS/INVALID_REQUEST are deterministic outcomes of this request,
+// not proof it never ran, so store them as the operation's own completed
+// response instead of letting them roll back the transaction. A stale-window
+// retry would otherwise rerun createMonitor against whatever config exists by
+// then. CONFIGURATION_UNAVAILABLE/EDGE_CONFIG_UNAVAILABLE are transient infra
+// failures, not request outcomes, so those still propagate and roll back.
+function storedMonitorError(error: unknown, requestId: string): StoredResponse | null {
+  if (!(error instanceof MonitorApiError)) return null;
+  const status = error.code === "MONITOR_NOT_FOUND" ? 404 : error.code === "MONITOR_EXISTS" ? 409 : error.code === "INVALID_REQUEST" ? 400 : null;
+  return status ? { status, body: errorEnvelope(error.code, error.message, requestId) } : null;
 }
 
 export async function GET(request: Request) {
@@ -53,12 +65,15 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const result = await executeIdempotent({ request, principalKey: context.principalKey, routeKey: "/api/v1/monitors", body,
-      recover: async () => {
-        const monitor = await recoverCreatedMonitor(body);
-        return monitor ? { status: 201, body: objectEnvelope("Monitor", monitor, context.requestId) } : null;
-      },
-      rerunAfterRecoveryMiss: false,
-      work: async () => ({ status: 201, body: objectEnvelope("Monitor", await createMonitor(body, context.principalKey), context.requestId) }),
+      work: async ({ transaction }) => transaction(async (tx) => {
+        try {
+          return { status: 201, body: objectEnvelope("Monitor", await createMonitor(body, context.principalKey, tx), context.requestId) };
+        } catch (error) {
+          const stored = storedMonitorError(error, context.requestId);
+          if (stored) return stored;
+          throw error;
+        }
+      }),
     });
     return apiJson(result.body, { status: result.status });
   } catch (error) {

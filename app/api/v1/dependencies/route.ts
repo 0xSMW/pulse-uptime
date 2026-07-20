@@ -1,10 +1,10 @@
 import { z } from "zod";
 
-import { apiError, apiJson, listEnvelope, objectEnvelope } from "@/lib/api/envelopes";
-import { executeIdempotent } from "@/lib/api/idempotency";
+import { apiError, apiJson, errorEnvelope, listEnvelope, objectEnvelope } from "@/lib/api/envelopes";
+import { executeIdempotent, type StoredResponse } from "@/lib/api/idempotency";
 import { authorize, isApiResponse } from "@/lib/api/middleware";
 import { routeError } from "@/lib/api/route";
-import { DependencyApiError, installDependency, listDependencies, recoverInstalledDependency } from "@/lib/dependencies/service";
+import { DependencyApiError, installDependency, listDependencies } from "@/lib/dependencies/service";
 
 const createSchema = z.object({
   presetId: z.string().min(1),
@@ -22,6 +22,14 @@ function dependencyError(error: unknown, requestId: string): Response | null {
   if (error instanceof DependencyApiError) return apiError(requestId, dependencyErrorStatus(error.code), error.code, error.message, error.details);
   if (error instanceof z.ZodError) return apiError(requestId, 400, "INVALID_REQUEST", "Dependency request is invalid", { issues: error.issues });
   return null;
+}
+
+// Turns a business error thrown inside the idempotency transaction into a
+// stored response so the record commits that outcome instead of rolling back,
+// mirroring the monitors route. A duplicate install stores a clean 409.
+function storedDependencyError(error: unknown, requestId: string): StoredResponse | null {
+  if (!(error instanceof DependencyApiError)) return null;
+  return { status: dependencyErrorStatus(error.code), body: errorEnvelope(error.code, error.message, requestId, error.details) };
 }
 
 export async function GET(request: Request) {
@@ -42,14 +50,14 @@ export async function POST(request: Request) {
     const body = await request.json();
     const parsed = createSchema.parse(body);
     const result = await executeIdempotent({ request, principalKey: context.principalKey, routeKey: "/api/v1/dependencies", body,
-      recover: async ({ operationId }) => {
-        const dependency = await recoverInstalledDependency(operationId);
-        return dependency ? { status: 201, body: objectEnvelope("Dependency", dependency, context.requestId) } : null;
-      },
-      rerunAfterRecoveryMiss: false,
-      work: async ({ operationId }) => ({
-        status: 201,
-        body: objectEnvelope("Dependency", await installDependency(parsed, { dependencyId: operationId }), context.requestId),
+      work: async ({ operationId, transaction }) => transaction(async (tx) => {
+        try {
+          return { status: 201, body: objectEnvelope("Dependency", await installDependency(parsed, { dependencyId: operationId }, tx), context.requestId) };
+        } catch (error) {
+          const stored = storedDependencyError(error, context.requestId);
+          if (stored) return stored;
+          throw error;
+        }
       }),
     });
     return apiJson(result.body, { status: result.status });

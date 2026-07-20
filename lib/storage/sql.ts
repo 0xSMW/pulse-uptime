@@ -14,12 +14,15 @@ with coverage as (
   ) scan_start
   from coverage cross join accepted_start
 ), accepted_snapshot_rank as (
-  select config_version, config_json, accepted_at,
+  select config_version, config_json->'monitors' monitors, accepted_at,
     row_number() over (partition by accepted_at order by seen_at desc) rn
   from monitoring_config_snapshots
   where status = 'accepted'
-), accepted_ranges as (
-  select config_version, config_json, accepted_at,
+), accepted_ranges as materialized (
+  -- Materialized: the monitors array is detoasted here once per accepted
+  -- snapshot. Without this, a single-reference CTE gets inlined into the
+  -- per-minute lateral below and re-detoasts config_json on every minute.
+  select config_version, monitors, accepted_at,
     lead(accepted_at) over (order by accepted_at) next_accepted_at
   from accepted_snapshot_rank
   where rn = 1
@@ -29,10 +32,10 @@ with coverage as (
     array_agg((monitor.value->>'intervalMinutes')::integer order by monitor.value->>'id') intervals
   from scan
   cross join lateral generate_series(date_trunc('minute', scan.scan_start), date_trunc('minute', $2::timestamptz) - interval '1 minute', interval '1 minute') minute(scheduled_minute)
-  cross join lateral (select config_version, config_json from accepted_ranges
+  cross join lateral (select config_version, monitors from accepted_ranges
     where accepted_at <= minute.scheduled_minute
       and (next_accepted_at is null or minute.scheduled_minute < next_accepted_at)) config
-  cross join lateral jsonb_array_elements(config.config_json->'monitors') monitor(value)
+  cross join lateral jsonb_array_elements(config.monitors) monitor(value)
   left join check_batches existing on existing.scheduled_minute = minute.scheduled_minute
   where existing.scheduled_minute is null and (monitor.value->>'enabled')::boolean
   group by minute.scheduled_minute, config.config_version
@@ -245,6 +248,39 @@ on conflict (captured_at) do update set
   scheduler_coverage = excluded.scheduler_coverage,
   provider_metrics_captured_at = excluded.provider_metrics_captured_at
 returning governor_mode
+`;
+
+// Recent per-check rows for a single monitor, decoded straight from
+// check_batches instead of the 15-minute rollups. expected = 1 already
+// carries the monitor's own interval, so the result lands on its true cadence.
+export const RECENT_MINUTE_CHECKS_SQL = `
+with positioned as (
+  select batch.scheduled_minute, array_position(batch.monitor_ids, $1::text) position,
+    batch.expected_bitmap, batch.completed_bitmap, batch.failure_bitmap, batch.latency_values
+  from check_batches batch
+  where batch.scheduled_minute >= $2 and batch.scheduled_minute < $3
+), bits as (
+  select positioned.scheduled_minute,
+    ((get_byte(positioned.expected_bitmap, ((positioned.position - 1) / 8)::integer) >> (((positioned.position - 1) % 8)::integer)) & 1) expected,
+    ((get_byte(positioned.completed_bitmap, ((positioned.position - 1) / 8)::integer) >> (((positioned.position - 1) % 8)::integer)) & 1) completed,
+    ((get_byte(positioned.failure_bitmap, ((positioned.position - 1) / 8)::integer) >> (((positioned.position - 1) % 8)::integer)) & 1) failed,
+    ((get_byte(positioned.latency_values, ((positioned.position - 1) * 4)::integer)::bigint << 24)
+    + (get_byte(positioned.latency_values, ((positioned.position - 1) * 4 + 1)::integer)::bigint << 16)
+    + (get_byte(positioned.latency_values, ((positioned.position - 1) * 4 + 2)::integer)::bigint << 8)
+    + get_byte(positioned.latency_values, ((positioned.position - 1) * 4 + 3)::integer)::bigint) raw_latency_ms
+  from positioned
+  where positioned.position is not null
+)
+select bits.scheduled_minute checked_at, bits.completed = 1 completed, bits.failed = 1 failed,
+  -- Clamped to int4 range before the cast. The encoder allows latencies up to
+  -- 0xfffffffe, past what an integer column can hold, so an out-of-range
+  -- stored value is reported at the int4 ceiling instead of failing the query.
+  case when bits.completed = 1 and bits.raw_latency_ms <> 4294967295::bigint
+    then least(bits.raw_latency_ms, 2147483647::bigint)::integer else null end latency_ms
+from bits
+where bits.expected = 1
+order by bits.scheduled_minute desc
+limit $4
 `;
 
 export type UsageModeRow = { governor_mode: GovernorMode };

@@ -18,6 +18,7 @@ import (
 	"github.com/0xSMW/pulse-uptime/cli/internal/api"
 	"github.com/0xSMW/pulse-uptime/cli/internal/auth"
 	"github.com/0xSMW/pulse-uptime/cli/internal/buildinfo"
+	"github.com/0xSMW/pulse-uptime/cli/internal/config"
 	"github.com/spf13/pflag"
 )
 
@@ -470,6 +471,41 @@ func TestCanceledRequestReturnsInterruptedExit(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), `"code": "INTERRUPTED"`) {
 		t.Fatalf("stderr=%s", stderr.String())
+	}
+}
+
+func TestNewClientProgressHookGate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"ok":true}`)
+	}))
+	defer server.Close()
+
+	cases := []struct {
+		name      string
+		stderrTTY bool
+		debug     bool
+		term      string
+		wantSpin  bool
+	}{
+		{"tty and not debug installs the spinner", true, false, "", true},
+		{"non-tty does not install the spinner", false, false, "", false},
+		{"debug does not install the spinner", true, true, "", false},
+		{"dumb terminal does not install the spinner", true, false, "dumb", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("TERM", tc.term)
+			var stderr bytes.Buffer
+			app := New(Options{In: strings.NewReader(""), Out: io.Discard, Err: &stderr, StderrTTY: tc.stderrTTY, ConfigPath: t.TempDir() + "/config.yaml"})
+			app.debug = tc.debug
+			client := app.newClient(config.Resolved{Server: server.URL, Timeout: time.Second}, "")
+			if _, err := client.DoRaw(context.Background(), api.Request{Method: http.MethodGet, Path: "/api/v1/example"}); err != nil {
+				t.Fatal(err)
+			}
+			if gotSpin := strings.Contains(stderr.String(), "\x1b[K"); gotSpin != tc.wantSpin {
+				t.Fatalf("stderr = %q, want spinner=%v", stderr.String(), tc.wantSpin)
+			}
+		})
 	}
 }
 

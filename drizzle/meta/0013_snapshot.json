@@ -1,6 +1,6 @@
 {
-  "id": "92aca8b5-e857-4924-abfa-0ae413d6f439",
-  "prevId": "43b30fe6-2c3d-4202-9acf-2941f505100d",
+  "id": "ebba14ec-93bf-4d3e-9082-ca88ab607fbb",
+  "prevId": "226fa03d-53fb-4b69-90fc-3ac586a6158a",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -143,6 +143,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "protocol": {
+          "name": "protocol",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
         },
         "response_status": {
           "name": "response_status",

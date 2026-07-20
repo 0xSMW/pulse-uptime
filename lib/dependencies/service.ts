@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq, gte, isNull } from "drizzle-orm";
 import { z } from "zod";
 
-import { db } from "@/lib/db/client";
+import { db, type DatabaseHandle } from "@/lib/db/client";
 import { dependencies, dependencyCatalog, dependencySources, dependencyState, dependencyStateIntervals } from "@/lib/db/schema";
 
 import { getDependencyDetail as queryDependencyDetail, listCatalog as queryListCatalog, listDependenciesForDashboard } from "./queries";
@@ -82,6 +82,7 @@ export interface DependenciesStore {
     intervalId: string;
     sourceId: string;
     now: Date;
+    handle?: DatabaseHandle;
   }): Promise<boolean>;
   touchSourceNextPoll(sourceId: string, now: Date): Promise<void>;
   loadSourceIdForDependency(id: string): Promise<string | null>;
@@ -132,6 +133,7 @@ function validateScope(scope: DependencyScope | null, scopeId: string | null | u
 export async function installDependency(
   input: InstallDependencyInput,
   dependenciesInput: DependenciesDependencies = {},
+  handle: DatabaseHandle = db,
 ) {
   const store = dependenciesInput.store ?? databaseDependenciesStore;
   const now = dependenciesInput.now?.() ?? new Date();
@@ -168,6 +170,7 @@ export async function installDependency(
     intervalId: newId(),
     sourceId: preset.sourceId,
     now,
+    handle,
   });
   if (!inserted) {
     throw new DependencyApiError("DEPENDENCY_EXISTS", "An active dependency already exists for this preset and scope");
@@ -176,11 +179,6 @@ export async function installDependency(
   const detail = await queryDependencyDetail(dependency.id);
   if (!detail) throw new Error("Dependency vanished immediately after insert");
   return detail;
-}
-
-/** Idempotency recovery for POST /api/v1/dependencies: the id is pinned to the operationId, so recovering is just "does a dependency with this id exist." */
-export async function recoverInstalledDependency(id: string) {
-  return queryDependencyDetail(id);
 }
 
 export async function listDependencies() {
@@ -265,34 +263,49 @@ export const databaseDependenciesStore: DependenciesStore = {
     return row ? { ...row, state: row.state as DependencyState } : null;
   },
 
-  async insertDependency({ dependency, state, intervalId, sourceId, now }) {
-    try {
-      await db.transaction(async (tx) => {
-        await tx.insert(dependencies).values(dependency);
-        await tx.insert(dependencyState).values({
-          dependencyId: dependency.id,
-          state: state.state,
-          checking: state.checking,
-          stateStartedAt: now,
-          providerUpdatedAt: state.providerUpdatedAt,
-          observedAt: state.observedAt,
-          lastSuccessfulPollAt: null,
-        });
-        await tx.insert(dependencyStateIntervals).values({
-          id: intervalId,
-          dependencyId: dependency.id,
-          state: state.state,
-          startedAt: now,
-          endedAt: null,
-          sourceObservedAt: state.observedAt,
-        });
-        // Clearing etag/lastModified alongside next_poll_at forces the next
-        // poll to a 200 with a full body: a stale validator would otherwise
-        // let the provider answer 304, leaving this freshly installed
-        // dependency stuck UNKNOWN/checking with nothing to adopt state from.
-        await tx.update(dependencySources).set({ nextPollAt: now, etag: null, lastModified: null }).where(eq(dependencySources.id, sourceId));
+  async insertDependency({ dependency, state, intervalId, sourceId, now, handle }) {
+    // Runs the writes on the caller's transaction when one is supplied (the
+    // idempotency path) so the dependency and its idempotency record commit
+    // atomically, or opens its own transaction otherwise. A caller's handle
+    // cannot absorb a 23505 without poisoning the outer transaction, so the
+    // duplicate check is a pre-check SELECT inside the same handle, with the
+    // partial unique index as the last-resort backstop.
+    const runInsert = async (tx: DatabaseHandle): Promise<boolean> => {
+      const [existing] = await tx.select({ id: dependencies.id }).from(dependencies)
+        .where(and(
+          eq(dependencies.catalogId, dependency.catalogId),
+          dependency.scopeId === null ? isNull(dependencies.scopeId) : eq(dependencies.scopeId, dependency.scopeId),
+          isNull(dependencies.removedAt),
+        )).limit(1);
+      if (existing) return false;
+      await tx.insert(dependencies).values(dependency);
+      await tx.insert(dependencyState).values({
+        dependencyId: dependency.id,
+        state: state.state,
+        checking: state.checking,
+        stateStartedAt: now,
+        providerUpdatedAt: state.providerUpdatedAt,
+        observedAt: state.observedAt,
+        lastSuccessfulPollAt: null,
       });
+      await tx.insert(dependencyStateIntervals).values({
+        id: intervalId,
+        dependencyId: dependency.id,
+        state: state.state,
+        startedAt: now,
+        endedAt: null,
+        sourceObservedAt: state.observedAt,
+      });
+      // Clearing etag/lastModified alongside next_poll_at forces the next
+      // poll to a 200 with a full body: a stale validator would otherwise
+      // let the provider answer 304, leaving this freshly installed
+      // dependency stuck UNKNOWN/checking with nothing to adopt state from.
+      await tx.update(dependencySources).set({ nextPollAt: now, etag: null, lastModified: null }).where(eq(dependencySources.id, sourceId));
       return true;
+    };
+    if (handle) return runInsert(handle);
+    try {
+      return await db.transaction(runInsert);
     } catch (error) {
       if ((error as { code?: string }).code === "23505") return false;
       throw error;
