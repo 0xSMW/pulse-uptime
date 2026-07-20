@@ -27,7 +27,7 @@ export function OngoingIncidentCard({ incident }: { incident: IncidentSummary })
           <span className="status-dot-pulse relative size-2.5 shrink-0 rounded-full bg-[var(--down)] text-[var(--down)]" aria-hidden="true" />
           <Link
             href={`/incidents/${encodeURIComponent(incident.id)}`}
-            className="truncate text-sm font-semibold tracking-[-0.28px] hover:underline"
+            className="truncate text-sm font-semibold tracking-[-0.28px] transition-opacity duration-150 hover:opacity-70"
           >
             {incident.monitorName}
           </Link>

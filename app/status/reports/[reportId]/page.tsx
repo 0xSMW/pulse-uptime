@@ -63,7 +63,7 @@ export default async function PublicReportPage({ params }: ReportPageProps) {
       <main className="mx-auto w-full max-w-[720px] px-4 pb-16 pt-12 sm:px-6">
         <Link
           href="/status"
-          className="mb-5 inline-flex text-[13px] text-[var(--fg-muted)] hover:text-[var(--fg)] hover:underline"
+          className="mb-5 inline-flex text-[13px] text-[var(--fg-muted)] transition-colors duration-150 hover:text-[var(--fg)]"
         >
           ← All Systems
         </Link>
@@ -90,7 +90,7 @@ export default async function PublicReportPage({ params }: ReportPageProps) {
     <main className="mx-auto w-full max-w-[720px] px-4 pb-16 pt-12 sm:px-6">
       <Link
         href="/status"
-        className="mb-5 inline-flex text-[13px] text-[var(--fg-muted)] hover:text-[var(--fg)] hover:underline"
+        className="mb-5 inline-flex text-[13px] text-[var(--fg-muted)] transition-colors duration-150 hover:text-[var(--fg)]"
       >
         ← All Systems
       </Link>

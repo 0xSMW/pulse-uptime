@@ -33,7 +33,7 @@ export function ReportList({ reports }: { reports: ReportListRowData[] }) {
               <div className="flex flex-wrap items-center gap-2">
                 <Link
                   href={`/incidents/reports/${encodeURIComponent(report.id)}`}
-                  className="truncate text-sm font-medium tracking-[-0.28px] after:absolute after:inset-0 hover:underline"
+                  className="truncate text-sm font-medium tracking-[-0.28px] after:absolute after:inset-0"
                 >
                   {report.title}
                 </Link>
@@ -107,7 +107,7 @@ export function ReportsEmpty({ filtered }: { filtered: boolean }) {
         ) : (
           <span>
             No status reports yet.{" "}
-            <Link href="/incidents/reports/new" className="text-[var(--fg)] hover:underline">
+            <Link href="/incidents/reports/new" className="text-[var(--fg)] transition-opacity duration-150 hover:opacity-70">
               Create one
             </Link>{" "}
             to narrate an incident or maintenance window.

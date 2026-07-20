@@ -55,7 +55,8 @@ export function HelpCenter() {
           top: section.getBoundingClientRect().top + window.scrollY,
         }),
       );
-      const next = activeHelpSectionId(positions, window.scrollY, SCROLL_OFFSET);
+      const atBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight - 4;
+      const next = activeHelpSectionId(positions, window.scrollY, SCROLL_OFFSET, atBottom);
       if (next && next !== activeRef.current) {
         activeRef.current = next;
         if (restoredRef.current && window.location.hash !== `#${next}`) {
@@ -92,33 +93,47 @@ export function HelpCenter() {
     <div className="lg:flex lg:gap-12">
       <aside className="hidden lg:block lg:w-[220px] lg:shrink-0">
         <nav aria-label="Help sections" className="hide-scrollbar sticky top-20 max-h-[calc(100vh-96px)] overflow-y-auto pb-8">
-          {helpGroups.map((group) => (
-            <div key={group.label} className="mb-6">
-              <p className="mb-2 text-[11px] font-medium tracking-[0.04em] text-[var(--fg-faint)] uppercase">
-                {group.label}
-              </p>
-              <ul className="space-y-px">
-                {group.entries.map((entry) => {
-                  const id = helpEntryId(entry);
-                  const current = active === id;
-                  return (
-                    <li key={id}>
-                      <a
-                        href={`#${id}`}
-                        aria-current={current ? "location" : undefined}
-                        className={cn(
-                          "block rounded-[6px] px-2.5 py-1.5 text-[13px] text-[var(--fg-muted)] hover:bg-[var(--hover)] hover:text-[var(--fg)]",
-                          current && "bg-[var(--hover)] font-medium text-[var(--fg)]",
-                        )}
-                      >
-                        {entry.title}
-                      </a>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ))}
+          {helpGroups.map((group) => {
+            // A group stays expanded only while the reader is inside it, the
+            // marketing docs sidebar behavior. The label jumps to the group's
+            // first entry so collapsed groups stay reachable.
+            const expanded = group.entries.some((entry) => helpEntryId(entry) === active);
+            const firstId = helpEntryId(group.entries[0]!);
+            return (
+              <div key={group.label} className="mb-6">
+                <button
+                  type="button"
+                  aria-expanded={expanded}
+                  onClick={() => {
+                    window.location.hash = `#${firstId}`;
+                  }}
+                  className="mb-2 block cursor-pointer px-2.5 text-[11px] font-medium tracking-[0.04em] text-[var(--fg-faint)] uppercase hover:text-[var(--fg)]"
+                >
+                  {group.label}
+                </button>
+                <ul hidden={!expanded} className="space-y-px">
+                  {group.entries.map((entry) => {
+                    const id = helpEntryId(entry);
+                    const current = active === id;
+                    return (
+                      <li key={id}>
+                        <a
+                          href={`#${id}`}
+                          aria-current={current ? "location" : undefined}
+                          className={cn(
+                            "block rounded-[6px] px-2.5 py-1.5 text-[13px] text-[var(--fg-muted)] hover:bg-[var(--hover)] hover:text-[var(--fg)]",
+                            current && "bg-[var(--hover)] font-medium text-[var(--fg)]",
+                          )}
+                        >
+                          {entry.title}
+                        </a>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            );
+          })}
         </nav>
       </aside>
 
@@ -177,7 +192,7 @@ export function HelpCenter() {
                       className="scroll-mt-32 lg:scroll-mt-24"
                     >
                       <h3 id={`${id}-title`} className="text-base font-semibold tracking-[-0.32px]">
-                        <a href={`#${id}`} className="hover:underline">
+                        <a href={`#${id}`} className="transition-opacity duration-150 hover:opacity-70">
                           {entry.title}
                         </a>
                       </h3>
@@ -199,7 +214,7 @@ export function HelpCenter() {
                           <li key={link.href}>
                             <a
                               href={link.href}
-                              className="text-[13px] font-medium text-[var(--fg)] hover:underline"
+                              className="text-[13px] font-medium text-[var(--fg)] transition-opacity duration-150 hover:opacity-70"
                             >
                               {link.label} <span aria-hidden="true">→</span>
                             </a>

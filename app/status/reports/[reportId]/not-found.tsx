@@ -9,7 +9,7 @@ export default function ReportNotFound() {
       </p>
       <Link
         href="/status"
-        className="mt-6 inline-flex text-[13px] font-medium hover:underline"
+        className="mt-6 inline-flex text-[13px] font-medium text-[var(--fg-muted)] transition-colors duration-150 hover:text-[var(--fg)]"
       >
         ← All Systems
       </Link>

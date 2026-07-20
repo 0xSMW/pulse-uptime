@@ -495,13 +495,19 @@ export function findHelpEntryId(hash: string): string | null {
   return helpEntries.some((entry) => helpEntryId(entry) === id) ? id : null;
 }
 
-/** The section whose heading is above the reading line, else the first section. */
+/**
+ * The section whose heading is above the reading line, else the first section.
+ * atBottom forces the last section: a short final section can never cross the
+ * reading line, so reaching the end of the page must count as reading it.
+ */
 export function activeHelpSectionId(
   positions: Array<{ id: string; top: number }>,
   scrollY: number,
   offset: number,
+  atBottom = false,
 ): string | null {
   if (positions.length === 0) return null;
+  if (atBottom) return positions[positions.length - 1]!.id;
   let active = positions[0]!.id;
   for (const position of positions) {
     if (position.top <= scrollY + offset) active = position.id;

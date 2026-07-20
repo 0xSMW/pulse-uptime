@@ -62,7 +62,7 @@ describe("DatabaseHealthCard", () => {
       freshness: { ...report.freshness, providerMetricsAvailable: false, providerCapturedAt: null, providerAgeSeconds: null },
     };
     const html = renderToStaticMarkup(<TimezoneProvider><DatabaseHealthCard initialData={partial} /></TimezoneProvider>);
-    expect(html).toContain("Provider metrics unavailable, relation usage remains current");
+    expect(html).toContain("Provider transfer metrics are not collected on this deployment, relation usage remains current");
     expect(html).toContain('aria-valuetext="Storage usage unavailable"');
     expect(html).not.toContain("aria-valuenow");
     expect(html).toContain("Rollups");
