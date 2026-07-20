@@ -724,7 +724,10 @@ export function createSqlPersistStore(db: Database): PersistStore {
         // provider started_at is ahead of server now would otherwise land its
         // resolved_at before its own started_at and fail the
         // provider_incidents_resolution_order check, aborting the whole poll.
-        const guardedResolvedAt = sql`greatest(${resolvedAt}, ${providerIncidents.startedAt})`;
+        // Bound as an ISO string, never a Date: raw sql params bypass
+        // drizzle's column mappers and postgres-js rejects a Date at the
+        // wire layer.
+        const guardedResolvedAt = sql`greatest(${resolvedAt.toISOString()}, ${providerIncidents.startedAt})`;
         await tx.update(providerIncidents).set({
           state: "resolved" as (typeof providerIncidents.$inferInsert)["state"],
           resolvedAt: guardedResolvedAt,
@@ -818,7 +821,10 @@ export function createSqlPersistStore(db: Database): PersistStore {
         // cross-instance clock skew a slightly-behind now could otherwise
         // land before the interval's own started_at and fail the
         // ended_at >= started_at check, aborting the whole poll transaction.
-        await tx.update(dependencyStateIntervals).set({ endedAt: sql`greatest(${now}, ${dependencyStateIntervals.startedAt})` })
+        // Bound as an ISO string, never a Date: raw sql params bypass
+        // drizzle's column mappers and postgres-js rejects a Date at the
+        // wire layer.
+        await tx.update(dependencyStateIntervals).set({ endedAt: sql`greatest(${now.toISOString()}, ${dependencyStateIntervals.startedAt})` })
           .where(and(eq(dependencyStateIntervals.dependencyId, dependencyId), isNull(dependencyStateIntervals.endedAt)));
         // F4: tolerate a lost close-then-insert race. This close-then-insert
         // is not atomic against the maintenance cron's flip, so a concurrent

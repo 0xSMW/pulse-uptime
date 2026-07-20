@@ -11,7 +11,7 @@ import { dependencies, dependencyCatalog, dependencySources, dependencyState, de
 import { getDependencyDetail as queryDependencyDetail, listCatalog as queryListCatalog, listDependenciesForDashboard } from "./queries";
 import type { DependencyScope, DependencyState } from "./types";
 
-// Install semantics per Docs/DEPENDENCY-MONITORING.md "One-click installation
+// Install semantics per Docs/Specs/DEPENDENCY-MONITORING.md "One-click installation
 // path": no provider credentials, one transaction, and a fresh-snapshot rule
 // so a brand-new install never has to lie about its state.
 
@@ -396,7 +396,9 @@ export const databaseDependenciesStore: DependenciesStore = {
       // slightly-behind now under cross-instance clock skew must not land
       // before the interval's own started_at and fail the
       // ended_at >= started_at check, which would abort this transaction.
-      await tx.update(dependencyStateIntervals).set({ endedAt: sql`greatest(${now}, ${dependencyStateIntervals.startedAt})` })
+      // Bound as an ISO string, never a Date: raw sql params bypass drizzle's
+      // column mappers and postgres-js rejects a Date at the wire layer.
+      await tx.update(dependencyStateIntervals).set({ endedAt: sql`greatest(${now.toISOString()}, ${dependencyStateIntervals.startedAt})` })
         .where(and(eq(dependencyStateIntervals.dependencyId, id), isNull(dependencyStateIntervals.endedAt)));
       return true;
     };

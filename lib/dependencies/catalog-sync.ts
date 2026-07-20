@@ -237,7 +237,9 @@ export async function flipDependenciesToUnknownSql(tx: DatabaseTransaction, cata
     // cross-instance clock skew a slightly-behind observedAt could otherwise
     // land before the interval's own started_at and fail the
     // ended_at >= started_at check, aborting the whole sync transaction.
-    await tx.update(dependencyStateIntervals).set({ endedAt: sql`greatest(${observedAt}, ${dependencyStateIntervals.startedAt})` })
+    // Bound as an ISO string, never a Date: raw sql params bypass drizzle's
+    // column mappers and postgres-js rejects a Date at the wire layer.
+    await tx.update(dependencyStateIntervals).set({ endedAt: sql`greatest(${observedAt.toISOString()}, ${dependencyStateIntervals.startedAt})` })
       .where(and(inArray(dependencyStateIntervals.dependencyId, transitioning), isNull(dependencyStateIntervals.endedAt)));
     await tx.insert(dependencyStateIntervals).values(transitioning.map((dependencyId) => ({
       id: randomUUID(),
