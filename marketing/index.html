@@ -65,11 +65,11 @@
         <div class="hero-copy" data-reveal>
           <a class="eyebrow release-link" href="https://github.com/0xSMW/pulse-uptime/releases" target="_blank" rel="noreferrer">
             <span class="status-dot up" aria-hidden="true"></span>
-            Latest update · v0.1.0 released
+            Latest update · v0.2.0 released
             <svg class="arrow-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" /></svg>
           </a>
           <h1>Own your uptime</h1>
-          <p class="lede">Pulse checks your endpoints, opens incidents, and gives people and agents the same control plane</p>
+          <p class="lede">Pulse checks your endpoints, opens incidents, and tracks the providers behind them — one control plane for people and agents</p>
           <div class="hero-actions">
             <a class="button primary" href="https://github.com/0xSMW/pulse-uptime" target="_blank" rel="noreferrer">
               <svg class="github-mark" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
@@ -121,6 +121,34 @@
                 <tbody id="monitor-rows"></tbody>
               </table>
             </div>
+
+            <div class="app-heading-row">
+              <div>
+                <p class="app-kicker">Dependencies</p>
+                <h2>Provider reported</h2>
+              </div>
+            </div>
+
+            <div class="dep-rows">
+              <div class="dep-row">
+                <span class="dep-status"><span class="status-dot up" aria-hidden="true"></span>Operational</span>
+                <span class="dep-name"><svg class="dep-mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4519l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg><span class="dep-name-text"><strong>OpenAI API</strong><small>OpenAI</small></span></span>
+                <div class="mini-timeline dep-timeline" aria-label="OpenAI API provider-reported timeline"><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span></div>
+                <span class="dep-incident mono"></span>
+              </div>
+              <div class="dep-row">
+                <span class="dep-status"><span class="status-dot up" aria-hidden="true"></span>Operational</span>
+                <span class="dep-name"><svg class="dep-mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M13.976 9.15c-2.172-.806-3.356-1.426-3.356-2.409 0-.831.683-1.305 1.901-1.305 2.227 0 4.515.858 6.09 1.631l.89-5.494C18.252.975 15.697 0 12.165 0 9.667 0 7.589.654 6.104 1.872 4.56 3.147 3.757 4.992 3.757 7.218c0 4.039 2.467 5.76 6.476 7.219 2.585.92 3.445 1.574 3.445 2.583 0 .98-.84 1.545-2.354 1.545-1.875 0-4.965-.921-6.99-2.109l-.9 5.555C5.175 22.99 8.385 24 11.714 24c2.641 0 4.843-.624 6.328-1.813 1.664-1.305 2.525-3.236 2.525-5.732 0-4.128-2.524-5.851-6.594-7.305h.003z"/></svg><span class="dep-name-text"><strong>Stripe API</strong><small>Stripe</small></span></span>
+                <div class="mini-timeline dep-timeline" aria-label="Stripe API provider-reported timeline"><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span></div>
+                <span class="dep-incident mono"></span>
+              </div>
+              <div class="dep-row">
+                <span class="dep-status"><span class="status-dot neutral pulse" aria-hidden="true"></span>Checking</span>
+                <span class="dep-name"><svg class="dep-mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m12 1.608 12 20.784H0Z"/></svg><span class="dep-name-text"><strong>Vercel Runtime</strong><small>Vercel</small></span></span>
+                <div class="mini-timeline dep-timeline" aria-label="Vercel Runtime provider-reported timeline"><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span></div>
+                <span class="dep-incident mono"></span>
+              </div>
+            </div>
           </div>
           <div class="frame-fade" aria-hidden="true"></div>
         </div>
@@ -129,19 +157,78 @@
       <section class="principles shell section-rule" aria-label="Pulse principles">
         <article data-reveal>
           <p class="figure">FIG 0.1</p>
-          <div class="principle-mark concentric" aria-hidden="true"><i></i><i></i><i></i></div>
+          <svg class="principle-mark perimeter" viewBox="10 14 180 162" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect class="p-boundary fade" x="18" y="23" width="164" height="144" rx="18" style="--d:120ms"/>
+            <rect class="p-orbit" x="18" y="23" width="164" height="144" rx="18" pathLength="1"/>
+            <g class="p-server-g">
+              <rect class="draw" x="62" y="63" width="76" height="64" rx="8" pathLength="1" style="--d:260ms"/>
+              <path class="draw" d="M62 84.3h76" pathLength="1" style="--d:520ms"/>
+              <path class="draw" d="M62 105.7h76" pathLength="1" style="--d:600ms"/>
+              <path class="draw" d="M118 73.6h12M118 95h12M118 116.4h12" pathLength="1" style="--d:700ms"/>
+              <circle class="p-led dot" cx="73" cy="73.6" r="2.2" style="--d:840ms"/>
+              <circle class="p-led dot" cx="73" cy="95" r="2.2" style="--d:920ms"/>
+              <circle class="p-led dot" cx="73" cy="116.4" r="2.2" style="--d:1000ms"/>
+            </g>
+            <circle class="p-ring" cx="100" cy="95" r="12"/>
+          </svg>
           <h3>Built for ownership</h3>
           <p>Deploy to your infrastructure and keep control of your operational data</p>
         </article>
         <article data-reveal>
           <p class="figure">FIG 0.2</p>
-          <div class="principle-mark nodes" aria-hidden="true"><i></i><i></i><i></i></div>
+          <svg class="principle-mark relay" viewBox="10 14 180 162" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path class="r-wire draw" d="M48 37C82 37 88 95 122 95" pathLength="1" style="--d:620ms"/>
+            <path class="r-wire draw" d="M48 95H122" pathLength="1" style="--d:760ms"/>
+            <path class="r-wire draw" d="M48 153C82 153 88 95 122 95" pathLength="1" style="--d:900ms"/>
+            <path class="r-pulse r-p1" d="M48 37C82 37 88 95 122 95" pathLength="1"/>
+            <path class="r-pulse r-p2" d="M48 95H122" pathLength="1"/>
+            <path class="r-pulse r-p3" d="M48 153C82 153 88 95 122 95" pathLength="1"/>
+            <g class="r-node-g">
+              <rect class="draw" x="14" y="20" width="34" height="34" rx="9" pathLength="1" style="--d:140ms"/>
+              <circle class="draw" cx="31" cy="31" r="4.5" pathLength="1" style="--d:480ms"/>
+              <path class="draw" d="M23.5 45c0-6 15-6 15 0" pathLength="1" style="--d:560ms"/>
+              <circle class="r-port dot" cx="48" cy="37" r="1.8" style="--d:980ms"/>
+            </g>
+            <g class="r-node-g">
+              <rect class="draw" x="14" y="78" width="34" height="34" rx="9" pathLength="1" style="--d:260ms"/>
+              <path class="draw" d="m24.5 90 5.5 5-5.5 5" pathLength="1" style="--d:600ms"/>
+              <path class="draw" d="M34 100h6.5" pathLength="1" style="--d:680ms"/>
+              <circle class="r-port dot" cx="48" cy="95" r="1.8" style="--d:1060ms"/>
+            </g>
+            <g class="r-node-g">
+              <rect class="draw" x="14" y="136" width="34" height="34" rx="9" pathLength="1" style="--d:380ms"/>
+              <path class="draw" d="M31 146.5v13M25.4 149.75l11.2 6.5M36.6 149.75l-11.2 6.5" pathLength="1" style="--d:720ms"/>
+              <circle class="r-port dot" cx="48" cy="153" r="1.8" style="--d:1140ms"/>
+            </g>
+            <g class="r-hub-g">
+              <rect class="draw" x="122" y="63" width="64" height="64" rx="12" pathLength="1" style="--d:320ms"/>
+              <path class="draw" d="M134 83h40" pathLength="1" style="--d:640ms"/>
+              <path class="draw" d="M134 95h28" pathLength="1" style="--d:720ms"/>
+              <path class="draw" d="M134 107h34" pathLength="1" style="--d:800ms"/>
+              <circle class="r-port dot" cx="122" cy="95" r="2.2" style="--d:1220ms"/>
+            </g>
+          </svg>
           <h3>Ready for agents</h3>
           <p>One typed API and CLI for people, scripts, and autonomous workflows</p>
         </article>
         <article data-reveal>
           <p class="figure">FIG 0.3</p>
-          <div class="principle-mark signal" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+          <svg class="principle-mark spike" viewBox="10 14 180 162" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path class="s-threshold fade" d="M14 96h172" style="--d:600ms"/>
+            <path class="s-base draw" d="M14 150h172" pathLength="1" style="--d:140ms"/>
+            <path class="s-ticks draw" d="M18 150v-10M25 150v-13M32 150v-9M39 150v-15M46 150v-11M53 150v-8M60 150v-14M67 150v-10M74 150v-16M81 150v-12M88 150v-9M95 150v-13M102 150v-10M109 150v-15M116 150v-11M123 150v-9M137 150v-12M144 150v-9M151 150v-14M158 150v-10M165 150v-13M172 150v-9" pathLength="1" style="--d:380ms"/>
+            <g class="s-spike-g">
+              <line class="s-spike draw" x1="130" y1="150" x2="130" y2="62" pathLength="1" style="--d:820ms"/>
+              <line class="s-climb" x1="130" y1="150" x2="130" y2="62" pathLength="1"/>
+              <circle class="s-halo" cx="130" cy="58" r="7"/>
+              <circle class="s-head dot" cx="130" cy="58" r="3" style="--d:1040ms"/>
+            </g>
+            <g class="s-label-g">
+              <path class="s-leader draw" d="M134 54 150 38h6" pathLength="1" style="--d:1140ms"/>
+              <rect class="s-label-box draw" x="156" y="29" width="32" height="18" rx="5" pathLength="1" style="--d:1240ms"/>
+              <path class="s-label-text draw" d="M162 35h20M162 41h13" pathLength="1" style="--d:1380ms"/>
+            </g>
+          </svg>
           <h3>Focused on incidents</h3>
           <p>Compact routine checks and preserve the failures that need attention</p>
         </article>
@@ -363,7 +450,7 @@
             <p class="section-number">4.0 &nbsp; Attribute</p>
             <h2>Is it us,<br />or them?</h2>
           </div>
-          <p>Add OpenAI, Stripe, or 28 other services in one click. Incidents appear beside your own checks.</p>
+          <p>Add OpenAI, Stripe, or 20+ services in one click. Incidents appear beside your own checks.</p>
         </div>
 
         <div class="dependency-grid">
@@ -774,11 +861,11 @@
           <div class="cta-links">
             <a class="text-link" href="./docs.html">
               Read the docs
-              <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 3.5 4.5 4.5L6 12.5" /></svg>
+              <svg class="arrow-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" /></svg>
             </a>
             <a class="text-link" href="https://github.com/0xSMW/pulse-uptime" target="_blank" rel="noreferrer">
               View the code
-              <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 3.5 4.5 4.5L6 12.5" /></svg>
+              <svg class="arrow-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" /></svg>
             </a>
           </div>
         </div>

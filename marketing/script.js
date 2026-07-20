@@ -1694,11 +1694,14 @@ Docs     <span class="dv-num">UP</span>  58ms
   $$(".principles article").forEach((article) => {
     const mark = $(".principle-mark", article);
     if (!mark) return;
+    let pingTimer = 0;
     article.addEventListener("click", () => {
       if (prefersReducedMotion()) return;
       mark.classList.remove("ping");
-      void mark.offsetWidth;
+      void mark.getBoundingClientRect();
       mark.classList.add("ping");
+      window.clearTimeout(pingTimer);
+      pingTimer = window.setTimeout(() => mark.classList.remove("ping"), 1500);
     });
   });
 
