@@ -22,11 +22,11 @@ describe("createLiveFetchSourceComponents", () => {
     expect(fetchProviderDocument).not.toHaveBeenCalled();
   });
 
-  it("fetches Google Cloud's products.json and collects product ids, bypassing incidents.json", async () => {
+  it("fetches Google Cloud's products.json and collects product ids from the { products: [...] } wrapper, bypassing incidents.json", async () => {
     fetchProviderDocument.mockResolvedValueOnce({
       status: "ok",
       statusCode: 200,
-      json: [{ id: "prod-1", display_name: "Cloud Run" }, { id: "prod-2", display_name: "Cloud SQL" }],
+      json: { products: [{ id: "prod-1", title: "Cloud Run" }, { id: "prod-2", title: "Cloud SQL" }] },
       etag: null,
       lastModified: null,
     });
@@ -40,8 +40,37 @@ describe("createLiveFetchSourceComponents", () => {
     expect(request.url).toBe(source.config.productsUrl);
   });
 
-  it("returns null when Google's products response is not modified or not an array", async () => {
+  it("also collects Google product ids from a bare top-level array", async () => {
+    fetchProviderDocument.mockResolvedValueOnce({
+      status: "ok",
+      statusCode: 200,
+      json: [{ id: "prod-1", title: "Cloud Run" }, { id: "prod-2", title: "Cloud SQL" }],
+      etag: null,
+      lastModified: null,
+    });
+    const fetcher = createLiveFetchSourceComponents(manifest);
+    const source = manifest.sources.find((entry) => entry.id === "google_cloud")!;
+    const result = await fetcher({ id: source.id, adapter: source.adapter, currentUrl: source.currentUrl });
+
+    expect(result).toEqual({ componentIds: new Set(["prod-1", "prod-2"]) });
+  });
+
+  it("returns null when Google's products response is not modified", async () => {
     fetchProviderDocument.mockResolvedValueOnce({ status: "not_modified", etag: null, lastModified: null });
+    const fetcher = createLiveFetchSourceComponents(manifest);
+    const source = manifest.sources.find((entry) => entry.id === "google_cloud")!;
+    const result = await fetcher({ id: source.id, adapter: source.adapter, currentUrl: source.currentUrl });
+    expect(result).toBeNull();
+  });
+
+  it("returns null when Google's products response carries no products array", async () => {
+    fetchProviderDocument.mockResolvedValueOnce({
+      status: "ok",
+      statusCode: 200,
+      json: { error: "unavailable" },
+      etag: null,
+      lastModified: null,
+    });
     const fetcher = createLiveFetchSourceComponents(manifest);
     const source = manifest.sources.find((entry) => entry.id === "google_cloud")!;
     const result = await fetcher({ id: source.id, adapter: source.adapter, currentUrl: source.currentUrl });

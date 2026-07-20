@@ -14,14 +14,30 @@ import { loadCatalogManifest } from "./manifest";
 // exactly this case. Every other adapter answers from its own "current"
 // documents, fetched read-only and never persisted.
 
+/**
+ * The live products.json carries its roster as a { products: [...] } object,
+ * and each product's id is what google_product selectors match on. A bare
+ * top-level array is also accepted, so both the wrapper shape and a raw list
+ * yield the same product ids.
+ */
+function googleProductsArray(json: unknown): unknown[] | null {
+  if (Array.isArray(json)) return json;
+  if (json !== null && typeof json === "object" && Array.isArray((json as { products?: unknown }).products)) {
+    return (json as { products: unknown[] }).products;
+  }
+  return null;
+}
+
 async function fetchGoogleProductIds(
   sourceId: string,
   allowedHosts: readonly string[],
   productsUrl: string,
 ): Promise<CatalogComponentDirectory | null> {
   const result = await fetchProviderDocument({ id: sourceId, allowedHosts }, { url: productsUrl });
-  if (result.status === "not_modified" || !Array.isArray(result.json)) return null;
-  const ids = result.json
+  if (result.status === "not_modified") return null;
+  const products = googleProductsArray(result.json);
+  if (!products) return null;
+  const ids = products
     .map((entry) => (typeof entry === "object" && entry !== null && "id" in entry ? String((entry as { id: unknown }).id) : null))
     .filter((id): id is string => Boolean(id));
   return { componentIds: new Set(ids) };
