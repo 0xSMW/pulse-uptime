@@ -188,6 +188,7 @@ export const statuspageV2Adapter: DependencyAdapter = {
       sourceId: source.id,
       observedAt,
       providerUpdatedAt,
+      componentsComplete: true,
       components,
       incidents,
       maintenances,

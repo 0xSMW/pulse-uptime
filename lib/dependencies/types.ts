@@ -17,6 +17,14 @@ export type NormalizedProviderSnapshot = {
   sourceId: string;
   observedAt: string;
   providerUpdatedAt: string | null;
+  /**
+   * True when a successful fetch enumerates every component the provider
+   * has, so a selector id absent from `components` means the component is
+   * genuinely gone (resolves to UNKNOWN). Only google_cloud_status sets this
+   * false: its feed only ever lists products with an active incident, so an
+   * absent product legitimately means operational, not missing.
+   */
+  componentsComplete: boolean;
   components: Record<string, {
     state: "OPERATIONAL" | "DEGRADED" | "OUTAGE" | "MAINTENANCE";
     updatedAt: string | null;

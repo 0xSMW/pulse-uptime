@@ -88,5 +88,8 @@ describe("statusioPublicAdapter.normalize: failure handling", () => {
   it("does not throw when the configured component id is no longer in the feed", () => {
     const snapshot = statusioPublicAdapter.normalize({ source: neonSource, documents: [currentDoc(missingComponent)], observedAt: "2026-07-19T12:00:00.000Z" });
     expect(snapshot.components["690ccc238c3745059f2b33b2"]).toBeUndefined();
+    // componentsComplete true (FIX B): a successful status document
+    // enumerates every component, so this absence resolves to UNKNOWN.
+    expect(snapshot.componentsComplete).toBe(true);
   });
 });

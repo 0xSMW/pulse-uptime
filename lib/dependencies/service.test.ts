@@ -1,16 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/db/client", () => ({ db: {} }));
+vi.mock("@/lib/db/client", () => ({ db: { transaction: vi.fn(), update: vi.fn() } }));
 vi.mock("./queries", () => ({
   getDependencyDetail: vi.fn(),
   listCatalog: vi.fn(),
   listDependenciesForDashboard: vi.fn(),
 }));
 
+import { db } from "@/lib/db/client";
+import { dependencySources } from "@/lib/db/schema";
 import * as queries from "./queries";
 import {
   DependencyApiError,
+  databaseDependenciesStore,
   getDependencyDetail,
   installDependency,
   listCatalog,
@@ -270,6 +273,50 @@ describe("refreshDependency", () => {
     const store = fakeStore({ loadSourceIdForDependency: vi.fn().mockResolvedValue("vercel") });
     await expect(refreshDependency("dep-1", { store, now: () => NOW })).resolves.toEqual({ id: "dep-1", refreshing: true });
     expect(store.touchSourceNextPoll).toHaveBeenCalledWith("vercel", NOW);
+  });
+});
+
+describe("databaseDependenciesStore validator clearing (FIX D)", () => {
+  it("clears the source's etag and last_modified in the same transaction that installs a dependency", async () => {
+    const setCalls: Array<{ table: unknown; patch: Record<string, unknown> }> = [];
+    const tx = {
+      insert: () => ({ values: vi.fn().mockResolvedValue(undefined) }),
+      update: (table: unknown) => ({
+        set: (patch: Record<string, unknown>) => {
+          setCalls.push({ table, patch });
+          return { where: vi.fn().mockResolvedValue(undefined) };
+        },
+      }),
+    };
+    vi.mocked(db.transaction).mockImplementation((async (work: (tx: unknown) => Promise<unknown>) => work(tx)) as never);
+
+    const inserted = await databaseDependenciesStore.insertDependency({
+      dependency: { id: "dep-1", catalogId: "vercel_runtime", scopeId: null, notificationsEnabled: true, createdAt: NOW, removedAt: null },
+      state: { state: "UNKNOWN", checking: true, observedAt: NOW, providerUpdatedAt: null },
+      intervalId: "interval-1",
+      sourceId: "vercel",
+      now: NOW,
+    });
+
+    expect(inserted).toBe(true);
+    const sourceUpdate = setCalls.find((call) => call.table === dependencySources);
+    expect(sourceUpdate?.patch).toMatchObject({ nextPollAt: NOW, etag: null, lastModified: null });
+  });
+
+  it("clears the source's etag and last_modified on a manual refresh's touchSourceNextPoll", async () => {
+    const setCalls: Array<{ table: unknown; patch: Record<string, unknown> }> = [];
+    vi.mocked(db.update).mockImplementation((table: unknown) => ({
+      set: (patch: Record<string, unknown>) => {
+        setCalls.push({ table, patch });
+        return { where: vi.fn().mockResolvedValue(undefined) };
+      },
+    }) as never);
+
+    await databaseDependenciesStore.touchSourceNextPoll("vercel", NOW);
+
+    expect(setCalls).toHaveLength(1);
+    expect(setCalls[0]?.table).toBe(dependencySources);
+    expect(setCalls[0]?.patch).toMatchObject({ nextPollAt: NOW, etag: null, lastModified: null });
   });
 });
 

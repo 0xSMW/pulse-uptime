@@ -85,5 +85,9 @@ describe("googleCloudStatusAdapter.normalize: failure handling", () => {
     const snapshot = googleCloudStatusAdapter.normalize({ source: googleSource, documents: [currentDoc(missingComponent)], observedAt: "2026-07-19T07:30:00Z" });
     expect(snapshot.components["Z0FZJAMvEB4j3NbCJs6B"]).toBeUndefined();
     expect(snapshot.components["9D7d2iNBQWN24zc1VamE"]).toBeUndefined();
+    // componentsComplete false (FIX B): this feed only ever lists products
+    // with an active incident, so an absent product legitimately means
+    // operational, the one adapter exempted from the UNKNOWN rule.
+    expect(snapshot.componentsComplete).toBe(false);
   });
 });

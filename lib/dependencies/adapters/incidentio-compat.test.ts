@@ -100,5 +100,8 @@ describe("incidentioCompatAdapter.normalize: failure handling", () => {
   it("does not throw when the feed drifts and a catalog component id disappears", () => {
     const snapshot = incidentioCompatAdapter.normalize({ source: openaiSource, documents: [currentDoc(missingComponent)], observedAt: "2026-07-19T12:00:00Z" });
     expect(snapshot.components["01JMXBRMFE6N2NNT7DG6XZQ6PW"]).toBeUndefined();
+    // componentsComplete true (FIX B): a successful summary.json enumerates
+    // every component, so this absence resolves the dependency to UNKNOWN.
+    expect(snapshot.componentsComplete).toBe(true);
   });
 });

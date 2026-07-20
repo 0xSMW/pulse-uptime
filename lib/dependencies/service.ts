@@ -286,7 +286,11 @@ export const databaseDependenciesStore: DependenciesStore = {
           endedAt: null,
           sourceObservedAt: state.observedAt,
         });
-        await tx.update(dependencySources).set({ nextPollAt: now }).where(eq(dependencySources.id, sourceId));
+        // Clearing etag/lastModified alongside next_poll_at forces the next
+        // poll to a 200 with a full body: a stale validator would otherwise
+        // let the provider answer 304, leaving this freshly installed
+        // dependency stuck UNKNOWN/checking with nothing to adopt state from.
+        await tx.update(dependencySources).set({ nextPollAt: now, etag: null, lastModified: null }).where(eq(dependencySources.id, sourceId));
       });
       return true;
     } catch (error) {
@@ -296,7 +300,9 @@ export const databaseDependenciesStore: DependenciesStore = {
   },
 
   async touchSourceNextPoll(sourceId, now) {
-    await db.update(dependencySources).set({ nextPollAt: now }).where(eq(dependencySources.id, sourceId));
+    // Same validator clearing as insertDependency: a manual refresh must
+    // force a 200, not risk a 304 that leaves the dependency's state stale.
+    await db.update(dependencySources).set({ nextPollAt: now, etag: null, lastModified: null }).where(eq(dependencySources.id, sourceId));
   },
 
   async loadSourceIdForDependency(id) {

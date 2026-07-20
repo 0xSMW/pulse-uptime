@@ -162,6 +162,7 @@ const baseDependencyInput = {
   sourceId: "vercel",
   incidentExternalId: "inc-1",
   presetId: "vercel_runtime",
+  scopeId: null as string | null,
   dependencyId: "dep-1",
   dependencyName: "Vercel Runtime",
   provider: "Vercel",
@@ -198,7 +199,7 @@ describe("dependency notification enqueue", () => {
       "dep-1",
       "dependency.incident",
       "ops@example.com",
-      expect.stringMatching(/^dependency\/vercel\/inc-1\/vercel_runtime\/incident\/[a-f0-9]{64}$/),
+      expect.stringMatching(/^dependency\/vercel\/inc-1\/vercel_runtime\/\/incident\/[a-f0-9]{64}$/),
       expect.any(String),
       new Date("2026-07-19T12:00:00Z"),
     ]);
@@ -222,7 +223,7 @@ describe("dependency notification enqueue", () => {
       recipients: ["ops@example.com"],
     }, { now: new Date("2026-07-19T12:00:00Z"), createId: () => "notification-1" });
     const values = query.mock.calls[0]?.[1] as unknown[];
-    expect(values[4]).toMatch(/^dependency\/vercel\/inc-1\/vercel_runtime\/recovery\//);
+    expect(values[4]).toMatch(/^dependency\/vercel\/inc-1\/vercel_runtime\/\/recovery\//);
     expect(JSON.parse(values[5] as string).type).toBe("dependency.recovery");
   });
 
@@ -255,5 +256,27 @@ describe("dependency notification enqueue", () => {
     );
     expect(sql).toMatch(/on conflict \(idempotency_key\) do nothing/i);
     expect(sql).toMatch(/returning id/i);
+  });
+
+  it("gives two scoped installs of the same preset distinct idempotency keys (FIX C)", async () => {
+    const query = vi.fn<(text: string, values: readonly unknown[]) => Promise<{ id: string }[]>>(async () => [{ id: "inserted" }]);
+    await enqueueDependencyNotifications({ query } as SqlExecutor, {
+      ...baseDependencyInput,
+      scopeId: "us-east-1",
+      recipients: ["ops@example.com"],
+    }, { now: new Date("2026-07-19T12:00:00Z"), createId: () => "notification-1" });
+    const usKey = query.mock.calls[0]?.[1]?.[4] as string;
+
+    query.mockClear();
+    await enqueueDependencyNotifications({ query } as SqlExecutor, {
+      ...baseDependencyInput,
+      scopeId: "eu-west-2",
+      recipients: ["ops@example.com"],
+    }, { now: new Date("2026-07-19T12:00:00Z"), createId: () => "notification-2" });
+    const euKey = query.mock.calls[0]?.[1]?.[4] as string;
+
+    expect(usKey).not.toBe(euKey);
+    expect(usKey).toContain("/us-east-1/");
+    expect(euKey).toContain("/eu-west-2/");
   });
 });

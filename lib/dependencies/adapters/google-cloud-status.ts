@@ -139,6 +139,10 @@ export const googleCloudStatusAdapter: DependencyAdapter = {
       sourceId: source.id,
       observedAt,
       providerUpdatedAt,
+      // The feed only ever lists products with an active incident, never a
+      // full component roster, so an absent product id means operational,
+      // not missing. See resolveDependencyState in persist.ts.
+      componentsComplete: false,
       components,
       incidents,
       maintenances: [],

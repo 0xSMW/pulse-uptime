@@ -2,7 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 
 import type { Database } from "@/lib/db/client";
 import {
@@ -93,23 +93,44 @@ export function matchingIdsForSelector(selector: DependencySelector, scopeId: st
  * aggregate state, gated on whether an active incident actually names this
  * location. This is a documented approximation, not a precise per-location
  * severity, since the normalized snapshot has no other way to carry it.
+ *
+ * A selector id absent from `combined` means UNKNOWN when the snapshot's
+ * componentsComplete flag is true (the feed enumerated every component and
+ * simply doesn't have this one anymore), otherwise OPERATIONAL (only
+ * google_cloud_status sets componentsComplete false, since its feed only
+ * ever lists products with an active incident). worst_of still applies
+ * across every id that IS present; an absent id under a complete feed short
+ * circuits the whole dependency to UNKNOWN.
  */
 export function resolveDependencyState(
   selector: DependencySelector,
   scopeId: string | null,
   combined: ReadonlyMap<string, ComponentishState>,
   snapshot: NormalizedProviderSnapshot,
-): ComponentishState {
+): DependencyState {
+  const fallback = (): DependencyState => (snapshot.componentsComplete ? "UNKNOWN" : "OPERATIONAL");
+
   if (selector.kind === "google_product" && scopeId) {
     const compositeKey = `${selector.productId}@${scopeId}`;
     const touchedByActiveIncident = snapshot.incidents.some(
       (incident) => incident.resolvedAt === null && incident.componentIds.includes(compositeKey),
     );
     if (!touchedByActiveIncident) return "OPERATIONAL";
-    return combined.get(selector.productId) ?? "OPERATIONAL";
+    return combined.get(selector.productId) ?? fallback();
   }
+
   const ids = matchingIdsForSelector(selector, scopeId);
-  return worstOf(ids.map((id) => combined.get(id) ?? "OPERATIONAL"));
+  const states: ComponentishState[] = [];
+  for (const id of ids) {
+    const state = combined.get(id);
+    if (state) {
+      states.push(state);
+      continue;
+    }
+    if (snapshot.componentsComplete) return "UNKNOWN";
+    states.push("OPERATIONAL");
+  }
+  return worstOf(states);
 }
 
 /** incidentio_compat incidents never carry an explicit component list (see incidentio-compat.ts); every other launch adapter's componentIds are explicit provider data. */
@@ -144,11 +165,38 @@ export interface PersistSourceRow {
   id: string;
   provider: string;
   adapter: DependencyAdapterName;
+  statusPageUrl: string;
+  allowedHosts: readonly string[];
   operationalPollSeconds: number;
   activePollSeconds: number;
   staleAfterSeconds: number;
   consecutiveFailures: number;
   lastSuccessAt: Date | null;
+}
+
+/**
+ * Only ever returns a provider-supplied URL when it parses as https and its
+ * host is allowlisted for the source (or is the source's own status page
+ * host); otherwise falls back to the source's status page. Applied before a
+ * canonical URL is written to provider_incidents or put in a notification
+ * payload, so neither the dashboard nor an email ever renders an
+ * unvalidated href, e.g. a javascript: URL or an attacker-controlled host.
+ */
+export function safeProviderUrl(rawUrl: string | null, source: { statusPageUrl: string; allowedHosts: readonly string[] }): string {
+  if (rawUrl) {
+    try {
+      const parsed = new URL(rawUrl);
+      if (parsed.protocol === "https:") {
+        const statusHost = new URL(source.statusPageUrl).hostname;
+        if (parsed.hostname === statusHost || source.allowedHosts.includes(parsed.hostname)) {
+          return rawUrl;
+        }
+      }
+    } catch {
+      // Falls through to the status page below.
+    }
+  }
+  return source.statusPageUrl;
 }
 
 export interface InstalledDependencyRow {
@@ -166,6 +214,7 @@ export interface DependencyNotificationInput {
   sourceId: string;
   dependencyId: string;
   presetId: string;
+  scopeId: string | null;
   dependencyName: string;
   provider: string;
   incidentExternalId: string;
@@ -184,8 +233,15 @@ export interface PersistExecutor {
   upsertIncidentComponents(incidentId: string, componentIds: readonly string[], associationKind: "explicit" | "inferred"): Promise<void>;
   /** New (incidentId, externalUpdateId) pairs only; provider updates are immutable once posted. */
   upsertIncidentUpdates(incidentId: string, updates: NormalizedIncident["updates"]): Promise<void>;
-  /** New (dependencyId, incidentId) pairs only; a match, once recorded, is never removed even if the provider later disassociates the component. */
-  upsertDependencyIncidentMatch(dependencyId: string, incidentId: string, matchKind: "component_match" | "inferred", now: Date): Promise<void>;
+  /**
+   * New (dependencyId, incidentId) pairs only; a match, once recorded, is
+   * never removed even if the provider later disassociates the component.
+   * Returns true only when this call newly inserted the row (INSERT ...
+   * ON CONFLICT DO NOTHING RETURNING), false when the pair already existed:
+   * this is the transition signal FIX A uses to tell "just started
+   * matching" from "still matching, same as last poll" apart.
+   */
+  upsertDependencyIncidentMatch(dependencyId: string, incidentId: string, matchKind: "component_match" | "inferred", now: Date): Promise<boolean>;
   /** Updates dependency_state in place always; closes/opens dependency_state_intervals only when state changed from previousState. */
   applyDependencyState(dependencyId: string, previousState: DependencyState, next: { state: DependencyState; observedAt: Date; providerUpdatedAt: Date | null }, now: Date): Promise<void>;
   enqueueNotification(input: DependencyNotificationInput, now: Date): Promise<number>;
@@ -268,9 +324,18 @@ export async function persistSnapshot(
     const combined = combinedComponentStates(snapshot);
     const associationKind = associationKindForAdapter(source.adapter);
 
+    // Sanitize every incident's canonicalUrl once, up front: the same safe
+    // value is what gets persisted to provider_incidents and what travels
+    // into a notification payload, so neither the dashboard nor an email
+    // ever renders an unvalidated provider-supplied href.
+    const incidents = snapshot.incidents.map((incident) => ({
+      ...incident,
+      canonicalUrl: safeProviderUrl(incident.canonicalUrl, source),
+    }));
+
     let incidentsUpserted = 0;
     const incidentInternalIds = new Map<string, string>();
-    for (const incident of snapshot.incidents) {
+    for (const incident of incidents) {
       const internalId = await tx.upsertIncident(source.id, randomUUID(), incident);
       incidentInternalIds.set(incident.externalId, internalId);
       await tx.upsertIncidentComponents(internalId, incident.componentIds, associationKind);
@@ -291,20 +356,33 @@ export async function persistSnapshot(
         providerUpdatedAt: snapshot.providerUpdatedAt ? new Date(snapshot.providerUpdatedAt) : null,
       }, context.now);
 
-      for (const incident of snapshot.incidents) {
+      for (const incident of incidents) {
         if (!selectorIntersectsIncident(dependency.selector, dependency.scopeId, incident.componentIds)) continue;
         const incidentInternalId = incidentInternalIds.get(incident.externalId);
         if (!incidentInternalId) continue;
         const matchKind = associationKind === "inferred" ? "inferred" : "component_match";
-        await tx.upsertDependencyIncidentMatch(dependency.id, incidentInternalId, matchKind, context.now);
+        const isNewMatch = await tx.upsertDependencyIncidentMatch(dependency.id, incidentInternalId, matchKind, context.now);
 
+        // The match row's newness this poll is the transition signal, not
+        // resolved/open alone: a match created for the first time on an
+        // already-resolved incident (a historical incident found on
+        // install, or one that opened and closed within a single poll gap)
+        // sends nothing, since Pulse never sent an opening alert for it.
+        // Only a brand-new match on a still-open incident is "incident",
+        // and only an incident resolving on a match that already existed
+        // is "recovery". The outbox idempotency key still guards against
+        // repeats of the same event across later polls.
+        const isActive = incident.resolvedAt === null;
+        const event = isNewMatch && isActive ? "incident" : !isNewMatch && !isActive ? "recovery" : null;
+        if (event === null) continue;
         if (!dependency.notificationsEnabled || context.defaultRecipients.length === 0) continue;
-        const event = incident.resolvedAt === null ? "incident" : "recovery";
+
         const enqueued = await tx.enqueueNotification({
           event,
           sourceId: source.id,
           dependencyId: dependency.id,
           presetId: dependency.catalogId,
+          scopeId: dependency.scopeId,
           dependencyName: dependency.presetName,
           provider: source.provider,
           incidentExternalId: incident.externalId,
@@ -346,7 +424,14 @@ export function createSqlPersistStore(db: Database, sqlExecutor: SqlExecutor): P
         }).from(dependencies)
           .innerJoin(dependencyCatalog, eq(dependencyCatalog.id, dependencies.catalogId))
           .innerJoin(dependencyState, eq(dependencyState.dependencyId, dependencies.id))
-          .where(and(eq(dependencyCatalog.sourceId, sourceId), isNull(dependencies.removedAt)));
+          .where(and(
+            eq(dependencyCatalog.sourceId, sourceId),
+            // A dependency on a drift-disabled preset stays whatever
+            // catalog-sync last set it to (UNKNOWN): excluding it here is
+            // what stops this poll from recomputing and overwriting that.
+            eq(dependencyCatalog.enabled, true),
+            isNull(dependencies.removedAt),
+          ));
         return rows.map((row) => ({ ...row, selector: row.selector as DependencySelector, currentState: row.currentState as DependencyState }));
       },
 
@@ -405,9 +490,11 @@ export function createSqlPersistStore(db: Database, sqlExecutor: SqlExecutor): P
       },
 
       async upsertDependencyIncidentMatch(dependencyId, incidentId, matchKind, now) {
-        await tx.insert(dependencyIncidentMatches)
+        const rows = await tx.insert(dependencyIncidentMatches)
           .values({ dependencyId, incidentId, matchKind, matchedAt: now })
-          .onConflictDoNothing();
+          .onConflictDoNothing()
+          .returning({ dependencyId: dependencyIncidentMatches.dependencyId });
+        return rows.length > 0;
       },
 
       async applyDependencyState(dependencyId, previousState, next, now) {
@@ -422,7 +509,11 @@ export function createSqlPersistStore(db: Database, sqlExecutor: SqlExecutor): P
 
         if (next.state === previousState) return;
 
-        await tx.update(dependencyStateIntervals).set({ endedAt: now })
+        // greatest(now, started_at) rather than a bare `now`: under
+        // cross-instance clock skew a slightly-behind now could otherwise
+        // land before the interval's own started_at and fail the
+        // ended_at >= started_at check, aborting the whole poll transaction.
+        await tx.update(dependencyStateIntervals).set({ endedAt: sql`greatest(${now}, ${dependencyStateIntervals.startedAt})` })
           .where(and(eq(dependencyStateIntervals.dependencyId, dependencyId), isNull(dependencyStateIntervals.endedAt)));
         await tx.insert(dependencyStateIntervals).values({
           id: randomUUID(),
@@ -440,6 +531,7 @@ export function createSqlPersistStore(db: Database, sqlExecutor: SqlExecutor): P
           sourceId: input.sourceId,
           incidentExternalId: input.incidentExternalId,
           presetId: input.presetId,
+          scopeId: input.scopeId,
           dependencyId: input.dependencyId,
           dependencyName: input.dependencyName,
           provider: input.provider,

@@ -244,6 +244,7 @@ export const sorryV1Adapter: DependencyAdapter = {
       sourceId: source.id,
       observedAt,
       providerUpdatedAt,
+      componentsComplete: true,
       components,
       incidents,
       // The unplanned-notice filter deliberately excludes planned maintenance notices;

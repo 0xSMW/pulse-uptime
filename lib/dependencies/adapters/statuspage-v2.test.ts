@@ -120,6 +120,10 @@ describe("statuspageV2Adapter.normalize: failure handling", () => {
   it("does not throw when the feed omits a catalog component, it is simply absent from the snapshot", () => {
     const snapshot = statuspageV2Adapter.normalize({ source: anthropicSource, documents: [currentDoc(missingComponent)], observedAt: "2026-07-19T15:00:00Z" });
     expect(snapshot.components["k8w3r06qmzrp"]).toBeUndefined();
+    // componentsComplete true (FIX B): a successful summary.json enumerates
+    // every component, so this absence resolves the dependency to UNKNOWN,
+    // not OPERATIONAL.
+    expect(snapshot.componentsComplete).toBe(true);
   });
 
   it("throws MISSING_DOCUMENT when the current document was never fetched", () => {

@@ -138,6 +138,7 @@ type DependencyNotificationInput = {
   sourceId: string;
   incidentExternalId: string;
   presetId: string;
+  scopeId: string | null;
   dependencyId: string;
   dependencyName: string;
   provider: string;
@@ -185,7 +186,7 @@ export async function enqueueDependencyNotifications(
       input.dependencyId,
       payload.type,
       recipient,
-      dependencyNotificationKey(input.sourceId, input.incidentExternalId, input.presetId, input.event, recipient),
+      dependencyNotificationKey(input.sourceId, input.incidentExternalId, input.presetId, input.scopeId, input.event, recipient),
       JSON.stringify(payload),
       now,
     );

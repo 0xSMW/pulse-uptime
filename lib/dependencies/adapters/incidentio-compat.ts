@@ -138,6 +138,7 @@ export const incidentioCompatAdapter: DependencyAdapter = {
       sourceId: source.id,
       observedAt,
       providerUpdatedAt,
+      componentsComplete: true,
       components,
       incidents,
       maintenances: [],

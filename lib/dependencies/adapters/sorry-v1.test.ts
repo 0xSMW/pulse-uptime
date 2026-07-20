@@ -225,5 +225,8 @@ describe("sorryV1Adapter.normalize: failure handling", () => {
     });
     expect(snapshot.components["87154"]).toBeUndefined();
     expect(snapshot.components["87151"]).toBeUndefined();
+    // componentsComplete true (FIX B): a successful components document
+    // enumerates every component, so this absence resolves to UNKNOWN.
+    expect(snapshot.componentsComplete).toBe(true);
   });
 });

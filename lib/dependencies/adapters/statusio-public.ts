@@ -82,6 +82,7 @@ export const statusioPublicAdapter: DependencyAdapter = {
       sourceId: source.id,
       observedAt,
       providerUpdatedAt: result.status_overall.updated,
+      componentsComplete: true,
       components,
       // Neon's incident endpoints return 403: no incident titles are invented from current state alone.
       incidents: [],

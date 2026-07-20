@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto";
+
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import type { Database } from "@/lib/db/client";
-import { dependencies, dependencyCatalog, dependencySources, dependencyState } from "@/lib/db/schema";
+import { dependencies, dependencyCatalog, dependencySources, dependencyState, dependencyStateIntervals } from "@/lib/db/schema";
 
 import { loadCatalogManifest, type CatalogManifest, type DependencyPresetManifest, type DependencySourceManifest } from "./manifest";
 import type { DependencyScope, DependencySelector } from "./types";
@@ -236,12 +238,33 @@ export function createSqlCatalogValidationStore(db: Database): CatalogValidation
         await tx.update(dependencyCatalog).set({ enabled: false, validatedAt, validationError: error }).where(eq(dependencyCatalog.id, presetId));
       },
       flipDependenciesToUnknown: async (catalogId, observedAt) => {
-        const installed = await tx.select({ id: dependencies.id }).from(dependencies)
+        const installed = await tx.select({ id: dependencies.id, state: dependencyState.state })
+          .from(dependencies)
+          .innerJoin(dependencyState, eq(dependencyState.dependencyId, dependencies.id))
           .where(and(eq(dependencies.catalogId, catalogId), isNull(dependencies.removedAt)));
+        if (installed.length === 0) return 0;
+
         const ids = installed.map((row) => row.id);
-        if (ids.length === 0) return 0;
         await tx.update(dependencyState).set({ state: "UNKNOWN", checking: false, observedAt })
           .where(inArray(dependencyState.dependencyId, ids));
+
+        // Change-only storage: only dependencies not already UNKNOWN get a
+        // closed-then-reopened interval, so re-disabling an already-UNKNOWN
+        // preset doesn't churn out a fresh interval for nothing.
+        const transitioning = installed.filter((row) => row.state !== "UNKNOWN").map((row) => row.id);
+        if (transitioning.length > 0) {
+          await tx.update(dependencyStateIntervals).set({ endedAt: observedAt })
+            .where(and(inArray(dependencyStateIntervals.dependencyId, transitioning), isNull(dependencyStateIntervals.endedAt)));
+          await tx.insert(dependencyStateIntervals).values(transitioning.map((dependencyId) => ({
+            id: randomUUID(),
+            dependencyId,
+            state: "UNKNOWN" as const,
+            startedAt: observedAt,
+            endedAt: null,
+            sourceObservedAt: observedAt,
+          })));
+        }
+
         return ids.length;
       },
     })),
