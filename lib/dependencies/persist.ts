@@ -269,6 +269,16 @@ export interface PersistExecutor {
    * means the incident row did not exist before this poll.
    */
   loadPriorIncidentResolution(sourceId: string, externalIds: readonly string[]): Promise<Map<string, Date | null>>;
+  /**
+   * Existing (dependencyId, incidentId) pairs already recorded in
+   * dependency_incident_matches for these incident internal ids, as a
+   * `${dependencyId}:${incidentId}` key set. This is the fallback for an
+   * incident with no componentIds of its own (incidentio_compat's resolved
+   * incidents, see incidentio-compat.ts): with nothing to intersect a
+   * selector against, a dependency is only still considered matched if it
+   * already has a match row from while the incident carried components.
+   */
+  loadExistingMatches(incidentIds: readonly string[]): Promise<Set<string>>;
   /** Upsert on (source_id, external_id); updates in place only when provider_updated_at actually advanced. Returns the incident's internal id either way. */
   upsertIncident(sourceId: string, candidateId: string, incident: NormalizedIncident): Promise<string>;
   /** New (incidentId, externalComponentId) pairs only; existing pairs are left untouched. */
@@ -390,6 +400,18 @@ export async function persistSnapshot(
       incidentsUpserted += 1;
     }
 
+    // A dependency selector has nothing to intersect against an incident
+    // whose componentIds are empty (incidentio_compat's resolved incidents
+    // never carry any, see incidentio-compat.ts), so those incidents fall
+    // back to whatever match rows already exist from while they still had
+    // components. One batched read up front covers every such incident in
+    // this snapshot.
+    const emptyComponentIncidentIds = incidents
+      .filter((incident) => incident.componentIds.length === 0)
+      .map((incident) => incidentInternalIds.get(incident.externalId))
+      .filter((id): id is string => id !== undefined);
+    const existingMatchesForEmptyIncidents = await tx.loadExistingMatches(emptyComponentIncidentIds);
+
     const installed = await tx.loadInstalledDependencies(source.id);
     const finalStates = new Map<string, DependencyState>();
     let notificationsEnqueued = 0;
@@ -404,11 +426,18 @@ export async function persistSnapshot(
       }, context.now);
 
       for (const incident of incidents) {
-        if (!selectorIntersectsIncident(dependency.selector, dependency.scopeId, incident.componentIds)) continue;
         const incidentInternalId = incidentInternalIds.get(incident.externalId);
         if (!incidentInternalId) continue;
-        const matchKind = associationKind === "inferred" ? "inferred" : "component_match";
-        const isNewMatch = await tx.upsertDependencyIncidentMatch(dependency.id, incidentInternalId, matchKind, context.now);
+
+        let isNewMatch: boolean;
+        if (incident.componentIds.length > 0) {
+          if (!selectorIntersectsIncident(dependency.selector, dependency.scopeId, incident.componentIds)) continue;
+          const matchKind = associationKind === "inferred" ? "inferred" : "component_match";
+          isNewMatch = await tx.upsertDependencyIncidentMatch(dependency.id, incidentInternalId, matchKind, context.now);
+        } else {
+          if (!existingMatchesForEmptyIncidents.has(`${dependency.id}:${incidentInternalId}`)) continue;
+          isNewMatch = false;
+        }
 
         // The event is derived from the incident's observed state transition
         // (see deriveNotificationEvent), using resolved_at as it stood
@@ -487,6 +516,16 @@ export function createSqlPersistStore(db: Database, sqlExecutor: SqlExecutor): P
         }).from(providerIncidents)
           .where(and(eq(providerIncidents.sourceId, sourceId), inArray(providerIncidents.externalId, [...externalIds])));
         return new Map(rows.map((row) => [row.externalId, row.resolvedAt]));
+      },
+
+      async loadExistingMatches(incidentIds) {
+        if (incidentIds.length === 0) return new Set();
+        const rows = await tx.select({
+          dependencyId: dependencyIncidentMatches.dependencyId,
+          incidentId: dependencyIncidentMatches.incidentId,
+        }).from(dependencyIncidentMatches)
+          .where(inArray(dependencyIncidentMatches.incidentId, [...incidentIds]));
+        return new Set(rows.map((row) => `${row.dependencyId}:${row.incidentId}`));
       },
 
       async upsertIncident(sourceId, candidateId, incident) {
