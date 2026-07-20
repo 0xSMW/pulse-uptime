@@ -5,6 +5,7 @@ import { loadCatalogManifest } from "../manifest";
 import degraded from "./fixtures/neon/degraded.json";
 import maintenance from "./fixtures/neon/maintenance.json";
 import malformed from "./fixtures/neon/malformed.json";
+import malformedTimestamp from "./fixtures/neon/malformed-timestamp.json";
 import missingComponent from "./fixtures/neon/missing-component.json";
 import operational from "./fixtures/neon/operational.json";
 import outage from "./fixtures/neon/outage.json";
@@ -73,6 +74,16 @@ describe("statusioPublicAdapter.normalize: no invented incidents", () => {
 describe("statusioPublicAdapter.normalize: failure handling", () => {
   it("throws AdapterParseError on an unrecognized top-level shape", () => {
     expect(() => statusioPublicAdapter.normalize({ source: neonSource, documents: [currentDoc(malformed)], observedAt: "2026-07-19T12:00:00.000Z" })).toThrow(AdapterParseError);
+  });
+
+  it("throws SCHEMA_INVALID on an unparseable component timestamp instead of storing an Invalid Date", () => {
+    try {
+      statusioPublicAdapter.normalize({ source: neonSource, documents: [currentDoc(malformedTimestamp)], observedAt: "2026-07-19T12:00:00.000Z" });
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(AdapterParseError);
+      expect((error as AdapterParseError).code).toBe("SCHEMA_INVALID");
+    }
   });
 
   it("throws on an unknown Status.io status string instead of guessing", () => {

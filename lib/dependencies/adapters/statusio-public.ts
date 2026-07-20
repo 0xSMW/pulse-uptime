@@ -12,7 +12,7 @@ import type { DependencySourceManifest } from "../manifest";
 import type { NormalizedProviderSnapshot } from "../types";
 
 import type { AdapterRequestDescriptor, DependencyAdapter, NormalizeInput } from "./index";
-import { AdapterParseError, requireJson } from "./shared";
+import { AdapterParseError, requireIsoTimestamp, requireJson } from "./shared";
 
 const containerSchema = z.object({
   id: z.string().min(1),
@@ -72,16 +72,22 @@ export const statusioPublicAdapter: DependencyAdapter = {
 
     const components: NormalizedProviderSnapshot["components"] = {};
     for (const component of result.status) {
-      components[component.id] = { state: mapStatusioStatus(component.status, source.id), updatedAt: component.updated };
+      components[component.id] = {
+        state: mapStatusioStatus(component.status, source.id),
+        updatedAt: requireIsoTimestamp(component.updated, source.id, `component ${component.id} updated`),
+      };
       for (const container of component.containers) {
-        components[container.id] = { state: mapStatusioStatus(container.status, source.id), updatedAt: container.updated };
+        components[container.id] = {
+          state: mapStatusioStatus(container.status, source.id),
+          updatedAt: requireIsoTimestamp(container.updated, source.id, `container ${container.id} updated`),
+        };
       }
     }
 
     return {
       sourceId: source.id,
       observedAt,
-      providerUpdatedAt: result.status_overall.updated,
+      providerUpdatedAt: requireIsoTimestamp(result.status_overall.updated, source.id, "status_overall.updated"),
       componentsComplete: true,
       components,
       // Neon's incident endpoints return 403: no incident titles are invented from current state alone.
