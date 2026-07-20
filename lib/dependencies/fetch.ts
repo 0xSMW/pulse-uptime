@@ -90,6 +90,9 @@ export interface FetchProviderDocumentDeps {
   resolveAll?: ResolveAll;
   request?: FetchRequestExecutor;
   createDispatcher?: FetchDispatcherFactory;
+  // A shared dispatcher reused across a poll cycle's documents. When present it
+  // is used for every hop and is closed by its owner, never here.
+  dispatcher?: ManagedDispatcher;
   now?: () => number;
 }
 
@@ -97,7 +100,28 @@ const defaultRequest: FetchRequestExecutor = async (url, options) =>
   undiciRequest(url, options) as Promise<FetchResponse>;
 
 const defaultCreateDispatcher: FetchDispatcherFactory = ({ lookup, connectTimeoutMs }) =>
-  new Agent({ connect: { lookup, timeout: connectTimeoutMs }, connections: 1, pipelining: 0 });
+  // pipelining 1 keeps one connection alive per host so a poll cycle's later
+  // documents reuse it instead of re-running TLS and DNS. connections 1 still
+  // caps this dispatcher to a single connection per origin.
+  new Agent({ connect: { lookup, timeout: connectTimeoutMs }, connections: 1, pipelining: 1 });
+
+/**
+ * Builds a dispatcher a caller reuses across one poll cycle's documents. It
+ * carries the same connect-time secure lookup as a single-call dispatcher, so
+ * every new connection it opens still rejects private addresses, while the host
+ * allowlist, redirect cap, deadline, and body cap are re-checked per request in
+ * fetchProviderDocument regardless. The connect timeout is the full request
+ * deadline because each request also passes an AbortSignal plus header and body
+ * timeouts scoped to its own remaining budget, which bound the connect phase.
+ * The caller owns the returned dispatcher and must close it once the cycle ends.
+ */
+export function createProviderDispatcher(
+  deps: Pick<FetchProviderDocumentDeps, "resolveAll" | "createDispatcher"> = {},
+): ManagedDispatcher {
+  const resolveAll = deps.resolveAll ?? systemResolveAll;
+  const createDispatcher = deps.createDispatcher ?? defaultCreateDispatcher;
+  return createDispatcher({ lookup: createSecureLookup({ resolveAll }), connectTimeoutMs: REQUEST_DEADLINE_MS });
+}
 
 function assertAllowedUrl(url: URL, source: FetchProviderSource): void {
   if (url.protocol !== "https:") {
@@ -165,6 +189,8 @@ async function readBounded(body: AsyncIterable<Uint8Array>, sourceId: string): P
  * handling capped at three hops with every hop re-validated, a 5s deadline,
  * and a 512KB streamed body cap. Sends If-None-Match/If-Modified-Since from
  * the caller's stored validators and returns a not_modified marker on 304.
+ * Reuses a caller-supplied dispatcher across a poll cycle's documents when one
+ * is given, otherwise opens and closes its own for this call.
  */
 export async function fetchProviderDocument(
   source: FetchProviderSource,
@@ -184,16 +210,21 @@ export async function fetchProviderDocument(
     throw new ProviderFetchError("BLOCKED_HOST", `${source.id}: invalid URL "${req.url}"`);
   }
 
+  // A poll cycle passes one shared dispatcher so this source's documents reuse a
+  // single keep-alive connection per host. That dispatcher is owned by the
+  // caller and is never closed here. Without one, a dispatcher is created for
+  // this call, reused across every redirect hop, and closed in the finally.
+  // Either way its connect-time secure lookup rejects private addresses on every
+  // new connection, so reuse never bypasses the SSRF guard.
+  const dispatcher = deps.dispatcher ?? createProviderDispatcher({ resolveAll, createDispatcher });
+  const ownsDispatcher = deps.dispatcher == null;
+
   let redirects = 0;
-  let dispatcher: ManagedDispatcher | null = null;
   try {
     while (true) {
       assertAllowedUrl(currentUrl, source);
       const remaining = REQUEST_DEADLINE_MS - (now() - startedAt);
       if (remaining <= 0) throw new ProviderFetchError("TIMEOUT", `${source.id}: request deadline exceeded`);
-
-      const lookup = createSecureLookup({ resolveAll });
-      dispatcher = createDispatcher({ lookup, connectTimeoutMs: remaining });
 
       const headers: Record<string, string> = { "user-agent": USER_AGENT, accept: "application/json" };
       if (redirects === 0) {
@@ -238,8 +269,6 @@ export async function fetchProviderDocument(
         }
         redirects += 1;
         currentUrl = destination;
-        await dispatcher.close();
-        dispatcher = null;
         continue;
       }
 
@@ -260,6 +289,6 @@ export async function fetchProviderDocument(
       }
     }
   } finally {
-    if (dispatcher) await dispatcher.close();
+    if (ownsDispatcher) await dispatcher.close();
   }
 }

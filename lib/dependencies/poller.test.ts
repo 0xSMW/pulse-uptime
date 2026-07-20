@@ -4,7 +4,7 @@ vi.mock("server-only", () => ({}));
 
 import { ProviderFetchError } from "./fetch";
 import { loadCatalogManifest } from "./manifest";
-import { pollDueSources, type PollerSourceRow, type PollOutcome } from "./poller";
+import { DocumentBudgetExceededError, MAX_DOCUMENTS_PER_CYCLE, pollDueSources, type PollerSourceRow, type PollOutcome } from "./poller";
 
 import anthropicOperational from "./adapters/fixtures/anthropic/operational.json";
 import anthropicOutage from "./adapters/fixtures/anthropic/outage.json";
@@ -15,26 +15,37 @@ import postmarkNoticesListOne from "./adapters/fixtures/postmark/notices-list-on
 const manifest = loadCatalogManifest();
 const anthropicManifestSource = manifest.sources.find((source) => source.id === "anthropic")!;
 const postmarkManifestSource = manifest.sources.find((source) => source.id === "postmark")!;
+// Neon uses statusio_public, whose requests() returns a single document, so it
+// is the genuine single-document source that keeps the 304 fast-path. Anthropic
+// is statuspage_v2, which also fetches optional incidents.json and
+// scheduled-maintenances, so a summary 304 no longer stands in for the source.
+const neonManifestSource = manifest.sources.find((source) => source.id === "neon")!;
 
-function sourceRow(overrides: Partial<PollerSourceRow> = {}): PollerSourceRow {
+type ManifestSource = typeof anthropicManifestSource;
+
+function rowFromManifest(source: ManifestSource, overrides: Partial<PollerSourceRow> = {}): PollerSourceRow {
   return {
-    id: anthropicManifestSource.id,
-    provider: anthropicManifestSource.provider,
-    adapter: anthropicManifestSource.adapter,
-    currentUrl: anthropicManifestSource.currentUrl,
-    incidentsUrl: anthropicManifestSource.incidentsUrl,
-    statusPageUrl: anthropicManifestSource.statusPageUrl,
-    allowedHosts: anthropicManifestSource.allowedHosts,
-    config: anthropicManifestSource.config,
-    operationalPollSeconds: anthropicManifestSource.operationalPollSeconds,
-    activePollSeconds: anthropicManifestSource.activePollSeconds,
-    staleAfterSeconds: anthropicManifestSource.staleAfterSeconds,
+    id: source.id,
+    provider: source.provider,
+    adapter: source.adapter,
+    currentUrl: source.currentUrl,
+    incidentsUrl: source.incidentsUrl,
+    statusPageUrl: source.statusPageUrl,
+    allowedHosts: source.allowedHosts,
+    config: source.config,
+    operationalPollSeconds: source.operationalPollSeconds,
+    activePollSeconds: source.activePollSeconds,
+    staleAfterSeconds: source.staleAfterSeconds,
     etag: null,
     lastModified: null,
     consecutiveFailures: 0,
     lastSuccessAt: null,
     ...overrides,
   };
+}
+
+function sourceRow(overrides: Partial<PollerSourceRow> = {}): PollerSourceRow {
+  return rowFromManifest(anthropicManifestSource, overrides);
 }
 
 const NOW = new Date("2026-07-19T15:00:00.000Z");
@@ -82,11 +93,14 @@ describe("pollDueSources orchestration", () => {
     }
   });
 
-  it("stops at the current document's 304 and never calls normalize", async () => {
+  it("stops at a single-document source's 304, replaying its validators, and never calls normalize", async () => {
     const persist = vi.fn();
-    const row = sourceRow({ etag: "\"cached\"" });
-    const fetchDocument = vi.fn(async (_source: PollerSourceRow, request: { url: string }) => {
-      expect(request.url).toBe(anthropicManifestSource.currentUrl);
+    // Neon is statusio_public: one document, so its 304 stands in for the whole source.
+    const row = rowFromManifest(neonManifestSource, { etag: "\"cached\"" });
+    const fetchDocument = vi.fn(async (_source: PollerSourceRow, request: { url: string; validators?: { etag: string | null; lastModified: string | null } }) => {
+      expect(request.url).toBe(neonManifestSource.currentUrl);
+      // The single primary document is fetched conditionally with the stored validator.
+      expect(request.validators).toEqual({ etag: "\"cached\"", lastModified: null });
       return { status: "not_modified" as const, etag: "\"cached\"", lastModified: null };
     });
     const result = await pollDueSources({
@@ -279,7 +293,7 @@ describe("pollDueSources orchestration", () => {
     expect(urlsFetched.has(noticeDetailUrl)).toBe(true);
   });
 
-  it("persists validators from the primary document only, and replays them on the next cycle's first request only", async () => {
+  it("persists the primary document's own etag, and a multi-document source replays no validators so its secondaries are refetched every cycle", async () => {
     const currentEtag = "\"current-etag\"";
     const currentLastModified = "Mon, 01 Jan 2024 00:00:00 GMT";
     const incidentsEtag = "\"incidents-etag\"";
@@ -313,18 +327,14 @@ describe("pollDueSources orchestration", () => {
 
     const secondRow = sourceRow({ etag: firstOutcome.etag, lastModified: firstOutcome.lastModified });
     const secondCycleFetch = vi.fn(async (_source: PollerSourceRow, request: { url: string; validators?: { etag: string | null; lastModified: string | null } }) => {
-      if (request.url === anthropicManifestSource.currentUrl) {
-        expect(request.validators).toEqual({ etag: currentEtag, lastModified: currentLastModified });
-        return { status: "ok" as const, statusCode: 200, json: anthropicOperational, etag: currentEtag, lastModified: currentLastModified };
-      }
-      if (request.url === anthropicManifestSource.incidentsUrl) {
-        expect(request.validators).toBeUndefined();
-        return { status: "ok" as const, statusCode: 200, json: emptyIncidentsDoc, etag: incidentsEtag, lastModified: incidentsLastModified };
-      }
-      if (request.url === maintenanceDocUrl) {
-        expect(request.validators).toBeUndefined();
-        return { status: "ok" as const, statusCode: 200, json: emptyMaintenanceDoc, etag: null, lastModified: null };
-      }
+      // A statuspage_v2 source has optional incidents.json and
+      // scheduled-maintenances, so no document is sent validators: the summary
+      // is forced to a full 200 and the secondaries are refetched every cycle,
+      // which is what lets a resolution in incidents.json ever be observed.
+      expect(request.validators).toBeUndefined();
+      if (request.url === anthropicManifestSource.currentUrl) return { status: "ok" as const, statusCode: 200, json: anthropicOperational, etag: currentEtag, lastModified: currentLastModified };
+      if (request.url === anthropicManifestSource.incidentsUrl) return { status: "ok" as const, statusCode: 200, json: emptyIncidentsDoc, etag: incidentsEtag, lastModified: incidentsLastModified };
+      if (request.url === maintenanceDocUrl) return { status: "ok" as const, statusCode: 200, json: emptyMaintenanceDoc, etag: null, lastModified: null };
       throw new Error(`unexpected url ${request.url}`);
     });
 
@@ -336,5 +346,104 @@ describe("pollDueSources orchestration", () => {
     });
 
     expect(secondCycleFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("still fetches incidents.json on a summary that would 304, so a resolved incident absent from the summary is observed", async () => {
+    // A statuspage incident that resolved is no longer listed inline in
+    // summary.json, only in incidents.json. Even though the summary is cache
+    // unchanged, the poller must fetch incidents.json to see the resolution.
+    const resolvedIncidentsDoc = {
+      page: { id: "tymt9n04zgry", updated_at: NOW.toISOString() },
+      incidents: [{
+        id: "inc-resolved-1",
+        name: "Elevated API errors",
+        status: "resolved",
+        impact: "minor",
+        created_at: "2026-07-18T10:00:00.000Z",
+        updated_at: "2026-07-18T12:00:00.000Z",
+        started_at: "2026-07-18T10:00:00.000Z",
+        resolved_at: "2026-07-18T12:00:00.000Z",
+        components: [],
+        incident_updates: [],
+      }],
+    };
+    const persist = vi.fn();
+    // The row carries a cached summary validator a prior operational cycle stored.
+    const row = sourceRow({ etag: "\"summary-cached\"" });
+    const fetchDocument = vi.fn(async (_source: PollerSourceRow, request: { url: string; validators?: { etag: string | null; lastModified: string | null } }) => {
+      if (request.url === maintenanceDocUrl) return { status: "ok" as const, statusCode: 200, json: emptyMaintenanceDoc, etag: null, lastModified: null };
+      if (request.url === anthropicManifestSource.incidentsUrl) return { status: "ok" as const, statusCode: 200, json: resolvedIncidentsDoc, etag: null, lastModified: null };
+      if (request.url === anthropicManifestSource.currentUrl) return { status: "ok" as const, statusCode: 200, json: anthropicOperational, etag: "\"summary-cached\"", lastModified: null };
+      throw new Error(`unexpected url ${request.url}`);
+    });
+
+    const result = await pollDueSources({
+      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      fetchDocument,
+      persist,
+      now: () => NOW,
+    });
+
+    expect(result).toEqual({ sourcesDue: 1, polled: 1, notModified: 0, failed: 0 });
+    // The summary is fetched without a conditional validator, so it returns full content instead of a 304 that would abort the cycle.
+    const summaryCall = fetchDocument.mock.calls.find((call) => (call[1] as { url: string }).url === anthropicManifestSource.currentUrl);
+    expect((summaryCall?.[1] as { validators?: unknown }).validators).toBeUndefined();
+    // incidents.json is fetched every cycle now.
+    const urlsFetched = new Set(fetchDocument.mock.calls.map((call) => (call[1] as { url: string }).url));
+    expect(urlsFetched.has(anthropicManifestSource.incidentsUrl!)).toBe(true);
+    const [outcome] = persist.mock.calls[0] as [PollOutcome];
+    expect(outcome.kind).toBe("snapshot");
+    if (outcome.kind === "snapshot") {
+      expect(outcome.snapshot.incidents).toHaveLength(1);
+      expect(outcome.snapshot.incidents[0].externalId).toBe("inc-resolved-1");
+      expect(outcome.snapshot.incidents[0].resolvedAt).toBe("2026-07-18T12:00:00.000Z");
+    }
+  });
+
+  it("bounds a feed that paginates without end, failing the source with a recorded budget code", async () => {
+    const componentsUrl = postmarkManifestSource.config.componentsUrl as string;
+    const postmarkRow = rowFromManifest(postmarkManifestSource);
+    const persist = vi.fn();
+    let componentsPage = 0;
+    const fetchDocument = vi.fn(async (_source: PollerSourceRow, request: { url: string }) => {
+      // Every components page hands back a fresh, never-before-seen next_page,
+      // so the two-pass loop would follow pagination forever without a bound.
+      if (request.url === componentsUrl || request.url.startsWith(`${componentsUrl}?`)) {
+        componentsPage += 1;
+        return {
+          status: "ok" as const,
+          statusCode: 200,
+          json: {
+            components: [{ id: 1, name: "API", state: "operational", updated_at: null }],
+            meta: { count: 1, total_count: 999999, next_page: `${componentsUrl}?cursor=${componentsPage}` },
+          },
+          etag: null,
+          lastModified: null,
+        };
+      }
+      // The present and past notice lists resolve immediately with nothing to follow.
+      if (request.url.startsWith(postmarkManifestSource.incidentsUrl!)) {
+        return { status: "ok" as const, statusCode: 200, json: { notices: [], meta: { count: 0, total_count: 0, next_page: null } }, etag: null, lastModified: null };
+      }
+      throw new Error(`unexpected url ${request.url}`);
+    });
+
+    const result = await pollDueSources({
+      store: { listDueSources: vi.fn().mockResolvedValue([postmarkRow]) },
+      fetchDocument,
+      persist,
+      now: () => NOW,
+    });
+
+    expect(result).toEqual({ sourcesDue: 1, polled: 0, notModified: 0, failed: 1 });
+    // The cap is enforced: exactly MAX_DOCUMENTS_PER_CYCLE fetches, then the next request throws before fetching.
+    expect(fetchDocument).toHaveBeenCalledTimes(MAX_DOCUMENTS_PER_CYCLE);
+    const [outcome] = persist.mock.calls[0] as [PollOutcome];
+    expect(outcome.kind).toBe("failure");
+    if (outcome.kind === "failure") {
+      expect(outcome.error).toBeInstanceOf(DocumentBudgetExceededError);
+      expect((outcome.error as DocumentBudgetExceededError).code).toBe("DOCUMENT_BUDGET_EXCEEDED");
+      expect(outcome.retryAfterMs).toBeNull();
+    }
   });
 });

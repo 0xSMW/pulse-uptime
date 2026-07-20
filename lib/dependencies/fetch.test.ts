@@ -187,3 +187,40 @@ describe("fetchProviderDocument conditional requests", () => {
     })).rejects.toMatchObject({ code: "TIMEOUT" });
   });
 });
+
+describe("fetchProviderDocument connection reuse", () => {
+  it("reuses a caller-supplied dispatcher across documents and never closes it", async () => {
+    const close = vi.fn().mockResolvedValue(undefined);
+    const dispatcher = { close } as unknown as ManagedDispatcher;
+    const createDispatcher = vi.fn(() => fakeDispatcher());
+    const request = vi.fn<(url: URL, options: Record<string, unknown>) => Promise<FetchResponse>>()
+      .mockResolvedValue({ statusCode: 200, headers: {}, body: jsonBody({ ok: true }) });
+
+    await fetchProviderDocument(SOURCE, { url: "https://www.vercel-status.com/a.json" }, { request, createDispatcher, dispatcher });
+    await fetchProviderDocument(SOURCE, { url: "https://www.vercel-status.com/b.json" }, { request, createDispatcher, dispatcher });
+
+    expect(request).toHaveBeenCalledTimes(2);
+    expect((request.mock.calls[0]?.[1] as { dispatcher: unknown }).dispatcher).toBe(dispatcher);
+    expect((request.mock.calls[1]?.[1] as { dispatcher: unknown }).dispatcher).toBe(dispatcher);
+    // A supplied dispatcher means fetch neither creates its own nor closes the caller's.
+    expect(createDispatcher).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it("reuses one owned dispatcher across redirect hops and closes it exactly once", async () => {
+    const close = vi.fn().mockResolvedValue(undefined);
+    const dispatcher = { close } as unknown as ManagedDispatcher;
+    const createDispatcher = vi.fn(() => dispatcher);
+    const request = vi.fn<(url: URL, options: Record<string, unknown>) => Promise<FetchResponse>>()
+      .mockResolvedValueOnce({ statusCode: 302, headers: { location: "https://www.vercel-status.com/final.json" }, body: jsonBody({}) })
+      .mockResolvedValueOnce({ statusCode: 200, headers: {}, body: jsonBody({ ok: true }) });
+
+    const result = await fetchProviderDocument(SOURCE, { url: "https://www.vercel-status.com/start.json" }, { request, createDispatcher });
+
+    expect(result).toMatchObject({ status: "ok" });
+    expect(request).toHaveBeenCalledTimes(2);
+    // One dispatcher spans both hops rather than one per hop.
+    expect(createDispatcher).toHaveBeenCalledTimes(1);
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+});
