@@ -22,6 +22,20 @@ export function testNotificationKey(testId: string, recipient: string): string {
   return `test/${testId}/${recipientHash(recipient)}`;
 }
 
+/**
+ * Dedup key for a system self-alert. The bucket (for example an hour stamp)
+ * bounds the alert cadence: while a fault persists across many sweep runs, one
+ * mail per kind, bucket, and recipient is enqueued rather than one every sweep.
+ */
+export function systemAlertKey(kind: string, bucket: string, recipient: string): string {
+  return `system/${kind}/${bucket}/${recipientHash(recipient)}`;
+}
+
+/** UTC hour stamp (YYYY-MM-DDTHH) used as the default system-alert bucket. */
+export function hourBucket(now: Date): string {
+  return now.toISOString().slice(0, 13);
+}
+
 export type DependencyNotificationEvent = "incident" | "recovery";
 
 /**

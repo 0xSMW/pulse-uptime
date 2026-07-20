@@ -5,7 +5,7 @@ import type { DeliverySummary } from "@/lib/notifications/delivery";
 
 import { dispatchDueMonitors, type MonitorRunOutcome } from "./dispatch";
 import { MONITORING_LEASE, withLease, type LeaseStore } from "./lease";
-import { emptyRunCounts, safeCronError, type CronRunCounts, type CronRunStore } from "./run-record";
+import { emptyRunCounts, toCronRunFailure, type CronRunCounts, type CronRunStore } from "./run-record";
 import { scheduledMinuteAt } from "./time";
 
 export type MonitoringCoordinatorDependencies = {
@@ -71,9 +71,9 @@ export async function runMonitoringCoordinator(
       await dependencies.runs.complete(runId, now(), counts);
       return { status: "completed", runId, counts, staleClaims } as const;
     } catch (error) {
-      const safeError = safeCronError(error);
-      await dependencies.runs.fail(runId, now(), safeError, emptyRunCounts());
-      return { status: "failed", runId, error: safeError } as const;
+      const failure = toCronRunFailure(error);
+      await dependencies.runs.fail(runId, now(), failure, emptyRunCounts());
+      return { status: "failed", runId, error: failure.message } as const;
     }
   });
   return leased.acquired ? leased.value : { status: "lease-held" };

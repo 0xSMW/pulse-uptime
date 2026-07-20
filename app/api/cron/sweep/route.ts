@@ -19,10 +19,13 @@ export async function GET(request: Request): Promise<Response> {
   console.info(JSON.stringify({ event: "cron.started", jobName: "sweep" }));
   try {
     const summary = await runSweepCron();
-    console.info(JSON.stringify({
+    console[summary.loopAlert.unhealthy ? "warn" : "info"](JSON.stringify({
       event: "sweep.completed",
       jobName: "sweep",
       expired: summary.expired,
+      monitoringLoopUnhealthy: summary.loopAlert.unhealthy,
+      ...(summary.loopAlert.reason ? { monitoringLoopReason: summary.loopAlert.reason } : {}),
+      alertsSent: summary.loopAlert.sentDirect,
       durationMs: Date.now() - startedAt,
     }));
     return new Response(JSON.stringify({ status: "completed", summary }), {

@@ -1,11 +1,16 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 
 import type { HealthWarning } from "@/lib/monitoring/types";
 import { db } from "@/lib/db/client";
 import { cronRuns, dependencies, monitoringConfigSnapshots, notificationOutbox } from "@/lib/db/schema";
+import {
+  CONSECUTIVE_FAILURE_THRESHOLD,
+  countLeadingFailures,
+  type CronRunStatus,
+} from "@/lib/scheduler/loop-health";
 
 export async function getHealthWarnings(now = new Date()): Promise<HealthWarning[]> {
-  const [checkRun, maintenanceRun, dependencyRun, installedDependency, rejected, dead] = await Promise.all([
+  const [checkRun, maintenanceRun, dependencyRun, installedDependency, rejected, dead, recentChecks] = await Promise.all([
     db.select({ completedAt: cronRuns.completedAt }).from(cronRuns)
       .where(and(eq(cronRuns.jobName, "monitor-check"), eq(cronRuns.status, "completed")))
       .orderBy(desc(cronRuns.scheduledMinute)).limit(1),
@@ -21,6 +26,12 @@ export async function getHealthWarnings(now = new Date()): Promise<HealthWarning
       .orderBy(desc(monitoringConfigSnapshots.seenAt)).limit(1),
     db.select({ id: notificationOutbox.id }).from(notificationOutbox)
       .where(eq(notificationOutbox.status, "dead")).limit(1),
+    db.select({ status: cronRuns.status }).from(cronRuns)
+      .where(and(
+        eq(cronRuns.jobName, "monitor-check"),
+        inArray(cronRuns.status, ["completed", "failed"]),
+      ))
+      .orderBy(desc(cronRuns.scheduledMinute)).limit(CONSECUTIVE_FAILURE_THRESHOLD),
   ]);
 
   const warnings: HealthWarning[] = [];
@@ -30,6 +41,20 @@ export async function getHealthWarnings(now = new Date()): Promise<HealthWarning
       code: "MONITORING_STALE",
       message: "Scheduled checks are delayed",
       action: "Check Vercel Cron",
+    });
+  }
+  // A loop that runs but throws every minute leaves failed rows rather than
+  // going stale. Reading the last few terminal runs newest-first, an unbroken
+  // streak of failures at or past the threshold means the loop is executing
+  // but never succeeding. Its full error is now captured in cron_runs.
+  const leadingFailures = countLeadingFailures(
+    recentChecks.map((row) => row.status as CronRunStatus),
+  );
+  if (leadingFailures >= CONSECUTIVE_FAILURE_THRESHOLD) {
+    warnings.push({
+      code: "MONITORING_FAILING",
+      message: "Scheduled checks are failing",
+      action: "Check Cron Errors",
     });
   }
   // check-dependencies runs every minute like monitor-check, so it shares the

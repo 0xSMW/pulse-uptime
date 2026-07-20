@@ -5,7 +5,8 @@ export type NotificationEventType =
   | "incident.resolved"
   | "notification.test"
   | "dependency.incident"
-  | "dependency.recovery";
+  | "dependency.recovery"
+  | "system.alert";
 
 const nonempty = z.string().trim().min(1);
 
@@ -53,12 +54,24 @@ export const dependencyRecoveryPayloadSchema = z.object({
   providerTimestamp: nonempty,
 });
 
+// Operator-facing self-alert with no monitor or dependency subject. Raised when
+// the monitoring loop itself is broken (stale or failing), so it carries the
+// human title, the detail body, the machine reason, and when it was detected.
+export const systemAlertPayloadSchema = z.object({
+  type: z.literal("system.alert"),
+  title: nonempty,
+  detail: nonempty,
+  reason: nonempty,
+  detectedAt: nonempty,
+});
+
 export const notificationPayloadSchema = z.discriminatedUnion("type", [
   incidentOpenedPayloadSchema,
   incidentResolvedPayloadSchema,
   testNotificationPayloadSchema,
   dependencyIncidentPayloadSchema,
   dependencyRecoveryPayloadSchema,
+  systemAlertPayloadSchema,
 ]);
 
 export type IncidentOpenedPayload = z.infer<typeof incidentOpenedPayloadSchema>;
@@ -71,12 +84,15 @@ export type DependencyIncidentPayload = z.infer<typeof dependencyIncidentPayload
 
 export type DependencyRecoveryPayload = z.infer<typeof dependencyRecoveryPayloadSchema>;
 
+export type SystemAlertPayload = z.infer<typeof systemAlertPayloadSchema>;
+
 export type NotificationPayload =
   | IncidentOpenedPayload
   | IncidentResolvedPayload
   | TestNotificationPayload
   | DependencyIncidentPayload
-  | DependencyRecoveryPayload;
+  | DependencyRecoveryPayload
+  | SystemAlertPayload;
 
 export interface ClaimedNotification {
   id: string;

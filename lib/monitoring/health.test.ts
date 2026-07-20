@@ -22,9 +22,10 @@ function selectChain(outcome: unknown[]) {
   return node;
 }
 
-// getHealthWarnings issues the same six selects in order: monitor-check run,
+// getHealthWarnings issues the same seven selects in order: monitor-check run,
 // maintenance run, check-dependencies run, installed dependency probe,
-// config snapshot, dead outbox. Each override maps to that position.
+// config snapshot, dead outbox, recent monitor-check statuses. Each override
+// maps to that position.
 interface Rows {
   monitorCheck?: unknown[];
   maintenance?: unknown[];
@@ -32,17 +33,20 @@ interface Rows {
   installedDependency?: unknown[];
   configSnapshot?: unknown[];
   deadOutbox?: unknown[];
+  recentChecks?: unknown[];
 }
 
 function stubSelects(rows: Rows = {}) {
   const fresh = [{ completedAt: minutesAgo(1) }];
+  const completedRuns = [{ status: "completed" }, { status: "completed" }, { status: "completed" }];
   dbMock.select
     .mockReturnValueOnce(selectChain(rows.monitorCheck ?? fresh))
     .mockReturnValueOnce(selectChain(rows.maintenance ?? [{ completedAt: minutesAgo(60) }]))
     .mockReturnValueOnce(selectChain(rows.dependencyCheck ?? fresh))
     .mockReturnValueOnce(selectChain(rows.installedDependency ?? [{ id: "dep" }]))
     .mockReturnValueOnce(selectChain(rows.configSnapshot ?? [{ status: "accepted" }]))
-    .mockReturnValueOnce(selectChain(rows.deadOutbox ?? []));
+    .mockReturnValueOnce(selectChain(rows.deadOutbox ?? []))
+    .mockReturnValueOnce(selectChain(rows.recentChecks ?? completedRuns));
 }
 
 beforeEach(() => {
@@ -84,5 +88,21 @@ describe("getHealthWarnings", () => {
     const codes = (await getHealthWarnings(now)).map((warning) => warning.code);
     expect(codes).toContain("MONITORING_STALE");
     expect(codes).not.toContain("DEPENDENCY_POLLER_STALE");
+  });
+
+  it("warns when the last three monitor-check runs all failed", async () => {
+    stubSelects({ recentChecks: [{ status: "failed" }, { status: "failed" }, { status: "failed" }] });
+    const warnings = await getHealthWarnings(now);
+    expect(warnings).toContainEqual({
+      code: "MONITORING_FAILING",
+      message: "Scheduled checks are failing",
+      action: "Check Cron Errors",
+    });
+  });
+
+  it("does not warn about failing checks when a recent run completed", async () => {
+    stubSelects({ recentChecks: [{ status: "completed" }, { status: "failed" }, { status: "failed" }] });
+    const codes = (await getHealthWarnings(now)).map((warning) => warning.code);
+    expect(codes).not.toContain("MONITORING_FAILING");
   });
 });

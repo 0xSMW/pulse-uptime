@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { MAINTENANCE_LEASE, withLease, type LeaseStore } from "@/lib/scheduler/lease";
-import { emptyRunCounts, safeCronError, type CronRunStore } from "@/lib/scheduler/run-record";
+import { emptyRunCounts, toCronRunFailure, type CronRunStore } from "@/lib/scheduler/run-record";
 import { scheduledMinuteAt, utcDay } from "@/lib/scheduler/time";
 import type { GovernorMode } from "@/lib/storage/governor";
 
@@ -198,9 +198,9 @@ export async function runMaintenanceCoordinator(dependencies: {
       await dependencies.runs.complete(runId, now(), emptyRunCounts());
       return { status: "completed", runId, summary } as const;
     } catch (error) {
-      const safeError = safeCronError(error);
-      await dependencies.runs.fail(runId, now(), safeError);
-      return { status: "failed", runId, error: safeError } as const;
+      const failure = toCronRunFailure(error);
+      await dependencies.runs.fail(runId, now(), failure);
+      return { status: "failed", runId, error: failure.message } as const;
     }
   });
   return result.acquired ? result.value : { status: "lease-held" };
