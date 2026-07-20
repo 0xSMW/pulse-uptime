@@ -465,9 +465,18 @@ export async function persistSnapshot(
     // value is what gets persisted to provider_incidents and what travels
     // into a notification payload, so neither the dashboard nor an email
     // ever renders an unvalidated provider-supplied href.
+    // Clamp resolvedAt to startedAt in the same pass: providers publish
+    // inconsistent timestamps (Cloudflare has shipped a resolved_at hours
+    // before its own started_at), and an unclamped pair trips the
+    // provider_incidents_resolution_order check, aborting the whole poll on
+    // one malformed historical incident. closeIncident applies the same
+    // guard for incidents resolved by disappearance.
     const incidents = snapshot.incidents.map((incident) => ({
       ...incident,
       canonicalUrl: safeProviderUrl(incident.canonicalUrl, source),
+      resolvedAt: incident.resolvedAt && new Date(incident.resolvedAt) < new Date(incident.startedAt)
+        ? incident.startedAt
+        : incident.resolvedAt,
     }));
 
     // Read every one of this poll's incidents' prior resolved_at before any

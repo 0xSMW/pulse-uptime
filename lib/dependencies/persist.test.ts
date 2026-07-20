@@ -1759,6 +1759,45 @@ describe("persistSnapshot: F3 closeIncident greatest(now, started_at) guard", ()
   });
 });
 
+// -- Provider-published resolved_at can precede its own started_at (observed
+// live: Cloudflare incident 1nxybwbw5cdk resolved 2h48m before it started).
+// persistSnapshot clamps resolution to the start on ingestion, or the
+// provider_incidents_resolution_order check aborts the whole poll.
+
+describe("persistSnapshot: resolved-before-started clamp on ingestion", () => {
+  it("clamps a provider resolved_at that precedes started_at up to started_at", async () => {
+    const db = emptyDb([dependencyRow({ id: "dep-1", currentState: "OPERATIONAL" })]);
+    const store = createFakeStore(db);
+    const startedAt = new Date(NOW.getTime() - 3_600_000);
+    const resolvedBeforeStart = new Date(startedAt.getTime() - 10_000_000);
+    const outcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({ components: { c1: { state: "OPERATIONAL", updatedAt: null } }, incidents: [incident({ state: "resolved", startedAt: startedAt.toISOString(), resolvedAt: resolvedBeforeStart.toISOString(), updatedAt: NOW.toISOString() })] }),
+      etag: null, lastModified: null,
+    };
+
+    await persistSnapshot(store, outcome, baseSource(), { now: NOW, defaultRecipients: ["ops@example.com"] });
+
+    expect(db.incidentResolvedAt.get("vercel:inc-1")).toEqual(startedAt);
+  });
+
+  it("keeps a well-ordered resolved_at unchanged", async () => {
+    const db = emptyDb([dependencyRow({ id: "dep-1", currentState: "OPERATIONAL" })]);
+    const store = createFakeStore(db);
+    const startedAt = new Date(NOW.getTime() - 3_600_000);
+    const resolvedAt = new Date(NOW.getTime() - 60_000);
+    const outcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({ components: { c1: { state: "OPERATIONAL", updatedAt: null } }, incidents: [incident({ state: "resolved", startedAt: startedAt.toISOString(), resolvedAt: resolvedAt.toISOString(), updatedAt: NOW.toISOString() })] }),
+      etag: null, lastModified: null,
+    };
+
+    await persistSnapshot(store, outcome, baseSource(), { now: NOW, defaultRecipients: ["ops@example.com"] });
+
+    expect(db.incidentResolvedAt.get("vercel:inc-1")).toEqual(resolvedAt);
+  });
+});
+
 // -- F4: the new-open-interval insert tolerates a lost close-then-insert race
 // by targeting the dependency_state_intervals_one_open partial unique index
 // with ON CONFLICT DO NOTHING, so a concurrent close no longer aborts the
