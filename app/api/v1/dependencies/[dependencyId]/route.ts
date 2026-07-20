@@ -44,8 +44,11 @@ export async function PATCH(request: Request, { params }: Params) {
   const dependencyId = (await params).dependencyId;
   try {
     const body = await request.json();
+    // The patch and its idempotency record commit in one transaction, so a
+    // crash before completion leaves nothing committed and a replay reruns
+    // cleanly rather than replaying against a half-applied change.
     const result = await executeIdempotent({ request, principalKey: context.principalKey, routeKey: `/api/v1/dependencies/${dependencyId}`, body,
-      work: async () => ({ status: 200, body: objectEnvelope("Dependency", await patchDependency(dependencyId, body), context.requestId) }),
+      work: async ({ transaction }) => transaction(async (tx) => ({ status: 200, body: objectEnvelope("Dependency", await patchDependency(dependencyId, body, {}, tx), context.requestId) })),
     });
     return apiJson(result.body, { status: result.status });
   } catch (error) {
@@ -58,8 +61,14 @@ export async function DELETE(request: Request, { params }: Params) {
   if (isApiResponse(context)) return context;
   const dependencyId = (await params).dependencyId;
   try {
+    // The soft removal and its idempotency record commit in one transaction.
+    // If the process dies before completion, the removal rolls back with the
+    // still-running record, so a reclaimed replay reruns and removes the row,
+    // returning 204. If both committed, the replay replays the stored 204.
+    // Either way an already-removed dependency never surfaces a 404 to a
+    // replay of the request that removed it.
     const result = await executeIdempotent({ request, principalKey: context.principalKey, routeKey: `/api/v1/dependencies/${dependencyId}`, body: {},
-      work: async () => ({ status: 204, body: await removeDependency(dependencyId) }),
+      work: async ({ transaction }) => transaction(async (tx) => ({ status: 204, body: await removeDependency(dependencyId, {}, tx) })),
     });
     return result.status === 204 ? noContent() : apiJson(result.body, { status: result.status });
   } catch (error) {

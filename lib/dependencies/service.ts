@@ -2,7 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
-import { and, desc, eq, gte, isNull } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { db, type DatabaseHandle } from "@/lib/db/client";
@@ -106,9 +106,15 @@ export interface DependenciesStore {
   }): Promise<boolean>;
   touchSourceNextPoll(sourceId: string, now: Date): Promise<void>;
   loadSourceIdForDependency(id: string): Promise<string | null>;
-  /** Soft removal: sets removedAt and closes the open interval, in one transaction. Returns false when no active dependency matches. */
-  removeDependency(id: string, now: Date): Promise<boolean>;
-  patchNotifications(id: string, notificationsEnabled: boolean): Promise<boolean>;
+  /**
+   * Soft removal: sets removedAt and closes the open interval. With no handle
+   * given this runs in its own transaction; with a caller-supplied handle
+   * (the idempotency path) the writes run directly on it so the removal and
+   * the idempotency record commit together, mirroring insertDependency.
+   * Returns false when no active dependency matches.
+   */
+  removeDependency(id: string, now: Date, handle?: DatabaseHandle): Promise<boolean>;
+  patchNotifications(id: string, notificationsEnabled: boolean, handle?: DatabaseHandle): Promise<boolean>;
 }
 
 export type DependenciesDependencies = {
@@ -229,21 +235,29 @@ export async function patchDependency(
   id: string,
   input: unknown,
   dependenciesInput: DependenciesDependencies = {},
+  handle: DatabaseHandle = db,
 ) {
   const store = dependenciesInput.store ?? databaseDependenciesStore;
   const parsed = patchSchema.parse(input);
-  const patched = await store.patchNotifications(id, parsed.notificationsEnabled);
+  const patched = await store.patchNotifications(id, parsed.notificationsEnabled, handle);
   if (!patched) throw new DependencyApiError("DEPENDENCY_NOT_FOUND", "Dependency was not found");
-  return getDependencyDetail(id);
+  // Reads back on the same handle as the update above, so a patch running
+  // inside a caller's transaction sees its own uncommitted row rather than a
+  // second pooled connection that has not observed it, mirroring
+  // installDependency's read-back.
+  const detail = await queryDependencyDetail(id, handle);
+  if (!detail) throw new DependencyApiError("DEPENDENCY_NOT_FOUND", "Dependency was not found");
+  return detail;
 }
 
 export async function removeDependency(
   id: string,
   dependenciesInput: DependenciesDependencies = {},
+  handle: DatabaseHandle = db,
 ) {
   const store = dependenciesInput.store ?? databaseDependenciesStore;
   const now = dependenciesInput.now?.() ?? new Date();
-  const removed = await store.removeDependency(id, now);
+  const removed = await store.removeDependency(id, now, handle);
   if (!removed) throw new DependencyApiError("DEPENDENCY_NOT_FOUND", "Dependency was not found");
   return { id, removed: true };
 }
@@ -371,20 +385,34 @@ export const databaseDependenciesStore: DependenciesStore = {
     return row?.sourceId ?? null;
   },
 
-  async removeDependency(id, now) {
-    return db.transaction(async (tx) => {
+  async removeDependency(id, now, handle) {
+    const run = async (tx: DatabaseHandle): Promise<boolean> => {
       const updated = await tx.update(dependencies).set({ removedAt: now })
         .where(and(eq(dependencies.id, id), isNull(dependencies.removedAt)))
         .returning({ id: dependencies.id });
       if (!updated[0]) return false;
-      await tx.update(dependencyStateIntervals).set({ endedAt: now })
+      // greatest(now, started_at) mirrors the poll path (see persist.ts): a
+      // slightly-behind now under cross-instance clock skew must not land
+      // before the interval's own started_at and fail the
+      // ended_at >= started_at check, which would abort this transaction.
+      await tx.update(dependencyStateIntervals).set({ endedAt: sql`greatest(${now}, ${dependencyStateIntervals.startedAt})` })
         .where(and(eq(dependencyStateIntervals.dependencyId, id), isNull(dependencyStateIntervals.endedAt)));
       return true;
-    });
+    };
+    // Runs on the caller's transaction when one is supplied (the idempotency
+    // path) so the removal and the idempotency record commit atomically, or
+    // opens its own transaction otherwise. Mirrors insertDependency's handle
+    // choice: a handle equal to this module's own db is the unset default.
+    if (handle && handle !== db) return run(handle);
+    return db.transaction(run);
   },
 
-  async patchNotifications(id, notificationsEnabled) {
-    const updated = await db.update(dependencies).set({ notificationsEnabled })
+  async patchNotifications(id, notificationsEnabled, handle) {
+    // A single conditional update, so the caller's transaction handle (the
+    // idempotency path) or the pooled db each commit it on their own. Passing
+    // the handle keeps the update atomic with the idempotency record.
+    const executor = handle && handle !== db ? handle : db;
+    const updated = await executor.update(dependencies).set({ notificationsEnabled })
       .where(and(eq(dependencies.id, id), isNull(dependencies.removedAt)))
       .returning({ id: dependencies.id });
     return Boolean(updated[0]);

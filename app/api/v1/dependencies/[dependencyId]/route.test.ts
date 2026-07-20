@@ -6,12 +6,33 @@ vi.mock("@/lib/api/middleware", () => ({
   authorize: vi.fn(),
   isApiResponse: (value: unknown) => value instanceof Response,
 }));
+// Mirrors executeIdempotent's real completion semantics: work() runs inside
+// transaction(), and a key only records its outcome if run() resolves. A
+// thrown run() records nothing, proving the mutation rolled back. A repeated
+// key replays the stored outcome without re-running the work.
+const idempotencyRecords = new Map<string, { status: number; body: unknown }>();
 vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/idempotency")>()),
-  executeIdempotent: vi.fn(async ({ work }: { work: (context: { operationId: string }) => Promise<{ status: number; body: unknown }> }) => ({
-    ...(await work({ operationId: "op-1" })),
-    replayed: false,
-  })),
+  executeIdempotent: vi.fn(async ({ request, work }: {
+    request: Request;
+    work: (context: {
+      operationId: string;
+      transaction: (run: (tx: unknown) => Promise<{ status: number; body: unknown }>) => Promise<{ status: number; body: unknown }>;
+    }) => Promise<{ status: number; body: unknown }>;
+  }) => {
+    const key = request.headers.get("idempotency-key")!;
+    const existing = idempotencyRecords.get(key);
+    if (existing) return { ...existing, replayed: true };
+    const result = await work({
+      operationId: "op-1",
+      transaction: async (run) => {
+        const outcome = await run("tx");
+        idempotencyRecords.set(key, outcome);
+        return outcome;
+      },
+    });
+    return { ...result, replayed: false };
+  }),
 }));
 vi.mock("@/lib/dependencies/service", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/dependencies/service")>()),
@@ -40,6 +61,7 @@ beforeEach(() => {
   vi.mocked(getDependencyDetail).mockReset().mockResolvedValue(dependency as never);
   vi.mocked(patchDependency).mockReset().mockResolvedValue(dependency as never);
   vi.mocked(removeDependency).mockReset().mockResolvedValue({ id: "dep-1", removed: true });
+  idempotencyRecords.clear();
 });
 
 describe("GET /api/v1/dependencies/{dependencyId}", () => {
@@ -81,7 +103,7 @@ describe("PATCH /api/v1/dependencies/{dependencyId}", () => {
     const response = await PATCH(patchRequest({ notificationsEnabled: false }), params);
     expect(authorize).toHaveBeenCalledWith(expect.any(Request), { scope: "dependencies:write" });
     expect(response.status).toBe(200);
-    expect(patchDependency).toHaveBeenCalledWith("dep-1", { notificationsEnabled: false });
+    expect(patchDependency).toHaveBeenCalledWith("dep-1", { notificationsEnabled: false }, {}, "tx");
     const payload = await response.json();
     expect(payload.kind).toBe("Dependency");
   });
@@ -116,10 +138,26 @@ describe("DELETE /api/v1/dependencies/{dependencyId}", () => {
     expect(authorize).toHaveBeenCalledWith(expect.any(Request), { scope: "dependencies:write" });
     expect(response.status).toBe(204);
     expect(await response.text()).toBe("");
-    expect(removeDependency).toHaveBeenCalledWith("dep-1");
+    expect(removeDependency).toHaveBeenCalledWith("dep-1", {}, "tx");
   });
 
-  it("maps DEPENDENCY_NOT_FOUND to 404", async () => {
+  it("removes inside the idempotency transaction so the removal and the record commit together", async () => {
+    await DELETE(deleteRequest(), params);
+    expect(removeDependency).toHaveBeenCalledWith("dep-1", {}, "tx");
+  });
+
+  it("replays a stored 204 for a repeated key instead of re-running, so an already-removed dependency never 404s on replay", async () => {
+    const request = deleteRequest();
+    const first = await DELETE(request.clone(), params);
+    expect(first.status).toBe(204);
+    expect(removeDependency).toHaveBeenCalledTimes(1);
+    const replay = await DELETE(request, params);
+    expect(replay.status).toBe(204);
+    expect(await replay.text()).toBe("");
+    expect(removeDependency).toHaveBeenCalledTimes(1);
+  });
+
+  it("maps DEPENDENCY_NOT_FOUND to 404 for a fresh key on an already-absent dependency", async () => {
     vi.mocked(removeDependency).mockRejectedValue(new DependencyApiError("DEPENDENCY_NOT_FOUND", "Dependency was not found"));
     const response = await DELETE(deleteRequest(), params);
     expect(response.status).toBe(404);

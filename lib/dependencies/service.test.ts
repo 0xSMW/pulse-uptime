@@ -8,8 +8,10 @@ vi.mock("./queries", () => ({
   listDependenciesForDashboard: vi.fn(),
 }));
 
+import { SQL } from "drizzle-orm";
+
 import { db } from "@/lib/db/client";
-import { dependencySources } from "@/lib/db/schema";
+import { dependencies, dependencySources, dependencyStateIntervals } from "@/lib/db/schema";
 import * as queries from "./queries";
 import {
   DependencyApiError,
@@ -257,7 +259,15 @@ describe("patchDependency", () => {
   it("patches and returns the refreshed detail", async () => {
     const store = fakeStore({ patchNotifications: vi.fn().mockResolvedValue(true) });
     await expect(patchDependency("dep-1", { notificationsEnabled: false }, { store })).resolves.toBe(DETAIL);
-    expect(store.patchNotifications).toHaveBeenCalledWith("dep-1", false);
+    expect(store.patchNotifications).toHaveBeenCalledWith("dep-1", false, db);
+  });
+
+  it("threads a caller-supplied transaction handle into both the update and the read-back", async () => {
+    const store = fakeStore({ patchNotifications: vi.fn().mockResolvedValue(true) });
+    const tx = { transaction: vi.fn(), update: vi.fn() } as unknown as typeof db;
+    await patchDependency("dep-1", { notificationsEnabled: false }, { store }, tx);
+    expect(store.patchNotifications).toHaveBeenCalledWith("dep-1", false, tx);
+    expect(queries.getDependencyDetail).toHaveBeenCalledWith("dep-1", tx);
   });
 });
 
@@ -270,7 +280,14 @@ describe("removeDependency (soft remove)", () => {
   it("delegates the close-interval semantics to the store and reports removed", async () => {
     const store = fakeStore({ removeDependency: vi.fn().mockResolvedValue(true) });
     await expect(removeDependency("dep-1", { store, now: () => NOW })).resolves.toEqual({ id: "dep-1", removed: true });
-    expect(store.removeDependency).toHaveBeenCalledWith("dep-1", NOW);
+    expect(store.removeDependency).toHaveBeenCalledWith("dep-1", NOW, db);
+  });
+
+  it("threads a caller-supplied transaction handle into the store so the removal commits with the idempotency record", async () => {
+    const store = fakeStore({ removeDependency: vi.fn().mockResolvedValue(true) });
+    const tx = { transaction: vi.fn(), update: vi.fn() } as unknown as typeof db;
+    await removeDependency("dep-1", { store, now: () => NOW }, tx);
+    expect(store.removeDependency).toHaveBeenCalledWith("dep-1", NOW, tx);
   });
 });
 
@@ -372,6 +389,85 @@ describe("databaseDependenciesStore insertDependency race handling", () => {
     });
 
     expect(inserted).toBe(false);
+  });
+});
+
+describe("databaseDependenciesStore removeDependency (FIX D1/D2)", () => {
+  function removeTxMock(matched: boolean) {
+    const setCalls: Array<{ table: unknown; patch: Record<string, unknown> }> = [];
+    const tx = {
+      update: (table: unknown) => ({
+        set: (patch: Record<string, unknown>) => {
+          setCalls.push({ table, patch });
+          const where = () => {
+            const result = Promise.resolve(undefined) as Promise<unknown> & { returning?: () => Promise<unknown> };
+            result.returning = () => Promise.resolve(matched ? [{ id: "dep-1" }] : []);
+            return result;
+          };
+          return { where };
+        },
+      }),
+    };
+    return { tx, setCalls };
+  }
+
+  it("closes the open interval with greatest(now, started_at), not a bare now, so a slightly-behind now never aborts the transaction", async () => {
+    const { tx, setCalls } = removeTxMock(true);
+    const removed = await databaseDependenciesStore.removeDependency("dep-1", NOW, tx as unknown as typeof db);
+    expect(removed).toBe(true);
+    const intervalUpdate = setCalls.find((call) => call.table === dependencyStateIntervals);
+    expect(intervalUpdate?.patch.endedAt).toBeInstanceOf(SQL);
+    expect(intervalUpdate?.patch.endedAt).not.toBe(NOW);
+  });
+
+  it("runs the removal directly on a caller-supplied handle rather than opening its own transaction", async () => {
+    const { tx } = removeTxMock(true);
+    vi.mocked(db.transaction).mockClear();
+    const removed = await databaseDependenciesStore.removeDependency("dep-1", NOW, tx as unknown as typeof db);
+    expect(removed).toBe(true);
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it("returns false and closes no interval when no active dependency matches", async () => {
+    const { tx, setCalls } = removeTxMock(false);
+    const removed = await databaseDependenciesStore.removeDependency("dep-1", NOW, tx as unknown as typeof db);
+    expect(removed).toBe(false);
+    expect(setCalls.find((call) => call.table === dependencyStateIntervals)).toBeUndefined();
+  });
+
+  it("opens its own transaction when no handle is supplied", async () => {
+    const { tx } = removeTxMock(true);
+    vi.mocked(db.transaction).mockImplementation((async (work: (handle: unknown) => Promise<unknown>) => work(tx)) as never);
+    const removed = await databaseDependenciesStore.removeDependency("dep-1", NOW);
+    expect(removed).toBe(true);
+    expect(db.transaction).toHaveBeenCalled();
+  });
+});
+
+describe("databaseDependenciesStore patchNotifications (FIX D1)", () => {
+  it("updates on the caller-supplied handle so the change commits with the idempotency record", async () => {
+    const setCalls: Array<{ table: unknown; patch: Record<string, unknown> }> = [];
+    const handle = {
+      update: (table: unknown) => ({
+        set: (patch: Record<string, unknown>) => {
+          setCalls.push({ table, patch });
+          return { where: () => ({ returning: vi.fn().mockResolvedValue([{ id: "dep-1" }]) }) };
+        },
+      }),
+    };
+    const patched = await databaseDependenciesStore.patchNotifications("dep-1", false, handle as unknown as typeof db);
+    expect(patched).toBe(true);
+    expect(setCalls[0]?.table).toBe(dependencies);
+    expect(setCalls[0]?.patch).toMatchObject({ notificationsEnabled: false });
+  });
+
+  it("falls back to the pooled db when no handle is supplied", async () => {
+    vi.mocked(db.update).mockImplementation(((table: unknown) => ({
+      set: () => ({ where: () => ({ returning: vi.fn().mockResolvedValue(table === dependencies ? [{ id: "dep-1" }] : []) }) }),
+    })) as never);
+    const patched = await databaseDependenciesStore.patchNotifications("dep-1", true);
+    expect(patched).toBe(true);
+    expect(db.update).toHaveBeenCalledWith(dependencies);
   });
 });
 
