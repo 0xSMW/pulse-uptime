@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 
 import type { Database, DatabaseTransaction } from "@/lib/db/client";
 import { dependencies, dependencyCatalog, dependencySources, dependencyState, dependencyStateIntervals } from "@/lib/db/schema";
@@ -157,6 +157,51 @@ export function presetUpsertPlan(
   return { insert, update };
 }
 
+export interface SourceUpsertPlan {
+  insert: typeof dependencySources.$inferInsert;
+  update: Partial<typeof dependencySources.$inferInsert>;
+}
+
+/**
+ * Values for upserting one source. upsertSource only ever runs during a
+ * catalog version change (syncCatalog upserts nothing when the stored
+ * version already matches), so the conflict update legitimately resets the
+ * cache validators: when currentUrl changes across the version bump, a
+ * stored etag or last-modified from the prior url would otherwise ride along
+ * and draw a spurious 304 against the new url, short circuiting primary-only
+ * adapters. Clearing etag and lastModified, and nulling nextPollAt so the
+ * scheduler treats the source as due, forces one fresh unconditional fetch.
+ */
+export function sourceUpsertPlan(source: DependencySourceManifest, catalogVersion: string): SourceUpsertPlan {
+  const insert = {
+    id: source.id,
+    providerName: source.provider,
+    adapter: source.adapter,
+    currentUrl: source.currentUrl,
+    incidentsUrl: source.incidentsUrl,
+    statusPageUrl: source.statusPageUrl,
+    allowedHosts: source.allowedHosts,
+    config: source.config,
+    catalogVersion,
+    enabled: true,
+  };
+  const update = {
+    providerName: source.provider,
+    adapter: source.adapter,
+    currentUrl: source.currentUrl,
+    incidentsUrl: source.incidentsUrl,
+    statusPageUrl: source.statusPageUrl,
+    allowedHosts: source.allowedHosts,
+    config: source.config,
+    catalogVersion,
+    enabled: true,
+    etag: null,
+    lastModified: null,
+    nextPollAt: null,
+  };
+  return { insert, update };
+}
+
 /** Disables a preset and records why, shared by validateCatalog (a missing upstream id) and syncCatalog (the preset's source dropped from the manifest). */
 async function disablePresetSql(tx: DatabaseTransaction, presetId: string, validatedAt: Date, error: string): Promise<void> {
   await tx.update(dependencyCatalog).set({ enabled: false, validatedAt, validationError: error }).where(eq(dependencyCatalog.id, presetId));
@@ -167,9 +212,11 @@ async function disablePresetSql(tx: DatabaseTransaction, presetId: string, valid
  * UNKNOWN, shared by validateCatalog and syncCatalog. Change-only storage:
  * only dependencies not already UNKNOWN get a closed-then-reopened interval,
  * so re-disabling an already-UNKNOWN preset doesn't churn out a fresh
- * interval for nothing.
+ * interval for nothing. Transition bookkeeping mirrors
+ * persist.applyDependencyState: a transitioning row advances stateStartedAt
+ * and its open interval closes with greatest(observedAt, started_at).
  */
-async function flipDependenciesToUnknownSql(tx: DatabaseTransaction, catalogId: string, observedAt: Date): Promise<number> {
+export async function flipDependenciesToUnknownSql(tx: DatabaseTransaction, catalogId: string, observedAt: Date): Promise<number> {
   const installed = await tx.select({ id: dependencies.id, state: dependencyState.state })
     .from(dependencies)
     .innerJoin(dependencyState, eq(dependencyState.dependencyId, dependencies.id))
@@ -182,7 +229,15 @@ async function flipDependenciesToUnknownSql(tx: DatabaseTransaction, catalogId: 
 
   const transitioning = installed.filter((row) => row.state !== "UNKNOWN").map((row) => row.id);
   if (transitioning.length > 0) {
-    await tx.update(dependencyStateIntervals).set({ endedAt: observedAt })
+    // stateStartedAt only advances for rows whose state actually changed,
+    // so an already-UNKNOWN install keeps its original start.
+    await tx.update(dependencyState).set({ stateStartedAt: observedAt })
+      .where(inArray(dependencyState.dependencyId, transitioning));
+    // greatest(observedAt, started_at) rather than a bare observedAt: under
+    // cross-instance clock skew a slightly-behind observedAt could otherwise
+    // land before the interval's own started_at and fail the
+    // ended_at >= started_at check, aborting the whole sync transaction.
+    await tx.update(dependencyStateIntervals).set({ endedAt: sql`greatest(${observedAt}, ${dependencyStateIntervals.startedAt})` })
       .where(and(inArray(dependencyStateIntervals.dependencyId, transitioning), isNull(dependencyStateIntervals.endedAt)));
     await tx.insert(dependencyStateIntervals).values(transitioning.map((dependencyId) => ({
       id: randomUUID(),
@@ -208,21 +263,10 @@ export function createSqlCatalogSyncStore(db: Database): CatalogSyncStore {
         return row?.catalogVersion ?? null;
       },
       upsertSource: async (source, catalogVersion) => {
-        const values = {
-          id: source.id,
-          providerName: source.provider,
-          adapter: source.adapter,
-          currentUrl: source.currentUrl,
-          incidentsUrl: source.incidentsUrl,
-          statusPageUrl: source.statusPageUrl,
-          allowedHosts: source.allowedHosts,
-          config: source.config,
-          catalogVersion,
-          enabled: true,
-        };
-        await tx.insert(dependencySources).values(values).onConflictDoUpdate({
+        const plan = sourceUpsertPlan(source, catalogVersion);
+        await tx.insert(dependencySources).values(plan.insert).onConflictDoUpdate({
           target: dependencySources.id,
-          set: values,
+          set: plan.update,
         });
       },
       upsertPreset: async (preset, catalogVersion) => {
@@ -291,22 +335,28 @@ interface EnabledSourceRow {
   currentUrl: string;
 }
 
-interface EnabledPresetRow {
+interface PresetRow {
   id: string;
   selector: DependencySelector;
   scope: DependencyScope | null;
+  /** Whether the preset is currently enabled. A drift-disabled preset (enabled false) still loads here so it can be re-enabled once its ids return. */
+  enabled: boolean;
 }
 
 export interface CatalogValidationExecutor {
-  loadEnabledSources(): Promise<EnabledSourceRow[]>;
-  loadEnabledPresetsForSource(sourceId: string): Promise<EnabledPresetRow[]>;
+  /** Enabled presets plus drift-disabled ones (validationError set) for the source, so a preset frozen by transient drift can re-enable once its ids return. A manifest-shipped disabled preset (no validationError) is not loaded. */
+  loadPresetsForSource(sourceId: string): Promise<PresetRow[]>;
   recordSourceValidation(sourceId: string, validatedAt: Date, error: string | null): Promise<void>;
   recordPresetValidationOk(presetId: string, validatedAt: Date): Promise<void>;
+  /** Re-enables a drift-disabled preset whose ids are present again, clearing the validation error so its installs recompute on the next poll. */
+  reEnablePreset(presetId: string, validatedAt: Date): Promise<void>;
   disablePreset(presetId: string, validatedAt: Date, error: string): Promise<void>;
   flipDependenciesToUnknown(catalogId: string, observedAt: Date): Promise<number>;
 }
 
 export interface CatalogValidationStore {
+  /** Enabled sources, read outside any write transaction so the live fetches that follow hold no database connection. */
+  loadEnabledSources(): Promise<EnabledSourceRow[]>;
   transaction<T>(work: (tx: CatalogValidationExecutor) => Promise<T>): Promise<T>;
 }
 
@@ -334,66 +384,107 @@ function selectorRequiredIds(selector: DependencySelector): string[] {
   }
 }
 
-function scopeRequiredIds(scope: DependencyScope | null): string[] {
-  return scope?.kind === "required_options" ? scope.options.map((option) => option.id) : [];
-}
-
-/** IDs the preset needs that are absent from the fetched directory. Only checks statically known IDs; discovered-children and discovered-locations scopes are validated when their children are fetched. */
-function missingIds(preset: EnabledPresetRow, known: ReadonlySet<string>): string[] {
-  const required = [...selectorRequiredIds(preset.selector), ...scopeRequiredIds(preset.scope)];
-  return required.filter((id) => !known.has(id));
+/**
+ * IDs whose absence disables the whole preset: the selector's core upstream
+ * ids only. A required_options scope's region container ids are deliberately
+ * not preset-level required. Status.io dropping one region out of many must
+ * not disable the preset and freeze every region's installs. A dropped
+ * region resolves per install through the poller: resolveDependencyState
+ * returns UNKNOWN for an install scoped to a now-absent container, while
+ * installs scoped to still-present regions keep polling healthy. Only
+ * statically known selector ids are checked here. discovered-children and
+ * discovered-locations scopes are validated when their children are fetched.
+ */
+function missingIds(preset: PresetRow, known: ReadonlySet<string>): string[] {
+  return selectorRequiredIds(preset.selector).filter((id) => !known.has(id));
 }
 
 export async function validateCatalog(deps: ValidateCatalogDeps): Promise<ValidateCatalogSummary> {
   const now = deps.now ?? (() => new Date());
-  return deps.store.transaction(async (tx) => {
-    const sources = await tx.loadEnabledSources();
-    const disabledPresets: string[] = [];
-    let validatedPresets = 0;
-    let unknownDependencies = 0;
+  const sources = await deps.store.loadEnabledSources();
 
-    for (const source of sources) {
-      const directory = await deps.fetchSourceComponents(source);
+  // Fetch every source's component directory with no transaction open. These
+  // are live, sequential, multi-source HTTP calls that can take tens of
+  // seconds, so running them inside a transaction would pin a connection and
+  // risk an idle_in_transaction abort that rolls back all partial validation.
+  const directories = new Map<string, CatalogComponentDirectory | null>();
+  for (const source of sources) {
+    directories.set(source.id, await deps.fetchSourceComponents(source));
+  }
+
+  const disabledPresets: string[] = [];
+  let validatedPresets = 0;
+  let unknownDependencies = 0;
+
+  // One short write transaction per source. Network already happened above,
+  // so each transaction only issues local writes, and a failure isolates to
+  // its own source instead of discarding every source's validation.
+  for (const source of sources) {
+    const directory = directories.get(source.id) ?? null;
+    const perSource = await deps.store.transaction(async (tx) => {
       const validatedAt = now();
       if (!directory) {
         await tx.recordSourceValidation(source.id, validatedAt, "FEED_UNREACHABLE");
-        continue;
+        return { validated: 0, disabled: [] as string[], unknown: 0 };
       }
       await tx.recordSourceValidation(source.id, validatedAt, null);
 
-      const presets = await tx.loadEnabledPresetsForSource(source.id);
+      const disabled: string[] = [];
+      let validated = 0;
+      let unknown = 0;
+      const presets = await tx.loadPresetsForSource(source.id);
       for (const preset of presets) {
         const missing = missingIds(preset, directory.componentIds);
-        if (missing.length === 0) {
-          await tx.recordPresetValidationOk(preset.id, validatedAt);
-          validatedPresets += 1;
+        if (missing.length > 0) {
+          // An already drift-disabled preset whose ids are still missing
+          // stays disabled untouched, so its installs are not re-flipped.
+          if (!preset.enabled) continue;
+          await tx.disablePreset(preset.id, validatedAt, `Missing upstream component ids: ${missing.join(", ")}`);
+          disabled.push(preset.id);
+          unknown += await tx.flipDependenciesToUnknown(preset.id, validatedAt);
           continue;
         }
-        await tx.disablePreset(preset.id, validatedAt, `Missing upstream component ids: ${missing.join(", ")}`);
-        disabledPresets.push(preset.id);
-        unknownDependencies += await tx.flipDependenciesToUnknown(preset.id, validatedAt);
+        // A drift-disabled preset whose ids returned re-enables, so its
+        // frozen installs recompute on the next poll. An enabled preset just
+        // records the successful validation.
+        if (preset.enabled) {
+          await tx.recordPresetValidationOk(preset.id, validatedAt);
+        } else {
+          await tx.reEnablePreset(preset.id, validatedAt);
+        }
+        validated += 1;
       }
-    }
+      return { validated, disabled, unknown };
+    });
+    validatedPresets += perSource.validated;
+    disabledPresets.push(...perSource.disabled);
+    unknownDependencies += perSource.unknown;
+  }
 
-    return { checkedSources: sources.length, validatedPresets, disabledPresets, unknownDependencies };
-  });
+  return { checkedSources: sources.length, validatedPresets, disabledPresets, unknownDependencies };
 }
 
 export function createSqlCatalogValidationStore(db: Database): CatalogValidationStore {
   return {
+    loadEnabledSources: async () =>
+      db.select({ id: dependencySources.id, adapter: dependencySources.adapter, currentUrl: dependencySources.currentUrl })
+        .from(dependencySources).where(eq(dependencySources.enabled, true)),
     transaction: (work) => db.transaction(async (tx) => work({
-      loadEnabledSources: async () =>
-        tx.select({ id: dependencySources.id, adapter: dependencySources.adapter, currentUrl: dependencySources.currentUrl })
-          .from(dependencySources).where(eq(dependencySources.enabled, true)),
-      loadEnabledPresetsForSource: async (sourceId) =>
-        (await tx.select({ id: dependencyCatalog.id, selector: dependencyCatalog.selector, scope: dependencyCatalog.scopeOptions })
+      loadPresetsForSource: async (sourceId) =>
+        (await tx.select({ id: dependencyCatalog.id, selector: dependencyCatalog.selector, scope: dependencyCatalog.scopeOptions, enabled: dependencyCatalog.enabled })
           .from(dependencyCatalog)
-          .where(and(eq(dependencyCatalog.sourceId, sourceId), eq(dependencyCatalog.enabled, true)))) as EnabledPresetRow[],
+          .where(and(
+            eq(dependencyCatalog.sourceId, sourceId),
+            or(eq(dependencyCatalog.enabled, true), isNotNull(dependencyCatalog.validationError)),
+          ))) as PresetRow[],
       recordSourceValidation: async (sourceId, validatedAt, error) => {
         await tx.update(dependencySources).set({ catalogValidatedAt: validatedAt, catalogValidationError: error }).where(eq(dependencySources.id, sourceId));
       },
       recordPresetValidationOk: async (presetId, validatedAt) => {
         await tx.update(dependencyCatalog).set({ validatedAt, validationError: null }).where(eq(dependencyCatalog.id, presetId));
+      },
+      reEnablePreset: async (presetId, validatedAt) => {
+        await tx.update(dependencyCatalog).set({ enabled: true, validatedAt, validationError: null }).where(eq(dependencyCatalog.id, presetId));
       },
       disablePreset: (presetId, validatedAt, error) => disablePresetSql(tx, presetId, validatedAt, error),
       flipDependenciesToUnknown: (catalogId, observedAt) => flipDependenciesToUnknownSql(tx, catalogId, observedAt),
