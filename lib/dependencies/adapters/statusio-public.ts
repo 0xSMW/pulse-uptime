@@ -89,6 +89,9 @@ export const statusioPublicAdapter: DependencyAdapter = {
       observedAt,
       providerUpdatedAt: requireIsoTimestamp(result.status_overall.updated, source.id, "status_overall.updated"),
       componentsComplete: true,
+      // This adapter never emits incidents, so the open-incident set is
+      // trivially complete (empty).
+      incidentsComplete: true,
       components,
       // Neon's incident endpoints return 403: no incident titles are invented from current state alone.
       incidents: [],

@@ -66,14 +66,17 @@ export function combinedComponentStates(snapshot: NormalizedProviderSnapshot): M
 
 /**
  * The upstream ids that identify this dependency for both state lookup and
- * incident-component intersection. Two scoped selectors fold in an extra id
- * here purely for matching, not for the scoped state lookup. Google's
- * location-scoped composite (productId@locationId) only ever appears in
- * incident.componentIds, never in the components state map (see
+ * incident-component intersection. All three scoped selectors fold in an
+ * extra id here purely for matching, not for the scoped state lookup.
+ * Google's location-scoped composite (productId@locationId) only ever
+ * appears in incident.componentIds, never in the components state map (see
  * google-cloud-status.ts). A scoped statusio container's parent componentId
  * aggregates the worst state across every sibling region container, so an
  * incident naming the parent still associates, but the scoped install's own
- * severity comes from the container alone (see resolveDependencyState).
+ * severity comes from the container alone (see resolveDependencyState). A
+ * scoped component_ids install (a discovered_children preset) keeps its
+ * parent aggregate ids here for matching an incident that names the parent,
+ * while its severity likewise comes from the scope child alone.
  */
 export function matchingIdsForSelector(selector: DependencySelector, scopeId: string | null): string[] {
   switch (selector.kind) {
@@ -87,8 +90,15 @@ export function matchingIdsForSelector(selector: DependencySelector, scopeId: st
 }
 
 /**
- * Resolves one dependency's state from its selector. Two scoped selectors
+ * Resolves one dependency's state from its selector. Three scoped selectors
  * resolve their severity outside the shared worst_of path.
+ *
+ * A scoped component_ids install's ids name the parent group aggregate,
+ * which folds in the worst state across every sibling child, so its severity
+ * comes from the scope child alone rather than worst_of'ing the parent
+ * aggregate in. Otherwise a sibling region's outage on the shared parent
+ * would surface against a child that is actually fine. The parent still
+ * participates in matching (see matchingIdsForSelector).
  *
  * Google's location scope can't use combinedComponentStates directly: the
  * adapter never stores a per-location component state, only a per-location
@@ -132,6 +142,10 @@ export function resolveDependencyState(
   }
 
   if (selector.kind === "statusio_component_container" && scopeId) {
+    return combined.get(scopeId) ?? fallback();
+  }
+
+  if (selector.kind === "component_ids" && scopeId) {
     return combined.get(scopeId) ?? fallback();
   }
 
@@ -333,6 +347,15 @@ export interface PersistExecutor {
    * already has a match row from while the incident carried components.
    */
   loadExistingMatches(incidentIds: readonly string[]): Promise<Set<string>>;
+  /**
+   * This source's currently stored-open incidents (resolved_at is null), with
+   * just enough of each to close it and fire recovery. Read only under a
+   * snapshot whose incidentsComplete flag is true, so a stored-open incident
+   * absent from the snapshot can be closed as resolved.
+   */
+  loadOpenIncidents(sourceId: string): Promise<Array<{ internalId: string; externalId: string; title: string; canonicalUrl: string | null }>>;
+  /** Sets resolved_at (and state resolved, provider_updated_at) on a stored-open incident whose external id vanished from a complete snapshot. */
+  closeIncident(internalId: string, resolvedAt: Date): Promise<void>;
   /** Upsert on (source_id, external_id); updates in place only when provider_updated_at actually advanced. Returns the incident's internal id either way. */
   upsertIncident(sourceId: string, candidateId: string, incident: NormalizedIncident): Promise<string>;
   /** New (incidentId, externalComponentId) pairs only; existing pairs are left untouched. */
@@ -348,8 +371,15 @@ export interface PersistExecutor {
    * matching" apart from "still matching, same as last poll".
    */
   upsertDependencyIncidentMatch(dependencyId: string, incidentId: string, matchKind: "component_match" | "inferred", now: Date): Promise<boolean>;
-  /** Updates dependency_state in place always; closes/opens dependency_state_intervals only when state changed from previousState. */
-  applyDependencyState(dependencyId: string, previousState: DependencyState, next: { state: DependencyState; observedAt: Date; providerUpdatedAt: Date | null }, now: Date): Promise<void>;
+  /**
+   * Updates dependency_state in place always; closes/opens
+   * dependency_state_intervals only when state changed from previousState.
+   * Advances last_successful_poll_at to now only when pollSucceeded is true
+   * (a real snapshot). A stale-failure flip to UNKNOWN passes false, so the
+   * dashboard's "Last Successful Feed Check" keeps the last real success
+   * rather than showing the failure time.
+   */
+  applyDependencyState(dependencyId: string, previousState: DependencyState, next: { state: DependencyState; observedAt: Date; providerUpdatedAt: Date | null; pollSucceeded: boolean }, now: Date): Promise<void>;
   enqueueNotification(input: DependencyNotificationInput, now: Date): Promise<number>;
   updateSourceHealthSuccess(sourceId: string, patch: { etag: string | null; lastModified: string | null; nextPollAt: Date; now: Date }): Promise<void>;
   updateSourceHealthNotModified(sourceId: string, patch: { etag: string | null; lastModified: string | null; nextPollAt: Date; now: Date }): Promise<void>;
@@ -418,6 +448,7 @@ export async function persistSnapshot(
             state: "UNKNOWN",
             observedAt: context.now,
             providerUpdatedAt: null,
+            pollSucceeded: false,
           }, context.now);
           flippedToUnknown += 1;
         }
@@ -477,6 +508,7 @@ export async function persistSnapshot(
         state: nextState,
         observedAt: context.now,
         providerUpdatedAt: snapshot.providerUpdatedAt ? new Date(snapshot.providerUpdatedAt) : null,
+        pollSucceeded: true,
       }, context.now);
 
       for (const incident of incidents) {
@@ -488,6 +520,18 @@ export async function persistSnapshot(
           if (!selectorIntersectsIncident(dependency.selector, dependency.scopeId, incident.componentIds)) continue;
           const matchKind = associationKind === "inferred" ? "inferred" : "component_match";
           isNewMatch = await tx.upsertDependencyIncidentMatch(dependency.id, incidentInternalId, matchKind, context.now);
+        } else if (associationKind === "explicit" && incident.resolvedAt === null) {
+          // An explicit provider (statuspage, sorry) can post an active
+          // page-level incident that names no component (components: []). It
+          // affects the whole source, so it associates with every installed
+          // dependency as an inferred match rather than being silently
+          // dropped for want of a component to intersect. A resolved
+          // empty-component incident stays on the existing-match fallback
+          // below, so a historical page-level incident found on install never
+          // back-matches every dependency. An inferred provider
+          // (incidentio_compat) keeps the fallback too: its empty componentIds
+          // mean inference was declined, not a real page-level scope.
+          isNewMatch = await tx.upsertDependencyIncidentMatch(dependency.id, incidentInternalId, "inferred", context.now);
         } else {
           if (!existingMatchesForEmptyIncidents.has(`${dependency.id}:${incidentInternalId}`)) continue;
           isNewMatch = false;
@@ -529,6 +573,46 @@ export async function persistSnapshot(
           recipients: context.defaultRecipients,
         }, context.now);
         notificationsEnqueued += enqueued;
+      }
+    }
+
+    // Close any of this source's stored-open incidents whose external id
+    // vanished from the snapshot, but only when the snapshot authoritatively
+    // enumerates every open incident (incidentsComplete). Without that gate a
+    // possibly-incomplete fetch could read a still-open incident's temporary
+    // absence as resolution. A closed incident fires recovery for every
+    // dependency it still matched, through the same event derivation the main
+    // loop uses: prior resolved_at null, now resolved.
+    if (snapshot.incidentsComplete) {
+      const snapshotExternalIds = new Set(incidents.map((incident) => incident.externalId));
+      const openStored = await tx.loadOpenIncidents(source.id);
+      const disappeared = openStored.filter((open) => !snapshotExternalIds.has(open.externalId));
+      if (disappeared.length > 0) {
+        const matchesForDisappeared = await tx.loadExistingMatches(disappeared.map((open) => open.internalId));
+        for (const open of disappeared) {
+          await tx.closeIncident(open.internalId, context.now);
+          for (const dependency of installed) {
+            if (!matchesForDisappeared.has(`${dependency.id}:${open.internalId}`)) continue;
+            if (!dependency.notificationsEnabled || context.defaultRecipients.length === 0) continue;
+            const keyExternalId = notificationKeyExternalId("recovery", open.externalId, false, null, context.now.toISOString());
+            const enqueued = await tx.enqueueNotification({
+              event: "recovery",
+              sourceId: source.id,
+              dependencyId: dependency.id,
+              presetId: dependency.catalogId,
+              scopeId: dependency.scopeId,
+              dependencyName: dependency.presetName,
+              provider: source.provider,
+              incidentExternalId: keyExternalId,
+              incidentTitle: open.title,
+              state: finalStates.get(dependency.id) ?? dependency.currentState,
+              canonicalUrl: open.canonicalUrl,
+              providerTimestamp: context.now.toISOString(),
+              recipients: context.defaultRecipients,
+            }, context.now);
+            notificationsEnqueued += enqueued;
+          }
+        }
       }
     }
 
@@ -591,6 +675,25 @@ export function createSqlPersistStore(db: Database): PersistStore {
         return new Set(rows.map((row) => `${row.dependencyId}:${row.incidentId}`));
       },
 
+      async loadOpenIncidents(sourceId) {
+        const rows = await tx.select({
+          internalId: providerIncidents.id,
+          externalId: providerIncidents.externalId,
+          title: providerIncidents.title,
+          canonicalUrl: providerIncidents.canonicalUrl,
+        }).from(providerIncidents)
+          .where(and(eq(providerIncidents.sourceId, sourceId), isNull(providerIncidents.resolvedAt)));
+        return rows.map((row) => ({ ...row, canonicalUrl: row.canonicalUrl ?? null }));
+      },
+
+      async closeIncident(internalId, resolvedAt) {
+        await tx.update(providerIncidents).set({
+          state: "resolved" as (typeof providerIncidents.$inferInsert)["state"],
+          resolvedAt,
+          providerUpdatedAt: resolvedAt,
+        }).where(eq(providerIncidents.id, internalId));
+      },
+
       async upsertIncident(sourceId, candidateId, incident) {
         const values = {
           id: candidateId,
@@ -616,6 +719,12 @@ export function createSqlPersistStore(db: Database): PersistStore {
             title: values.title,
             state: values.state,
             impact: values.impact,
+            // Re-anchored on every upsert: on an unchanged poll this is the
+            // same provider-reported started time, a no-op, but when a
+            // provider reopens the same external id after resolve it carries
+            // the reopen's new started time, so overlap offsetSeconds and the
+            // detail "Started" track the current outage, not the first one.
+            startedAt: values.startedAt,
             resolvedAt: values.resolvedAt,
             providerUpdatedAt: values.providerUpdatedAt,
             canonicalUrl: values.canonicalUrl,
@@ -659,7 +768,9 @@ export function createSqlPersistStore(db: Database): PersistStore {
           checking: false,
           observedAt: next.observedAt,
           providerUpdatedAt: next.providerUpdatedAt,
-          lastSuccessfulPollAt: now,
+          // Only a real snapshot advances the success timestamp. A
+          // stale-failure flip to UNKNOWN leaves it untouched.
+          ...(next.pollSucceeded ? { lastSuccessfulPollAt: now } : {}),
           ...(next.state !== previousState ? { stateStartedAt: now } : {}),
         }).where(eq(dependencyState.dependencyId, dependencyId));
 

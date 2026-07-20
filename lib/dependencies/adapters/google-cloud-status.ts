@@ -157,6 +157,11 @@ export const googleCloudStatusAdapter: DependencyAdapter = {
       // full component roster, so an absent product id means operational,
       // not missing. See resolveDependencyState in persist.ts.
       componentsComplete: false,
+      // Conservatively false: incidents.json is a rolling history window that
+      // could transiently omit a still-open incident, and Google resolves via
+      // an `end` timestamp rather than dropping the incident, so absence is
+      // never read as resolution here.
+      incidentsComplete: false,
       components,
       incidents,
       maintenances: [],

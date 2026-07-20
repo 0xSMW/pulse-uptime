@@ -25,6 +25,15 @@ export type NormalizedProviderSnapshot = {
    * absent product legitimately means operational, not missing.
    */
   componentsComplete: boolean;
+  /**
+   * True when a successful fetch authoritatively enumerates every open
+   * incident for the source, so a stored-open incident absent from
+   * `incidents` has genuinely gone away and may be closed (resolved_at set to
+   * observedAt). Set false by any adapter whose feed is a rolling window that
+   * could transiently omit a still-open incident, so absence is never read as
+   * resolution. See persistSnapshot's completeness-gated closure.
+   */
+  incidentsComplete: boolean;
   components: Record<string, {
     state: "OPERATIONAL" | "DEGRADED" | "OUTAGE" | "MAINTENANCE";
     updatedAt: string | null;

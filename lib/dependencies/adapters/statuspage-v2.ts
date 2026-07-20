@@ -36,7 +36,6 @@ const incidentSchema = z.object({
   updated_at: z.string(),
   started_at: z.string().nullable().optional(),
   resolved_at: z.string().nullable().optional(),
-  shortlink: z.string().nullable().optional(),
   components: z.array(componentSchema).optional().default([]),
   incident_updates: z.array(incidentUpdateSchema).optional().default([]),
 });
@@ -189,6 +188,11 @@ export const statuspageV2Adapter: DependencyAdapter = {
       observedAt,
       providerUpdatedAt,
       componentsComplete: true,
+      // summary.json enumerates every currently-unresolved incident inline,
+      // and incidents.json is the full history, so on a 200 snapshot the
+      // open-incident set is complete: an open incident absent from it has
+      // resolved.
+      incidentsComplete: true,
       components,
       incidents,
       maintenances,

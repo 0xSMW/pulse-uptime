@@ -139,6 +139,10 @@ export const incidentioCompatAdapter: DependencyAdapter = {
       observedAt,
       providerUpdatedAt,
       componentsComplete: true,
+      // The required incidents.json (and summary.incidents) list every
+      // incident, resolved ones keeping their resolved_at rather than
+      // vanishing, so the open-incident set is complete.
+      incidentsComplete: true,
       components,
       incidents,
       maintenances: [],

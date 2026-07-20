@@ -43,6 +43,7 @@ function snapshotWith(overrides: Partial<NormalizedProviderSnapshot> = {}): Norm
     observedAt: NOW.toISOString(),
     providerUpdatedAt: NOW.toISOString(),
     componentsComplete: true,
+    incidentsComplete: true,
     components: {},
     incidents: [],
     maintenances: [],
@@ -84,11 +85,31 @@ describe("combinedComponentStates", () => {
 });
 
 describe("matchingIdsForSelector and resolveDependencyState", () => {
-  it("adds the scopeId onto component_ids selectors for both matching and lookup", () => {
+  it("keeps both ids for matching an unscoped component_ids selector's own lookup", () => {
     const selector: DependencySelector = { kind: "component_ids", aggregation: "worst_of", ids: ["a"] };
     expect(matchingIdsForSelector(selector, "b")).toEqual(["a", "b"]);
     const snapshot = snapshotWith({ components: { a: { state: "OPERATIONAL", updatedAt: null }, b: { state: "OUTAGE", updatedAt: null } } });
+    // Scoped severity comes from the scope child "b" alone.
     expect(resolveDependencyState(selector, "b", combinedComponentStates(snapshot), snapshot)).toBe("OUTAGE");
+  });
+
+  it("resolves a scoped component_ids from the scope child alone, not worst_of'd with the parent aggregate (FIX F-A1)", () => {
+    // A discovered_children preset: ids name the parent group aggregate, and
+    // scopeId names one child region.
+    const selector: DependencySelector = { kind: "component_ids", aggregation: "worst_of", ids: ["parent"] };
+    // The parent aggregates a sibling region's OUTAGE, but the scoped child is
+    // fine, so this install stays OPERATIONAL.
+    const siblingOut = snapshotWith({ components: { parent: { state: "OUTAGE", updatedAt: null }, "region-1": { state: "OPERATIONAL", updatedAt: null } } });
+    expect(resolveDependencyState(selector, "region-1", combinedComponentStates(siblingOut), siblingOut)).toBe("OPERATIONAL");
+    // The child's own DEGRADED still surfaces.
+    const childDegraded = snapshotWith({ components: { parent: { state: "OUTAGE", updatedAt: null }, "region-1": { state: "DEGRADED", updatedAt: null } } });
+    expect(resolveDependencyState(selector, "region-1", combinedComponentStates(childDegraded), childDegraded)).toBe("DEGRADED");
+    // The parent still participates in matching against an incident naming it.
+    expect(matchingIdsForSelector(selector, "region-1")).toEqual(["parent", "region-1"]);
+    expect(selectorIntersectsIncident(selector, "region-1", ["parent"])).toBe(true);
+    // An absent scope child under a complete feed is UNKNOWN.
+    const absent = snapshotWith({ componentsComplete: true, components: { parent: { state: "OPERATIONAL", updatedAt: null } } });
+    expect(resolveDependencyState(selector, "gone-region", combinedComponentStates(absent), absent)).toBe("UNKNOWN");
   });
 
   it("resolves an unscoped statusio_component_container selector as the parent component's state", () => {
@@ -314,10 +335,12 @@ interface FakeDb {
   intervals: Array<{ dependencyId: string; state: string; startedAt: Date; endedAt: Date | null }>;
   incidentsBySourceExternal: Map<string, string>; // `${sourceId}:${externalId}` -> internal id
   incidentResolvedAt: Map<string, Date | null>; // `${sourceId}:${externalId}` -> stored resolved_at
+  incidentMeta: Map<string, { sourceId: string; externalId: string; title: string; canonicalUrl: string | null; startedAt: Date }>; // internal id -> stored fields
   upsertedCanonicalUrls: Map<string, string | null>; // internal incident id -> canonicalUrl as passed to upsertIncident
   incidentComponentPairs: Set<string>;
   incidentUpdatePairs: Set<string>;
   matches: Set<string>; // `${dependencyId}:${incidentId}` pairs already matched in a prior poll
+  lastSuccessfulPollAt: Map<string, Date>; // dependencyId -> last_successful_poll_at, advanced only on a real snapshot
   outboxKeys: Set<string>;
   notifications: DependencyNotificationInput[];
   sourceHealth: Array<{ kind: string; sourceId: string; patch: unknown }>;
@@ -333,10 +356,12 @@ function snapshotFakeDb(db: FakeDb): FakeDb {
     intervals: db.intervals.map((interval) => ({ ...interval })),
     incidentsBySourceExternal: new Map(db.incidentsBySourceExternal),
     incidentResolvedAt: new Map(db.incidentResolvedAt),
+    incidentMeta: new Map([...db.incidentMeta].map(([id, meta]) => [id, { ...meta }])),
     upsertedCanonicalUrls: new Map(db.upsertedCanonicalUrls),
     incidentComponentPairs: new Set(db.incidentComponentPairs),
     incidentUpdatePairs: new Set(db.incidentUpdatePairs),
     matches: new Set(db.matches),
+    lastSuccessfulPollAt: new Map(db.lastSuccessfulPollAt),
     outboxKeys: new Set(db.outboxKeys),
     notifications: [...db.notifications],
     sourceHealth: [...db.sourceHealth],
@@ -348,10 +373,12 @@ function restoreFakeDb(db: FakeDb, snapshot: FakeDb): void {
   db.intervals = snapshot.intervals;
   db.incidentsBySourceExternal = snapshot.incidentsBySourceExternal;
   db.incidentResolvedAt = snapshot.incidentResolvedAt;
+  db.incidentMeta = snapshot.incidentMeta;
   db.upsertedCanonicalUrls = snapshot.upsertedCanonicalUrls;
   db.incidentComponentPairs = snapshot.incidentComponentPairs;
   db.incidentUpdatePairs = snapshot.incidentUpdatePairs;
   db.matches = snapshot.matches;
+  db.lastSuccessfulPollAt = snapshot.lastSuccessfulPollAt;
   db.outboxKeys = snapshot.outboxKeys;
   db.notifications = snapshot.notifications;
   db.sourceHealth = snapshot.sourceHealth;
@@ -377,9 +404,34 @@ function createExecutor(db: FakeDb): PersistExecutor {
       const internalId = existing ?? candidateId;
       db.upsertedCanonicalUrls.set(internalId, incident.canonicalUrl);
       db.incidentResolvedAt.set(key, incident.resolvedAt ? new Date(incident.resolvedAt) : null);
+      // Mirrors the real ON CONFLICT SET, which re-anchors started_at on every
+      // upsert (FIX F-A4): an unchanged poll rewrites the same value, a reopen
+      // rewrites the reopen's new started time.
+      db.incidentMeta.set(internalId, {
+        sourceId,
+        externalId: incident.externalId,
+        title: incident.title,
+        canonicalUrl: incident.canonicalUrl,
+        startedAt: new Date(incident.startedAt),
+      });
       if (existing) return existing;
       db.incidentsBySourceExternal.set(key, candidateId);
       return candidateId;
+    },
+    async loadOpenIncidents(sourceId) {
+      const result: Array<{ internalId: string; externalId: string; title: string; canonicalUrl: string | null }> = [];
+      for (const [internalId, meta] of db.incidentMeta) {
+        if (meta.sourceId !== sourceId) continue;
+        const resolvedAt = db.incidentResolvedAt.get(`${meta.sourceId}:${meta.externalId}`);
+        if (resolvedAt) continue;
+        result.push({ internalId, externalId: meta.externalId, title: meta.title, canonicalUrl: meta.canonicalUrl });
+      }
+      return result;
+    },
+    async closeIncident(internalId, resolvedAt) {
+      const meta = db.incidentMeta.get(internalId);
+      if (!meta) return;
+      db.incidentResolvedAt.set(`${meta.sourceId}:${meta.externalId}`, resolvedAt);
     },
     async upsertIncidentComponents(incidentId, componentIds) {
       for (const componentId of componentIds) db.incidentComponentPairs.add(`${incidentId}:${componentId}`);
@@ -405,6 +457,8 @@ function createExecutor(db: FakeDb): PersistExecutor {
     async applyDependencyState(dependencyId, previousState, next, now) {
       const row = db.installed.find((dependency) => dependency.id === dependencyId);
       if (row) row.currentState = next.state;
+      // Only a real snapshot advances the success timestamp (FIX F-A5).
+      if (next.pollSucceeded) db.lastSuccessfulPollAt.set(dependencyId, now);
       if (next.state === previousState) return;
       for (const interval of db.intervals) {
         if (interval.dependencyId === dependencyId && interval.endedAt === null) interval.endedAt = now;
@@ -462,10 +516,12 @@ function emptyDb(installed: InstalledDependencyRow[]): FakeDb {
     intervals: installed.map((row) => ({ dependencyId: row.id, state: row.currentState, startedAt: new Date(0), endedAt: null })),
     incidentsBySourceExternal: new Map(),
     incidentResolvedAt: new Map(),
+    incidentMeta: new Map(),
     upsertedCanonicalUrls: new Map(),
     incidentComponentPairs: new Set(),
     incidentUpdatePairs: new Set(),
     matches: new Set(),
+    lastSuccessfulPollAt: new Map(),
     outboxKeys: new Set(),
     notifications: [],
     sourceHealth: [],
@@ -1294,6 +1350,240 @@ describe("persistSnapshot: outbox insert shares the poll transaction's rollback"
     expect(db.installed[0]?.currentState).toBe("OPERATIONAL");
     expect(db.matches.size).toBe(0);
     expect(db.sourceHealth).toHaveLength(0);
+  });
+});
+
+// -- FIX F-A2: an explicit provider's active incident with no components is a
+// page-level incident that still matches every installed dependency, rather
+// than being silently dropped for want of a component to intersect. An
+// inferred provider (incidentio_compat) and a resolved empty-component
+// incident both keep the existing-match fallback.
+
+describe("persistSnapshot: FIX F-A2 explicit-provider page-level incidents", () => {
+  it("matches every installed dependency and fires incident for an explicit active incident with no components", async () => {
+    const db = emptyDb([
+      dependencyRow({ id: "dep-1", selector: { kind: "component_ids", aggregation: "worst_of", ids: ["c1"] } }),
+      dependencyRow({ id: "dep-2", catalogId: "vercel_edge", selector: { kind: "component_ids", aggregation: "worst_of", ids: ["c2"] } }),
+    ]);
+    const store = createFakeStore(db);
+    const outcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({
+        components: { c1: { state: "OPERATIONAL", updatedAt: null }, c2: { state: "OPERATIONAL", updatedAt: null } },
+        incidents: [incident({ componentIds: [] })],
+      }),
+      etag: null, lastModified: null,
+    };
+    const summary = await persistSnapshot(store, outcome, baseSource(), { now: NOW, defaultRecipients: ["ops@example.com"] });
+
+    // Both installed dependencies match the page-level incident and each gets one incident alert.
+    expect(summary.notificationsEnqueued).toBe(2);
+    expect(db.matches.size).toBe(2);
+    expect(db.notifications.map((n) => n.event)).toEqual(["incident", "incident"]);
+  });
+
+  it("fires recovery through the existing-match fallback when an explicit page-level incident later resolves", async () => {
+    const db = emptyDb([dependencyRow({ id: "dep-1", selector: { kind: "component_ids", aggregation: "worst_of", ids: ["c1"] } })]);
+    const store = createFakeStore(db);
+    const activeOutcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({ components: { c1: { state: "OPERATIONAL", updatedAt: null } }, incidents: [incident({ componentIds: [] })] }),
+      etag: null, lastModified: null,
+    };
+    const resolvedOutcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({
+        components: { c1: { state: "OPERATIONAL", updatedAt: null } },
+        incidents: [incident({ componentIds: [], resolvedAt: new Date(NOW.getTime() + 60_000).toISOString(), updatedAt: new Date(NOW.getTime() + 60_000).toISOString() })],
+      }),
+      etag: null, lastModified: null,
+    };
+
+    const poll1 = await persistSnapshot(store, activeOutcome, baseSource(), { now: NOW, defaultRecipients: ["ops@example.com"] });
+    const poll2 = await persistSnapshot(store, resolvedOutcome, baseSource(), { now: new Date(NOW.getTime() + 60_000), defaultRecipients: ["ops@example.com"] });
+
+    expect(poll1.notificationsEnqueued).toBe(1);
+    expect(poll2.notificationsEnqueued).toBe(1);
+    expect(db.notifications.map((n) => n.event)).toEqual(["incident", "recovery"]);
+    // One match row throughout: the resolved poll reuses the active poll's row.
+    expect(db.matches.size).toBe(1);
+  });
+
+  it("keeps the existing-match fallback (no match-all) for an explicit RESOLVED historical page-level incident on install", async () => {
+    const db = emptyDb([dependencyRow({ id: "dep-1", selector: { kind: "component_ids", aggregation: "worst_of", ids: ["c1"] } })]);
+    const store = createFakeStore(db);
+    const outcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({
+        components: { c1: { state: "OPERATIONAL", updatedAt: null } },
+        incidents: [incident({ componentIds: [], resolvedAt: NOW.toISOString(), updatedAt: NOW.toISOString() })],
+      }),
+      etag: null, lastModified: null,
+    };
+    const summary = await persistSnapshot(store, outcome, baseSource(), { now: NOW, defaultRecipients: ["ops@example.com"] });
+
+    // A historical resolved page-level incident must not back-match every dependency.
+    expect(summary.notificationsEnqueued).toBe(0);
+    expect(db.matches.size).toBe(0);
+  });
+
+  it("does not match-all for an inferred provider's active incident with no components", async () => {
+    const db = emptyDb([dependencyRow({ id: "dep-1", selector: { kind: "component_ids", aggregation: "worst_of", ids: ["c1"] } })]);
+    const store = createFakeStore(db);
+    const outcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({ components: { c1: { state: "OPERATIONAL", updatedAt: null } }, incidents: [incident({ componentIds: [] })] }),
+      etag: null, lastModified: null,
+    };
+    const summary = await persistSnapshot(store, outcome, baseSource({ adapter: "incidentio_compat" }), { now: NOW, defaultRecipients: ["ops@example.com"] });
+
+    // incidentio_compat empty componentIds mean inference declined, not a page-level scope.
+    expect(summary.notificationsEnqueued).toBe(0);
+    expect(db.matches.size).toBe(0);
+  });
+});
+
+// -- FIX F-A3: a matched open incident that vanishes from a complete snapshot
+// is closed (resolved_at set) and fires recovery, but only when the snapshot
+// authoritatively enumerates every open incident (incidentsComplete).
+
+describe("persistSnapshot: FIX F-A3 completeness-gated closure of disappeared incidents", () => {
+  it("closes a matched open incident absent from a complete snapshot and fires recovery", async () => {
+    const db = emptyDb([dependencyRow({ id: "dep-1", currentState: "OPERATIONAL" })]);
+    const store = createFakeStore(db);
+    const openOutcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({ components: { c1: { state: "OUTAGE", updatedAt: null } }, incidents: [incident()] }),
+      etag: null, lastModified: null,
+    };
+    // The incident vanished entirely from the next complete snapshot.
+    const vanishedOutcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({ incidentsComplete: true, components: { c1: { state: "OPERATIONAL", updatedAt: null } }, incidents: [] }),
+      etag: null, lastModified: null,
+    };
+
+    await persistSnapshot(store, openOutcome, baseSource(), { now: NOW, defaultRecipients: ["ops@example.com"] });
+    const closePoll = await persistSnapshot(store, vanishedOutcome, baseSource(), { now: new Date(NOW.getTime() + 60_000), defaultRecipients: ["ops@example.com"] });
+
+    expect(closePoll.notificationsEnqueued).toBe(1);
+    expect(db.notifications.map((n) => n.event)).toEqual(["incident", "recovery"]);
+    // The incident is now stored resolved: closure set its resolved_at.
+    expect(db.incidentResolvedAt.get("vercel:inc-1")).toBeInstanceOf(Date);
+    expect(db.installed[0]?.currentState).toBe("OPERATIONAL");
+  });
+
+  it("fires recovery only once: a still-closed incident on a later complete poll enqueues nothing more", async () => {
+    const db = emptyDb([dependencyRow({ id: "dep-1", currentState: "OPERATIONAL" })]);
+    const store = createFakeStore(db);
+    const openOutcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({ components: { c1: { state: "OUTAGE", updatedAt: null } }, incidents: [incident()] }),
+      etag: null, lastModified: null,
+    };
+    const vanishedOutcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({ incidentsComplete: true, components: { c1: { state: "OPERATIONAL", updatedAt: null } }, incidents: [] }),
+      etag: null, lastModified: null,
+    };
+
+    await persistSnapshot(store, openOutcome, baseSource(), { now: NOW, defaultRecipients: ["ops@example.com"] });
+    await persistSnapshot(store, vanishedOutcome, baseSource(), { now: new Date(NOW.getTime() + 60_000), defaultRecipients: ["ops@example.com"] });
+    const rePoll = await persistSnapshot(store, vanishedOutcome, baseSource(), { now: new Date(NOW.getTime() + 120_000), defaultRecipients: ["ops@example.com"] });
+
+    // Already closed, no longer open, so no second recovery.
+    expect(rePoll.notificationsEnqueued).toBe(0);
+    expect(db.notifications).toHaveLength(2);
+  });
+
+  it("never closes a disappeared incident when the snapshot is not incident-complete", async () => {
+    const db = emptyDb([dependencyRow({ id: "dep-1", currentState: "OPERATIONAL" })]);
+    const store = createFakeStore(db);
+    const openOutcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({ components: { c1: { state: "OUTAGE", updatedAt: null } }, incidents: [incident()] }),
+      etag: null, lastModified: null,
+    };
+    // An incomplete snapshot (a rolling-window feed) that happens to omit the
+    // still-open incident must not be read as resolution.
+    const incompleteOutcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({ incidentsComplete: false, componentsComplete: false, components: {}, incidents: [] }),
+      etag: null, lastModified: null,
+    };
+
+    await persistSnapshot(store, openOutcome, baseSource(), { now: NOW, defaultRecipients: ["ops@example.com"] });
+    const poll2 = await persistSnapshot(store, incompleteOutcome, baseSource(), { now: new Date(NOW.getTime() + 60_000), defaultRecipients: ["ops@example.com"] });
+
+    expect(poll2.notificationsEnqueued).toBe(0);
+    // The incident stays open: no recovery, resolved_at still null.
+    expect(db.incidentResolvedAt.get("vercel:inc-1")).toBeNull();
+    expect(db.notifications.map((n) => n.event)).toEqual(["incident"]);
+  });
+});
+
+// -- FIX F-A4: a reopen under the same external id re-anchors started_at, so
+// overlap offsetSeconds and the detail "Started" track the current outage.
+
+describe("persistSnapshot: FIX F-A4 reopen re-anchors started_at", () => {
+  it("rewrites the stored started_at to the reopen's started time", async () => {
+    const db = emptyDb([dependencyRow({ currentState: "OPERATIONAL" })]);
+    const store = createFakeStore(db);
+    const t0 = NOW;
+    const t1 = new Date(NOW.getTime() + 60_000);
+    const t2 = new Date(NOW.getTime() + 120_000);
+
+    const firstActive: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({ components: { c1: { state: "OUTAGE", updatedAt: null } }, incidents: [incident({ startedAt: t0.toISOString(), updatedAt: t0.toISOString() })] }),
+      etag: null, lastModified: null,
+    };
+    const resolved: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({ components: { c1: { state: "OPERATIONAL", updatedAt: null } }, incidents: [incident({ startedAt: t0.toISOString(), resolvedAt: t1.toISOString(), updatedAt: t1.toISOString() })] }),
+      etag: null, lastModified: null,
+    };
+    // Reopened under the same external id with a new provider started time.
+    const reopened: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({ components: { c1: { state: "OUTAGE", updatedAt: null } }, incidents: [incident({ startedAt: t2.toISOString(), resolvedAt: null, updatedAt: t2.toISOString() })] }),
+      etag: null, lastModified: null,
+    };
+
+    await persistSnapshot(store, firstActive, baseSource(), { now: t0, defaultRecipients: ["ops@example.com"] });
+    await persistSnapshot(store, resolved, baseSource(), { now: t1, defaultRecipients: ["ops@example.com"] });
+    await persistSnapshot(store, reopened, baseSource(), { now: t2, defaultRecipients: ["ops@example.com"] });
+
+    const internalId = db.incidentsBySourceExternal.get("vercel:inc-1")!;
+    // Re-anchored to the reopen's started time, not the first outage's.
+    expect(db.incidentMeta.get(internalId)?.startedAt).toEqual(t2);
+  });
+});
+
+// -- FIX F-A5: last_successful_poll_at advances only on a real snapshot, not
+// on a stale-failure flip to UNKNOWN.
+
+describe("persistSnapshot: FIX F-A5 last_successful_poll_at only advances on success", () => {
+  it("advances on a snapshot poll and holds across a later stale-failure UNKNOWN flip", async () => {
+    const db = emptyDb([dependencyRow({ id: "dep-1", currentState: "OPERATIONAL" })]);
+    const store = createFakeStore(db);
+    const snapshotOutcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({ components: { c1: { state: "OPERATIONAL", updatedAt: null } }, incidents: [] }),
+      etag: null, lastModified: null,
+    };
+    await persistSnapshot(store, snapshotOutcome, baseSource(), { now: NOW, defaultRecipients: ["ops@example.com"] });
+    expect(db.lastSuccessfulPollAt.get("dep-1")).toEqual(NOW);
+
+    // A later stale failure flips the dependency to UNKNOWN.
+    const failureAt = new Date(NOW.getTime() + 700_000);
+    const failureOutcome: PollOutcome = { sourceId: "vercel", kind: "failure", error: new Error("boom"), retryAfterMs: null };
+    const summary = await persistSnapshot(store, failureOutcome, baseSource({ staleAfterSeconds: 600, lastSuccessAt: NOW }), { now: failureAt, defaultRecipients: ["ops@example.com"] });
+
+    expect(summary.flippedToUnknown).toBe(1);
+    expect(db.installed[0]?.currentState).toBe("UNKNOWN");
+    // The success timestamp still points at the real snapshot, not the failure.
+    expect(db.lastSuccessfulPollAt.get("dep-1")).toEqual(NOW);
   });
 });
 
