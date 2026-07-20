@@ -34,6 +34,21 @@ export class DependencyApiError extends Error {
   }
 }
 
+/**
+ * Thrown instead of returning false when a unique-violation lands on a
+ * transaction handle the caller supplied rather than one this store opened
+ * itself. Postgres aborts that whole transaction the moment the violation
+ * hits, so there is no live handle left to write a stored outcome into, and
+ * the caller must propagate this untouched rather than attempt another
+ * statement on it.
+ */
+export class DependencyInstallConflictError extends DependencyApiError {
+  constructor(message: string, details: Record<string, unknown> = {}) {
+    super("DEPENDENCY_EXISTS", message, details);
+    this.name = "DependencyInstallConflictError";
+  }
+}
+
 export type DependencyPresetRow = {
   id: string;
   sourceId: string;
@@ -73,9 +88,13 @@ export interface DependenciesStore {
   loadRecentStateForCatalogScope(catalogId: string, scopeId: string | null, freshAfter: Date): Promise<DependencyStateSnapshot | null>;
   /**
    * Inserts the dependency, its opening state, and its opening interval, and
-   * schedules the source for immediate polling, all in one transaction.
-   * Returns false when the partial unique index on (catalogId, scopeId)
-   * among active dependencies rejects the insert as a duplicate.
+   * schedules the source for immediate polling. With no handle given, this
+   * runs in its own transaction and a duplicate on the partial unique index
+   * on (catalogId, scopeId) among active dependencies resolves as false.
+   * With a caller-supplied handle, the insert runs directly on it, and since
+   * a duplicate there aborts that whole transaction rather than just the
+   * statement, it throws DependencyInstallConflictError instead, since the
+   * caller has no live handle left to act on a plain false with.
    */
   insertDependency(input: {
     dependency: DependencyRow;
@@ -276,10 +295,10 @@ export const databaseDependenciesStore: DependenciesStore = {
   async insertDependency({ dependency, state, intervalId, sourceId, now, handle }) {
     // Runs the writes on the caller's transaction when one is supplied (the
     // idempotency path) so the dependency and its idempotency record commit
-    // atomically, or opens its own transaction otherwise. A caller's handle
-    // cannot absorb a 23505 without poisoning the outer transaction, so the
-    // duplicate check is a pre-check SELECT inside the same handle, with the
-    // partial unique index as the last-resort backstop.
+    // atomically, or opens its own transaction otherwise. Either way the
+    // duplicate check is a pre-check SELECT inside the same handle first,
+    // with the partial unique index as the last-resort backstop for the
+    // race a pre-check cannot close.
     const runInsert = async (tx: DatabaseHandle): Promise<boolean> => {
       const [existing] = await tx.select({ id: dependencies.id }).from(dependencies)
         .where(and(
@@ -313,7 +332,22 @@ export const databaseDependenciesStore: DependenciesStore = {
       await tx.update(dependencySources).set({ nextPollAt: now, etag: null, lastModified: null }).where(eq(dependencySources.id, sourceId));
       return true;
     };
-    if (handle) return runInsert(handle);
+    // A handle equal to this module's own db is the unset default, so this
+    // store owns the transaction boundary and maps a unique violation to a
+    // plain false. A handle that differs is the caller's own, already-open
+    // transaction (the idempotency path), where a unique violation aborts
+    // the whole transaction, so it surfaces as a typed error instead of a
+    // return value with no live handle left to act on it.
+    if (handle && handle !== db) {
+      try {
+        return await runInsert(handle);
+      } catch (error) {
+        if ((error as { code?: string }).code === "23505") {
+          throw new DependencyInstallConflictError("An active dependency already exists for this preset and scope");
+        }
+        throw error;
+      }
+    }
     try {
       return await db.transaction(runInsert);
     } catch (error) {

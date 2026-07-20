@@ -4,7 +4,7 @@ import { apiError, apiJson, errorEnvelope, listEnvelope, objectEnvelope } from "
 import { executeIdempotent, type StoredResponse } from "@/lib/api/idempotency";
 import { authorize, isApiResponse } from "@/lib/api/middleware";
 import { routeError } from "@/lib/api/route";
-import { DependencyApiError, installDependency, listDependencies } from "@/lib/dependencies/service";
+import { DependencyApiError, DependencyInstallConflictError, installDependency, listDependencies } from "@/lib/dependencies/service";
 
 const createSchema = z.object({
   presetId: z.string().min(1),
@@ -26,8 +26,14 @@ function dependencyError(error: unknown, requestId: string): Response | null {
 
 // Turns a business error thrown inside the idempotency transaction into a
 // stored response so the record commits that outcome instead of rolling back,
-// mirroring the monitors route. A duplicate install stores a clean 409.
+// mirroring the monitors route. A duplicate caught by the pre-check SELECT
+// stores a clean 409 that a retry with the same key replays. A
+// DependencyInstallConflictError means Postgres already aborted this same
+// transaction reaching the unique index, so there is no live transaction left
+// to store a completion into, and this returns null so the error rethrows,
+// leaving the idempotency record running for a retry to redo the work.
 function storedDependencyError(error: unknown, requestId: string): StoredResponse | null {
+  if (error instanceof DependencyInstallConflictError) return null;
   if (!(error instanceof DependencyApiError)) return null;
   return { status: dependencyErrorStatus(error.code), body: errorEnvelope(error.code, error.message, requestId, error.details) };
 }

@@ -43,7 +43,7 @@ vi.mock("@/lib/dependencies/service", async (importOriginal) => ({
 import { apiError } from "@/lib/api/envelopes";
 import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, type ApiContext } from "@/lib/api/middleware";
-import { DependencyApiError, installDependency, listDependencies } from "@/lib/dependencies/service";
+import { DependencyApiError, DependencyInstallConflictError, installDependency, listDependencies } from "@/lib/dependencies/service";
 
 import { GET, POST } from "./route";
 
@@ -137,6 +137,22 @@ describe("POST /api/v1/dependencies", () => {
     const replay = await POST(request);
     expect(replay.status).toBe(409);
     expect(installDependency).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 409 without storing when the install races another request inside the transaction", async () => {
+    vi.mocked(installDependency).mockRejectedValue(
+      new DependencyInstallConflictError("An active dependency already exists for this preset and scope"),
+    );
+    const request = postRequest({ presetId: "vercel_runtime" });
+    const response = await POST(request.clone());
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe("DEPENDENCY_EXISTS");
+    // Nothing committed, since Postgres already aborted the transaction the
+    // race hit, so a retry with the same key redoes the work rather than
+    // replaying a stored response.
+    const retry = await POST(request);
+    expect(retry.status).toBe(409);
+    expect(installDependency).toHaveBeenCalledTimes(2);
   });
 
   it("maps PRESET_NOT_FOUND to 400", async () => {

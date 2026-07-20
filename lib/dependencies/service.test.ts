@@ -13,6 +13,7 @@ import { dependencySources } from "@/lib/db/schema";
 import * as queries from "./queries";
 import {
   DependencyApiError,
+  DependencyInstallConflictError,
   databaseDependenciesStore,
   getDependencyDetail,
   installDependency,
@@ -330,6 +331,47 @@ describe("databaseDependenciesStore validator clearing (FIX D)", () => {
     expect(setCalls).toHaveLength(1);
     expect(setCalls[0]?.table).toBe(dependencySources);
     expect(setCalls[0]?.patch).toMatchObject({ nextPollAt: NOW, etag: null, lastModified: null });
+  });
+});
+
+describe("databaseDependenciesStore insertDependency race handling", () => {
+  function txMock(insertError?: { code: string }) {
+    return {
+      select: () => ({ from: () => ({ where: () => ({ limit: vi.fn().mockResolvedValue([]) }) }) }),
+      insert: () => ({
+        values: insertError ? vi.fn().mockRejectedValue(insertError) : vi.fn().mockResolvedValue(undefined),
+      }),
+      update: () => ({ set: () => ({ where: vi.fn().mockResolvedValue(undefined) }) }),
+    };
+  }
+
+  it("throws DependencyInstallConflictError when a unique violation lands on the caller's own transaction handle", async () => {
+    const tx = txMock({ code: "23505" }) as unknown as typeof db;
+
+    await expect(databaseDependenciesStore.insertDependency({
+      dependency: { id: "dep-1", catalogId: "vercel_runtime", scopeId: null, notificationsEnabled: true, createdAt: NOW, removedAt: null },
+      state: { state: "UNKNOWN", checking: true, observedAt: NOW, providerUpdatedAt: null },
+      intervalId: "interval-1",
+      sourceId: "vercel",
+      now: NOW,
+      handle: tx,
+    })).rejects.toBeInstanceOf(DependencyInstallConflictError);
+  });
+
+  it("maps a unique violation to false when no handle is given, wrapping runInsert in its own transaction", async () => {
+    vi.mocked(db.transaction).mockImplementation((async (work: (tx: unknown) => Promise<unknown>) => {
+      return work(txMock({ code: "23505" }));
+    }) as never);
+
+    const inserted = await databaseDependenciesStore.insertDependency({
+      dependency: { id: "dep-2", catalogId: "vercel_runtime", scopeId: null, notificationsEnabled: true, createdAt: NOW, removedAt: null },
+      state: { state: "UNKNOWN", checking: true, observedAt: NOW, providerUpdatedAt: null },
+      intervalId: "interval-2",
+      sourceId: "vercel",
+      now: NOW,
+    });
+
+    expect(inserted).toBe(false);
   });
 });
 
