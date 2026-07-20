@@ -1,8 +1,8 @@
 // Sorry (Postmark's status API) adapter. Components and the present,
 // unplanned notice list can each span multiple pages. The past, unplanned
-// notice list is fetched too, but only its first page, so a notice that
-// ends between polls and moves from present to past still surfaces its
-// ended_at in the snapshot instead of vanishing unresolved. A notice's
+// notice list is fetched too, across a small bounded number of pages, so a
+// notice that ends between polls and slides onto a deeper past page still
+// surfaces its ended_at in the snapshot instead of vanishing unresolved. A notice's
 // impacted components and full update history only come from its own detail
 // document, fetched the same way whether the notice came from the present
 // list or the past list. requests() is called repeatedly: once with no
@@ -55,6 +55,14 @@ const noticeUpdateSchema = z.object({
   created_at: z.string(),
   updated_at: z.string(),
 });
+
+// The past list is followed for at most this many pages. The adapter carries no
+// state across polls, so it cannot target the specific ended notices it wants,
+// it instead fetches a small window wide enough to cover the notices that
+// resolve within the gap between two polls. Sorry orders the past list by most
+// recent first, so a just-ended notice lands near the front. This bound stays
+// finite on its own, independent of the poller's per-source pagination round cap.
+const PAST_LIST_MAX_PAGES = 3;
 
 const noticeDetailComponentSchema = z.object({ id: z.number().int() });
 
@@ -120,14 +128,9 @@ function presentUnplannedNoticesUrl(source: DependencySourceManifest): string {
   return unplannedNoticesUrl(source, "present");
 }
 
-/** First page only, a notice that ended since the prior poll still needs its ended_at observed once, not a full history walk. */
+/** The seed URL of the past list. Its first page, plus a bounded run of following pages, observes the ended_at of notices that resolved since the prior poll. */
 function pastUnplannedNoticesUrl(source: DependencySourceManifest): string {
   return unplannedNoticesUrl(source, "past");
-}
-
-/** The timeline_state filter value a notices-list URL was fetched with, or null when the URL carries none (e.g. a raw next_page link). */
-function timelineStateOfNoticesListUrl(url: string): string | null {
-  return new URL(url).searchParams.get("filter[timeline_state_eq]");
 }
 
 function resolveNextPage(nextPage: string | null | undefined, base: string): string | null {
@@ -150,6 +153,27 @@ function isNoticeDetailDocument(document: AdapterDocument): boolean {
   return noticeDetailDocSchema.safeParse(document.json).success;
 }
 
+/**
+ * The past-list page URLs fetched so far, in fetch order, found by following
+ * next_page from the past seed. A page stays identified as past by its position
+ * in this chain even when its own next_page link drops the timeline_state
+ * filter, which real next_page links can do.
+ */
+function fetchedPastListPages(source: DependencySourceManifest, fetchedSoFar: AdapterDocument[]): string[] {
+  const listByUrl = new Map<string, z.infer<typeof noticesListDocSchema>>();
+  for (const document of documentsOfKind(fetchedSoFar, "incidents")) {
+    const list = peekNoticesList(document);
+    if (list) listByUrl.set(document.url, list);
+  }
+  const chain: string[] = [];
+  let url: string | null = pastUnplannedNoticesUrl(source);
+  while (url && listByUrl.has(url) && !chain.includes(url)) {
+    chain.push(url);
+    url = resolveNextPage(listByUrl.get(url)!.meta.next_page, url);
+  }
+  return chain;
+}
+
 export const sorryV1Adapter: DependencyAdapter = {
   requests(source: DependencySourceManifest, fetchedSoFar?: AdapterDocument[]): AdapterRequestDescriptor[] {
     if (!fetchedSoFar || fetchedSoFar.length === 0) {
@@ -169,12 +193,17 @@ export const sorryV1Adapter: DependencyAdapter = {
       if (nextUrl && !fetchedUrls.has(nextUrl)) next.push({ kind: "current", url: nextUrl, optional: false });
     }
 
+    const pastListPages = fetchedPastListPages(source, fetchedSoFar);
     for (const document of documentsOfKind(fetchedSoFar, "incidents")) {
       const list = peekNoticesList(document);
       if (!list) continue;
-      // The past list is bounded to its first page, only the present list is followed across pages.
-      const isPastList = timelineStateOfNoticesListUrl(document.url) === "past";
-      const nextUrl = isPastList ? null : resolveNextPage(list.meta.next_page, document.url);
+      // The present list is followed to completion. The past list is followed only
+      // up to PAST_LIST_MAX_PAGES, enough to observe notices that resolved between
+      // polls without an unbounded walk of historical notices.
+      const pastPageIndex = pastListPages.indexOf(document.url);
+      const isPastList = pastPageIndex !== -1;
+      const followNextPage = !isPastList || pastPageIndex < PAST_LIST_MAX_PAGES - 1;
+      const nextUrl = followNextPage ? resolveNextPage(list.meta.next_page, document.url) : null;
       if (nextUrl && !fetchedUrls.has(nextUrl)) next.push({ kind: "incidents", url: nextUrl, optional: false });
       for (const notice of list.notices) {
         if (notice.type !== "unplanned") continue;
@@ -267,6 +296,11 @@ export const sorryV1Adapter: DependencyAdapter = {
       observedAt,
       providerUpdatedAt,
       componentsComplete: true,
+      // The present unplanned list is followed across every page, so every
+      // open notice is enumerated; a notice that ended surfaces via the past
+      // list with its ended_at rather than disappearing. The open set is
+      // complete.
+      incidentsComplete: true,
       components,
       incidents,
       // The unplanned-notice filter deliberately excludes planned maintenance notices;

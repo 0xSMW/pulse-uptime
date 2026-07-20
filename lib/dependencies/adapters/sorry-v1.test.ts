@@ -16,7 +16,9 @@ import noticeDetail503442Ended from "./fixtures/postmark/notice-detail-503442-en
 import noticesEmpty from "./fixtures/postmark/notices-empty.json";
 import noticesListOne from "./fixtures/postmark/notices-list-one.json";
 import noticesListPastOne from "./fixtures/postmark/notices-list-past-one.json";
-import noticesListPastPaginated from "./fixtures/postmark/notices-list-past-paginated.json";
+import noticesListPastPage1 from "./fixtures/postmark/notices-list-past-page1.json";
+import noticesListPastPage2 from "./fixtures/postmark/notices-list-past-page2.json";
+import noticesListPastPage3 from "./fixtures/postmark/notices-list-past-page3.json";
 import noticesListPresent503442 from "./fixtures/postmark/notices-list-present-503442.json";
 import noticesPage1 from "./fixtures/postmark/notices-page1.json";
 import noticesPage2 from "./fixtures/postmark/notices-page2.json";
@@ -111,14 +113,61 @@ describe("sorryV1Adapter.requests: pagination follow-up", () => {
     expect(requests).toEqual([{ kind: "incidents", url: notice503442Url, optional: false }]);
   });
 
-  it("does not follow the past-unplanned list's next_page, it stays bounded to the first page", () => {
-    const pastListUrl = `${noticesBaseUrl}?filter%5Btimeline_state_eq%5D=past&filter%5Btype_eq%5D=unplanned`;
-    const fetchedSoFar: AdapterDocument[] = [
+  it("follows the past-unplanned list beyond its first page so a notice that resolved onto a deeper past page is still reached", () => {
+    const pastPage1Url = `${noticesBaseUrl}?filter%5Btimeline_state_eq%5D=past&filter%5Btype_eq%5D=unplanned`;
+    const pastPage2Url = new URL("/api/v1/notices?filter%5Btimeline_state_eq%5D=past&filter%5Btype_eq%5D=unplanned&page=2", noticesBaseUrl).toString();
+
+    const afterPage1: AdapterDocument[] = [
       doc("current", componentsUrl, componentsOperational),
-      doc("incidents", pastListUrl, noticesListPastPaginated),
+      doc("incidents", pastPage1Url, noticesListPastPage1),
+    ];
+    const afterPage1Requests = sorryV1Adapter.requests(postmarkSource, afterPage1);
+    expect(afterPage1Requests).toEqual(
+      expect.arrayContaining([
+        { kind: "incidents", url: pastPage2Url, optional: false },
+        { kind: "incidents", url: notice503440Url, optional: false },
+      ]),
+    );
+
+    // Notice 503442 resolved and now sits on past page 2, its detail is requested only because
+    // pagination followed the past list past its first page.
+    const afterPage2: AdapterDocument[] = [
+      ...afterPage1,
+      doc("incidents", notice503440Url, noticeDetail503440),
+      doc("incidents", pastPage2Url, noticesListPastPage2),
+    ];
+    const afterPage2Requests = sorryV1Adapter.requests(postmarkSource, afterPage2);
+    const pastPage3Url = new URL("/api/v1/notices?page=3", noticesBaseUrl).toString();
+    expect(afterPage2Requests).toEqual(
+      expect.arrayContaining([
+        { kind: "incidents", url: pastPage3Url, optional: false },
+        { kind: "incidents", url: notice503442Url, optional: false },
+      ]),
+    );
+  });
+
+  it("stops following the past-unplanned list at the bounded page cap, it does not walk deeper history", () => {
+    const pastPage1Url = `${noticesBaseUrl}?filter%5Btimeline_state_eq%5D=past&filter%5Btype_eq%5D=unplanned`;
+    const pastPage2Url = new URL("/api/v1/notices?filter%5Btimeline_state_eq%5D=past&filter%5Btype_eq%5D=unplanned&page=2", noticesBaseUrl).toString();
+    const pastPage3Url = new URL("/api/v1/notices?page=3", noticesBaseUrl).toString();
+    const pastPage4Url = new URL("/api/v1/notices?page=4", noticesBaseUrl).toString();
+
+    // Three past pages fetched, chained even though page 2's next_page link drops the timeline filter.
+    const afterPage3: AdapterDocument[] = [
+      doc("current", componentsUrl, componentsOperational),
+      doc("incidents", pastPage1Url, noticesListPastPage1),
+      doc("incidents", pastPage2Url, noticesListPastPage2),
+      doc("incidents", pastPage3Url, noticesListPastPage3),
+      doc("incidents", notice503440Url, noticeDetail503440),
       doc("incidents", notice503442Url, noticeDetail503442Ended),
     ];
-    expect(sorryV1Adapter.requests(postmarkSource, fetchedSoFar)).toEqual([]);
+    const afterPage3Requests = sorryV1Adapter.requests(postmarkSource, afterPage3);
+    // The one remaining request is page 3's own notice detail, never a fourth past page.
+    expect(afterPage3Requests).toEqual([{ kind: "incidents", url: notice503441Url, optional: false }]);
+    expect(afterPage3Requests.some((request) => request.url === pastPage4Url)).toBe(false);
+
+    const afterAll: AdapterDocument[] = [...afterPage3, doc("incidents", notice503441Url, noticeDetail503441)];
+    expect(sorryV1Adapter.requests(postmarkSource, afterAll)).toEqual([]);
   });
 });
 
@@ -257,6 +306,30 @@ describe("sorryV1Adapter.normalize: a notice that ends between polls", () => {
     expect(pollTwoSnapshot.incidents[0].externalId).toBe("503442");
     expect(pollTwoSnapshot.incidents[0].state).toBe("resolved");
     expect(pollTwoSnapshot.incidents[0].resolvedAt).toBe("2026-07-18T11:45:00.000Z");
+  });
+
+  it("observes a resolution that landed on the second past page, not just the first", () => {
+    const pastPage1Url = `${noticesBaseUrl}?filter%5Btimeline_state_eq%5D=past&filter%5Btype_eq%5D=unplanned`;
+    const pastPage2Url = new URL("/api/v1/notices?filter%5Btimeline_state_eq%5D=past&filter%5Btype_eq%5D=unplanned&page=2", noticesBaseUrl).toString();
+
+    // 503442 ended and moved onto past page 2, its ended_at is only reachable because pagination
+    // followed the past list past its first page.
+    const snapshot = sorryV1Adapter.normalize({
+      source: postmarkSource,
+      documents: [
+        doc("current", componentsUrl, componentsOperational),
+        doc("incidents", noticesBaseUrl, noticesEmpty),
+        doc("incidents", pastPage1Url, noticesListPastPage1),
+        doc("incidents", pastPage2Url, noticesListPastPage2),
+        doc("incidents", notice503440Url, noticeDetail503440),
+        doc("incidents", notice503442Url, noticeDetail503442Ended),
+      ],
+      observedAt: "2026-07-18T12:00:00.000Z",
+    });
+    const resolved = snapshot.incidents.find((incident) => incident.externalId === "503442");
+    expect(resolved).toBeDefined();
+    expect(resolved!.state).toBe("resolved");
+    expect(resolved!.resolvedAt).toBe("2026-07-18T11:45:00.000Z");
   });
 });
 

@@ -1,0 +1,6 @@
+{
+  "notices": [
+    { "id": 503441, "type": "unplanned", "state": "resolved", "timeline_state": "past" }
+  ],
+  "meta": { "count": 1, "total_count": 4, "next_page": "/api/v1/notices?page=4" }
+}
