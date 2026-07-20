@@ -21,6 +21,7 @@ function selectChain(rows: unknown[]) {
     innerJoin: () => node,
     where: () => node,
     orderBy: () => node,
+    groupBy: () => node,
     limit: () => node,
     then: (res: (value: unknown[]) => unknown, rej?: (reason: unknown) => unknown) => promise.then(res, rej),
     catch: (rej: (reason: unknown) => unknown) => promise.catch(rej),
@@ -169,14 +170,16 @@ describe("getMonitorDetail latency and response chart", () => {
       .mockReturnValueOnce(selectChain([])) // rollups 15m
       .mockReturnValueOnce(selectChain([])) // rollups hour
       .mockReturnValueOnce(selectChain([])) // rollups day
-      .mockReturnValueOnce(selectChain([])); // accepted config (no incidents select)
+      .mockReturnValueOnce(selectChain([])) // accepted config (no incidents select)
+      .mockReturnValueOnce(selectChain([])); // raw availability buckets for the h24 bar
 
     const detail = await getMonitorDetail("site-home");
 
     expect(detail!.latestIncident).toBeNull();
     expect(detail!.recentIncidents).toEqual([]);
-    // identity + three rollup fetches + config, but never the incidents table.
-    expect(dbMock.select).toHaveBeenCalledTimes(5);
+    // identity + three rollup fetches + config + the raw availability blend, but
+    // never the incidents table.
+    expect(dbMock.select).toHaveBeenCalledTimes(6);
   });
 });
 

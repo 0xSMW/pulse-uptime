@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatBucketTimeRange,
   formatDuration,
   formatLatency,
   formatRelativeTime,
@@ -39,5 +40,32 @@ describe("report formatting", () => {
     // 18:30 UTC on Jul 17 is already Jul 18 in Bangkok, so it counts as today there.
     expect(formatRelativeTime(new Date("2026-07-17T18:30:00.000Z"), now, "Asia/Bangkok")).toBe("01:30");
     expect(formatRelativeTime(new Date("2026-07-16T18:30:00.000Z"), now, "Asia/Bangkok")).toBe("Jul 17, 01:30");
+  });
+
+  it("formats a bucket time range in the viewer time zone", () => {
+    const start = Date.parse("2026-07-20T07:30:00.000Z");
+    const end = Date.parse("2026-07-20T07:45:00.000Z");
+    expect(formatBucketTimeRange(start, end)).toBe("Jul 20, 07:30 to 07:45");
+    expect(formatBucketTimeRange(start, end, "Asia/Bangkok")).toBe("Jul 20, 14:30 to 14:45");
+  });
+
+  it("formats a bucket range identically for a DST-free fixed offset and its DST-observing peer", () => {
+    // 07:30-07:45 UTC is 14:30-14:45 at UTC+7. Etc/GMT-7 is a fixed +7 offset
+    // with no daylight saving, so its output must match, proving the range is
+    // a plain wall-clock projection and not a DST-sensitive calculation.
+    const start = Date.parse("2026-07-20T07:30:00.000Z");
+    const end = Date.parse("2026-07-20T07:45:00.000Z");
+    expect(formatBucketTimeRange(start, end, "Etc/GMT-7")).toBe("Jul 20, 14:30 to 14:45");
+    expect(formatBucketTimeRange(start, end, "Etc/GMT-7")).toBe(
+      formatBucketTimeRange(start, end, "Asia/Bangkok"),
+    );
+  });
+
+  it("keeps midnight as 00:00 and carries both dates when a bucket crosses a day", () => {
+    const start = Date.parse("2026-07-20T23:45:00.000Z");
+    const end = Date.parse("2026-07-21T00:00:00.000Z");
+    expect(formatBucketTimeRange(start, end)).toBe("Jul 20 23:45 to Jul 21 00:00");
+    // In Bangkok both instants fall on Jul 21, so it collapses to one date.
+    expect(formatBucketTimeRange(start, end, "Asia/Bangkok")).toBe("Jul 21, 06:45 to 07:00");
   });
 });

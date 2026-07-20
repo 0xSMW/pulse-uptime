@@ -143,7 +143,7 @@ export async function getIncidentDetail(id: string) {
     .map((event) => ({ type: event.type, at: event.at.toISOString() }));
 
   // Neutral timing context only: never a causal claim. See
-  // Docs/DEPENDENCY-MONITORING.md "Incident correlation".
+  // Docs/Specs/DEPENDENCY-MONITORING.md "Incident correlation".
   const overlaps = await listOverlappingDependencyIncidents({ openedAt: row.openedAt, resolvedAt: row.resolvedAt });
 
   return {

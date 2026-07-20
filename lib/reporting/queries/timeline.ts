@@ -22,6 +22,31 @@ export type RollupAvailability = {
   downtimeSeconds: number;
 };
 
+// Raw check_results grouped into 15m buckets, shaped like a rollup so the
+// timeline can fold them in beside real rollups. expected equals completed
+// here because every raw row is a check that ran, so a clean quarter-hour
+// reads up and a failing one reads down. unknown and downtime stay zero,
+// the timeline reads neither from the raw side.
+export type RawBucketAvailability = RollupAvailability;
+
+// Folds raw 15m buckets onto rollup buckets, dropping any raw bucket whose
+// quarter-hour already carries a rollup. This is the timeline twin of the
+// uptime figure's anti-join in lib/monitoring/queries.ts: no 15m bucket is
+// ever counted from both the rollup and the raw side, so folding cannot
+// double count. A bucket in compaction lag renders up or down from its raw
+// checks instead of no-data, matching the uptime figure that already counts
+// those same checks. A bucket with neither a rollup nor a surviving raw row
+// stays no-data, since nothing observed it.
+export function blendRawAvailability(
+  rollups: RollupAvailability[],
+  rawBuckets: RawBucketAvailability[],
+): RollupAvailability[] {
+  if (rawBuckets.length === 0) return rollups;
+  const covered = new Set(rollups.map((row) => row.bucketStart.getTime()));
+  const uncovered = rawBuckets.filter((row) => !covered.has(row.bucketStart.getTime()));
+  return uncovered.length === 0 ? rollups : [...rollups, ...uncovered];
+}
+
 export function summarizeRollupCoverage(rows: Array<Pick<RollupAvailability,
   "expectedChecks" | "completedChecks" | "successfulChecks">>): {
   uptime: number | null;
@@ -89,6 +114,8 @@ export function buildCheckTimeline(
       label: `${new Date(bucketStart).toISOString()}–${new Date(bucketEnd).toISOString()}`,
       checks: checks.length,
       failures,
+      startMs: bucketStart,
+      endMs: bucketEnd,
     };
   });
 }
@@ -122,6 +149,8 @@ export function buildDailyTimeline(
       checks,
       failures,
       downtimeSeconds: row?.incidentSeconds ?? 0,
+      startMs: date.getTime(),
+      endMs: date.getTime() + 86_400_000,
     };
   });
 }
@@ -158,6 +187,8 @@ export function buildRollupTimeline(
       checks,
       failures,
       downtimeSeconds,
+      startMs: bucketStart,
+      endMs: bucketEnd,
     };
   });
 }

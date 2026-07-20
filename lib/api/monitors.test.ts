@@ -1,17 +1,28 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/db/client", () => ({ db: { impl: "default-db" } }));
+vi.mock("@/lib/db/client", () => {
+  const chain: Record<string, unknown> = {};
+  chain.from = () => chain;
+  chain.innerJoin = () => chain;
+  chain.where = async () => [];
+  return { db: { impl: "default-db", select: () => chain } };
+});
 vi.mock("./config-mutation", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./config-mutation")>()),
+  requireAcceptedConfig: vi.fn(async () => ({ config: BASE_CONFIG, hash: "hash", acceptedAt: new Date(0) })),
   mutateConfig: vi.fn(async (_principalKey: string, mutator: (config: unknown) => unknown) => mutator(BASE_CONFIG)),
+}));
+vi.mock("@/lib/monitoring/queries", () => ({
+  uptime24hByMonitorId: vi.fn(async (ids: readonly string[]) => new Map(ids.map((id) => [id, 99.5]))),
 }));
 
 import type { DatabaseHandle } from "@/lib/db/client";
 import { db } from "@/lib/db/client";
+import { uptime24hByMonitorId } from "@/lib/monitoring/queries";
 
 import { mutateConfig } from "./config-mutation";
-import { archiveMonitor, createMonitor, mergeMonitorPatch, MonitorApiError, parseCreateMonitor, parsePatchMonitor, setMonitorEnabled, updateMonitor } from "./monitors";
+import { archiveMonitor, createMonitor, listMonitors, mergeMonitorPatch, MonitorApiError, parseCreateMonitor, parsePatchMonitor, requireMonitor, setMonitorEnabled, updateMonitor } from "./monitors";
 
 const EXISTING = parseCreateMonitor({ id: "site-home", name: "Site", url: "https://example.com" });
 const BASE_CONFIG = { schemaVersion: 2, configVersion: 1, groups: [], monitors: [EXISTING] };
@@ -38,6 +49,75 @@ describe("monitor API request parsing", () => {
     const groups = [{ id: "production", name: "Production" }];
     expect(parseCreateMonitor({ id: "site-one", name: "One", url: "https://one.example.com", group: "production" }, groups).groupId).toBe("production");
     expect(() => parseCreateMonitor({ id: "site-two", name: "Two", url: "https://two.example.com", group: "Production", groupId: "production" }, groups)).toThrow();
+  });
+
+  it("accepts an explicit null groupId to clear but rejects an empty string", () => {
+    const groups = [{ id: "production", name: "Production" }];
+    const monitor = parseCreateMonitor({ id: "site-home", name: "Site", url: "https://example.com", groupId: "production" }, groups);
+    expect(parsePatchMonitor({ groupId: null }).groupId).toBeNull();
+    expect(mergeMonitorPatch(monitor, parsePatchMonitor({ groupId: null })).groupId).toBeNull();
+    // The empty string that the raw --group-id "" once sent is still rejected at
+    // the schema, so the CLI maps it to null rather than letting it reach here.
+    expect(() => parsePatchMonitor({ groupId: "" })).toThrow();
+  });
+});
+
+describe("list uptime", () => {
+  it("attaches the 24h uptime for the returned page and asks only for page ids", async () => {
+    const result = await listMonitors({ cursor: null, limit: 10 });
+    expect(result.monitors).toHaveLength(1);
+    expect(result.monitors[0]).toMatchObject({ id: "site-home", uptime: 99.5 });
+    expect(uptime24hByMonitorId).toHaveBeenCalledWith(["site-home"]);
+  });
+
+  it("reads null when the uptime lookup has no row for a monitor", async () => {
+    vi.mocked(uptime24hByMonitorId).mockResolvedValueOnce(new Map());
+    const result = await listMonitors({ cursor: null, limit: 10 });
+    expect(result.monitors[0]).toMatchObject({ id: "site-home", uptime: null });
+  });
+});
+
+describe("clear then reassign a group through updateMonitor", () => {
+  it("clears the group with null and then reassigns the same group", async () => {
+    const groups = [{ id: "production", name: "Production" }];
+    const grouped = parseCreateMonitor({ id: "site-grp", name: "Grouped", url: "https://grouped.example.com", groupId: "production" }, groups);
+    let config: unknown = { schemaVersion: 2, configVersion: 1, settings: {}, groups, monitors: [grouped] };
+    const step = async (_principalKey: string, mutator: (value: unknown) => unknown) => { config = mutator(config); return config; };
+    vi.mocked(mutateConfig).mockImplementationOnce(step as never).mockImplementationOnce(step as never);
+
+    const cleared = await updateMonitor("site-grp", { groupId: null }, "human:1");
+    expect(cleared).toMatchObject({ id: "site-grp", groupId: null, group: null });
+
+    const reassigned = await updateMonitor("site-grp", { groupId: "production" }, "human:1");
+    expect(reassigned).toMatchObject({ id: "site-grp", groupId: "production", group: "Production" });
+  });
+});
+
+describe("single monitor runtime state", () => {
+  function runtimeHandle(rows: Array<{ state: string; createdAt: Date; updatedAt: Date }>) {
+    const chain: Record<string, unknown> = {};
+    chain.from = () => chain;
+    chain.innerJoin = () => chain;
+    chain.where = async () => rows;
+    return { select: () => chain } as unknown as DatabaseHandle;
+  }
+
+  it("returns state and registry timestamps from the state join, and no uptime", async () => {
+    const handle = runtimeHandle([{ state: "UP", createdAt: new Date("2026-01-01T00:00:00Z"), updatedAt: new Date("2026-01-02T03:04:05Z") }]);
+    const monitor = await requireMonitor("site-home", handle);
+    expect(monitor).toMatchObject({ id: "site-home", state: "UP", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T03:04:05.000Z" });
+    expect(monitor).not.toHaveProperty("uptime");
+  });
+
+  it("returns the config shape alone when no registry row exists yet", async () => {
+    const monitor = await requireMonitor("site-home", runtimeHandle([]));
+    expect(monitor).toMatchObject({ id: "site-home", group: null, groupId: null });
+    expect(monitor).not.toHaveProperty("state");
+    expect(monitor).not.toHaveProperty("createdAt");
+  });
+
+  it("throws MONITOR_NOT_FOUND for an unknown id", async () => {
+    await expect(requireMonitor("missing", runtimeHandle([]))).rejects.toBeInstanceOf(MonitorApiError);
   });
 });
 

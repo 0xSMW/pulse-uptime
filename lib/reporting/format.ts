@@ -28,6 +28,23 @@ export function formatDuration(totalSeconds: number): string {
   return `${Math.floor(hours / 24)}d ${hours % 24}h`;
 }
 
+// Human date and time range for a timeline bucket, rendered in the viewer's
+// zone, e.g. "Jul 20, 14:30 to 15:15". Buckets whose start and end fall on
+// different calendar days in the viewer zone carry both dates. hourCycle h23
+// keeps midnight as 00:00 rather than 24:00.
+export function formatBucketTimeRange(startMs: number, endMs: number, timeZone = "UTC"): string {
+  const start = new Date(startMs);
+  const end = new Date(endMs);
+  const dateOf = (value: Date) =>
+    value.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone });
+  const timeOf = (value: Date) =>
+    value.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone });
+  if (dateOf(start) === dateOf(end)) {
+    return `${dateOf(start)}, ${timeOf(start)} to ${timeOf(end)}`;
+  }
+  return `${dateOf(start)} ${timeOf(start)} to ${dateOf(end)} ${timeOf(end)}`;
+}
+
 export function formatRelativeTime(value: Date, now = new Date(), timeZone = "UTC"): string {
   const seconds = Math.max(0, Math.floor((now.getTime() - value.getTime()) / 1000));
   if (seconds < 60) return `${seconds}s ago`;

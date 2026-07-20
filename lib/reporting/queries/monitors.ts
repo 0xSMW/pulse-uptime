@@ -1,8 +1,9 @@
-import { and, desc, eq, gte, isNull, lt } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lt, sql as dsql } from "drizzle-orm";
 import { cache } from "react";
 
 import { db, sql } from "@/lib/db/client";
 import {
+  checkResults,
   incidents,
   metricRollups,
   monitorRegistry,
@@ -36,7 +37,7 @@ import {
   type RawTailBounds,
   type RawTailCounts,
 } from "./live-summary";
-import { buildRollupTimeline } from "./timeline";
+import { blendRawAvailability, buildRollupTimeline, type RawBucketAvailability } from "./timeline";
 
 const LATENCY_BUCKET_MAX_MS = [100, 250, 500, 1_000, 2_500, 5_000, 10_000] as const;
 
@@ -117,6 +118,48 @@ function fetchRollups(
       lt(metricRollups.bucketStart, end),
     ))
     .orderBy(metricRollups.bucketStart);
+}
+
+// Raw check_results grouped into 15m buckets over [start, end), shaped like a
+// rollup so blendRawAvailability can fold them onto the real rollups for the
+// availability bar. This is the timeline twin of the uptime figure's raw side
+// in lib/monitoring/queries.ts: it reads the same check_results on scheduled_at,
+// the column COMPACT_15_MINUTE_SQL buckets on, so a raw quarter-hour lands in
+// the rollup bucket it would compact into. The scan is one bounded per-monitor
+// range on the (monitor_id, scheduled_at) unique index. A decode or query
+// failure degrades to an empty list, so the bar falls back to rollups alone.
+async function fetchRawAvailabilityBuckets(id: string, start: Date, end: Date): Promise<RawBucketAvailability[]> {
+  const bucketStart = dsql<Date>`date_bin('15 minutes', ${checkResults.scheduledAt}, timestamptz '2000-01-01')`;
+  try {
+    const rows = await db
+      .select({
+        bucketStart,
+        completedChecks: dsql<number>`count(*)::int`,
+        successfulChecks: dsql<number>`count(*) filter (where ${checkResults.successful})::int`,
+        failedChecks: dsql<number>`count(*) filter (where not ${checkResults.successful})::int`,
+      })
+      .from(checkResults)
+      .where(and(
+        eq(checkResults.monitorId, id),
+        gte(checkResults.scheduledAt, start),
+        lt(checkResults.scheduledAt, end),
+      ))
+      .groupBy(bucketStart);
+    return rows.map((row) => {
+      const completed = Number(row.completedChecks);
+      return {
+        bucketStart: new Date(row.bucketStart),
+        expectedChecks: completed,
+        completedChecks: completed,
+        successfulChecks: Number(row.successfulChecks),
+        failedChecks: Number(row.failedChecks),
+        unknownChecks: 0,
+        downtimeSeconds: 0,
+      };
+    });
+  } catch {
+    return [];
+  }
 }
 
 // Load identity without rollups. React cache shares the indexed lookup between
@@ -239,7 +282,7 @@ export async function getMonitorDetail(id: string) {
   const end15m = completedRangeEnd(now, "15m");
   const endHour = completedRangeEnd(now, "hour");
   const endDay = completedRangeEnd(now, "day");
-  const [rollups7d, rollups30d, rollups90d, recentIncidents, accepted, recentRawChecks] = await Promise.all([
+  const [rollups7d, rollups30d, rollups90d, recentIncidents, accepted, recentRawChecks, rawAvailability24h] = await Promise.all([
     fetchRollups(id, "15m", end15m, 7 * 86_400_000),
     fetchRollups(id, "hour", endHour, 30 * 86_400_000),
     fetchRollups(id, "day", endDay, 90 * 86_400_000),
@@ -258,6 +301,7 @@ export async function getMonitorDetail(id: string) {
       .orderBy(desc(monitoringConfigSnapshots.acceptedAt))
       .limit(1),
     getRecentRawChecks(id, now),
+    fetchRawAvailabilityBuckets(id, new Date(end15m.getTime() - 86_400_000), end15m),
   ]);
 
   // Derive the last 24 hours from the fetched seven days of rollups.
@@ -295,7 +339,7 @@ export async function getMonitorDetail(id: string) {
     }));
 
   // Neutral timing context only, for the active or recently resolved
-  // incident: never a causal claim. See Docs/DEPENDENCY-MONITORING.md
+  // incident: never a causal claim. See Docs/Specs/DEPENDENCY-MONITORING.md
   // "Incident correlation".
   const latestIncidentRow = recentIncidents[0] && (
     recentIncidents[0].resolvedAt === null ||
@@ -370,11 +414,18 @@ export async function getMonitorDetail(id: string) {
     windowVersion: end15m.toISOString(),
     // Timeline bars read the same activation-filtered rollups the uptime
     // figures do, so pre-activation buckets render as no-data rather than red
-    // down bars while the header still reads as collecting or setup.
+    // down bars while the header still reads as collecting or setup. The h24 bar
+    // additionally folds raw checks onto any quarter-hour a rollup has not closed
+    // yet, so its newest cells read up or down during compaction lag instead of
+    // no-data, matching what the raw-blended uptime figure already counts. The
+    // longer ranges read hour and day rollups, which never carry that lag.
     availability: {
       h24: {
         start: new Date(end15m.getTime() - 86_400_000).toISOString(),
-        buckets: buildRollupTimeline(rollupsSinceActivation(rollups24h, activatedAt), 60, 86_400_000, end15m),
+        buckets: buildRollupTimeline(
+          rollupsSinceActivation(blendRawAvailability(rollups24h, rawAvailability24h), activatedAt),
+          60, 86_400_000, end15m,
+        ),
       },
       d7: {
         start: new Date(end15m.getTime() - 7 * 86_400_000).toISOString(),

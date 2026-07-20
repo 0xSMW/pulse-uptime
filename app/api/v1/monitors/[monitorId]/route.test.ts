@@ -46,9 +46,9 @@ vi.mock("@/lib/api/monitors", async (importOriginal) => ({
 }));
 
 import { authorize, type ApiContext } from "@/lib/api/middleware";
-import { archiveMonitor, MonitorApiError, updateMonitor } from "@/lib/api/monitors";
+import { archiveMonitor, MonitorApiError, requireMonitor, updateMonitor } from "@/lib/api/monitors";
 
-import { DELETE, PATCH } from "./route";
+import { DELETE, GET, PATCH } from "./route";
 
 const context: ApiContext = {
   principal: { type: "cli_session", id: "cli-1", email: "admin@example.com", scopes: ["monitors:write"], expiresAt: new Date(), installation: { id: "ins-1", displayName: "Mac", platform: "darwin", architecture: "arm64", clientVersion: "1.0.0", linkedAt: new Date() } },
@@ -78,11 +78,34 @@ function deleteRequest(key = crypto.randomUUID()) {
   });
 }
 
+function getRequest() {
+  return new Request("https://pulse.test/api/v1/monitors/site-home", { method: "GET" });
+}
+
 beforeEach(() => {
   idempotencyRecords.clear();
   vi.mocked(authorize).mockReset().mockResolvedValue(context);
   vi.mocked(updateMonitor).mockReset();
   vi.mocked(archiveMonitor).mockReset();
+  vi.mocked(requireMonitor).mockReset();
+});
+
+describe("GET /api/v1/monitors/{monitorId}", () => {
+  it("returns the monitor with its runtime state and timestamps", async () => {
+    vi.mocked(requireMonitor).mockResolvedValue({ ...monitor, state: "UP", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z" });
+    const response = await GET(getRequest(), params);
+    expect(response.status).toBe(200);
+    const data = (await response.json()).data;
+    expect(data).toMatchObject({ id: "site-home", state: "UP", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z" });
+    expect(requireMonitor).toHaveBeenCalledWith("site-home");
+  });
+
+  it("returns 404 for an unknown monitor", async () => {
+    vi.mocked(requireMonitor).mockRejectedValue(new MonitorApiError("MONITOR_NOT_FOUND", "Monitor was not found"));
+    const response = await GET(getRequest(), params);
+    expect(response.status).toBe(404);
+    expect((await response.json()).error.code).toBe("MONITOR_NOT_FOUND");
+  });
 });
 
 describe("PATCH /api/v1/monitors/{monitorId}", () => {
@@ -91,6 +114,23 @@ describe("PATCH /api/v1/monitors/{monitorId}", () => {
     const response = await PATCH(patchRequest({ name: "Renamed" }), params);
     expect(response.status).toBe(200);
     expect((await response.json()).data.name).toBe("Renamed");
+  });
+
+  it("forwards an explicit null groupId to clear the group, then reassigns it", async () => {
+    vi.mocked(updateMonitor).mockImplementation(async (_id, body) => {
+      const groupId = (body as { groupId?: string | null }).groupId ?? null;
+      return { ...monitor, groupId, group: groupId ? "Production" : null };
+    });
+    const cleared = await PATCH(patchRequest({ groupId: null }), params);
+    expect(cleared.status).toBe(200);
+    expect((await cleared.json()).data.groupId).toBeNull();
+    // The route forwards the null body unchanged into updateMonitor, which is what
+    // distinguishes clear from an absent field that leaves the group untouched.
+    expect(updateMonitor).toHaveBeenCalledWith("site-home", { groupId: null }, context.principalKey, "tx");
+
+    const reassigned = await PATCH(patchRequest({ groupId: "production" }), params);
+    expect(reassigned.status).toBe(200);
+    expect((await reassigned.json()).data.groupId).toBe("production");
   });
 
   it("stores a deterministic MONITOR_NOT_FOUND error as the operation's own completed response", async () => {
