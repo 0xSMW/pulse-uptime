@@ -3,12 +3,11 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { desc, eq, sql as drizzleSql } from "drizzle-orm";
 
-import { evaluateDestructiveChange, exportDeclarativeConfig, hashMonitoringConfig, validateMonitoringConfig, type MonitoringConfig } from "@/lib/config";
+import { evaluateDestructiveChange, exportDeclarativeConfig, hashMonitoringConfig, validateMonitoringConfig, type AcceptedConfigSnapshot, type MonitoringConfig } from "@/lib/config";
 import { db, type DatabaseHandle, type DatabaseTransaction } from "@/lib/db/client";
 import { configChangeApprovals, monitoringConfigSnapshots } from "@/lib/db/schema";
 import { synchronizeRegistry as syncRegistryRows } from "@/lib/scheduler/registry-sync";
 
-export type AcceptedSnapshot = { config: MonitoringConfig; hash: string };
 type DbTransaction = DatabaseTransaction;
 
 export class ConfigMutationError extends Error {
@@ -17,7 +16,7 @@ export class ConfigMutationError extends Error {
   }
 }
 
-export async function loadAcceptedConfig(executor: typeof db = db): Promise<AcceptedSnapshot> {
+export async function loadAcceptedConfig(executor: typeof db = db): Promise<AcceptedConfigSnapshot> {
   const [row] = await executor.select({ configJson: monitoringConfigSnapshots.configJson, configHash: monitoringConfigSnapshots.configHash })
     .from(monitoringConfigSnapshots).where(eq(monitoringConfigSnapshots.status, "accepted"))
     .orderBy(desc(monitoringConfigSnapshots.acceptedAt), desc(monitoringConfigSnapshots.seenAt)).limit(1);

@@ -36,14 +36,14 @@ vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
 }));
 vi.mock("@/lib/dependencies/service", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/dependencies/service")>()),
-  installDependency: vi.fn(),
+  addDependency: vi.fn(),
   listDependencies: vi.fn(),
 }));
 
 import { apiError } from "@/lib/api/envelopes";
 import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, type ApiContext } from "@/lib/api/middleware";
-import { DependencyApiError, DependencyInstallConflictError, installDependency, listDependencies } from "@/lib/dependencies/service";
+import { DependencyApiError, DependencyInstallConflictError, addDependency, listDependencies } from "@/lib/dependencies/service";
 
 import { GET, POST } from "./route";
 
@@ -53,12 +53,12 @@ const context: ApiContext = {
   requestId: "req_deps",
 };
 
-const dependency = { id: "dep-1", catalogId: "vercel_runtime", name: "Vercel Runtime", provider: "Vercel", state: "UNKNOWN" };
+const dependency = { id: "dep-1", presetId: "vercel_runtime", name: "Vercel Runtime", provider: "Vercel", state: "UNKNOWN" };
 
 beforeEach(() => {
   vi.mocked(authorize).mockReset().mockResolvedValue(context);
   vi.mocked(listDependencies).mockReset().mockResolvedValue([dependency] as never);
-  vi.mocked(installDependency).mockReset().mockResolvedValue(dependency as never);
+  vi.mocked(addDependency).mockReset().mockResolvedValue(dependency as never);
   vi.mocked(executeIdempotent).mockClear();
   idempotencyRecords.clear();
 });
@@ -104,43 +104,43 @@ describe("POST /api/v1/dependencies", () => {
     const response = await POST(postRequest({ presetId: "vercel_runtime", url: "https://vercel.com", componentId: "abc" }));
     expect(response.status).toBe(400);
     expect((await response.json()).error.code).toBe("INVALID_REQUEST");
-    expect(installDependency).not.toHaveBeenCalled();
+    expect(addDependency).not.toHaveBeenCalled();
   });
 
   it("rejects a missing presetId", async () => {
     const response = await POST(postRequest({}));
     expect(response.status).toBe(400);
-    expect(installDependency).not.toHaveBeenCalled();
+    expect(addDependency).not.toHaveBeenCalled();
   });
 
   it("installs inside the idempotency transaction, pinning the id and passing the tx handle", async () => {
     await POST(postRequest({ presetId: "vercel_runtime" }));
-    expect(installDependency).toHaveBeenCalledWith({ presetId: "vercel_runtime" }, { dependencyId: "op-1" }, "tx");
+    expect(addDependency).toHaveBeenCalledWith({ presetId: "vercel_runtime" }, { dependencyId: "op-1" }, "tx");
   });
 
   it("replays the stored response for a repeated idempotency key without reinstalling", async () => {
     const request = postRequest({ presetId: "vercel_runtime" });
     const first = await POST(request.clone());
     expect(first.status).toBe(201);
-    expect(installDependency).toHaveBeenCalledTimes(1);
+    expect(addDependency).toHaveBeenCalledTimes(1);
     const replay = await POST(request);
     expect(replay.status).toBe(201);
-    expect(installDependency).toHaveBeenCalledTimes(1);
+    expect(addDependency).toHaveBeenCalledTimes(1);
   });
 
   it("stores a duplicate as a clean 409 rather than rolling the transaction back", async () => {
-    vi.mocked(installDependency).mockRejectedValue(new DependencyApiError("DEPENDENCY_EXISTS", "Already installed"));
+    vi.mocked(addDependency).mockRejectedValue(new DependencyApiError("DEPENDENCY_EXISTS", "Already installed"));
     const request = postRequest({ presetId: "vercel_runtime" });
     const response = await POST(request.clone());
     expect(response.status).toBe(409);
     // The 409 was recorded, so a retry with the same key replays it.
     const replay = await POST(request);
     expect(replay.status).toBe(409);
-    expect(installDependency).toHaveBeenCalledTimes(1);
+    expect(addDependency).toHaveBeenCalledTimes(1);
   });
 
   it("returns 409 without storing when the install races another request inside the transaction", async () => {
-    vi.mocked(installDependency).mockRejectedValue(
+    vi.mocked(addDependency).mockRejectedValue(
       new DependencyInstallConflictError("An active dependency already exists for this preset and scope"),
     );
     const request = postRequest({ presetId: "vercel_runtime" });
@@ -152,25 +152,25 @@ describe("POST /api/v1/dependencies", () => {
     // replaying a stored response.
     const retry = await POST(request);
     expect(retry.status).toBe(409);
-    expect(installDependency).toHaveBeenCalledTimes(2);
+    expect(addDependency).toHaveBeenCalledTimes(2);
   });
 
   it("maps PRESET_NOT_FOUND to 400", async () => {
-    vi.mocked(installDependency).mockRejectedValue(new DependencyApiError("PRESET_NOT_FOUND", "Preset was not found"));
+    vi.mocked(addDependency).mockRejectedValue(new DependencyApiError("PRESET_NOT_FOUND", "Preset was not found"));
     const response = await POST(postRequest({ presetId: "nope" }));
     expect(response.status).toBe(400);
     expect((await response.json()).error.code).toBe("PRESET_NOT_FOUND");
   });
 
   it("maps DEPENDENCY_EXISTS to 409", async () => {
-    vi.mocked(installDependency).mockRejectedValue(new DependencyApiError("DEPENDENCY_EXISTS", "Already installed"));
+    vi.mocked(addDependency).mockRejectedValue(new DependencyApiError("DEPENDENCY_EXISTS", "Already installed"));
     const response = await POST(postRequest({ presetId: "vercel_runtime" }));
     expect(response.status).toBe(409);
     expect((await response.json()).error.code).toBe("DEPENDENCY_EXISTS");
   });
 
   it("maps SCOPE_REQUIRED to 400", async () => {
-    vi.mocked(installDependency).mockRejectedValue(new DependencyApiError("SCOPE_REQUIRED", "scopeId required"));
+    vi.mocked(addDependency).mockRejectedValue(new DependencyApiError("SCOPE_REQUIRED", "scopeId required"));
     const response = await POST(postRequest({ presetId: "neon_database" }));
     expect(response.status).toBe(400);
     expect((await response.json()).error.code).toBe("SCOPE_REQUIRED");

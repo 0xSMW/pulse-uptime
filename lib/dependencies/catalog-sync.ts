@@ -19,9 +19,9 @@ import type { DependencyScope, DependencySelector } from "./types";
 // changes, so a manifest version change is also the point where sources
 // dropped from the manifest are detected and retired: each dropped source is
 // disabled, its still-enabled presets get a validation error (the same
-// mechanism validateCatalog uses when a preset's upstream id goes missing),
+// mechanism reconcileCatalog uses when a preset's upstream id goes missing),
 // and their installed dependencies flip to UNKNOWN through the same interval
-// bookkeeping validateCatalog uses. Without this, a renamed or removed
+// bookkeeping reconcileCatalog uses. Without this, a renamed or removed
 // provider would leave its installs frozen at their last observed state with
 // no error surfaced anywhere.
 
@@ -92,7 +92,7 @@ export async function syncCatalog(
   });
 }
 
-/** The stored fields validateCatalog actually checks against the live feed, as opposed to display copy that never affects validation state. */
+/** The stored fields reconcileCatalog actually checks against the live feed, as opposed to display copy that never affects validation state. */
 export interface StoredPresetDefinition {
   sourceId: string;
   selector: DependencySelector;
@@ -117,7 +117,7 @@ function canonicalJson(value: unknown): string {
   });
 }
 
-/** True when the preset's source, selector, or scope differs from what's stored, the only fields validateCatalog checks. A brand new preset (no stored row) always counts as changed. */
+/** True when the preset's source, selector, or scope differs from what's stored, the only fields reconcileCatalog checks. A brand new preset (no stored row) always counts as changed. */
 function presetDefinitionChanged(existing: StoredPresetDefinition | null, preset: DependencyPresetManifest): boolean {
   if (!existing) return true;
   return existing.sourceId !== preset.sourceId
@@ -202,14 +202,14 @@ export function sourceUpsertPlan(source: DependencySourceManifest, catalogVersio
   return { insert, update };
 }
 
-/** Disables a preset and records why, shared by validateCatalog (a missing upstream id) and syncCatalog (the preset's source dropped from the manifest). */
+/** Disables a preset and records why, shared by reconcileCatalog (a missing upstream id) and syncCatalog (the preset's source dropped from the manifest). */
 async function disablePresetSql(tx: DatabaseTransaction, presetId: string, validatedAt: Date, error: string): Promise<void> {
   await tx.update(dependencyCatalog).set({ enabled: false, validatedAt, validationError: error }).where(eq(dependencyCatalog.id, presetId));
 }
 
 /**
  * Flips every installed, non-removed dependency under a catalog preset to
- * UNKNOWN, shared by validateCatalog and syncCatalog. Change-only storage:
+ * UNKNOWN, shared by reconcileCatalog and syncCatalog. Change-only storage:
  * only dependencies not already UNKNOWN get a closed-then-reopened interval,
  * so re-disabling an already-UNKNOWN preset doesn't churn out a fresh
  * interval for nothing. Transition bookkeeping mirrors
@@ -308,7 +308,7 @@ export function createSqlCatalogSyncStore(db: Database): CatalogSyncStore {
   };
 }
 
-// -- validateCatalog ----------------------------------------------------------
+// -- reconcileCatalog ---------------------------------------------------------
 //
 // Fetches each enabled source once (through the injected fetcher) and checks
 // that the selector's upstream IDs are still present. A source that cannot be
@@ -343,7 +343,7 @@ interface PresetRow {
   enabled: boolean;
 }
 
-export interface CatalogValidationExecutor {
+export interface CatalogReconcileExecutor {
   /** Enabled presets plus drift-disabled ones (validationError set) for the source, so a preset frozen by transient drift can re-enable once its ids return. A manifest-shipped disabled preset (no validationError) is not loaded. */
   loadPresetsForSource(sourceId: string): Promise<PresetRow[]>;
   recordSourceValidation(sourceId: string, validatedAt: Date, error: string | null): Promise<void>;
@@ -354,19 +354,19 @@ export interface CatalogValidationExecutor {
   flipDependenciesToUnknown(catalogId: string, observedAt: Date): Promise<number>;
 }
 
-export interface CatalogValidationStore {
+export interface CatalogReconcileStore {
   /** Enabled sources, read outside any write transaction so the live fetches that follow hold no database connection. */
   loadEnabledSources(): Promise<EnabledSourceRow[]>;
-  transaction<T>(work: (tx: CatalogValidationExecutor) => Promise<T>): Promise<T>;
+  transaction<T>(work: (tx: CatalogReconcileExecutor) => Promise<T>): Promise<T>;
 }
 
-export interface ValidateCatalogDeps {
-  store: CatalogValidationStore;
+export interface ReconcileCatalogDeps {
+  store: CatalogReconcileStore;
   fetchSourceComponents: FetchSourceComponents;
   now?: () => Date;
 }
 
-export interface ValidateCatalogSummary {
+export interface ReconcileCatalogSummary {
   checkedSources: number;
   validatedPresets: number;
   disabledPresets: string[];
@@ -399,7 +399,7 @@ function missingIds(preset: PresetRow, known: ReadonlySet<string>): string[] {
   return selectorRequiredIds(preset.selector).filter((id) => !known.has(id));
 }
 
-export async function validateCatalog(deps: ValidateCatalogDeps): Promise<ValidateCatalogSummary> {
+export async function reconcileCatalog(deps: ReconcileCatalogDeps): Promise<ReconcileCatalogSummary> {
   const now = deps.now ?? (() => new Date());
   const sources = await deps.store.loadEnabledSources();
 
@@ -464,7 +464,7 @@ export async function validateCatalog(deps: ValidateCatalogDeps): Promise<Valida
   return { checkedSources: sources.length, validatedPresets, disabledPresets, unknownDependencies };
 }
 
-export function createSqlCatalogValidationStore(db: Database): CatalogValidationStore {
+export function createSqlCatalogReconcileStore(db: Database): CatalogReconcileStore {
   return {
     loadEnabledSources: async () =>
       db.select({ id: dependencySources.id, adapter: dependencySources.adapter, currentUrl: dependencySources.currentUrl })

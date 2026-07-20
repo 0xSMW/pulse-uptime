@@ -30,7 +30,7 @@ export interface MaintenanceStore {
   /** Orphan images: unattached for 24h, plus a hard cap keeping the newest N. */
   deleteOrphanImages(cutoff: Date, keepNewest: number, limit: number): Promise<number>;
   /** Fetches every enabled dependency source once (read-only, live) and disables only the presets whose selector ids have drifted. Runs once per maintenance pass inside a reserved slice, stopping at deadlineAtMs so it cannot overrun the maintenance window. */
-  validateDependencyCatalog(now: Date, deadlineAtMs?: number): Promise<{ checkedSources: number; disabledPresets: number }>;
+  reconcileDependencyCatalog(now: Date, deadlineAtMs?: number): Promise<{ checkedSources: number; disabledPresets: number }>;
   /** Empties provider_incident_updates body text older than two years. Incident identity and timing outlive this. */
   retainDependencyIncidentUpdates(cutoff: Date, limit: number): Promise<number>;
   /** Closed dependency_state_intervals older than two years, compacted to one row per dependency/day/state. */
@@ -128,18 +128,18 @@ export async function performMaintenance(
     await drainBatches((limit) => store.markDeviceAuthorizationsExpired(now, limit), nowMs, retentionDeadlineAtMs) +
     await drainBatches((limit) => store.deleteExpiredDeviceAuthorizations(shortCutoff, limit), nowMs, retentionDeadlineAtMs) +
     await drainBatches((limit) => store.expireRateLimitBuckets(now, limit), nowMs, retentionDeadlineAtMs);
-  // Dependency catalog validation makes live, sequential multi-source http
+  // Dependency catalog reconciliation makes live, sequential multi-source http
   // fetches and is a daily-cadence drift check. It runs last inside the slice
   // reserved above, bounded in both directions. Retention drains stop at the
-  // reserved boundary, so heavy retention can never starve validation, and
-  // validation runs against its own deadline one slice wide, so it can never
+  // reserved boundary, so heavy retention can never starve reconciliation, and
+  // reconciliation runs against its own deadline one slice wide, so it can never
   // overrun the maintenance window or starve retention. It is skipped only when
   // earlier work already spent the whole window, and a skipped pass reports zero
   // checked sources so the summary stays truthful.
   const catalogStartMs = nowMs();
   const catalogDeadlineAtMs = Math.min(deadlineAtMs, catalogStartMs + CATALOG_VALIDATION_BUDGET_MS);
   const dependencyCatalog = catalogStartMs < deadlineAtMs
-    ? await store.validateDependencyCatalog(now, catalogDeadlineAtMs)
+    ? await store.reconcileDependencyCatalog(now, catalogDeadlineAtMs)
     : { checkedSources: 0, disabledPresets: 0 };
   return { staleOutbox, staleCronRuns, rollups, deleted, expired, governorMode, dependencyCatalog };
 }

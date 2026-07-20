@@ -83,7 +83,7 @@ type ListEnvelope struct {
 // dashboard-facing state, not the full detail returned by get and add.
 type Dependency struct {
 	ID                  string  `json:"id"`
-	CatalogID           string  `json:"catalogId"`
+	PresetID            string  `json:"presetId"`
 	ScopeID             *string `json:"scopeId"`
 	Name                string  `json:"name"`
 	Provider            string  `json:"provider"`
@@ -98,7 +98,7 @@ type Dependency struct {
 // full detail view, including active provider incidents and their updates.
 type DependencyDetail struct {
 	ID                   string               `json:"id"`
-	CatalogID            string               `json:"catalogId"`
+	PresetID             string               `json:"presetId"`
 	ScopeID              *string              `json:"scopeId"`
 	Name                 string               `json:"name"`
 	Description          string               `json:"description,omitempty"`

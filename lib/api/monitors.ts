@@ -129,7 +129,7 @@ export async function updateMonitor(id: string, input: unknown, principalKey: st
   return monitorResponse(result.monitors.find((item) => item.id === id)!, result.groups);
 }
 
-export async function deleteMonitor(id: string, principalKey: string, handle: DatabaseHandle = db) {
+export async function archiveMonitor(id: string, principalKey: string, handle: DatabaseHandle = db) {
   try {
     await mutateConfig(principalKey, (current) => {
       if (!current.monitors.some((item) => item.id === id)) throw new MonitorApiError("MONITOR_NOT_FOUND", "Monitor was not found");
@@ -141,7 +141,7 @@ export async function deleteMonitor(id: string, principalKey: string, handle: Da
       .where(and(eq(monitorRegistry.id, id), drizzleSql`${monitorRegistry.archivedAt} is not null`)).limit(1);
     if (!archived) throw error;
   }
-  return { id, deleted: true };
+  return { id, archived: true };
 }
 
 export async function setMonitorEnabled(id: string, enabled: boolean, principalKey: string, handle: DatabaseHandle = db) {

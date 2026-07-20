@@ -104,7 +104,7 @@ export type MonitorDetailData = {
     latencyMs: number | null;
   }>;
   rollupVersion: string | null;
-  configVersion: string | null;
+  acceptedConfigToken: string | null;
   windowVersion: string;
 };
 
@@ -315,7 +315,7 @@ export function MonitorDetail({ monitor: snapshot }: { monitor: MonitorDetailDat
     phase: snapshot.firstRun.phase,
     state: snapshot.state,
     rollupVersion: snapshot.rollupVersion,
-    configVersion: snapshot.configVersion,
+    acceptedConfigToken: snapshot.acceptedConfigToken,
     windowVersion: snapshot.windowVersion,
     rangeUnlocked: snapshot.rangeUnlocked,
   });

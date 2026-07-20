@@ -154,7 +154,7 @@ describe("maintenance SQL store", () => {
 
     it("skips live catalog validation and issues no query when no drizzle instance was provided", async () => {
       const query = vi.fn().mockResolvedValue([]);
-      const result = await createSqlMaintenanceStore({ query }).validateDependencyCatalog(new Date("2026-07-19T00:00:00Z"));
+      const result = await createSqlMaintenanceStore({ query }).reconcileDependencyCatalog(new Date("2026-07-19T00:00:00Z"));
       expect(result).toEqual({ checkedSources: 0, disabledPresets: 0 });
       expect(query).not.toHaveBeenCalled();
     });

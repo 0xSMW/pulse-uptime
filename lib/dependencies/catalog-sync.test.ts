@@ -11,12 +11,12 @@ import {
   presetUpsertPlan,
   sourceUpsertPlan,
   syncCatalog,
-  validateCatalog,
+  reconcileCatalog,
   SOURCE_DROPPED_FROM_MANIFEST_ERROR,
   type CatalogSyncExecutor,
   type CatalogSyncStore,
-  type CatalogValidationExecutor,
-  type CatalogValidationStore,
+  type CatalogReconcileExecutor,
+  type CatalogReconcileStore,
   type StoredPresetDefinition,
 } from "./catalog-sync";
 
@@ -232,13 +232,13 @@ describe("presetUpsertPlan", () => {
   });
 });
 
-interface FakeValidationState {
+interface FakeReconcileState {
   sources: Array<{ id: string; adapter: string; currentUrl: string }>;
   presetsBySource: Record<string, Array<{ id: string; selector: unknown; scope: unknown; enabled?: boolean }>>;
   installedBySource: Record<string, number>;
 }
 
-function fakeValidation(state: FakeValidationState) {
+function fakeReconcile(state: FakeReconcileState) {
   const recordSourceValidation = vi.fn(async () => undefined);
   const recordPresetValidationOk = vi.fn(async () => undefined);
   const reEnablePreset = vi.fn(async () => undefined);
@@ -246,7 +246,7 @@ function fakeValidation(state: FakeValidationState) {
   const flipDependenciesToUnknown = vi.fn(async (catalogId: string) => state.installedBySource[catalogId] ?? 0);
   const events: string[] = [];
 
-  const executor: CatalogValidationExecutor = {
+  const executor: CatalogReconcileExecutor = {
     loadPresetsForSource: async (sourceId) =>
       (state.presetsBySource[sourceId] ?? []).map((preset) => ({ enabled: true, ...preset })) as never,
     recordSourceValidation,
@@ -255,7 +255,7 @@ function fakeValidation(state: FakeValidationState) {
     disablePreset,
     flipDependenciesToUnknown,
   };
-  const store: CatalogValidationStore = {
+  const store: CatalogReconcileStore = {
     loadEnabledSources: async () => state.sources,
     transaction: async (work) => {
       events.push("transaction");
@@ -265,9 +265,9 @@ function fakeValidation(state: FakeValidationState) {
   return { store, executor, events, recordSourceValidation, recordPresetValidationOk, reEnablePreset, disablePreset, flipDependenciesToUnknown };
 }
 
-describe("validateCatalog", () => {
+describe("reconcileCatalog", () => {
   it("disables only the preset whose selector IDs are missing from the fetched directory", async () => {
-    const state: FakeValidationState = {
+    const state: FakeReconcileState = {
       sources: [{ id: "vercel", adapter: "statuspage_v2", currentUrl: "https://www.vercel-status.com/api/v2/summary.json" }],
       presetsBySource: {
         vercel: [
@@ -277,10 +277,10 @@ describe("validateCatalog", () => {
       },
       installedBySource: { vercel_deployments: 2 },
     };
-    const { store, disablePreset, recordPresetValidationOk, flipDependenciesToUnknown } = fakeValidation(state);
+    const { store, disablePreset, recordPresetValidationOk, flipDependenciesToUnknown } = fakeReconcile(state);
     const fetchSourceComponents = vi.fn(async () => ({ componentIds: new Set(["kgcsn9c73xzf"]) }));
 
-    const summary = await validateCatalog({
+    const summary = await reconcileCatalog({
       store,
       fetchSourceComponents,
       now: () => new Date("2026-07-19T00:00:00.000Z"),
@@ -296,15 +296,15 @@ describe("validateCatalog", () => {
   });
 
   it("flips a disabled preset's installed dependencies to UNKNOWN and reports the count", async () => {
-    const state: FakeValidationState = {
+    const state: FakeReconcileState = {
       sources: [{ id: "vercel", adapter: "statuspage_v2", currentUrl: "https://www.vercel-status.com/api/v2/summary.json" }],
       presetsBySource: {
         vercel: [{ id: "vercel_deployments", selector: { kind: "component_ids", aggregation: "worst_of", ids: ["missing"] }, scope: null }],
       },
       installedBySource: { vercel_deployments: 3 },
     };
-    const { store } = fakeValidation(state);
-    const summary = await validateCatalog({
+    const { store } = fakeReconcile(state);
+    const summary = await reconcileCatalog({
       store,
       fetchSourceComponents: vi.fn(async () => ({ componentIds: new Set<string>() })),
     });
@@ -314,16 +314,16 @@ describe("validateCatalog", () => {
   });
 
   it("records a feed error without disabling any preset when the source cannot be fetched", async () => {
-    const state: FakeValidationState = {
+    const state: FakeReconcileState = {
       sources: [{ id: "vercel", adapter: "statuspage_v2", currentUrl: "https://www.vercel-status.com/api/v2/summary.json" }],
       presetsBySource: {
         vercel: [{ id: "vercel_runtime", selector: { kind: "component_ids", aggregation: "worst_of", ids: ["kgcsn9c73xzf"] }, scope: null }],
       },
       installedBySource: {},
     };
-    const { store, recordSourceValidation, disablePreset } = fakeValidation(state);
+    const { store, recordSourceValidation, disablePreset } = fakeReconcile(state);
 
-    const summary = await validateCatalog({
+    const summary = await reconcileCatalog({
       store,
       fetchSourceComponents: vi.fn(async () => null),
     });
@@ -335,7 +335,7 @@ describe("validateCatalog", () => {
   });
 
   it("keeps a required_options preset enabled when a single region container drops but the selector's core id is present (F-B3)", async () => {
-    const state: FakeValidationState = {
+    const state: FakeReconcileState = {
       sources: [{ id: "neon", adapter: "statusio_public", currentUrl: "https://neonstatus.com/api" }],
       presetsBySource: {
         neon: [{
@@ -346,11 +346,11 @@ describe("validateCatalog", () => {
       },
       installedBySource: { neon_db: 4 },
     };
-    const { store, disablePreset, recordPresetValidationOk, flipDependenciesToUnknown } = fakeValidation(state);
+    const { store, disablePreset, recordPresetValidationOk, flipDependenciesToUnknown } = fakeReconcile(state);
 
     // The feed still exposes the core component and one region, but the other
     // region dropped. The preset must not be disabled and no install flips.
-    const summary = await validateCatalog({
+    const summary = await reconcileCatalog({
       store,
       fetchSourceComponents: vi.fn(async () => ({ componentIds: new Set(["neon-core", "us-east"]) })),
     });
@@ -363,7 +363,7 @@ describe("validateCatalog", () => {
   });
 
   it("still disables a required_options preset when the selector's core id is missing (F-B3)", async () => {
-    const state: FakeValidationState = {
+    const state: FakeReconcileState = {
       sources: [{ id: "neon", adapter: "statusio_public", currentUrl: "https://neonstatus.com/api" }],
       presetsBySource: {
         neon: [{
@@ -374,9 +374,9 @@ describe("validateCatalog", () => {
       },
       installedBySource: { neon_db: 2 },
     };
-    const { store, disablePreset, flipDependenciesToUnknown } = fakeValidation(state);
+    const { store, disablePreset, flipDependenciesToUnknown } = fakeReconcile(state);
 
-    const summary = await validateCatalog({
+    const summary = await reconcileCatalog({
       store,
       fetchSourceComponents: vi.fn(async () => ({ componentIds: new Set(["us-east"]) })),
     });
@@ -387,7 +387,7 @@ describe("validateCatalog", () => {
   });
 
   it("re-enables a drift-disabled preset once its upstream id returns to the feed (F-B4)", async () => {
-    const state: FakeValidationState = {
+    const state: FakeReconcileState = {
       sources: [{ id: "vercel", adapter: "statuspage_v2", currentUrl: "https://www.vercel-status.com/api/v2/summary.json" }],
       presetsBySource: {
         vercel: [{
@@ -399,9 +399,9 @@ describe("validateCatalog", () => {
       },
       installedBySource: {},
     };
-    const { store, reEnablePreset, recordPresetValidationOk, disablePreset } = fakeValidation(state);
+    const { store, reEnablePreset, recordPresetValidationOk, disablePreset } = fakeReconcile(state);
 
-    const summary = await validateCatalog({
+    const summary = await reconcileCatalog({
       store,
       fetchSourceComponents: vi.fn(async () => ({ componentIds: new Set(["kgcsn9c73xzf"]) })),
     });
@@ -414,7 +414,7 @@ describe("validateCatalog", () => {
   });
 
   it("leaves a drift-disabled preset disabled and does not re-flip its installs when its id is still missing (F-B4)", async () => {
-    const state: FakeValidationState = {
+    const state: FakeReconcileState = {
       sources: [{ id: "vercel", adapter: "statuspage_v2", currentUrl: "https://www.vercel-status.com/api/v2/summary.json" }],
       presetsBySource: {
         vercel: [{
@@ -426,9 +426,9 @@ describe("validateCatalog", () => {
       },
       installedBySource: { vercel_runtime: 5 },
     };
-    const { store, reEnablePreset, disablePreset, flipDependenciesToUnknown } = fakeValidation(state);
+    const { store, reEnablePreset, disablePreset, flipDependenciesToUnknown } = fakeReconcile(state);
 
-    const summary = await validateCatalog({
+    const summary = await reconcileCatalog({
       store,
       fetchSourceComponents: vi.fn(async () => ({ componentIds: new Set<string>() })),
     });
@@ -441,7 +441,7 @@ describe("validateCatalog", () => {
   });
 
   it("fetches every source's directory before opening any write transaction (F-B5)", async () => {
-    const state: FakeValidationState = {
+    const state: FakeReconcileState = {
       sources: [
         { id: "vercel", adapter: "statuspage_v2", currentUrl: "https://www.vercel-status.com/api/v2/summary.json" },
         { id: "neon", adapter: "statusio_public", currentUrl: "https://neonstatus.com/api" },
@@ -449,13 +449,13 @@ describe("validateCatalog", () => {
       presetsBySource: {},
       installedBySource: {},
     };
-    const { store, events } = fakeValidation(state);
+    const { store, events } = fakeReconcile(state);
     const fetchSourceComponents = vi.fn(async (source: { id: string }) => {
       events.push(`fetch:${source.id}`);
       return { componentIds: new Set<string>() };
     });
 
-    await validateCatalog({ store, fetchSourceComponents });
+    await reconcileCatalog({ store, fetchSourceComponents });
 
     expect(events).toEqual(["fetch:vercel", "fetch:neon", "transaction", "transaction"]);
   });

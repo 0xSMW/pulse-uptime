@@ -1,6 +1,6 @@
 import type { MaintenanceStore } from "./coordinator";
 import type { Database } from "@/lib/db/client";
-import { createSqlCatalogValidationStore, validateCatalog } from "@/lib/dependencies/catalog-sync";
+import { createSqlCatalogReconcileStore, reconcileCatalog } from "@/lib/dependencies/catalog-sync";
 import { createLiveFetchSourceComponents } from "@/lib/dependencies/catalog-revalidation";
 import { reconcileStaleClaims } from "@/lib/notifications/sql";
 import { retentionFor, STORAGE_BUDGET_BYTES } from "@/lib/storage/governor";
@@ -287,10 +287,10 @@ export function createSqlMaintenanceStore(db: QueryExecutor, drizzle?: Database)
     async deleteOrphanImages(cutoff, keepNewest, limit) {
       return count(await db.query(DELETE_ORPHAN_IMAGES_SQL, [cutoff, keepNewest, limit]));
     },
-    async validateDependencyCatalog(now) {
+    async reconcileDependencyCatalog(now) {
       if (!drizzle) return { checkedSources: 0, disabledPresets: 0 };
-      const summary = await validateCatalog({
-        store: createSqlCatalogValidationStore(drizzle),
+      const summary = await reconcileCatalog({
+        store: createSqlCatalogReconcileStore(drizzle),
         fetchSourceComponents: createLiveFetchSourceComponents(),
         now: () => now,
       });

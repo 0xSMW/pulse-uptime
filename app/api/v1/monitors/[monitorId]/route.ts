@@ -4,7 +4,7 @@ import { apiError, apiJson, errorEnvelope, objectEnvelope } from "@/lib/api/enve
 import { executeIdempotent, type StoredResponse } from "@/lib/api/idempotency";
 import { authorize, isApiResponse } from "@/lib/api/middleware";
 import { routeError, success } from "@/lib/api/route";
-import { deleteMonitor, getMonitor, MonitorApiError, updateMonitor } from "@/lib/api/monitors";
+import { archiveMonitor, getMonitor, MonitorApiError, updateMonitor } from "@/lib/api/monitors";
 
 type Params = { params: Promise<{ monitorId: string }> };
 
@@ -20,7 +20,7 @@ function monitorError(error: unknown, requestId: string): Response | null {
 // MONITOR_NOT_FOUND/MONITOR_EXISTS/INVALID_REQUEST are deterministic outcomes
 // of this request, not proof it never ran, so store them as the operation's
 // own completed response instead of letting them roll back the transaction.
-// A stale-window retry would otherwise rerun updateMonitor/deleteMonitor
+// A stale-window retry would otherwise rerun updateMonitor/archiveMonitor
 // against whatever config exists by then (e.g. a monitor created later).
 // CONFIGURATION_UNAVAILABLE/EDGE_CONFIG_UNAVAILABLE are transient infra
 // failures, not request outcomes, so those still propagate and roll back.
@@ -66,7 +66,7 @@ export async function DELETE(request: Request, { params }: Params) {
     const result = await executeIdempotent({ request, principalKey: context.principalKey, routeKey: `/api/v1/monitors/${monitorId}`, body: {},
       work: async ({ transaction }) => transaction(async (tx) => {
         try {
-          return { status: 200, body: objectEnvelope("MonitorDeletion", await deleteMonitor(monitorId, context.principalKey, tx), context.requestId) };
+          return { status: 200, body: objectEnvelope("MonitorArchival", await archiveMonitor(monitorId, context.principalKey, tx), context.requestId) };
         } catch (error) {
           const stored = storedMonitorError(error, context.requestId);
           if (stored) return stored;

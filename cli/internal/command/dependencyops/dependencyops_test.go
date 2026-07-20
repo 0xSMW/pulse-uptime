@@ -144,8 +144,8 @@ func TestListRejectsRepeatingCursor(t *testing.T) {
 }
 
 func TestListSendsCursorAndLimitAndRendersTable(t *testing.T) {
-	dep1 := `{"id":"dep-1","catalogId":"vercel_runtime","name":"Vercel Runtime","provider":"Vercel","state":"OPERATIONAL","providerUpdatedAt":null,"activeIncidentTitle":null}`
-	dep2 := `{"id":"dep-2","catalogId":"stripe_api","name":"Stripe API","provider":"Stripe","state":"DEGRADED","providerUpdatedAt":"2026-07-19T00:00:00Z","activeIncidentTitle":"Elevated error rates"}`
+	dep1 := `{"id":"dep-1","presetId":"vercel_runtime","name":"Vercel Runtime","provider":"Vercel","state":"OPERATIONAL","providerUpdatedAt":null,"activeIncidentTitle":null}`
+	dep2 := `{"id":"dep-2","presetId":"stripe_api","name":"Stripe API","provider":"Stripe","state":"DEGRADED","providerUpdatedAt":"2026-07-19T00:00:00Z","activeIncidentTitle":"Elevated error rates"}`
 	client := &fakeClient{do: func(r Request) error {
 		if got := r.Query.Get("cursor"); got != "start" {
 			t.Errorf("cursor = %q", got)
@@ -179,7 +179,7 @@ func TestListSendsCursorAndLimitAndRendersTable(t *testing.T) {
 }
 
 func TestListTSVKeepsCaptionOffStdout(t *testing.T) {
-	dep1 := `{"id":"dep-1","catalogId":"vercel_runtime","name":"Vercel Runtime","provider":"Vercel","state":"OPERATIONAL","providerUpdatedAt":null,"activeIncidentTitle":null}`
+	dep1 := `{"id":"dep-1","presetId":"vercel_runtime","name":"Vercel Runtime","provider":"Vercel","state":"OPERATIONAL","providerUpdatedAt":null,"activeIncidentTitle":null}`
 	client := &fakeClient{do: func(r Request) error {
 		setListResult(t, r.Result, []string{dep1}, nil)
 		return nil
@@ -202,7 +202,7 @@ func TestListTSVKeepsCaptionOffStdout(t *testing.T) {
 }
 
 func TestListJSONHasNoProviderReportedCaption(t *testing.T) {
-	dep1 := `{"id":"dep-1","catalogId":"vercel_runtime","name":"Vercel Runtime","provider":"Vercel","state":"OPERATIONAL","providerUpdatedAt":null,"activeIncidentTitle":null}`
+	dep1 := `{"id":"dep-1","presetId":"vercel_runtime","name":"Vercel Runtime","provider":"Vercel","state":"OPERATIONAL","providerUpdatedAt":null,"activeIncidentTitle":null}`
 	client := &fakeClient{do: func(r Request) error {
 		setListResult(t, r.Result, []string{dep1}, nil)
 		return nil
@@ -246,7 +246,7 @@ func (f clientFunc) Do(ctx context.Context, r Request) error { return f(ctx, r) 
 func TestGetEscapesIDAndRendersDetail(t *testing.T) {
 	detail := `{
 		"id": "dep-1",
-		"catalogId": "vercel_runtime",
+		"presetId": "vercel_runtime",
 		"name": "Vercel Runtime",
 		"provider": "Vercel",
 		"componentLabel": "us-east-1",
@@ -317,7 +317,7 @@ func TestGetEscapesIDAndRendersDetail(t *testing.T) {
 }
 
 func TestGetJSONOutputUnaffectedByProviderReportedLabel(t *testing.T) {
-	detail := `{"id":"dep-1","catalogId":"vercel_runtime","name":"Vercel Runtime","provider":"Vercel","state":"DEGRADED"}`
+	detail := `{"id":"dep-1","presetId":"vercel_runtime","name":"Vercel Runtime","provider":"Vercel","state":"DEGRADED"}`
 	client := &fakeClient{do: func(r Request) error {
 		doc := r.Result.(*Envelope)
 		*doc = Envelope{APIVersion: "v1", Kind: "Dependency", Data: json.RawMessage(detail)}
@@ -354,7 +354,7 @@ func TestGetJSONOutputUnaffectedByProviderReportedLabel(t *testing.T) {
 }
 
 func TestAddSendsBodyAndRendersCreatedDependency(t *testing.T) {
-	created := `{"id":"dep-9","catalogId":"neon_database","name":"Neon Database","provider":"Neon","state":"UNKNOWN","checking":true,"notificationsEnabled":false}`
+	created := `{"id":"dep-9","presetId":"neon_database","name":"Neon Database","provider":"Neon","state":"UNKNOWN","checking":true,"notificationsEnabled":false}`
 	client := &fakeClient{do: func(r Request) error {
 		doc := r.Result.(*Envelope)
 		*doc = Envelope{APIVersion: "v1", Kind: "Dependency", Data: json.RawMessage(created)}

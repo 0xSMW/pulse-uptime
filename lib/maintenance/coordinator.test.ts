@@ -31,7 +31,7 @@ describe("performMaintenance", () => {
       retainExceptions: record("exception-retention"),
       retainExceptionPayloads: record("payload-retention"),
       deleteOrphanImages: record("orphan-images"),
-      validateDependencyCatalog: async (...args: unknown[]) => { calls.push(["dependency-catalog", ...args]); return { checkedSources: 1, disabledPresets: 0 }; },
+      reconcileDependencyCatalog: async (...args: unknown[]) => { calls.push(["dependency-catalog", ...args]); return { checkedSources: 1, disabledPresets: 0 }; },
       retainDependencyIncidentUpdates: record("dependency-updates"),
       compactDependencyStateIntervals: record("dependency-compact"),
     }, now);
@@ -64,7 +64,7 @@ describe("performMaintenance", () => {
       promoteRollups: zero, measureAndSnapshotUsage: async () => "full",
       enforceTelemetryRetention: zero, retainUsageSnapshots: zero, retainExceptions: zero,
       retainExceptionPayloads: zero, deleteOrphanImages: zero,
-      validateDependencyCatalog: dependencyCatalog,
+      reconcileDependencyCatalog: dependencyCatalog,
       retainDependencyIncidentUpdates: zero, compactDependencyStateIntervals: zero,
     }, new Date(), { nowMs: () => 100, deadlineAtMs: 1 });
     expect(dependencyCatalog).not.toHaveBeenCalled();
@@ -78,7 +78,7 @@ describe("performMaintenance", () => {
     // consume the whole window if it were not stopped at its reserved boundary.
     const raw = vi.fn(async () => { clock += 5_000; return 10_000; });
     const zero = vi.fn().mockResolvedValue(0);
-    const validateDependencyCatalog = vi.fn().mockResolvedValue({ checkedSources: 2, disabledPresets: 0 });
+    const reconcileDependencyCatalog = vi.fn().mockResolvedValue({ checkedSources: 2, disabledPresets: 0 });
     const deadlineAtMs = 30_000;
     const summary = await performMaintenance({
       reconcileStaleOutbox: zero, reconcileStaleCronRuns: zero, deleteRawChecks: raw,
@@ -90,7 +90,7 @@ describe("performMaintenance", () => {
       promoteRollups: zero, measureAndSnapshotUsage: async () => "full",
       enforceTelemetryRetention: zero, retainUsageSnapshots: zero, retainExceptions: zero,
       retainExceptionPayloads: zero, deleteOrphanImages: zero,
-      validateDependencyCatalog,
+      reconcileDependencyCatalog,
       retainDependencyIncidentUpdates: zero, compactDependencyStateIntervals: zero,
     }, new Date(), { nowMs, deadlineAtMs });
     // Retention drained several batches yet stopped at its reserved boundary,
@@ -98,14 +98,14 @@ describe("performMaintenance", () => {
     expect(raw.mock.calls.length).toBeGreaterThan(1);
     expect(clock).toBe(deadlineAtMs - CATALOG_VALIDATION_BUDGET_MS);
     // Validation still ran, so heavy retention did not starve it.
-    expect(validateDependencyCatalog).toHaveBeenCalledTimes(1);
+    expect(reconcileDependencyCatalog).toHaveBeenCalledTimes(1);
     expect(summary.dependencyCatalog).toEqual({ checkedSources: 2, disabledPresets: 0 });
   });
 
   it("bounds catalog validation to its slice so it cannot consume the whole window", async () => {
     const nowMs = () => 1_000;
     const zero = vi.fn().mockResolvedValue(0);
-    const validateDependencyCatalog = vi.fn().mockResolvedValue({ checkedSources: 3, disabledPresets: 1 });
+    const reconcileDependencyCatalog = vi.fn().mockResolvedValue({ checkedSources: 3, disabledPresets: 1 });
     // A window far wider than the slice: validation must still get only its slice.
     const deadlineAtMs = 1_000_000;
     await performMaintenance({
@@ -118,11 +118,11 @@ describe("performMaintenance", () => {
       promoteRollups: zero, measureAndSnapshotUsage: async () => "full",
       enforceTelemetryRetention: zero, retainUsageSnapshots: zero, retainExceptions: zero,
       retainExceptionPayloads: zero, deleteOrphanImages: zero,
-      validateDependencyCatalog,
+      reconcileDependencyCatalog,
       retainDependencyIncidentUpdates: zero, compactDependencyStateIntervals: zero,
     }, new Date(), { nowMs, deadlineAtMs });
-    expect(validateDependencyCatalog).toHaveBeenCalledTimes(1);
-    const passedDeadline = validateDependencyCatalog.mock.calls[0]![1];
+    expect(reconcileDependencyCatalog).toHaveBeenCalledTimes(1);
+    const passedDeadline = reconcileDependencyCatalog.mock.calls[0]![1];
     // Validation is handed a deadline exactly one slice wide, never the full
     // window, so a slow set of feeds cannot overrun the maintenance deadline.
     expect(passedDeadline).toBe(1_000 + CATALOG_VALIDATION_BUDGET_MS);
@@ -173,7 +173,7 @@ describe("performMaintenance", () => {
       retainExceptions: later,
       retainExceptionPayloads: later,
       deleteOrphanImages: later,
-      validateDependencyCatalog: later,
+      reconcileDependencyCatalog: later,
       retainDependencyIncidentUpdates: later,
       compactDependencyStateIntervals: later,
     }, new Date())).rejects.toThrow("database unavailable");
@@ -210,7 +210,7 @@ describe("performMaintenance", () => {
       retainExceptions: zero,
       retainExceptionPayloads: zero,
       deleteOrphanImages: zero,
-      validateDependencyCatalog: dependencyCatalog,
+      reconcileDependencyCatalog: dependencyCatalog,
       retainDependencyIncidentUpdates: zero,
       compactDependencyStateIntervals: zero,
       // The window is one slice plus one tick, so the reserved slice leaves the
@@ -248,7 +248,7 @@ describe("performMaintenance", () => {
       retainExceptions: zero,
       retainExceptionPayloads: zero,
       deleteOrphanImages: zero,
-      validateDependencyCatalog: dependencyCatalog,
+      reconcileDependencyCatalog: dependencyCatalog,
       retainDependencyIncidentUpdates: zero,
       compactDependencyStateIntervals: zero,
       // The reserved boundary sits one slice below the window, so retention stops
@@ -272,7 +272,7 @@ describe("performMaintenance", () => {
       promoteRollups: zero, measureAndSnapshotUsage: async () => "full",
       enforceTelemetryRetention: zero, retainUsageSnapshots: zero, retainExceptions: zero,
       retainExceptionPayloads: zero, deleteOrphanImages: zero,
-      validateDependencyCatalog: dependencyCatalog,
+      reconcileDependencyCatalog: dependencyCatalog,
       retainDependencyIncidentUpdates: zero, compactDependencyStateIntervals: zero,
     }, now);
     expect(gaps).toHaveBeenCalledTimes(3);

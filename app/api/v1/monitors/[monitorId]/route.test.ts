@@ -42,11 +42,11 @@ vi.mock("@/lib/api/monitors", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/monitors")>()),
   getMonitor: vi.fn(),
   updateMonitor: vi.fn(),
-  deleteMonitor: vi.fn(),
+  archiveMonitor: vi.fn(),
 }));
 
 import { authorize, type ApiContext } from "@/lib/api/middleware";
-import { deleteMonitor, MonitorApiError, updateMonitor } from "@/lib/api/monitors";
+import { archiveMonitor, MonitorApiError, updateMonitor } from "@/lib/api/monitors";
 
 import { DELETE, PATCH } from "./route";
 
@@ -82,7 +82,7 @@ beforeEach(() => {
   idempotencyRecords.clear();
   vi.mocked(authorize).mockReset().mockResolvedValue(context);
   vi.mocked(updateMonitor).mockReset();
-  vi.mocked(deleteMonitor).mockReset();
+  vi.mocked(archiveMonitor).mockReset();
 });
 
 describe("PATCH /api/v1/monitors/{monitorId}", () => {
@@ -125,15 +125,15 @@ describe("PATCH /api/v1/monitors/{monitorId}", () => {
 });
 
 describe("DELETE /api/v1/monitors/{monitorId}", () => {
-  it("deletes a monitor", async () => {
-    vi.mocked(deleteMonitor).mockResolvedValue({ id: "site-home", deleted: true });
+  it("archives a monitor", async () => {
+    vi.mocked(archiveMonitor).mockResolvedValue({ id: "site-home", archived: true });
     const response = await DELETE(deleteRequest(), params);
     expect(response.status).toBe(200);
-    expect((await response.json()).data.deleted).toBe(true);
+    expect((await response.json()).data.archived).toBe(true);
   });
 
   it("stores a deterministic MONITOR_NOT_FOUND error as the operation's own completed response", async () => {
-    vi.mocked(deleteMonitor).mockRejectedValue(new MonitorApiError("MONITOR_NOT_FOUND", "Monitor was not found"));
+    vi.mocked(archiveMonitor).mockRejectedValue(new MonitorApiError("MONITOR_NOT_FOUND", "Monitor was not found"));
     const key = crypto.randomUUID();
     const response = await DELETE(deleteRequest(key), params);
     expect(response.status).toBe(404);
@@ -142,23 +142,23 @@ describe("DELETE /api/v1/monitors/{monitorId}", () => {
   });
 
   it("lets a transient CONFIGURATION_UNAVAILABLE error propagate, leaving no completed record", async () => {
-    vi.mocked(deleteMonitor).mockRejectedValue(new MonitorApiError("CONFIGURATION_UNAVAILABLE", "Configuration store is unavailable"));
+    vi.mocked(archiveMonitor).mockRejectedValue(new MonitorApiError("CONFIGURATION_UNAVAILABLE", "Configuration store is unavailable"));
     const key = crypto.randomUUID();
     const response = await DELETE(deleteRequest(key), params);
     expect(response.status).toBe(503);
     expect(idempotencyRecords.has(key)).toBe(false);
   });
 
-  it("replays a stored MONITOR_NOT_FOUND response on retry without re-invoking deleteMonitor", async () => {
-    vi.mocked(deleteMonitor).mockRejectedValue(new MonitorApiError("MONITOR_NOT_FOUND", "Monitor was not found"));
+  it("replays a stored MONITOR_NOT_FOUND response on retry without re-invoking archiveMonitor", async () => {
+    vi.mocked(archiveMonitor).mockRejectedValue(new MonitorApiError("MONITOR_NOT_FOUND", "Monitor was not found"));
     const key = crypto.randomUUID();
     const first = await DELETE(deleteRequest(key), params);
     expect(first.status).toBe(404);
-    expect(deleteMonitor).toHaveBeenCalledTimes(1);
+    expect(archiveMonitor).toHaveBeenCalledTimes(1);
 
     const second = await DELETE(deleteRequest(key), params);
     expect(second.status).toBe(404);
     expect((await second.json()).error.code).toBe("MONITOR_NOT_FOUND");
-    expect(deleteMonitor).toHaveBeenCalledTimes(1);
+    expect(archiveMonitor).toHaveBeenCalledTimes(1);
   });
 });

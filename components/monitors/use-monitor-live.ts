@@ -55,7 +55,7 @@ export function useMonitorLive(
     phase: MonitorPhase;
     state: MonitorState;
     rollupVersion: string | null;
-    configVersion: string | null;
+    acceptedConfigToken: string | null;
     windowVersion: string;
     rangeUnlocked: { d30: boolean; d90: boolean };
   },
@@ -65,7 +65,7 @@ export function useMonitorLive(
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [isHidden, setIsHidden] = useState(false);
   const refreshedVersionRef = useRef<string | null>(server.rollupVersion);
-  const refreshedConfigRef = useRef<string | null>(server.configVersion);
+  const refreshedConfigRef = useRef<string | null>(server.acceptedConfigToken);
   const refreshedWindowRef = useRef<string | null>(server.windowVersion);
   const terminalRef = useRef(false);
   const unlockRefreshedRef = useRef(false);
@@ -141,10 +141,10 @@ export function useMonitorLive(
     }
   }, [data?.rollupVersion, router]);
 
-  // The config version moves the baseline forward after each config refresh.
+  // The accepted config token moves the baseline forward after each config refresh.
   useEffect(() => {
-    refreshedConfigRef.current = server.configVersion;
-  }, [server.configVersion]);
+    refreshedConfigRef.current = server.acceptedConfigToken;
+  }, [server.acceptedConfigToken]);
 
   // A config edit from another session advances the accepted snapshot while the
   // page holds its config fields from the server snapshot. One guarded refresh
@@ -152,13 +152,13 @@ export function useMonitorLive(
   // the edit sheet never submit from a stale config, including on a paused
   // monitor whose rollup version never advances. The guard clears once the
   // snapshot catches up.
-  const configVersion = data?.configVersion ?? null;
+  const acceptedConfigToken = data?.acceptedConfigToken ?? null;
   useEffect(() => {
-    if (livePollConfigChanged(refreshedConfigRef.current, configVersion)) {
-      refreshedConfigRef.current = configVersion;
+    if (livePollConfigChanged(refreshedConfigRef.current, acceptedConfigToken)) {
+      refreshedConfigRef.current = acceptedConfigToken;
       router.refresh();
     }
-  }, [configVersion, router]);
+  }, [acceptedConfigToken, router]);
 
   // The server snapshot moves the completed-window baseline forward after each
   // refresh.

@@ -4,7 +4,7 @@ import { apiError, apiJson, errorEnvelope, listEnvelope, objectEnvelope } from "
 import { executeIdempotent, type StoredResponse } from "@/lib/api/idempotency";
 import { authorize, isApiResponse } from "@/lib/api/middleware";
 import { routeError } from "@/lib/api/route";
-import { DependencyApiError, DependencyInstallConflictError, installDependency, listDependencies } from "@/lib/dependencies/service";
+import { addDependency, DependencyApiError, DependencyInstallConflictError, listDependencies } from "@/lib/dependencies/service";
 
 const createSchema = z.object({
   presetId: z.string().min(1),
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
     const result = await executeIdempotent({ request, principalKey: context.principalKey, routeKey: "/api/v1/dependencies", body,
       work: async ({ operationId, transaction }) => transaction(async (tx) => {
         try {
-          return { status: 201, body: objectEnvelope("Dependency", await installDependency(parsed, { dependencyId: operationId }, tx), context.requestId) };
+          return { status: 201, body: objectEnvelope("Dependency", await addDependency(parsed, { dependencyId: operationId }, tx), context.requestId) };
         } catch (error) {
           const stored = storedDependencyError(error, context.requestId);
           if (stored) return stored;

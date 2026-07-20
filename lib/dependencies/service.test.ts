@@ -18,11 +18,11 @@ import {
   DependencyInstallConflictError,
   databaseDependenciesStore,
   getDependencyDetail,
-  installDependency,
+  addDependency,
   listCatalog,
   listDependencies,
   patchDependency,
-  refreshDependency,
+  scheduleDependencyPoll,
   removeDependency,
   type DependenciesStore,
   type DependencyPresetRow,
@@ -30,7 +30,7 @@ import {
 } from "./service";
 
 const NOW = new Date("2026-07-19T12:00:00.000Z");
-const DETAIL = { id: "dep-1", catalogId: "vercel_runtime", state: "OPERATIONAL" } as unknown as ReturnType<typeof queries.getDependencyDetail>;
+const DETAIL = { id: "dep-1", presetId: "vercel_runtime", state: "OPERATIONAL" } as unknown as ReturnType<typeof queries.getDependencyDetail>;
 
 function fakeStore(overrides: Partial<DependenciesStore> = {}): DependenciesStore {
   return {
@@ -55,16 +55,16 @@ beforeEach(() => {
   vi.mocked(queries.listDependenciesForDashboard).mockReset();
 });
 
-describe("installDependency validation matrix", () => {
+describe("addDependency validation matrix", () => {
   it("rejects an unknown preset with PRESET_NOT_FOUND", async () => {
     const store = fakeStore({ loadPreset: vi.fn().mockResolvedValue(null) });
-    await expect(installDependency({ presetId: "nope" }, { store, now: () => NOW }))
+    await expect(addDependency({ presetId: "nope" }, { store, now: () => NOW }))
       .rejects.toMatchObject({ code: "PRESET_NOT_FOUND" });
   });
 
   it("rejects a disabled preset with PRESET_UNAVAILABLE", async () => {
     const store = fakeStore({ loadPreset: vi.fn().mockResolvedValue(preset({ enabled: false })) });
-    await expect(installDependency({ presetId: "vercel_runtime" }, { store, now: () => NOW }))
+    await expect(addDependency({ presetId: "vercel_runtime" }, { store, now: () => NOW }))
       .rejects.toMatchObject({ code: "PRESET_UNAVAILABLE" });
   });
 
@@ -72,7 +72,7 @@ describe("installDependency validation matrix", () => {
     const store = fakeStore({
       loadPreset: vi.fn().mockResolvedValue(preset({ validatedAt: null, validationError: null })),
     });
-    await installDependency({ presetId: "vercel_runtime" }, { store, now: () => NOW, newId: () => "id" });
+    await addDependency({ presetId: "vercel_runtime" }, { store, now: () => NOW, newId: () => "id" });
     expect(store.insertDependency).toHaveBeenCalled();
   });
 
@@ -80,13 +80,13 @@ describe("installDependency validation matrix", () => {
     const store = fakeStore({
       loadPreset: vi.fn().mockResolvedValue(preset({ enabled: true, validationError: "Missing upstream component ids: renamed-id" })),
     });
-    await expect(installDependency({ presetId: "vercel_runtime" }, { store, now: () => NOW }))
+    await expect(addDependency({ presetId: "vercel_runtime" }, { store, now: () => NOW }))
       .rejects.toMatchObject({ code: "PRESET_UNAVAILABLE" });
   });
 
   it("rejects a scopeId for a preset with no scope contract", async () => {
     const store = fakeStore({ loadPreset: vi.fn().mockResolvedValue(preset({ scope: null })) });
-    await expect(installDependency({ presetId: "vercel_runtime", scopeId: "us-east-1" }, { store, now: () => NOW }))
+    await expect(addDependency({ presetId: "vercel_runtime", scopeId: "us-east-1" }, { store, now: () => NOW }))
       .rejects.toMatchObject({ code: "INVALID_SCOPE" });
   });
 
@@ -96,7 +96,7 @@ describe("installDependency validation matrix", () => {
         scope: { kind: "required_options", options: [{ id: "us-east-1", label: "AWS us-east-1" }] },
       })),
     });
-    await expect(installDependency({ presetId: "neon_database" }, { store, now: () => NOW }))
+    await expect(addDependency({ presetId: "neon_database" }, { store, now: () => NOW }))
       .rejects.toMatchObject({ code: "SCOPE_REQUIRED" });
   });
 
@@ -106,7 +106,7 @@ describe("installDependency validation matrix", () => {
         scope: { kind: "required_options", options: [{ id: "us-east-1", label: "AWS us-east-1" }] },
       })),
     });
-    await expect(installDependency({ presetId: "neon_database", scopeId: "eu-west-2" }, { store, now: () => NOW }))
+    await expect(addDependency({ presetId: "neon_database", scopeId: "eu-west-2" }, { store, now: () => NOW }))
       .rejects.toMatchObject({ code: "INVALID_SCOPE" });
   });
 
@@ -116,7 +116,7 @@ describe("installDependency validation matrix", () => {
         scope: { kind: "required_options", options: [{ id: "us-east-1", label: "AWS us-east-1" }] },
       })),
     });
-    await installDependency({ presetId: "neon_database", scopeId: "us-east-1" }, { store, now: () => NOW, newId: () => "id" });
+    await addDependency({ presetId: "neon_database", scopeId: "us-east-1" }, { store, now: () => NOW, newId: () => "id" });
     expect(store.insertDependency).toHaveBeenCalledWith(expect.objectContaining({
       dependency: expect.objectContaining({ scopeId: "us-east-1" }),
     }));
@@ -128,7 +128,7 @@ describe("installDependency validation matrix", () => {
         scope: { kind: "discovered_children", groupId: "group-1", required: true },
       })),
     });
-    await expect(installDependency({ presetId: "supabase_database" }, { store, now: () => NOW }))
+    await expect(addDependency({ presetId: "supabase_database" }, { store, now: () => NOW }))
       .rejects.toMatchObject({ code: "SCOPE_REQUIRED" });
   });
 
@@ -138,20 +138,20 @@ describe("installDependency validation matrix", () => {
         scope: { kind: "discovered_children", groupId: "group-1", required: true },
       })),
     });
-    await installDependency({ presetId: "supabase_database", scopeId: "us-region" }, { store, now: () => NOW, newId: () => "id" });
+    await addDependency({ presetId: "supabase_database", scopeId: "us-region" }, { store, now: () => NOW, newId: () => "id" });
     expect(store.insertDependency).toHaveBeenCalledWith(expect.objectContaining({
       dependency: expect.objectContaining({ scopeId: "us-region" }),
     }));
   });
 });
 
-describe("installDependency ten-minute snapshot rule", () => {
+describe("addDependency ten-minute snapshot rule", () => {
   it("seeds UNKNOWN with checking=true when no fresh snapshot exists", async () => {
     const store = fakeStore({
       loadPreset: vi.fn().mockResolvedValue(preset()),
       loadRecentStateForCatalogScope: vi.fn().mockResolvedValue(null),
     });
-    await installDependency({ presetId: "vercel_runtime" }, { store, now: () => NOW, newId: () => "id" });
+    await addDependency({ presetId: "vercel_runtime" }, { store, now: () => NOW, newId: () => "id" });
     expect(store.insertDependency).toHaveBeenCalledWith(expect.objectContaining({
       state: { state: "UNKNOWN", checking: true, observedAt: NOW, providerUpdatedAt: null },
     }));
@@ -168,30 +168,30 @@ describe("installDependency ten-minute snapshot rule", () => {
       loadPreset: vi.fn().mockResolvedValue(preset()),
       loadRecentStateForCatalogScope: vi.fn().mockResolvedValue(snapshot),
     });
-    await installDependency({ presetId: "vercel_runtime" }, { store, now: () => NOW, newId: () => "id" });
+    await addDependency({ presetId: "vercel_runtime" }, { store, now: () => NOW, newId: () => "id" });
     expect(store.loadRecentStateForCatalogScope).toHaveBeenCalledWith("vercel_runtime", null, new Date(NOW.getTime() - 10 * 60_000));
     expect(store.insertDependency).toHaveBeenCalledWith(expect.objectContaining({ state: snapshot }));
   });
 });
 
-describe("installDependency duplicates and defaults", () => {
+describe("addDependency duplicates and defaults", () => {
   it("maps a rejected insert (partial unique index violation) to DEPENDENCY_EXISTS", async () => {
     const store = fakeStore({
       loadPreset: vi.fn().mockResolvedValue(preset()),
       insertDependency: vi.fn().mockResolvedValue(false),
     });
-    await expect(installDependency({ presetId: "vercel_runtime" }, { store, now: () => NOW }))
+    await expect(addDependency({ presetId: "vercel_runtime" }, { store, now: () => NOW }))
       .rejects.toMatchObject({ code: "DEPENDENCY_EXISTS" });
   });
 
   it("defaults notificationsEnabled to true and honors an explicit false", async () => {
     const store = fakeStore({ loadPreset: vi.fn().mockResolvedValue(preset()) });
-    await installDependency({ presetId: "vercel_runtime" }, { store, now: () => NOW, newId: () => "id" });
+    await addDependency({ presetId: "vercel_runtime" }, { store, now: () => NOW, newId: () => "id" });
     expect(store.insertDependency).toHaveBeenCalledWith(expect.objectContaining({
       dependency: expect.objectContaining({ notificationsEnabled: true }),
     }));
 
-    await installDependency({ presetId: "vercel_runtime", notificationsEnabled: false }, { store, now: () => NOW, newId: () => "id" });
+    await addDependency({ presetId: "vercel_runtime", notificationsEnabled: false }, { store, now: () => NOW, newId: () => "id" });
     expect(store.insertDependency).toHaveBeenCalledWith(expect.objectContaining({
       dependency: expect.objectContaining({ notificationsEnabled: false }),
     }));
@@ -199,7 +199,7 @@ describe("installDependency duplicates and defaults", () => {
 
   it("pins the dependency's own id to a supplied dependencyId (idempotency crash recovery)", async () => {
     const store = fakeStore({ loadPreset: vi.fn().mockResolvedValue(preset()) });
-    await installDependency({ presetId: "vercel_runtime" }, { store, now: () => NOW, dependencyId: "op-123" });
+    await addDependency({ presetId: "vercel_runtime" }, { store, now: () => NOW, dependencyId: "op-123" });
     expect(store.insertDependency).toHaveBeenCalledWith(expect.objectContaining({
       dependency: expect.objectContaining({ id: "op-123" }),
     }));
@@ -209,7 +209,7 @@ describe("installDependency duplicates and defaults", () => {
   it("reads the detail back on the same transaction handle the insert ran on, not the pooled db", async () => {
     const store = fakeStore({ loadPreset: vi.fn().mockResolvedValue(preset()) });
     const tx = { transaction: vi.fn(), update: vi.fn() } as unknown as typeof db;
-    await installDependency({ presetId: "vercel_runtime" }, { store, now: () => NOW, newId: () => "id" }, tx);
+    await addDependency({ presetId: "vercel_runtime" }, { store, now: () => NOW, newId: () => "id" }, tx);
     expect(store.insertDependency).toHaveBeenCalledWith(expect.objectContaining({ handle: tx }));
     expect(queries.getDependencyDetail).toHaveBeenCalledWith("id", tx);
     expect(queries.getDependencyDetail).not.toHaveBeenCalledWith("id", db);
@@ -217,7 +217,7 @@ describe("installDependency duplicates and defaults", () => {
 
   it("returns the freshly built detail projection, not a bespoke shape", async () => {
     const store = fakeStore({ loadPreset: vi.fn().mockResolvedValue(preset()) });
-    const result = await installDependency({ presetId: "vercel_runtime" }, { store, now: () => NOW, newId: () => "id" });
+    const result = await addDependency({ presetId: "vercel_runtime" }, { store, now: () => NOW, newId: () => "id" });
     expect(result).toBe(DETAIL);
   });
 });
@@ -291,16 +291,16 @@ describe("removeDependency (soft remove)", () => {
   });
 });
 
-describe("refreshDependency", () => {
+describe("scheduleDependencyPoll", () => {
   it("throws DEPENDENCY_NOT_FOUND when the dependency has no source (removed or missing)", async () => {
     const store = fakeStore({ loadSourceIdForDependency: vi.fn().mockResolvedValue(null) });
-    await expect(refreshDependency("dep-1", { store, now: () => NOW })).rejects.toMatchObject({ code: "DEPENDENCY_NOT_FOUND" });
+    await expect(scheduleDependencyPoll("dep-1", { store, now: () => NOW })).rejects.toMatchObject({ code: "DEPENDENCY_NOT_FOUND" });
     expect(store.touchSourceNextPoll).not.toHaveBeenCalled();
   });
 
-  it("sets the source's next_poll_at to now and returns a refreshing ack", async () => {
+  it("sets the source's next_poll_at to now and returns a queued ack", async () => {
     const store = fakeStore({ loadSourceIdForDependency: vi.fn().mockResolvedValue("vercel") });
-    await expect(refreshDependency("dep-1", { store, now: () => NOW })).resolves.toEqual({ id: "dep-1", refreshing: true });
+    await expect(scheduleDependencyPoll("dep-1", { store, now: () => NOW })).resolves.toEqual({ id: "dep-1", queued: true });
     expect(store.touchSourceNextPoll).toHaveBeenCalledWith("vercel", NOW);
   });
 });

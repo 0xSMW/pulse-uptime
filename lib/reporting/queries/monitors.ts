@@ -361,9 +361,9 @@ export async function getMonitorDetail(id: string) {
     firstRun: buildFirstRun(monitor, observedCollecting, now),
     rollupVersion: rollupVersionOf(rollups7d),
     // The accepted snapshot governs every field the config drives above, so its
-    // acceptedAt is the version the live poll watches to land an out-of-band
-    // config edit on a paused monitor whose rollup version never advances.
-    configVersion: accepted[0]?.acceptedAt?.toISOString() ?? null,
+    // acceptedAt is the opaque change token the live poll watches to land an
+    // out-of-band config edit on a paused monitor whose rollup version never advances.
+    acceptedConfigToken: accepted[0]?.acceptedAt?.toISOString() ?? null,
     // The completed 15-minute boundary the h24 and d7 scores read against. The
     // live poll watches it to refresh the timeline and response chart once when
     // the window slides, even on a paused monitor whose rollup version is fixed.
@@ -446,9 +446,9 @@ export async function getMonitorLive(
           .limit(5)
       : Promise.resolve([]),
     getRecentRawChecks(id, now),
-    // Config version only. This one-column single-row read rides the accepted
-    // snapshot index and skips the configJson decode the detail query runs, so
-    // the poll stays lean while still carrying the signal that lands an
+    // Accepted config token only. This one-column single-row read rides the
+    // accepted snapshot index and skips the configJson decode the detail query
+    // runs, so the poll stays lean while still carrying the signal that lands an
     // out-of-band config edit on a paused monitor.
     db.select({ acceptedAt: monitoringConfigSnapshots.acceptedAt })
       .from(monitoringConfigSnapshots)
@@ -515,7 +515,7 @@ export async function getMonitorLive(
       ? buildRecentChecksFromRaw(activeRawChecks)
       : buildRecentChecks(rollupsSinceActivation(rollups24h, activatedAt)),
     rollupVersion: rollupVersionOf(rollups7d),
-    configVersion: accepted[0]?.acceptedAt?.toISOString() ?? null,
+    acceptedConfigToken: accepted[0]?.acceptedAt?.toISOString() ?? null,
     // The completed 15-minute boundary the h24 and d7 scores read against. The
     // client refreshes once when it advances so the server recomputes the
     // timeline and chart, even on a paused monitor whose rollup version is fixed.

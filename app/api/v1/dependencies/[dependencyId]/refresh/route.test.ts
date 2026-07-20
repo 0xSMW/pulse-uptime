@@ -15,11 +15,11 @@ vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
 }));
 vi.mock("@/lib/dependencies/service", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/dependencies/service")>()),
-  refreshDependency: vi.fn(),
+  scheduleDependencyPoll: vi.fn(),
 }));
 
 import { authorize, type ApiContext } from "@/lib/api/middleware";
-import { DependencyApiError, refreshDependency } from "@/lib/dependencies/service";
+import { DependencyApiError, scheduleDependencyPoll } from "@/lib/dependencies/service";
 
 import { POST } from "./route";
 
@@ -40,22 +40,22 @@ function refreshRequest() {
 
 beforeEach(() => {
   vi.mocked(authorize).mockReset().mockResolvedValue(context);
-  vi.mocked(refreshDependency).mockReset().mockResolvedValue({ id: "dep-1", refreshing: true });
+  vi.mocked(scheduleDependencyPoll).mockReset().mockResolvedValue({ id: "dep-1", queued: true });
 });
 
 describe("POST /api/v1/dependencies/{dependencyId}/refresh", () => {
-  it("requires the dependencies:write scope and returns 202 with a refreshing ack, never fetching inline", async () => {
+  it("requires the dependencies:write scope and returns 202 with a queued ack, never fetching inline", async () => {
     const response = await POST(refreshRequest(), params);
     expect(authorize).toHaveBeenCalledWith(expect.any(Request), { scope: "dependencies:write" });
     expect(response.status).toBe(202);
     const payload = await response.json();
     expect(payload.kind).toBe("DependencyRefresh");
-    expect(payload.data).toEqual({ id: "dep-1", refreshing: true });
-    expect(refreshDependency).toHaveBeenCalledWith("dep-1");
+    expect(payload.data).toEqual({ id: "dep-1", queued: true });
+    expect(scheduleDependencyPoll).toHaveBeenCalledWith("dep-1");
   });
 
   it("maps DEPENDENCY_NOT_FOUND to 404", async () => {
-    vi.mocked(refreshDependency).mockRejectedValue(new DependencyApiError("DEPENDENCY_NOT_FOUND", "Dependency was not found"));
+    vi.mocked(scheduleDependencyPoll).mockRejectedValue(new DependencyApiError("DEPENDENCY_NOT_FOUND", "Dependency was not found"));
     const response = await POST(refreshRequest(), params);
     expect(response.status).toBe(404);
     expect((await response.json()).error.code).toBe("DEPENDENCY_NOT_FOUND");

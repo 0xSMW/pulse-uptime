@@ -7,7 +7,7 @@ import type { Database } from "@/lib/db/client";
 import { incidents, monitorExceptions, monitorRegistry, monitorState } from "@/lib/db/schema";
 import type { MonitorStateSnapshot } from "@/lib/monitoring/types";
 
-import { targetFor, transitionLifecycle } from "./lifecycle";
+import { transitionLifecycle, type LifecycleTarget } from "./lifecycle";
 
 export type DbTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
@@ -115,10 +115,10 @@ export async function synchronizeRegistry(
     });
   };
 
-  const applyLifecycle = async (monitorId: string, enabled: boolean, archived: boolean) => {
+  const applyLifecycle = async (monitorId: string, target: LifecycleTarget) => {
     const current = statesByMonitorId.get(monitorId);
     if (!current) throw new Error(`Monitor state not found: ${monitorId}`);
-    const mutation = transitionLifecycle(current, targetFor(enabled, archived), now);
+    const mutation = transitionLifecycle(current, target, now);
     if (!mutation.changed) return;
     if (mutation.resolution) {
       const resolution = tx.update(incidents).set({
@@ -150,7 +150,7 @@ export async function synchronizeRegistry(
   };
 
   for (const monitor of config.monitors) {
-    await applyLifecycle(monitor.id, monitor.enabled, false);
+    await applyLifecycle(monitor.id, monitor.enabled ? "ACTIVE" : "PAUSED");
     const previous = previousRegistryById.get(monitor.id);
     if (previous && previous.configHash !== hash) addException(monitor.id, "configuration", null);
     if (previous && previous.enabled !== monitor.enabled) {
@@ -159,7 +159,7 @@ export async function synchronizeRegistry(
   }
 
   for (const id of removedIds) {
-    await applyLifecycle(id, false, true);
+    await applyLifecycle(id, "ARCHIVED");
     addException(id, "pause", "MONITOR_ARCHIVED");
     addException(id, "configuration", null);
   }

@@ -53,7 +53,7 @@ const context: ApiContext = {
   requestId: "req_dep",
 };
 
-const dependency = { id: "dep-1", catalogId: "vercel_runtime", name: "Vercel Runtime", provider: "Vercel", state: "OPERATIONAL" };
+const dependency = { id: "dep-1", presetId: "vercel_runtime", name: "Vercel Runtime", provider: "Vercel", state: "OPERATIONAL" };
 const params = { params: Promise.resolve({ dependencyId: "dep-1" }) };
 
 beforeEach(() => {

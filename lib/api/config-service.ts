@@ -11,6 +11,7 @@ import {
   validateApplyPreconditions,
   validateDeclarativeConfig,
   validateMonitoringConfig,
+  type AcceptedConfigSnapshot,
   type ConfigurationApplyRequest,
   type ConfigurationPlan,
   type DeclarativeConfig,
@@ -42,20 +43,18 @@ export class ConfigurationServiceError extends Error {
   }
 }
 
-type AcceptedConfiguration = { config: MonitoringConfig; hash: string };
-
 export type EdgeConfigWriter = (config: MonitoringConfig) => Promise<{ version: number | null }>;
 
 type OperationInsert = Omit<typeof configOperations.$inferInsert, "id"> & { id?: string };
 type ApprovalInsert = typeof configChangeApprovals.$inferInsert;
 export type ConfigurationStore = {
-  readAccepted(): Promise<AcceptedConfiguration | null>;
-  transaction<T>(work: (tx: { lockConfiguration(): Promise<void>; readAccepted(): Promise<AcceptedConfiguration | null>; findOperation(principalKey: string, idempotencyKey: string): Promise<ConfigOperation | null>; insertApproval(value: ApprovalInsert): Promise<void>; insertOperation(value: OperationInsert): Promise<ConfigOperation> }) => Promise<T>): Promise<T>;
+  readAccepted(): Promise<AcceptedConfigSnapshot | null>;
+  transaction<T>(work: (tx: { lockConfiguration(): Promise<void>; readAccepted(): Promise<AcceptedConfigSnapshot | null>; findOperation(principalKey: string, idempotencyKey: string): Promise<ConfigOperation | null>; insertApproval(value: ApprovalInsert): Promise<void>; insertOperation(value: OperationInsert): Promise<ConfigOperation> }) => Promise<T>): Promise<T>;
   readOperation(id: string): Promise<ConfigOperation | null>;
 };
 
 export type ConfigurationService = {
-  get(): Promise<AcceptedConfiguration>;
+  get(): Promise<AcceptedConfigSnapshot>;
   schema(): unknown;
   validate(document: unknown): Promise<DeclarativeConfig>;
   plan(input: { baseConfigHash: string; targetConfig: unknown }): Promise<ConfigurationPlan>;
@@ -124,7 +123,7 @@ async function defaultWriteEdgeConfig(config: MonitoringConfig): Promise<{ versi
 }
 
 function createDatabaseStore(): ConfigurationStore {
-  const parseAccepted = (row: { configJson: unknown; configHash: string } | undefined): AcceptedConfiguration | null => {
+  const parseAccepted = (row: { configJson: unknown; configHash: string } | undefined): AcceptedConfigSnapshot | null => {
     if (!row) return null;
     const raw = row.configJson as Parameters<typeof hashMonitoringConfig>[0];
     const config = validateMonitoringConfig(row.configJson);
@@ -158,7 +157,7 @@ function createDatabaseStore(): ConfigurationStore {
 export function createConfigurationService(options: { writeEdgeConfig?: EdgeConfigWriter; store?: ConfigurationStore } = {}): ConfigurationService {
   const writeEdgeConfig = options.writeEdgeConfig ?? defaultWriteEdgeConfig;
   const store = options.store ?? createDatabaseStore();
-  const loadCurrent = async (): Promise<AcceptedConfiguration> => {
+  const loadCurrent = async (): Promise<AcceptedConfigSnapshot> => {
     const current = await store.readAccepted();
     if (!current) throw new ConfigurationServiceError("CONFIG_NOT_INITIALIZED", "No accepted configuration is available");
     return current;

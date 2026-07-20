@@ -448,7 +448,7 @@ func newDeleteCommand(d Dependencies) *cobra.Command {
 		if err := d.Client.Do(cmd.Context(), Request{Method: http.MethodDelete, Path: monitorPath(args[0]), IdempotencyKey: key}); err != nil {
 			return d.MapError(err)
 		}
-		doc := Envelope{APIVersion: "v1", Kind: "MonitorDeleted", Data: json.RawMessage(fmt.Sprintf(`{"id":%q}`, args[0]))}
+		doc := Envelope{APIVersion: "v1", Kind: "MonitorArchived", Data: json.RawMessage(fmt.Sprintf(`{"id":%q}`, args[0]))}
 		return renderEnvelope(d, d.Format(), doc)
 	}}
 	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm deletion")

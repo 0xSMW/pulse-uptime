@@ -56,7 +56,7 @@ function buildStateBuckets(intervals: readonly IntervalRow[], bucketCount: numbe
 
 export type DependencyDashboardRow = {
   id: string;
-  catalogId: string;
+  presetId: string;
   scopeId: string | null;
   name: string;
   provider: string;
@@ -71,7 +71,7 @@ export type DependencyDashboardRow = {
 export async function listDependenciesForDashboard(): Promise<DependencyDashboardRow[]> {
   const rows = await db.select({
     id: dependencies.id,
-    catalogId: dependencies.catalogId,
+    presetId: dependencies.catalogId,
     scopeId: dependencies.scopeId,
     name: dependencyCatalog.displayName,
     category: dependencyCatalog.category,
@@ -129,7 +129,7 @@ export async function listDependenciesForDashboard(): Promise<DependencyDashboar
     const active = activeIncidentByDependency.get(row.id);
     return {
       id: row.id,
-      catalogId: row.catalogId,
+      presetId: row.presetId,
       scopeId: row.scopeId,
       name: row.name,
       provider: row.provider,
@@ -164,7 +164,7 @@ export type DependencyIncident = {
 
 export type DependencyDetail = {
   id: string;
-  catalogId: string;
+  presetId: string;
   scopeId: string | null;
   name: string;
   description: string;
@@ -186,13 +186,13 @@ export type DependencyDetail = {
   timeline7d: StateBucket[];
 };
 
-// Accepts a handle so a caller inside a transaction (installDependency) can read
+// Accepts a handle so a caller inside a transaction (addDependency) can read
 // its own uncommitted insert back on the same connection, instead of a pooled
 // connection that would not see it yet under READ COMMITTED.
 export async function getDependencyDetail(id: string, handle: DatabaseHandle = db): Promise<DependencyDetail | null> {
   const [row] = await handle.select({
     id: dependencies.id,
-    catalogId: dependencies.catalogId,
+    presetId: dependencies.catalogId,
     scopeId: dependencies.scopeId,
     notificationsEnabled: dependencies.notificationsEnabled,
     createdAt: dependencies.createdAt,
@@ -272,7 +272,7 @@ export async function getDependencyDetail(id: string, handle: DatabaseHandle = d
 
   return {
     id: row.id,
-    catalogId: row.catalogId,
+    presetId: row.presetId,
     scopeId: row.scopeId,
     name: row.name,
     description: row.description,
@@ -319,7 +319,7 @@ export type DependencyCatalogPreset = {
   sourceScopeNote: string | null;
   enabled: boolean;
   validated: boolean;
-  // Mirrors the server install gate. installDependency rejects a preset with a
+  // Mirrors the server install gate. addDependency rejects a preset with a
   // recorded validationError, so the add sheet disables Add for the same set.
   // Distinct from validated, which is merely whether a successful validation
   // has ever run. A never-validated preset is installable.

@@ -117,7 +117,7 @@ export interface DependenciesStore {
   patchNotifications(id: string, notificationsEnabled: boolean, handle?: DatabaseHandle): Promise<boolean>;
 }
 
-export type DependenciesDependencies = {
+export type DependencyServiceDeps = {
   store?: DependenciesStore;
   now?: () => Date;
   newId?: () => string;
@@ -125,7 +125,7 @@ export type DependenciesDependencies = {
   dependencyId?: string;
 };
 
-export type InstallDependencyInput = {
+export type AddDependencyInput = {
   presetId: string;
   scopeId?: string | null;
   notificationsEnabled?: boolean;
@@ -156,14 +156,14 @@ function validateScope(scope: DependencyScope | null, scopeId: string | null | u
   return scopeId ?? null;
 }
 
-export async function installDependency(
-  input: InstallDependencyInput,
-  dependenciesInput: DependenciesDependencies = {},
+export async function addDependency(
+  input: AddDependencyInput,
+  deps: DependencyServiceDeps = {},
   handle: DatabaseHandle = db,
 ) {
-  const store = dependenciesInput.store ?? databaseDependenciesStore;
-  const now = dependenciesInput.now?.() ?? new Date();
-  const newId = dependenciesInput.newId ?? (() => randomUUID());
+  const store = deps.store ?? databaseDependenciesStore;
+  const now = deps.now?.() ?? new Date();
+  const newId = deps.newId ?? (() => randomUUID());
 
   const preset = await store.loadPreset(input.presetId);
   if (!preset) throw new DependencyApiError("PRESET_NOT_FOUND", "Preset was not found");
@@ -187,7 +187,7 @@ export async function installDependency(
   };
 
   const dependency: DependencyRow = {
-    id: dependenciesInput.dependencyId ?? newId(),
+    id: deps.dependencyId ?? newId(),
     catalogId: preset.id,
     scopeId,
     notificationsEnabled: input.notificationsEnabled ?? true,
@@ -234,17 +234,17 @@ const patchSchema = z.object({ notificationsEnabled: z.boolean() }).strict();
 export async function patchDependency(
   id: string,
   input: unknown,
-  dependenciesInput: DependenciesDependencies = {},
+  deps: DependencyServiceDeps = {},
   handle: DatabaseHandle = db,
 ) {
-  const store = dependenciesInput.store ?? databaseDependenciesStore;
+  const store = deps.store ?? databaseDependenciesStore;
   const parsed = patchSchema.parse(input);
   const patched = await store.patchNotifications(id, parsed.notificationsEnabled, handle);
   if (!patched) throw new DependencyApiError("DEPENDENCY_NOT_FOUND", "Dependency was not found");
   // Reads back on the same handle as the update above, so a patch running
   // inside a caller's transaction sees its own uncommitted row rather than a
   // second pooled connection that has not observed it, mirroring
-  // installDependency's read-back.
+  // addDependency's read-back.
   const detail = await queryDependencyDetail(id, handle);
   if (!detail) throw new DependencyApiError("DEPENDENCY_NOT_FOUND", "Dependency was not found");
   return detail;
@@ -252,27 +252,27 @@ export async function patchDependency(
 
 export async function removeDependency(
   id: string,
-  dependenciesInput: DependenciesDependencies = {},
+  deps: DependencyServiceDeps = {},
   handle: DatabaseHandle = db,
 ) {
-  const store = dependenciesInput.store ?? databaseDependenciesStore;
-  const now = dependenciesInput.now?.() ?? new Date();
+  const store = deps.store ?? databaseDependenciesStore;
+  const now = deps.now?.() ?? new Date();
   const removed = await store.removeDependency(id, now, handle);
   if (!removed) throw new DependencyApiError("DEPENDENCY_NOT_FOUND", "Dependency was not found");
   return { id, removed: true };
 }
 
 /** Sets the source's next_poll_at to now and returns immediately; the cron picks up the fetch, so this route never touches the network. */
-export async function refreshDependency(
+export async function scheduleDependencyPoll(
   id: string,
-  dependenciesInput: DependenciesDependencies = {},
+  deps: DependencyServiceDeps = {},
 ) {
-  const store = dependenciesInput.store ?? databaseDependenciesStore;
-  const now = dependenciesInput.now?.() ?? new Date();
+  const store = deps.store ?? databaseDependenciesStore;
+  const now = deps.now?.() ?? new Date();
   const sourceId = await store.loadSourceIdForDependency(id);
   if (!sourceId) throw new DependencyApiError("DEPENDENCY_NOT_FOUND", "Dependency was not found");
   await store.touchSourceNextPoll(sourceId, now);
-  return { id, refreshing: true };
+  return { id, queued: true };
 }
 
 export const databaseDependenciesStore: DependenciesStore = {

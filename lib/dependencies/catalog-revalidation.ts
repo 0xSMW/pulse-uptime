@@ -5,7 +5,7 @@ import type { CatalogComponentDirectory, FetchSourceComponents } from "./catalog
 import { fetchProviderDocument } from "./fetch";
 import { loadCatalogManifest } from "./manifest";
 
-// The live fetcher validateCatalog needs to confirm a source's feed still
+// The live fetcher reconcileCatalog needs to confirm a source's feed still
 // exposes every id its enabled presets select. Google Cloud is the one
 // adapter that can't answer this from its own normalize() output: its
 // components map only ever holds products with an active incident right
@@ -84,7 +84,7 @@ export function createLiveFetchSourceComponents(manifest = loadCatalogManifest()
       return await fetchCurrentComponentIds(manifestSource);
     } catch {
       // A failed live fetch records FEED_UNREACHABLE on the source and
-      // touches no preset, per validateCatalog's "feed failure never
+      // touches no preset, per reconcileCatalog's "feed failure never
       // produces a false outage" rule.
       return null;
     }
