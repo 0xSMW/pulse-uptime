@@ -434,11 +434,19 @@ func regionRequirement(scope *CatalogScope) string {
 	return ""
 }
 
+// installedMarker reports how a preset is installed for the INSTALLED column.
+// listCatalog sets installed only for an unscoped install and records scoped
+// installs in installedScopeIds, so a blank marker here would hide a scoped
+// install and lead operators to re-add a preset they already have. The marker
+// shows "yes" for an unscoped install and lists the installed scope ids so a
+// regional install stays visible.
 func installedMarker(preset CatalogPreset) string {
+	markers := make([]string, 0, len(preset.InstalledScopeIDs)+1)
 	if preset.Installed {
-		return "yes"
+		markers = append(markers, "yes")
 	}
-	return ""
+	markers = append(markers, preset.InstalledScopeIDs...)
+	return strings.Join(markers, ",")
 }
 
 func renderCatalog(d Dependencies, format string, doc Envelope) error {
@@ -466,7 +474,7 @@ func renderCatalog(d Dependencies, format string, doc Envelope) error {
 	}
 	fmt.Fprintln(d.Out, "ID\tNAME\tCATEGORY\tPROVIDER\tREGION\tINSTALLED")
 	for _, row := range rows {
-		fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\t%s\t%s\n", output.SanitizeDisplay(row.ID), output.SanitizeDisplay(row.Name), output.SanitizeDisplay(row.Category), output.SanitizeDisplay(row.Provider), regionRequirement(row.Scope), installedMarker(row))
+		fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\t%s\t%s\n", output.SanitizeDisplay(row.ID), output.SanitizeDisplay(row.Name), output.SanitizeDisplay(row.Category), output.SanitizeDisplay(row.Provider), regionRequirement(row.Scope), output.SanitizeDisplay(installedMarker(row)))
 	}
 	return nil
 }

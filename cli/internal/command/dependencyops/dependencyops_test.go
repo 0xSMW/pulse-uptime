@@ -35,7 +35,7 @@ const catalogFixture = `{
 		{
 			"category": "data",
 			"presets": [
-				{"id": "neon_database", "name": "Neon Database", "provider": "Neon", "enabled": true, "validated": true, "installed": false, "scope": {"kind": "required_options"}},
+				{"id": "neon_database", "name": "Neon Database", "provider": "Neon", "enabled": true, "validated": true, "installed": false, "installedScopeIds": ["aws-us-east-1"], "scope": {"kind": "required_options"}},
 				{"id": "upstash_redis_regional", "name": "Upstash Redis Regional", "provider": "Upstash", "enabled": true, "validated": true, "installed": false, "scope": {"kind": "discovered_children", "required": true}},
 				{"id": "upstash_redis_global", "name": "Upstash Redis Global", "provider": "Upstash", "enabled": true, "validated": true, "installed": false, "scope": {"kind": "discovered_children", "required": false}}
 			]
@@ -66,7 +66,7 @@ func TestCatalogUsesCanonicalEndpointAndScope(t *testing.T) {
 	for _, row := range []string{
 		"openai_api\tOpenAI API\tai\tOpenAI\t\tyes",
 		"chatgpt\tChatGPT\tai\tOpenAI\t\t",
-		"neon_database\tNeon Database\tdata\tNeon\trequired\t",
+		"neon_database\tNeon Database\tdata\tNeon\trequired\taws-us-east-1",
 		"upstash_redis_regional\tUpstash Redis Regional\tdata\tUpstash\trequired\t",
 		"upstash_redis_global\tUpstash Redis Global\tdata\tUpstash\t\t",
 	} {
