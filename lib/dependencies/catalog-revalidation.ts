@@ -1,6 +1,6 @@
 import "server-only";
 
-import { adapterRegistry, type AdapterDocument } from "./adapters";
+import { resolveAdapter, type AdapterDocument } from "./adapters";
 import type { CatalogComponentDirectory, FetchSourceComponents } from "./catalog-sync";
 import { fetchProviderDocument } from "./fetch";
 import { loadCatalogManifest } from "./manifest";
@@ -47,7 +47,7 @@ async function fetchGoogleProductIds(
 async function fetchCurrentComponentIds(
   source: ReturnType<typeof loadCatalogManifest>["sources"][number],
 ): Promise<CatalogComponentDirectory | null> {
-  const adapter = adapterRegistry[source.adapter];
+  const adapter = resolveAdapter(source.adapter);
   const documents: AdapterDocument[] = [];
 
   while (true) {

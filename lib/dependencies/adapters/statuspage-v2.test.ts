@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { loadCatalogManifest } from "../manifest";
 
 import degraded from "./fixtures/anthropic/degraded.json";
+import incidentsPostmortem from "./fixtures/anthropic/incidents-postmortem.json";
 import incidentsResolved from "./fixtures/anthropic/incidents-resolved.json";
 import maintenance from "./fixtures/anthropic/maintenance.json";
 import malformed from "./fixtures/anthropic/malformed.json";
@@ -91,6 +92,27 @@ describe("statuspageV2Adapter.normalize: incidents", () => {
     expect(incident.updates.map((update) => update.state)).toEqual(["resolved", "monitoring", "identified", "investigating"]);
   });
 
+  it("maps a postmortem incident and its postmortem update onto resolved, preserving resolved_at", () => {
+    // WorkOS and Upstash publish post-incident retrospectives, so their live
+    // incidents.json carries incidents whose status is the standard Atlassian
+    // Statuspage "postmortem" lifecycle value plus incident_updates in the same
+    // status. "postmortem" is not in the 9-value provider vocabulary, so without
+    // a mapping requireProviderIncidentState throws UNKNOWN_STATUS and fails the
+    // whole source. It normalizes to resolved: the incident is closed and every
+    // postmortem incident carries resolved_at.
+    const snapshot = statuspageV2Adapter.normalize({
+      source: anthropicSource,
+      documents: [currentDoc(operational), incidentsDoc(incidentsPostmortem)],
+      observedAt: "2026-07-15T13:00:00Z",
+    });
+    expect(snapshot.incidents).toHaveLength(1);
+    const [incident] = snapshot.incidents;
+    expect(incident.externalId).toBe("pm7x3incident01");
+    expect(incident.state).toBe("resolved");
+    expect(incident.resolvedAt).toBe("2026-07-14T19:43:35.467Z");
+    expect(incident.updates.map((update) => update.state)).toEqual(["resolved", "resolved", "investigating"]);
+  });
+
   it("uses summary.json's inline incidents when no incidents.json document is fetched", () => {
     const snapshot = statuspageV2Adapter.normalize({ source: anthropicSource, documents: [currentDoc(degraded)], observedAt: "2026-07-19T15:10:00Z" });
     expect(snapshot.incidents).toHaveLength(1);
@@ -103,7 +125,7 @@ describe("statuspageV2Adapter.normalize: incidents", () => {
     // the incident permalink under the source's own status page host so
     // safeProviderUrl preserves it and the deep link survives.
     const snapshot = statuspageV2Adapter.normalize({ source: anthropicSource, documents: [currentDoc(degraded)], observedAt: "2026-07-19T15:10:00Z" });
-    expect(snapshot.incidents[0].canonicalUrl).toBe("https://status.anthropic.com/incidents/sample1degraded01");
+    expect(snapshot.incidents[0].canonicalUrl).toBe("https://status.claude.com/incidents/sample1degraded01");
     expect(snapshot.incidents[0].canonicalUrl).not.toContain("stspg.io");
     expect(new URL(snapshot.incidents[0].canonicalUrl!).hostname).toBe(new URL(anthropicSource.statusPageUrl).hostname);
   });

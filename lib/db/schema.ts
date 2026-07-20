@@ -251,7 +251,14 @@ export const notificationOutbox = pgTable("notification_outbox", {
     .where(sql`${table.status} = 'sending'`),
   check("notification_outbox_status", sql`${table.status} in ('pending', 'sending', 'sent', 'failed', 'dead')`),
   check("notification_outbox_attempts_nonnegative", sql`${table.attemptCount} >= 0`),
-  check("notification_outbox_subject", sql`(${table.monitorId} is null) <> (${table.dependencyId} is null)`),
+  // Monitor and dependency notifications each name exactly one subject. A
+  // system.alert (the monitoring-loop self-alert) belongs to no monitor or
+  // dependency, so it carries neither id.
+  check(
+    "notification_outbox_subject",
+    sql`(${table.eventType} = 'system.alert' and ${table.monitorId} is null and ${table.dependencyId} is null)
+      or ((${table.monitorId} is null) <> (${table.dependencyId} is null))`,
+  ),
   check(
     "notification_outbox_claim_pair",
     sql`(${table.claimToken} is null) = (${table.claimedAt} is null)`,
@@ -278,6 +285,9 @@ export const cronRuns = pgTable("cron_runs", {
   failureCount: integer("failure_count").notNull().default(0),
   skippedCount: integer("skipped_count").notNull().default(0),
   errorMessage: text("error_message"),
+  // Full structured capture of a failure: message, Postgres diagnostic fields,
+  // and the wrapped cause chain, bounded and truncation-marked in run-record.
+  errorDetail: jsonb("error_detail"),
 }, (table) => [
   uniqueIndex("cron_runs_job_schedule").on(table.jobName, table.scheduledMinute),
   check("cron_runs_status", sql`${table.status} in ('running', 'completed', 'failed')`),
@@ -764,9 +774,20 @@ export const dependencyAdapters = [
   "google_cloud_status",
   "statusio_public",
   "sorry_v1",
+  "aws_health",
+  "nextdata_embedded",
+  "incident_feed",
+  "auth0_status",
 ] as const;
 
 export const dependencyCategories = ["ai", "hosting", "auth", "data", "payments", "developer"] as const;
+
+// Fidelity tier stored per catalog preset. "component" means the source feed
+// carries a normalized per-component state. "incident_only" means the feed
+// publishes incident prose without structured component health, so the UI
+// shows the provider text verbatim and never renders an inferred component
+// state. Resolved at catalog sync from the manifest preset then source.
+export const dependencyFidelities = ["component", "incident_only"] as const;
 
 // Normalized incident and update lifecycle vocabulary. Adapters map each
 // provider's own status strings (Statuspage's investigating/identified/
@@ -815,7 +836,7 @@ export const dependencySources = pgTable("dependency_sources", {
     .where(sql`${table.enabled} = true`),
   check(
     "dependency_sources_adapter",
-    sql`${table.adapter} in ('statuspage_v2', 'incidentio_compat', 'google_cloud_status', 'statusio_public', 'sorry_v1')`,
+    sql`${table.adapter} in ('statuspage_v2', 'incidentio_compat', 'google_cloud_status', 'statusio_public', 'sorry_v1', 'aws_health', 'nextdata_embedded', 'incident_feed', 'auth0_status')`,
   ),
   check("dependency_sources_failures_nonnegative", sql`${table.consecutiveFailures} >= 0`),
 ]);
@@ -829,6 +850,7 @@ export const dependencyCatalog = pgTable("dependency_catalog", {
   selector: jsonb("selector").notNull(),
   scopeOptions: jsonb("scope_options"),
   sourceScopeNote: text("source_scope_note"),
+  fidelity: text("fidelity", { enum: dependencyFidelities }).notNull().default("component"),
   catalogVersion: text("catalog_version").notNull(),
   enabled: boolean("enabled").notNull(),
   validatedAt: timestamptz("validated_at"),
@@ -837,6 +859,10 @@ export const dependencyCatalog = pgTable("dependency_catalog", {
   check(
     "dependency_catalog_category",
     sql`${table.category} in ('ai', 'hosting', 'auth', 'data', 'payments', 'developer')`,
+  ),
+  check(
+    "dependency_catalog_fidelity",
+    sql`${table.fidelity} in ('component', 'incident_only')`,
   ),
 ]);
 

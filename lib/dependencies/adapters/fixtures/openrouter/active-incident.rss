@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>OpenRouter Status - Incident History</title>
+    <link>status.openrouter.ai</link>
+    <description>Statuspage</description>
+    <lastBuildDate>Wed, 15 Jul 2026 09:20:00 GMT</lastBuildDate>
+    <item>
+      <title>Elevated error rates on model routing</title>
+      <description><![CDATA[<p><small>Jul 15, 09:15 UTC</small><br/><strong>IDENTIFIED</strong> - We have identified the cause and are working on a fix.</p><p><small>Jul 15, 08:50 UTC</small><br/><strong>INVESTIGATING</strong> - We are investigating elevated error rates on the routing API.</p>]]></description>
+      <pubDate>Wed, 15 Jul 2026 08:50:00 GMT</pubDate>
+      <link>status.openrouter.ai/incidents/aBc123XyZ</link>
+      <guid isPermaLink="true">status.openrouter.ai/incidents/aBc123XyZ</guid>
+    </item>
+    <item>
+      <title>Historical resolved incident</title>
+      <description><![CDATA[<p><small>Jul 10, 12:00 UTC</small><br/><strong>RESOLVED</strong> - This earlier incident is fully resolved.</p>]]></description>
+      <pubDate>Fri, 10 Jul 2026 11:30:00 GMT</pubDate>
+      <link>status.openrouter.ai/incidents/Old999Prev</link>
+      <guid isPermaLink="true">status.openrouter.ai/incidents/Old999Prev</guid>
+    </item>
+  </channel>
+</rss>

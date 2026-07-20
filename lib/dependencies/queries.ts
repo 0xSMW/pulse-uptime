@@ -15,7 +15,7 @@ import {
   providerIncidentUpdates,
 } from "@/lib/db/schema";
 
-import type { DependencyScope, DependencyState } from "./types";
+import type { DependencyFidelity, DependencyScope, DependencyState } from "./types";
 
 // Reads for the Overview panel, the dependency detail view, and the add
 // sheet's catalog listing. Kept db-direct (no injected store), matching
@@ -61,6 +61,7 @@ export type DependencyDashboardRow = {
   name: string;
   provider: string;
   category: string;
+  fidelity: DependencyFidelity;
   state: DependencyState;
   pendingFirstPoll: boolean;
   providerUpdatedAt: string | null;
@@ -75,6 +76,7 @@ export async function listDependenciesForDashboard(): Promise<DependencyDashboar
     scopeId: dependencies.scopeId,
     name: dependencyCatalog.displayName,
     category: dependencyCatalog.category,
+    fidelity: dependencyCatalog.fidelity,
     provider: dependencySources.providerName,
     state: dependencyState.state,
     pendingFirstPoll: dependencyState.pendingFirstPoll,
@@ -134,6 +136,7 @@ export async function listDependenciesForDashboard(): Promise<DependencyDashboar
       name: row.name,
       provider: row.provider,
       category: row.category,
+      fidelity: row.fidelity as DependencyFidelity,
       state: row.state as DependencyState,
       pendingFirstPoll: row.pendingFirstPoll,
       providerUpdatedAt: (active?.providerUpdatedAt ?? row.providerUpdatedAt)?.toISOString() ?? null,
@@ -170,6 +173,7 @@ export type DependencyDetail = {
   description: string;
   category: string;
   provider: string;
+  fidelity: DependencyFidelity;
   componentLabel: string | null;
   sourceScopeNote: string | null;
   notificationsEnabled: boolean;
@@ -201,6 +205,7 @@ export async function getDependencyDetail(id: string, handle: DatabaseHandle = d
     category: dependencyCatalog.category,
     scopeOptions: dependencyCatalog.scopeOptions,
     sourceScopeNote: dependencyCatalog.sourceScopeNote,
+    fidelity: dependencyCatalog.fidelity,
     provider: dependencySources.providerName,
     statusPageUrl: dependencySources.statusPageUrl,
     state: dependencyState.state,
@@ -278,6 +283,7 @@ export async function getDependencyDetail(id: string, handle: DatabaseHandle = d
     description: row.description,
     category: row.category,
     provider: row.provider,
+    fidelity: row.fidelity as DependencyFidelity,
     componentLabel: componentLabel ?? null,
     sourceScopeNote: row.sourceScopeNote,
     notificationsEnabled: row.notificationsEnabled,
@@ -317,6 +323,7 @@ export type DependencyCatalogPreset = {
   description: string;
   scope: DependencyScope | null;
   sourceScopeNote: string | null;
+  fidelity: DependencyFidelity;
   enabled: boolean;
   validated: boolean;
   // Mirrors the server install gate. addDependency rejects a preset with a
@@ -341,6 +348,7 @@ export async function listCatalog(): Promise<DependencyCatalogCategory[]> {
     description: dependencyCatalog.description,
     scope: dependencyCatalog.scopeOptions,
     sourceScopeNote: dependencyCatalog.sourceScopeNote,
+    fidelity: dependencyCatalog.fidelity,
     enabled: dependencyCatalog.enabled,
     validatedAt: dependencyCatalog.validatedAt,
     validationError: dependencyCatalog.validationError,
@@ -373,6 +381,7 @@ export async function listCatalog(): Promise<DependencyCatalogCategory[]> {
       description: preset.description,
       scope: (preset.scope as DependencyScope | null) ?? null,
       sourceScopeNote: preset.sourceScopeNote,
+      fidelity: preset.fidelity as DependencyFidelity,
       enabled: preset.enabled,
       validated: preset.validatedAt !== null,
       hasValidationError: preset.validationError !== null,

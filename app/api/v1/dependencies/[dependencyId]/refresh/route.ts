@@ -7,7 +7,7 @@ import { scheduleDependencyPoll } from "@/lib/dependencies/service";
 
 // Only sets the source's next_poll_at to now; the dependency cron does the
 // actual fetch. Never fetches inline, so the SSRF surface stays in the cron
-// and this route stays fast, per Docs/DEPENDENCY-MONITORING.md decision 9.
+// and this route stays fast, per Docs/Specs/DEPENDENCY-MONITORING.md decision 9.
 export async function POST(request: Request, { params }: { params: Promise<{ dependencyId: string }> }) {
   const context = await authorize(request, { scope: "dependencies:write" });
   if (isApiResponse(context)) return context;

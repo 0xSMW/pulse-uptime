@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogVersion": "2026-07-20.1",
+  "catalogVersion": "2026-07-20.2",
   "sources": [
     {
       "id": "openai",
@@ -19,10 +19,10 @@
       "id": "anthropic",
       "provider": "Anthropic",
       "adapter": "statuspage_v2",
-      "currentUrl": "https://status.anthropic.com/api/v2/summary.json",
-      "incidentsUrl": "https://status.anthropic.com/api/v2/incidents.json",
-      "statusPageUrl": "https://status.anthropic.com/",
-      "allowedHosts": ["status.anthropic.com"],
+      "currentUrl": "https://status.claude.com/api/v2/summary.json",
+      "incidentsUrl": "https://status.claude.com/api/v2/incidents.json",
+      "statusPageUrl": "https://status.claude.com/",
+      "allowedHosts": ["status.claude.com"],
       "operationalPollSeconds": 120,
       "activePollSeconds": 60,
       "staleAfterSeconds": 600,
@@ -40,6 +40,20 @@
       "activePollSeconds": 60,
       "staleAfterSeconds": 600,
       "config": { "productsUrl": "https://status.cloud.google.com/products.json" }
+    },
+    {
+      "id": "azure",
+      "provider": "Azure",
+      "adapter": "incident_feed",
+      "currentUrl": "https://azure.status.microsoft/en-us/status/feed/",
+      "incidentsUrl": "https://azure.status.microsoft/en-us/status/feed/",
+      "statusPageUrl": "https://azure.status.microsoft/en-us/status",
+      "allowedHosts": ["azure.status.microsoft", "rssfeed.azure.status.microsoft", "azurestatuscdn.azureedge.net"],
+      "operationalPollSeconds": 300,
+      "activePollSeconds": 120,
+      "staleAfterSeconds": 900,
+      "fidelity": "incident_only",
+      "config": {}
     },
     {
       "id": "vercel",
@@ -68,6 +82,32 @@
       "config": {}
     },
     {
+      "id": "digitalocean",
+      "provider": "DigitalOcean",
+      "adapter": "statuspage_v2",
+      "currentUrl": "https://status.digitalocean.com/api/v2/summary.json",
+      "incidentsUrl": "https://status.digitalocean.com/api/v2/incidents.json",
+      "statusPageUrl": "https://status.digitalocean.com/",
+      "allowedHosts": ["status.digitalocean.com"],
+      "operationalPollSeconds": 120,
+      "activePollSeconds": 60,
+      "staleAfterSeconds": 600,
+      "config": {}
+    },
+    {
+      "id": "aws",
+      "provider": "AWS",
+      "adapter": "aws_health",
+      "currentUrl": "https://health.aws.amazon.com/public/currentevents",
+      "incidentsUrl": null,
+      "statusPageUrl": "https://health.aws.amazon.com/health/status",
+      "allowedHosts": ["health.aws.amazon.com"],
+      "operationalPollSeconds": 120,
+      "activePollSeconds": 60,
+      "staleAfterSeconds": 600,
+      "config": { "maxBodyBytes": 2097152 }
+    },
+    {
       "id": "workos",
       "provider": "WorkOS",
       "adapter": "statuspage_v2",
@@ -92,6 +132,20 @@
       "activePollSeconds": 60,
       "staleAfterSeconds": 600,
       "config": {}
+    },
+    {
+      "id": "auth0",
+      "provider": "Auth0",
+      "adapter": "auth0_status",
+      "currentUrl": "https://status.auth0.com/",
+      "incidentsUrl": null,
+      "statusPageUrl": "https://status.auth0.com/",
+      "allowedHosts": ["status.auth0.com"],
+      "operationalPollSeconds": 120,
+      "activePollSeconds": 60,
+      "staleAfterSeconds": 600,
+      "config": { "maxBodyBytes": 2097152 },
+      "fidelity": "component"
     },
     {
       "id": "neon",
@@ -175,6 +229,20 @@
       }
     },
     {
+      "id": "openrouter",
+      "provider": "OpenRouter",
+      "adapter": "incident_feed",
+      "currentUrl": "https://status.openrouter.ai/incidents.rss",
+      "incidentsUrl": "https://status.openrouter.ai/incidents.rss",
+      "statusPageUrl": "https://status.openrouter.ai/",
+      "allowedHosts": ["status.openrouter.ai"],
+      "operationalPollSeconds": 300,
+      "activePollSeconds": 120,
+      "staleAfterSeconds": 900,
+      "fidelity": "incident_only",
+      "config": {}
+    },
+    {
       "id": "twilio",
       "provider": "Twilio",
       "adapter": "statuspage_v2",
@@ -199,6 +267,19 @@
       "activePollSeconds": 60,
       "staleAfterSeconds": 600,
       "config": {}
+    },
+    {
+      "id": "hetzner",
+      "provider": "Hetzner",
+      "adapter": "nextdata_embedded",
+      "currentUrl": "https://status.hetzner.com/",
+      "incidentsUrl": null,
+      "statusPageUrl": "https://status.hetzner.com/",
+      "allowedHosts": ["status.hetzner.com"],
+      "operationalPollSeconds": 180,
+      "activePollSeconds": 60,
+      "staleAfterSeconds": 900,
+      "config": { "maxBodyBytes": 1048576 }
     }
   ],
   "presets": [
@@ -254,6 +335,22 @@
       },
       "scope": null,
       "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "openrouter_api",
+      "sourceId": "openrouter",
+      "name": "OpenRouter API",
+      "category": "ai",
+      "description": "OpenRouter model routing API. Provider incident feed only, with no per-component health.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["incident-feed"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "fidelity": "incident_only",
       "enabled": true
     },
     {
@@ -332,6 +429,161 @@
       "enabled": true
     },
     {
+      "id": "digitalocean_api",
+      "sourceId": "digitalocean",
+      "name": "DigitalOcean API",
+      "category": "hosting",
+      "description": "The DigitalOcean API surface that backs the control panel, CLI, and Terraform.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["p1x9rv4137gx"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "digitalocean_droplets",
+      "sourceId": "digitalocean",
+      "name": "DigitalOcean Droplets",
+      "category": "hosting",
+      "description": "DigitalOcean Droplets compute, scoped to one region.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["4rgs7bbljl8d"]
+      },
+      "scope": { "kind": "discovered_children", "groupId": "4rgs7bbljl8d", "required": true },
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "digitalocean_managed_databases",
+      "sourceId": "digitalocean",
+      "name": "DigitalOcean Managed Databases",
+      "category": "data",
+      "description": "DigitalOcean Managed Databases, scoped to one region.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["kl8qv98c9brp"]
+      },
+      "scope": { "kind": "discovered_children", "groupId": "kl8qv98c9brp", "required": true },
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "aws_ec2",
+      "sourceId": "aws",
+      "name": "Amazon EC2",
+      "category": "hosting",
+      "description": "Amazon EC2 compute, scoped to one AWS region.",
+      "selector": { "kind": "component_ids", "aggregation": "worst_of", "ids": [] },
+      "scope": {
+        "kind": "required_options",
+        "options": [
+          { "id": "ec2-us-east-1", "label": "us-east-1" },
+          { "id": "ec2-us-east-2", "label": "us-east-2" },
+          { "id": "ec2-us-west-2", "label": "us-west-2" },
+          { "id": "ec2-eu-west-1", "label": "eu-west-1" },
+          { "id": "ec2-eu-central-1", "label": "eu-central-1" },
+          { "id": "ec2-ap-southeast-1", "label": "ap-southeast-1" },
+          { "id": "ec2-ap-northeast-1", "label": "ap-northeast-1" }
+        ]
+      },
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "aws_s3",
+      "sourceId": "aws",
+      "name": "Amazon S3",
+      "category": "data",
+      "description": "Amazon S3 object storage, scoped to one AWS region.",
+      "selector": { "kind": "component_ids", "aggregation": "worst_of", "ids": [] },
+      "scope": {
+        "kind": "required_options",
+        "options": [
+          { "id": "s3-us-east-1", "label": "us-east-1" },
+          { "id": "s3-us-east-2", "label": "us-east-2" },
+          { "id": "s3-us-west-2", "label": "us-west-2" },
+          { "id": "s3-eu-west-1", "label": "eu-west-1" },
+          { "id": "s3-eu-central-1", "label": "eu-central-1" },
+          { "id": "s3-ap-southeast-1", "label": "ap-southeast-1" },
+          { "id": "s3-ap-northeast-1", "label": "ap-northeast-1" }
+        ]
+      },
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "aws_rds",
+      "sourceId": "aws",
+      "name": "Amazon RDS",
+      "category": "data",
+      "description": "Amazon RDS managed databases, scoped to one AWS region.",
+      "selector": { "kind": "component_ids", "aggregation": "worst_of", "ids": [] },
+      "scope": {
+        "kind": "required_options",
+        "options": [
+          { "id": "rds-us-east-1", "label": "us-east-1" },
+          { "id": "rds-us-east-2", "label": "us-east-2" },
+          { "id": "rds-us-west-2", "label": "us-west-2" },
+          { "id": "rds-eu-west-1", "label": "eu-west-1" },
+          { "id": "rds-eu-central-1", "label": "eu-central-1" },
+          { "id": "rds-ap-southeast-1", "label": "ap-southeast-1" },
+          { "id": "rds-ap-northeast-1", "label": "ap-northeast-1" }
+        ]
+      },
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "aws_dynamodb",
+      "sourceId": "aws",
+      "name": "Amazon DynamoDB",
+      "category": "data",
+      "description": "Amazon DynamoDB, scoped to one AWS region.",
+      "selector": { "kind": "component_ids", "aggregation": "worst_of", "ids": [] },
+      "scope": {
+        "kind": "required_options",
+        "options": [
+          { "id": "dynamodb-us-east-1", "label": "us-east-1" },
+          { "id": "dynamodb-us-east-2", "label": "us-east-2" },
+          { "id": "dynamodb-us-west-2", "label": "us-west-2" },
+          { "id": "dynamodb-eu-west-1", "label": "eu-west-1" },
+          { "id": "dynamodb-eu-central-1", "label": "eu-central-1" },
+          { "id": "dynamodb-ap-southeast-1", "label": "ap-southeast-1" },
+          { "id": "dynamodb-ap-northeast-1", "label": "ap-northeast-1" }
+        ]
+      },
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "aws_lambda",
+      "sourceId": "aws",
+      "name": "AWS Lambda",
+      "category": "hosting",
+      "description": "AWS Lambda serverless compute, scoped to one AWS region.",
+      "selector": { "kind": "component_ids", "aggregation": "worst_of", "ids": [] },
+      "scope": {
+        "kind": "required_options",
+        "options": [
+          { "id": "lambda-us-east-1", "label": "us-east-1" },
+          { "id": "lambda-us-east-2", "label": "us-east-2" },
+          { "id": "lambda-us-west-2", "label": "us-west-2" },
+          { "id": "lambda-eu-west-1", "label": "eu-west-1" },
+          { "id": "lambda-eu-central-1", "label": "eu-central-1" },
+          { "id": "lambda-ap-southeast-1", "label": "ap-southeast-1" },
+          { "id": "lambda-ap-northeast-1", "label": "ap-northeast-1" }
+        ]
+      },
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
       "id": "google_cloud_run",
       "sourceId": "google_cloud",
       "name": "Google Cloud Run",
@@ -374,6 +626,22 @@
       },
       "scope": { "kind": "discovered_locations", "required": false },
       "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "azure_platform",
+      "sourceId": "azure",
+      "name": "Azure Platform",
+      "category": "hosting",
+      "description": "Provider-wide Azure incident feed. It is quiet when Azure reports no incidents and surfaces only active, provider-declared service issues with no per-component health.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["incident-feed"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "fidelity": "incident_only",
       "enabled": true
     },
     {
@@ -452,6 +720,35 @@
       "enabled": true
     },
     {
+      "id": "auth0_authentication",
+      "sourceId": "auth0",
+      "name": "Auth0 Authentication",
+      "category": "auth",
+      "description": "Auth0 authentication for one selected regional environment.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": []
+      },
+      "scope": {
+        "kind": "required_options",
+        "options": [
+          { "id": "US-1", "label": "US-1" },
+          { "id": "US-3", "label": "US-3" },
+          { "id": "US-4", "label": "US-4" },
+          { "id": "US-5", "label": "US-5" },
+          { "id": "EU-1", "label": "EU-1" },
+          { "id": "EU-2", "label": "EU-2" },
+          { "id": "AU", "label": "AU" },
+          { "id": "JP-1", "label": "JP-1" },
+          { "id": "UK-1", "label": "UK-1" },
+          { "id": "CA-1", "label": "CA-1" }
+        ]
+      },
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
       "id": "neon_database",
       "sourceId": "neon",
       "name": "Neon Database",
@@ -490,11 +787,11 @@
       "selector": {
         "kind": "component_ids",
         "aggregation": "worst_of",
-        "ids": ["yz6pcnlscwpb"]
+        "ids": ["36n3k66s7n2v"]
       },
       "scope": { "kind": "discovered_children", "groupId": "36n3k66s7n2v", "required": true },
       "sourceScopeNote": null,
-      "enabled": false
+      "enabled": true
     },
     {
       "id": "supabase_auth",
@@ -535,11 +832,11 @@
       "selector": {
         "kind": "component_ids",
         "aggregation": "worst_of",
-        "ids": []
+        "ids": ["3wszb9kxy0n8"]
       },
       "scope": { "kind": "discovered_children", "groupId": "3wszb9kxy0n8", "required": true },
       "sourceScopeNote": null,
-      "enabled": false
+      "enabled": true
     },
     {
       "id": "stripe_api",
@@ -671,6 +968,66 @@
         "kind": "component_ids",
         "aggregation": "worst_of",
         "ids": ["br0l2tvcx85d"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "hetzner_cloud_server",
+      "sourceId": "hetzner",
+      "name": "Hetzner Cloud Server",
+      "category": "hosting",
+      "description": "Hetzner Cloud servers.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["3"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "hetzner_object_storage",
+      "sourceId": "hetzner",
+      "name": "Hetzner Object Storage",
+      "category": "hosting",
+      "description": "Hetzner Cloud Object Storage.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["91"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "hetzner_dedicated_server",
+      "sourceId": "hetzner",
+      "name": "Hetzner Dedicated Server",
+      "category": "hosting",
+      "description": "Hetzner dedicated root servers, ordered and administered through the Robot panel.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["6"]
+      },
+      "scope": null,
+      "sourceScopeNote": null,
+      "enabled": true
+    },
+    {
+      "id": "hetzner_dns",
+      "sourceId": "hetzner",
+      "name": "Hetzner DNS",
+      "category": "hosting",
+      "description": "Hetzner DNS API.",
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": ["78"]
       },
       "scope": null,
       "sourceScopeNote": null,

@@ -6,7 +6,7 @@ import type { Database, DatabaseTransaction } from "@/lib/db/client";
 import { dependencies, dependencyCatalog, dependencySources, dependencyState, dependencyStateIntervals } from "@/lib/db/schema";
 
 import { loadCatalogManifest, type CatalogManifest, type DependencyPresetManifest, type DependencySourceManifest } from "./manifest";
-import type { DependencyScope, DependencySelector } from "./types";
+import type { DependencyFidelity, DependencyScope, DependencySelector } from "./types";
 
 // -- syncCatalog -------------------------------------------------------------
 //
@@ -32,7 +32,7 @@ export interface CatalogSyncExecutor {
   lock(): Promise<void>;
   getStoredCatalogVersion(): Promise<string | null>;
   upsertSource(source: DependencySourceManifest, catalogVersion: string): Promise<void>;
-  upsertPreset(preset: DependencyPresetManifest, catalogVersion: string): Promise<void>;
+  upsertPreset(preset: DependencyPresetManifest, catalogVersion: string, fidelity: DependencyFidelity): Promise<void>;
   listEnabledSourceIds(): Promise<string[]>;
   disableSource(sourceId: string, observedAt: Date, error: string): Promise<void>;
   listEnabledPresetIdsForSource(sourceId: string): Promise<string[]>;
@@ -69,8 +69,13 @@ export async function syncCatalog(
     for (const source of manifest.sources) {
       await tx.upsertSource(source, manifest.catalogVersion);
     }
+    const sourceFidelityById = new Map(manifest.sources.map((source) => [source.id, source.fidelity ?? "component"] as const));
     for (const preset of manifest.presets) {
-      await tx.upsertPreset(preset, manifest.catalogVersion);
+      // Effective fidelity: the preset's own override, else its source's
+      // fidelity, else the "component" default. Resolved here so the stored
+      // catalog row carries one concrete value the reads never have to infer.
+      const fidelity = preset.fidelity ?? sourceFidelityById.get(preset.sourceId) ?? "component";
+      await tx.upsertPreset(preset, manifest.catalogVersion, fidelity);
     }
 
     const manifestSourceIds = new Set(manifest.sources.map((source) => source.id));
@@ -140,6 +145,7 @@ export function presetUpsertPlan(
   existing: StoredPresetDefinition | null,
   preset: DependencyPresetManifest,
   catalogVersion: string,
+  fidelity: DependencyFidelity = "component",
 ): PresetUpsertPlan {
   const shared = {
     id: preset.id,
@@ -150,6 +156,10 @@ export function presetUpsertPlan(
     selector: preset.selector,
     scopeOptions: preset.scope,
     sourceScopeNote: preset.sourceScopeNote,
+    // Fidelity is display and behavior metadata, not selector identity, so it
+    // rides in shared and updates on every version bump without resetting
+    // validation state, exactly like displayName and description.
+    fidelity,
     catalogVersion,
   };
   const insert = { ...shared, enabled: preset.enabled, validatedAt: null, validationError: null };
@@ -271,7 +281,7 @@ export function createSqlCatalogSyncStore(db: Database): CatalogSyncStore {
           set: plan.update,
         });
       },
-      upsertPreset: async (preset, catalogVersion) => {
+      upsertPreset: async (preset, catalogVersion, fidelity) => {
         const [existing] = await tx.select({
           sourceId: dependencyCatalog.sourceId,
           selector: dependencyCatalog.selector,
@@ -287,6 +297,7 @@ export function createSqlCatalogSyncStore(db: Database): CatalogSyncStore {
             : null,
           preset,
           catalogVersion,
+          fidelity,
         );
         await tx.insert(dependencyCatalog).values(plan.insert).onConflictDoUpdate({
           target: dependencyCatalog.id,

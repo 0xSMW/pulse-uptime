@@ -88,13 +88,21 @@ export function mapComponentStatus(status: string, sourceId: string): "OPERATION
 }
 
 /**
- * Statuspage maintenance lifecycle includes "verifying" between in_progress
- * and completed, which the fixed 9-value incident vocabulary has no slot
- * for. It maps to "monitoring": both mean the same thing, a fix is applied
- * and the provider is watching to confirm it held.
+ * Statuspage lifecycle statuses the fixed 9-value incident vocabulary has no
+ * slot for, folded onto their nearest equivalent.
+ *
+ * - "verifying" sits between maintenance's in_progress and completed. It maps
+ *   to "monitoring": both mean a fix is applied and the provider is watching
+ *   to confirm it held.
+ * - "postmortem" is the standard terminal status a provider sets once an
+ *   incident is over and a retrospective has been published. It maps to
+ *   "resolved": the incident is closed, and every postmortem incident already
+ *   carries resolved_at so resolvedAt is preserved.
  */
 function normalizeIncidentOrMaintenanceStatus(status: string): string {
-  return status === "verifying" ? "monitoring" : status;
+  if (status === "verifying") return "monitoring";
+  if (status === "postmortem") return "resolved";
+  return status;
 }
 
 /**

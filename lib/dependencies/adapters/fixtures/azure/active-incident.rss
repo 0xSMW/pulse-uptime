@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss xmlns:a10="http://www.w3.org/2005/Atom"
+  version="2.0">
+  <channel xmlns:slash="http://purl.org/rss/1.0/modules/slash/" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:wfw="http://wellformedweb.org/CommentAPI/" xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <title>Azure Status</title>
+    <link>https://azure.status.microsoft/en-us/status/</link>
+    <description>Azure Status</description>
+    <language>en-us</language>
+    <lastBuildDate>Mon, 20 Jul 2026 09:05:00 Z</lastBuildDate>
+    <item>
+      <guid isPermaLink="false">VLBP-1S8</guid>
+      <link>https://azure.status.microsoft/en-us/status</link>
+      <title>Azure Service Issue - Virtual Machines - West Europe</title>
+      <description>Starting at 08:45 UTC on 20 Jul 2026, a subset of customers using Virtual Machines in West Europe may experience connection failures or high latency. Engineers are actively investigating the underlying cause.</description>
+      <pubDate>Mon, 20 Jul 2026 08:50:00 Z</pubDate>
+      <a10:updated>2026-07-20T08:50:00Z</a10:updated>
+    </item>
+  </channel>
+</rss>

@@ -188,6 +188,126 @@ describe("fetchProviderDocument conditional requests", () => {
   });
 });
 
+function bytesBody(buffer: Uint8Array): FetchResponse["body"] {
+  return {
+    async *[Symbol.asyncIterator]() {
+      yield buffer;
+    },
+    destroy: vi.fn(),
+  };
+}
+
+function respondWith(response: FetchResponse) {
+  return vi.fn<(url: URL, options: Record<string, unknown>) => Promise<FetchResponse>>().mockResolvedValueOnce(response);
+}
+
+describe("fetchProviderDocument body cap override", () => {
+  it("accepts a body above the 512KB default when the source raises maxBodyBytes", async () => {
+    const payload = { blob: "x".repeat(700 * 1024) };
+    const request = respondWith({ statusCode: 200, headers: { "content-type": "application/json" }, body: bytesBody(new TextEncoder().encode(JSON.stringify(payload))) });
+    const source = { id: "aws", allowedHosts: ["www.vercel-status.com"], maxBodyBytes: 2 * 1024 * 1024 };
+    const result = await fetchProviderDocument(source, { url: "https://www.vercel-status.com/summary.json" }, {
+      request, createDispatcher: () => fakeDispatcher(),
+    });
+    expect(result).toMatchObject({ status: "ok" });
+  });
+
+  it("still rejects a body past the default when the source sets no override", async () => {
+    const request = respondWith({ statusCode: 200, headers: { "content-type": "application/json" }, body: bytesBody(new Uint8Array(600 * 1024)) });
+    await expect(fetchProviderDocument(SOURCE, { url: "https://www.vercel-status.com/summary.json" }, {
+      request, createDispatcher: () => fakeDispatcher(),
+    })).rejects.toMatchObject({ code: "TOO_LARGE" });
+  });
+
+  it("clamps an over-ceiling maxBodyBytes to 4MB rather than honoring it", async () => {
+    // A 5MB body must fail even though the source asked for 8MB, since the cap is clamped to the 4MB ceiling.
+    const request = respondWith({ statusCode: 200, headers: { "content-type": "application/json" }, body: bytesBody(new Uint8Array(5 * 1024 * 1024)) });
+    const source = { id: "aws", allowedHosts: ["www.vercel-status.com"], maxBodyBytes: 8 * 1024 * 1024 };
+    await expect(fetchProviderDocument(source, { url: "https://www.vercel-status.com/summary.json" }, {
+      request, createDispatcher: () => fakeDispatcher(),
+    })).rejects.toMatchObject({ code: "TOO_LARGE" });
+  });
+});
+
+describe("fetchProviderDocument UTF-16 decode", () => {
+  function bomLe(text: string): Uint8Array {
+    return Uint8Array.from([0xff, 0xfe, ...Buffer.from(text, "utf16le")]);
+  }
+  function bomBe(text: string): Uint8Array {
+    const le = Buffer.from(text, "utf16le");
+    const be = Buffer.allocUnsafe(le.length);
+    for (let index = 0; index < le.length; index += 2) {
+      be[index] = le[index + 1];
+      be[index + 1] = le[index];
+    }
+    return Uint8Array.from([0xfe, 0xff, ...be]);
+  }
+
+  it("decodes a charset=utf-16 body with a little-endian BOM before JSON.parse", async () => {
+    const request = respondWith({
+      statusCode: 200,
+      headers: { "content-type": "application/json;charset=utf-16" },
+      body: bytesBody(bomLe(JSON.stringify({ status: "ok", note: "héllo" }))),
+    });
+    const result = await fetchProviderDocument(SOURCE, { url: "https://www.vercel-status.com/summary.json" }, {
+      request, createDispatcher: () => fakeDispatcher(),
+    });
+    expect(result).toMatchObject({ status: "ok", json: { status: "ok", note: "héllo" } });
+  });
+
+  it("decodes a big-endian BOM body", async () => {
+    const request = respondWith({
+      statusCode: 200,
+      headers: { "content-type": "application/json" },
+      body: bytesBody(bomBe(JSON.stringify({ region: "us-east-1" }))),
+    });
+    const result = await fetchProviderDocument(SOURCE, { url: "https://www.vercel-status.com/summary.json" }, {
+      request, createDispatcher: () => fakeDispatcher(),
+    });
+    expect(result).toMatchObject({ status: "ok", json: { region: "us-east-1" } });
+  });
+
+  it("decodes a BOM-less charset=utf-16 body from the content-type alone", async () => {
+    const request = respondWith({
+      statusCode: 200,
+      headers: { "content-type": "application/json; charset=UTF-16LE" },
+      body: bytesBody(Uint8Array.from(Buffer.from(JSON.stringify({ ok: true }), "utf16le"))),
+    });
+    const result = await fetchProviderDocument(SOURCE, { url: "https://www.vercel-status.com/summary.json" }, {
+      request, createDispatcher: () => fakeDispatcher(),
+    });
+    expect(result).toMatchObject({ status: "ok", json: { ok: true } });
+  });
+});
+
+describe("fetchProviderDocument raw-text mode", () => {
+  it("returns the decoded body as text with no JSON.parse", async () => {
+    const xml = "<rss><channel><item><title>Down</title></item></channel></rss>";
+    const request = respondWith({ statusCode: 200, headers: { "content-type": "application/rss+xml" }, body: bytesBody(new TextEncoder().encode(xml)) });
+    const result = await fetchProviderDocument(SOURCE, { url: "https://www.vercel-status.com/incidents.rss", mode: "text" }, {
+      request, createDispatcher: () => fakeDispatcher(),
+    });
+    expect(result).toEqual({ status: "ok", statusCode: 200, text: xml, etag: null, lastModified: null });
+  });
+
+  it("does not throw INVALID_JSON on a non-JSON body in text mode", async () => {
+    const request = respondWith({ statusCode: 200, headers: {}, body: bytesBody(new TextEncoder().encode("not json at all")) });
+    const result = await fetchProviderDocument(SOURCE, { url: "https://www.vercel-status.com/incidents.rss", mode: "text" }, {
+      request, createDispatcher: () => fakeDispatcher(),
+    });
+    expect(result).toMatchObject({ status: "ok", text: "not json at all" });
+  });
+
+  it("sends a broad Accept header in text mode", async () => {
+    const request = respondWith({ statusCode: 200, headers: {}, body: bytesBody(new TextEncoder().encode("<feed/>")) });
+    await fetchProviderDocument(SOURCE, { url: "https://www.vercel-status.com/incidents.rss", mode: "text" }, {
+      request, createDispatcher: () => fakeDispatcher(),
+    });
+    const sentHeaders = request.mock.calls[0]?.[1]?.headers as Record<string, string>;
+    expect(sentHeaders.accept).toBe("*/*");
+  });
+});
+
 describe("fetchProviderDocument connection reuse", () => {
   it("reuses a caller-supplied dispatcher across documents and never closes it", async () => {
     const close = vi.fn().mockResolvedValue(undefined);

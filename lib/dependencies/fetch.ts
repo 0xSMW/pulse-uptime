@@ -5,13 +5,14 @@ import { Agent, request as undiciRequest, type Dispatcher } from "undici";
 import { BlockedTargetError, isIpLiteral } from "@/lib/checker/ip-policy";
 import { createSecureLookup, systemResolveAll, type ResolveAll, type SecureLookup } from "@/lib/checker/secure-lookup";
 
+import { DEFAULT_MAX_BODY_BYTES, MAX_BODY_BYTES_CEILING } from "./types";
+
 // Dependency polling needs to read a response body, unlike the endpoint
 // checker which destroys it by design. This module adds the controls the
 // checker never needed: a catalog host allowlist, a hard body cap, and
 // conditional-request validators, while reusing the same connect-time DNS
 // pinning so a status-feed host can never resolve to a private address.
 
-const MAX_BODY_BYTES = 512 * 1024;
 const REQUEST_DEADLINE_MS = 5_000;
 const MAX_REDIRECTS = 3;
 const USER_AGENT = "Pulse-Uptime-Dependencies/1.0";
@@ -52,11 +53,27 @@ export type FetchDocumentResult =
 export interface FetchProviderSource {
   id: string;
   allowedHosts: readonly string[];
+  /**
+   * Per-source body cap in bytes, raising the 512 KB default up to the 4 MB
+   * ceiling. Values are clamped into [DEFAULT_MAX_BODY_BYTES,
+   * MAX_BODY_BYTES_CEILING] here so a bad stored value can never disable the
+   * cap. Streaming enforcement is unchanged: the stream still aborts the
+   * moment the cap is crossed rather than buffering the whole body first.
+   */
+  maxBodyBytes?: number;
 }
 
 export interface FetchProviderRequest {
   url: string;
   validators?: FetchValidators;
+  /**
+   * "json" (default) parses the capped body as JSON and returns it as `json`.
+   * "text" returns the decoded body as `text` with no JSON.parse, for feeds
+   * that are not JSON (RSS/Atom, SSR HTML with an embedded payload). Both
+   * modes apply the identical allowlist, https-only, DNS-pinning, redirect,
+   * deadline, and body-cap controls before anything is returned.
+   */
+  mode?: "json" | "text";
 }
 
 export type ManagedDispatcher = Dispatcher & {
@@ -166,20 +183,65 @@ function classifyNetworkError(error: unknown, sourceId: string): ProviderFetchEr
   return new ProviderFetchError("NETWORK_ERROR", `${sourceId}: ${error instanceof Error ? error.message : String(error)}`);
 }
 
-/** Reads the response body as text, aborting once the cap is exceeded rather than buffering an unbounded stream. */
-async function readBounded(body: AsyncIterable<Uint8Array>, sourceId: string): Promise<string> {
+/** Clamps a source's configured cap into [default, ceiling], so a missing, malformed, or over-large value can never widen past 4 MB or shrink below the 512 KB default. */
+function resolveMaxBodyBytes(source: FetchProviderSource): number {
+  const configured = source.maxBodyBytes;
+  if (typeof configured !== "number" || !Number.isFinite(configured)) return DEFAULT_MAX_BODY_BYTES;
+  return Math.min(MAX_BODY_BYTES_CEILING, Math.max(DEFAULT_MAX_BODY_BYTES, Math.floor(configured)));
+}
+
+/** Reads the response body into a Buffer, aborting once the cap is exceeded rather than buffering an unbounded stream. Decoding is deferred so the charset can be chosen from the content-type or a byte-order mark. */
+async function readBounded(body: AsyncIterable<Uint8Array>, sourceId: string, maxBodyBytes: number): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let total = 0;
   for await (const chunk of body) {
     total += chunk.length;
-    if (total > MAX_BODY_BYTES) {
+    if (total > maxBodyBytes) {
       const destroyable = body as { destroy?: () => void };
       destroyable.destroy?.();
-      throw new ProviderFetchError("TOO_LARGE", `${sourceId}: response exceeded ${MAX_BODY_BYTES} bytes`);
+      throw new ProviderFetchError("TOO_LARGE", `${sourceId}: response exceeded ${maxBodyBytes} bytes`);
     }
     chunks.push(Buffer.from(chunk));
   }
-  return Buffer.concat(chunks).toString("utf8");
+  return Buffer.concat(chunks);
+}
+
+/**
+ * Decodes a response body to a string, honoring UTF-16. AWS Health serves
+ * application/json;charset=utf-16, and a UTF-16 payload read as UTF-8 is
+ * mojibake that fails JSON.parse. The charset is taken from a leading
+ * byte-order mark first (FF FE little-endian, FE FF big-endian), then from the
+ * content-type charset parameter, else UTF-8. Node decodes utf16le natively,
+ * so a big-endian body is byte-swapped into little-endian first. The BOM is
+ * stripped from the returned string so JSON.parse sees a bare value.
+ */
+function decodeBody(buffer: Buffer, contentType: string | undefined): string {
+  const charset = /charset=\s*"?([\w-]+)/i.exec(contentType ?? "")?.[1]?.toLowerCase();
+
+  if (buffer.length >= 2 && buffer[0] === 0xff && buffer[1] === 0xfe) {
+    return buffer.subarray(2).toString("utf16le");
+  }
+  if (buffer.length >= 2 && buffer[0] === 0xfe && buffer[1] === 0xff) {
+    return byteSwap16(buffer.subarray(2)).toString("utf16le");
+  }
+  if (charset === "utf-16" || charset === "utf-16le") {
+    return buffer.toString("utf16le");
+  }
+  if (charset === "utf-16be") {
+    return byteSwap16(buffer).toString("utf16le");
+  }
+  return buffer.toString("utf8");
+}
+
+/** Swaps each 16-bit unit's byte order, turning a big-endian UTF-16 buffer into the little-endian layout Node decodes. A trailing odd byte is dropped since it cannot form a code unit. */
+function byteSwap16(buffer: Buffer): Buffer {
+  const evenLength = buffer.length - (buffer.length % 2);
+  const swapped = Buffer.allocUnsafe(evenLength);
+  for (let index = 0; index < evenLength; index += 2) {
+    swapped[index] = buffer[index + 1];
+    swapped[index + 1] = buffer[index];
+  }
+  return swapped;
 }
 
 /**
@@ -187,8 +249,10 @@ async function readBounded(body: AsyncIterable<Uint8Array>, sourceId: string): P
  * requires: HTTPS-only, allowlisted hosts, no IP literals, connection-time
  * private-address rejection (via createSecureLookup), manual redirect
  * handling capped at three hops with every hop re-validated, a 5s deadline,
- * and a 512KB streamed body cap. Sends If-None-Match/If-Modified-Since from
- * the caller's stored validators and returns a not_modified marker on 304.
+ * and a streamed body cap (512KB default, raised per source up to 4MB). Sends
+ * If-None-Match/If-Modified-Since from the caller's stored validators and
+ * returns a not_modified marker on 304. Decodes UTF-16 payloads correctly and,
+ * in "text" mode, returns the raw decoded body without JSON.parse.
  * Reuses a caller-supplied dispatcher across a poll cycle's documents when one
  * is given, otherwise opens and closes its own for this call.
  */
@@ -218,6 +282,8 @@ export async function fetchProviderDocument(
   // new connection, so reuse never bypasses the SSRF guard.
   const dispatcher = deps.dispatcher ?? createProviderDispatcher({ resolveAll, createDispatcher });
   const ownsDispatcher = deps.dispatcher == null;
+  const maxBodyBytes = resolveMaxBodyBytes(source);
+  const acceptHeader = req.mode === "text" ? "*/*" : "application/json";
 
   let redirects = 0;
   try {
@@ -226,7 +292,7 @@ export async function fetchProviderDocument(
       const remaining = REQUEST_DEADLINE_MS - (now() - startedAt);
       if (remaining <= 0) throw new ProviderFetchError("TIMEOUT", `${source.id}: request deadline exceeded`);
 
-      const headers: Record<string, string> = { "user-agent": USER_AGENT, accept: "application/json" };
+      const headers: Record<string, string> = { "user-agent": USER_AGENT, accept: acceptHeader };
       if (redirects === 0) {
         if (req.validators?.etag) headers["if-none-match"] = req.validators.etag;
         if (req.validators?.lastModified) headers["if-modified-since"] = req.validators.lastModified;
@@ -278,9 +344,14 @@ export async function fetchProviderDocument(
         throw new ProviderFetchError("HTTP_STATUS", `${source.id}: unexpected status ${response.statusCode}`, response.statusCode, retryAfterMs);
       }
 
-      const bodyText = await readBounded(response.body, source.id);
+      const bodyBuffer = await readBounded(response.body, source.id, maxBodyBytes);
+      const bodyText = decodeBody(bodyBuffer, headerValue(response.headers, "content-type"));
       const etag = headerValue(response.headers, "etag") ?? null;
       const lastModified = headerValue(response.headers, "last-modified") ?? null;
+
+      if (req.mode === "text") {
+        return { status: "ok", statusCode: response.statusCode, text: bodyText, etag, lastModified };
+      }
 
       try {
         return { status: "ok", statusCode: response.statusCode, json: JSON.parse(bodyText), etag, lastModified };

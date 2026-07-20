@@ -4,6 +4,7 @@ import { Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 
+import { DependencyFidelityBadge } from "@/components/dependencies/dependency-status";
 import { Sheet } from "@/components/settings/sheet";
 import { apiRequest, messageForError, SettingsApiError, type ApiEnvelope } from "@/components/settings/settings-api";
 import { Button } from "@/components/ui/button";
@@ -226,7 +227,10 @@ export function AddDependencySheet({ open, onClose }: { open: boolean; onClose: 
                                 no logos and no brand colors, per the spec's
                                 "Entry point" section. */}
                             <p className="truncate text-[13px] font-medium">{preset.name}</p>
-                            <p className="truncate text-xs text-[var(--fg-muted)]">{preset.provider}</p>
+                            <div className="flex items-center gap-1.5 text-xs text-[var(--fg-muted)]">
+                              <span className="truncate">{preset.provider}</span>
+                              <DependencyFidelityBadge fidelity={preset.fidelity} />
+                            </div>
                           </div>
                           <div className="flex shrink-0 items-center gap-2">
                             {needsScope && preset.scope?.kind === "required_options" ? (

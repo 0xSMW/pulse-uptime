@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>OpenRouter Status - Incident History</title>
+    <link>status.openrouter.ai</link>
+    <description>Statuspage</description>
+    <lastBuildDate>Sun, 06 Jul 2026 07:00:00 GMT</lastBuildDate>
+    <item>
+      <title>Routing latency incident</title>
+      <description><![CDATA[<p><small>Jul 6, 06:45 UTC</small><br/><strong>RESOLVED</strong> - The incident has been resolved and routing latency is back to normal.</p><p><small>Jul 6, 06:10 UTC</small><br/><strong>MONITORING</strong> - A fix has been applied and we are monitoring the results.</p><p><small>Jul 6, 05:30 UTC</small><br/><strong>INVESTIGATING</strong> - We are investigating increased routing latency.</p>]]></description>
+      <pubDate>Sun, 06 Jul 2026 05:30:00 GMT</pubDate>
+      <link>status.openrouter.ai/incidents/Res456Done</link>
+      <guid isPermaLink="true">status.openrouter.ai/incidents/Res456Done</guid>
+    </item>
+    <item>
+      <title>Scheduled Database Maintenance</title>
+      <description><![CDATA[<p><small>Jul 5, 6:30 AM UTC</small><br/><strong>COMPLETED</strong> - Scheduled maintenance has been completed.</p>]]></description>
+      <pubDate>Sun, 05 Jul 2026 06:00:39 GMT</pubDate>
+      <link>status.openrouter.ai/incidents/Mnt0DVmalJZ</link>
+      <guid isPermaLink="true">status.openrouter.ai/incidents/Mnt0DVmalJZ</guid>
+    </item>
+  </channel>
+</rss>

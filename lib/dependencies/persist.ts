@@ -551,6 +551,17 @@ export async function persistSnapshot(
         } else {
           if (!existingMatchesForEmptyIncidents.has(`${dependency.id}:${incidentInternalId}`)) continue;
           isNewMatch = false;
+          // An explicit provider's resolved empty-component incident is the
+          // resolution of a page-level incident, which is exactly the
+          // incident_only case (OpenRouter, Azure): the incident opened with no
+          // component (matched page-level, active branch above) and now carries
+          // resolvedAt. Mark it page-level so the F2 recovery gate exempts it,
+          // letting the resolved alert fire even though an incident_only source
+          // resolves to UNKNOWN with no component state to return to
+          // OPERATIONAL. An inferred provider (incidentio_compat) keeps the gate,
+          // since its empty componentIds mean inference was declined, not a real
+          // page-level scope.
+          isPageLevelMatch = associationKind === "explicit";
         }
 
         // The event is derived from the incident's observed state transition
@@ -578,8 +589,12 @@ export async function persistSnapshot(
         // back to OPERATIONAL. A dependency matched to two concurrent
         // incidents that is still degraded by the other one when this one
         // resolves keeps a non-OPERATIONAL nextState, so its premature
-        // recovery is suppressed until it truly recovers.
-        if (event === "recovery" && nextState !== "OPERATIONAL") continue;
+        // recovery is suppressed until it truly recovers. A page-level match is
+        // exempt: an incident_only source (OpenRouter, Azure) has no component
+        // state and resolves to UNKNOWN whether or not an incident is active, so
+        // gating on OPERATIONAL would drop every resolved alert. Its scope is the
+        // whole source, so the incident resolving IS the recovery.
+        if (event === "recovery" && nextState !== "OPERATIONAL" && !isPageLevelMatch) continue;
 
         if (!dependency.notificationsEnabled || context.defaultRecipients.length === 0) continue;
 

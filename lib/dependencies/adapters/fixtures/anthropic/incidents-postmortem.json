@@ -1,0 +1,43 @@
+{
+  "page": { "id": "tymt9n04zgry", "name": "Claude", "url": "https://status.anthropic.com", "time_zone": "Etc/UTC", "updated_at": "2026-07-15T12:00:00.000Z" },
+  "incidents": [
+    {
+      "id": "pm7x3incident01",
+      "name": "Elevated latency on a Claude model",
+      "status": "postmortem",
+      "created_at": "2026-07-14T18:32:32.629Z",
+      "updated_at": "2026-07-15T12:00:00.000Z",
+      "monitoring_at": "2026-07-14T18:48:23.145Z",
+      "resolved_at": "2026-07-14T19:43:35.467Z",
+      "started_at": "2026-07-14T18:32:32.619Z",
+      "impact": "minor",
+      "shortlink": "https://stspg.io/pm7x3short01",
+      "components": [
+        { "id": "k8w3r06qmzrp", "name": "Claude API (api.anthropic.com)", "status": "operational" }
+      ],
+      "incident_updates": [
+        {
+          "id": "pm7x3update01",
+          "status": "postmortem",
+          "body": "We have published a retrospective for this incident.",
+          "created_at": "2026-07-15T12:00:00.000Z",
+          "updated_at": "2026-07-15T12:00:00.000Z"
+        },
+        {
+          "id": "pm7x3update02",
+          "status": "resolved",
+          "body": "This issue has been resolved.",
+          "created_at": "2026-07-14T19:43:35.467Z",
+          "updated_at": "2026-07-14T19:43:35.467Z"
+        },
+        {
+          "id": "pm7x3update03",
+          "status": "investigating",
+          "body": "We are investigating elevated latency.",
+          "created_at": "2026-07-14T18:32:32.629Z",
+          "updated_at": "2026-07-14T18:32:32.629Z"
+        }
+      ]
+    }
+  ]
+}

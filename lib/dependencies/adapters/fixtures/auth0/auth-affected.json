@@ -1,0 +1,222 @@
+{
+  "buildId": "test-build-id",
+  "page": "/",
+  "props": {
+    "pageProps": {
+      "accountNames": [],
+      "activeIncidents": [
+        {
+          "region": "US-1",
+          "environment": "Production",
+          "response": {
+            "uptime": "99.50%",
+            "incidents": [
+              {
+                "status": "identified",
+                "name": "Login service disruption",
+                "id": "inc_multi_c4",
+                "updated_at": "2026-07-20T08:30:00.000Z",
+                "resolved_at": null,
+                "scheduled_for": null,
+                "monitoring_at": null,
+                "authenticationAffected": true,
+                "impact": "critical",
+                "isPrivate": false
+              }
+            ]
+          }
+        },
+        {
+          "region": "US-3",
+          "environment": "Production",
+          "response": {
+            "uptime": "99.50%",
+            "incidents": [
+              {
+                "status": "identified",
+                "name": "Login service disruption",
+                "id": "inc_multi_c4",
+                "updated_at": "2026-07-20T08:31:00.000Z",
+                "resolved_at": null,
+                "scheduled_for": null,
+                "monitoring_at": null,
+                "authenticationAffected": false,
+                "impact": "critical",
+                "isPrivate": false
+              }
+            ]
+          }
+        },
+        {
+          "region": "US-4",
+          "environment": "Production",
+          "response": {
+            "uptime": "99.99%",
+            "incidents": [
+              {
+                "status": "operational",
+                "name": "All Systems Operational",
+                "id": "",
+                "updated_at": "2026-07-20T10:00:00.000Z",
+                "resolved_at": null,
+                "scheduled_for": null,
+                "monitoring_at": null,
+                "authenticationAffected": false,
+                "impact": "none",
+                "isPrivate": false
+              }
+            ]
+          }
+        },
+        {
+          "region": "US-5",
+          "environment": "Production",
+          "response": {
+            "uptime": "99.99%",
+            "incidents": [
+              {
+                "status": "operational",
+                "name": "All Systems Operational",
+                "id": "",
+                "updated_at": "2026-07-20T10:00:00.000Z",
+                "resolved_at": null,
+                "scheduled_for": null,
+                "monitoring_at": null,
+                "authenticationAffected": false,
+                "impact": "none",
+                "isPrivate": false
+              }
+            ]
+          }
+        },
+        {
+          "region": "EU-1",
+          "environment": "Production",
+          "response": {
+            "uptime": "99.99%",
+            "incidents": [
+              {
+                "status": "operational",
+                "name": "All Systems Operational",
+                "id": "",
+                "updated_at": "2026-07-20T10:00:00.000Z",
+                "resolved_at": null,
+                "scheduled_for": null,
+                "monitoring_at": null,
+                "authenticationAffected": false,
+                "impact": "none",
+                "isPrivate": false
+              }
+            ]
+          }
+        },
+        {
+          "region": "EU-2",
+          "environment": "Production",
+          "response": {
+            "uptime": "99.99%",
+            "incidents": [
+              {
+                "status": "operational",
+                "name": "All Systems Operational",
+                "id": "",
+                "updated_at": "2026-07-20T10:00:00.000Z",
+                "resolved_at": null,
+                "scheduled_for": null,
+                "monitoring_at": null,
+                "authenticationAffected": false,
+                "impact": "none",
+                "isPrivate": false
+              }
+            ]
+          }
+        },
+        {
+          "region": "AU",
+          "environment": "Production",
+          "response": {
+            "uptime": "99.99%",
+            "incidents": [
+              {
+                "status": "operational",
+                "name": "All Systems Operational",
+                "id": "",
+                "updated_at": "2026-07-20T10:00:00.000Z",
+                "resolved_at": null,
+                "scheduled_for": null,
+                "monitoring_at": null,
+                "authenticationAffected": false,
+                "impact": "none",
+                "isPrivate": false
+              }
+            ]
+          }
+        },
+        {
+          "region": "JP-1",
+          "environment": "Production",
+          "response": {
+            "uptime": "99.99%",
+            "incidents": [
+              {
+                "status": "operational",
+                "name": "All Systems Operational",
+                "id": "",
+                "updated_at": "2026-07-20T10:00:00.000Z",
+                "resolved_at": null,
+                "scheduled_for": null,
+                "monitoring_at": null,
+                "authenticationAffected": false,
+                "impact": "none",
+                "isPrivate": false
+              }
+            ]
+          }
+        },
+        {
+          "region": "UK-1",
+          "environment": "Production",
+          "response": {
+            "uptime": "99.99%",
+            "incidents": [
+              {
+                "status": "operational",
+                "name": "All Systems Operational",
+                "id": "",
+                "updated_at": "2026-07-20T10:00:00.000Z",
+                "resolved_at": null,
+                "scheduled_for": null,
+                "monitoring_at": null,
+                "authenticationAffected": false,
+                "impact": "none",
+                "isPrivate": false
+              }
+            ]
+          }
+        },
+        {
+          "region": "CA-1",
+          "environment": "Production",
+          "response": {
+            "uptime": "99.99%",
+            "incidents": [
+              {
+                "status": "operational",
+                "name": "All Systems Operational",
+                "id": "",
+                "updated_at": "2026-07-20T10:00:00.000Z",
+                "resolved_at": null,
+                "scheduled_for": null,
+                "monitoring_at": null,
+                "authenticationAffected": false,
+                "impact": "none",
+                "isPrivate": false
+              }
+            ]
+          }
+        }
+      ],
+      "timeline": {}
+    }
+  }
+}

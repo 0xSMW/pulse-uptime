@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { useTimezone } from "@/components/dashboard/timezone-provider";
-import { DependencyStatusBadge } from "@/components/dependencies/dependency-status";
+import { DependencyFidelityBadge, DependencyStatusBadge } from "@/components/dependencies/dependency-status";
 import { DependencyTimeline } from "@/components/dependencies/dependency-timeline";
 import { apiRequest, messageForError } from "@/components/settings/settings-api";
 import { Button } from "@/components/ui/button";
@@ -123,7 +123,7 @@ export function DependencyDetail({ dependency }: { dependency: DependencyDetailD
   return (
     <div className="space-y-6">
       <header>
-        <Link href="/" className="mb-5 inline-flex items-center gap-1.5 text-[13px] text-[var(--fg-muted)] hover:text-[var(--fg)]">
+        <Link href="/" className="mb-5 inline-flex items-center gap-1.5 text-[13px] text-[var(--fg-muted)] transition-colors duration-150 hover:text-[var(--fg)]">
           <ArrowLeft className="size-3.5" aria-hidden />
           Overview
         </Link>
@@ -131,9 +131,10 @@ export function DependencyDetail({ dependency }: { dependency: DependencyDetailD
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2.5">
               <h1 className="text-xl font-semibold tracking-[-0.02em]">{dependency.name}</h1>
-              <DependencyStatusBadge state={dependency.state} />
+              <DependencyStatusBadge state={dependency.state} pending={dependency.pendingFirstPoll} />
+              <DependencyFidelityBadge fidelity={dependency.fidelity} />
               {dependency.pendingFirstPoll ? (
-                <span className="text-xs text-[var(--fg-muted)]">Checking for updates</span>
+                <span className="text-xs text-[var(--fg-muted)]">Awaiting first check</span>
               ) : null}
             </div>
             <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2 text-[13px] text-[var(--fg-muted)]">
@@ -173,7 +174,7 @@ export function DependencyDetail({ dependency }: { dependency: DependencyDetailD
             <p className="text-xs text-[var(--fg-muted)]">Provider reported</p>
           </CardHeader>
           <CardContent>
-            <DependencyTimeline buckets={dependency.timeline24h} bucketMs={3_600_000} label="24 hour provider timeline" height={32} />
+            <DependencyTimeline buckets={dependency.timeline24h} bucketMs={3_600_000} label="24 hour provider timeline" height={32} timeZone={resolvedTimeZone} />
           </CardContent>
         </Card>
         <Card>
@@ -182,7 +183,7 @@ export function DependencyDetail({ dependency }: { dependency: DependencyDetailD
             <p className="text-xs text-[var(--fg-muted)]">Provider reported</p>
           </CardHeader>
           <CardContent>
-            <DependencyTimeline buckets={dependency.timeline7d} bucketMs={86_400_000} label="7 day provider timeline" height={32} />
+            <DependencyTimeline buckets={dependency.timeline7d} bucketMs={86_400_000} label="7 day provider timeline" height={32} timeZone={resolvedTimeZone} />
           </CardContent>
         </Card>
       </div>
@@ -207,7 +208,7 @@ export function DependencyDetail({ dependency }: { dependency: DependencyDetailD
             href={dependency.canonicalUrl}
             target="_blank"
             rel="noreferrer"
-            className="mt-4 inline-flex items-center gap-1.5 text-[13px] text-[var(--fg)] hover:underline"
+            className="mt-4 inline-flex items-center gap-1.5 text-[13px] text-[var(--fg)] transition-opacity duration-150 hover:opacity-70"
           >
             View Provider Status
             <ExternalLink className="size-3.5" aria-hidden />

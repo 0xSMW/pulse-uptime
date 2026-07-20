@@ -18,9 +18,15 @@ const LAUNCH_PROVIDERS = [
   "Postmark",
   "Twilio",
   "GitHub",
+  "DigitalOcean",
+  "Auth0",
+  "AWS",
+  "Hetzner",
+  "OpenRouter",
+  "Azure",
 ];
 
-const HELD_PROVIDER_NAMES = ["openrouter", "auth0", "aws"];
+const HELD_PROVIDER_NAMES: string[] = [];
 
 describe("loadCatalogManifest", () => {
   it("parses the shipped catalog.json without throwing", () => {
@@ -30,7 +36,7 @@ describe("loadCatalogManifest", () => {
   it("ships schemaVersion 1 and the expected catalog version", () => {
     const manifest = loadCatalogManifest();
     expect(manifest.schemaVersion).toBe(1);
-    expect(manifest.catalogVersion).toBe("2026-07-20.1");
+    expect(manifest.catalogVersion).toBe("2026-07-20.2");
   });
 
   it("includes every launch-ready provider from the registry", () => {
@@ -124,6 +130,91 @@ describe("catalogManifestSchema invariants", () => {
     const broken = {
       ...manifest,
       sources: [{ ...manifest.sources[0], allowedHosts: ["not-the-right-host.example"] }, ...manifest.sources.slice(1)],
+    };
+    expect(() => catalogManifestSchema.parse(broken)).toThrow();
+  });
+});
+
+describe("catalogManifestSchema fidelity", () => {
+  const base = () => loadCatalogManifest();
+
+  it("accepts an incident_only fidelity on a source and a preset", () => {
+    const manifest = base();
+    const withFidelity = {
+      ...manifest,
+      sources: [{ ...manifest.sources[0], fidelity: "incident_only" }, ...manifest.sources.slice(1)],
+      presets: [{ ...manifest.presets[0], fidelity: "incident_only" }, ...manifest.presets.slice(1)],
+    };
+    expect(() => catalogManifestSchema.parse(withFidelity)).not.toThrow();
+  });
+
+  it("treats a missing fidelity as valid, defaulting resolution to component at sync time", () => {
+    const manifest = base();
+    expect(manifest.sources.every((source) => source.fidelity === undefined || source.fidelity === "component" || source.fidelity === "incident_only")).toBe(true);
+    expect(() => catalogManifestSchema.parse(manifest)).not.toThrow();
+  });
+
+  it("rejects an unknown fidelity value", () => {
+    const manifest = base();
+    const broken = {
+      ...manifest,
+      presets: [{ ...manifest.presets[0], fidelity: "guessed" }, ...manifest.presets.slice(1)],
+    };
+    expect(() => catalogManifestSchema.parse(broken)).toThrow();
+  });
+});
+
+describe("catalogManifestSchema source config", () => {
+  const base = () => loadCatalogManifest();
+
+  it("accepts a per-source maxBodyBytes within the 4MB ceiling", () => {
+    const manifest = base();
+    const raised = {
+      ...manifest,
+      sources: [{ ...manifest.sources[0], config: { ...manifest.sources[0].config, maxBodyBytes: 2 * 1024 * 1024 } }, ...manifest.sources.slice(1)],
+    };
+    expect(() => catalogManifestSchema.parse(raised)).not.toThrow();
+  });
+
+  it("rejects a maxBodyBytes above the 4MB ceiling", () => {
+    const manifest = base();
+    const overCeiling = {
+      ...manifest,
+      sources: [{ ...manifest.sources[0], config: { ...manifest.sources[0].config, maxBodyBytes: 8 * 1024 * 1024 } }, ...manifest.sources.slice(1)],
+    };
+    expect(() => catalogManifestSchema.parse(overCeiling)).toThrow();
+  });
+
+  it("still passes through adapter-specific config keys alongside maxBodyBytes", () => {
+    const manifest = base();
+    const withExtra = {
+      ...manifest,
+      sources: [{ ...manifest.sources[0], config: { productsUrl: "https://status.example.com/products.json", maxBodyBytes: 1024 * 1024 } }, ...manifest.sources.slice(1)],
+    };
+    const parsed = catalogManifestSchema.parse(withExtra);
+    expect(parsed.sources[0].config).toMatchObject({ productsUrl: "https://status.example.com/products.json", maxBodyBytes: 1024 * 1024 });
+  });
+});
+
+describe("catalogManifestSchema adapter names", () => {
+  const base = () => loadCatalogManifest();
+
+  it("accepts the four provider-agent adapter names ahead of their modules", () => {
+    const manifest = base();
+    for (const adapter of ["aws_health", "nextdata_embedded", "incident_feed", "auth0_status"]) {
+      const withAdapter = {
+        ...manifest,
+        sources: [{ ...manifest.sources[0], adapter }, ...manifest.sources.slice(1)],
+      };
+      expect(() => catalogManifestSchema.parse(withAdapter)).not.toThrow();
+    }
+  });
+
+  it("rejects an adapter name outside the union", () => {
+    const manifest = base();
+    const broken = {
+      ...manifest,
+      sources: [{ ...manifest.sources[0], adapter: "made_up_adapter" }, ...manifest.sources.slice(1)],
     };
     expect(() => catalogManifestSchema.parse(broken)).toThrow();
   });

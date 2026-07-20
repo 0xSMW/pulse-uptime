@@ -106,7 +106,7 @@ describe("syncCatalog", () => {
     expect(executor.upsertSource).toHaveBeenCalledTimes(1);
     expect(executor.upsertSource).toHaveBeenCalledWith(manifest.sources[0], "2026-07-19.2");
     expect(executor.upsertPreset).toHaveBeenCalledTimes(1);
-    expect(executor.upsertPreset).toHaveBeenCalledWith(manifest.presets[0], "2026-07-19.2");
+    expect(executor.upsertPreset).toHaveBeenCalledWith(manifest.presets[0], "2026-07-19.2", "component");
     expect(executor.disableSource).not.toHaveBeenCalled();
   });
 

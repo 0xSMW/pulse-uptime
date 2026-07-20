@@ -1474,6 +1474,90 @@ describe("persistSnapshot: FIX F-A2 explicit-provider page-level incidents", () 
   });
 });
 
+// -- incident_only sources (OpenRouter, Azure) carry no component state: the
+// snapshot has components={} with componentsComplete true, so every installed
+// dependency resolves to UNKNOWN whether or not an incident is active, and the
+// incident is page-level (empty componentIds, explicit provider). The resolve
+// alert must still fire on the resolved transition even though nextState is
+// never OPERATIONAL, so a subscriber gets both the opened and the resolved
+// email rather than only the opened one.
+
+describe("persistSnapshot: incident_only page-level recovery under UNKNOWN state", () => {
+  it("fires incident then recovery for an incident_feed-shaped snapshot even though the source resolves to UNKNOWN", async () => {
+    const db = emptyDb([dependencyRow({ id: "dep-1", selector: { kind: "component_ids", aggregation: "worst_of", ids: ["incident-feed"] } })]);
+    const store = createFakeStore(db);
+    const source = baseSource({ adapter: "incident_feed", provider: "OpenRouter" });
+
+    const activeOutcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({
+        componentsComplete: true,
+        incidentsComplete: false,
+        components: {},
+        incidents: [incident({ componentIds: [] })],
+      }),
+      etag: null, lastModified: null,
+    };
+    const resolvedOutcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({
+        componentsComplete: true,
+        incidentsComplete: false,
+        components: {},
+        incidents: [incident({
+          componentIds: [],
+          state: "resolved",
+          resolvedAt: new Date(NOW.getTime() + 60_000).toISOString(),
+          updatedAt: new Date(NOW.getTime() + 60_000).toISOString(),
+        })],
+      }),
+      etag: null, lastModified: null,
+    };
+
+    const poll1 = await persistSnapshot(store, activeOutcome, source, { now: NOW, defaultRecipients: ["ops@example.com"] });
+    const poll2 = await persistSnapshot(store, resolvedOutcome, source, { now: new Date(NOW.getTime() + 60_000), defaultRecipients: ["ops@example.com"] });
+
+    expect(poll1.notificationsEnqueued).toBe(1);
+    expect(poll2.notificationsEnqueued).toBe(1);
+    expect(db.notifications.map((n) => n.event)).toEqual(["incident", "recovery"]);
+    // The dependency never leaves UNKNOWN: recovery fires on the incident's
+    // resolution, not on a return to OPERATIONAL component state.
+    expect(db.installed[0]?.currentState).toBe("UNKNOWN");
+    // One match row throughout: the resolved poll reuses the active poll's row.
+    expect(db.matches.size).toBe(1);
+  });
+
+  it("does not fire recovery for an inferred provider's resolved empty-component incident under UNKNOWN state", async () => {
+    const db = emptyDb([dependencyRow({ id: "dep-1", selector: { kind: "component_ids", aggregation: "worst_of", ids: ["incident-feed"] } })]);
+    const store = createFakeStore(db);
+    const source = baseSource({ adapter: "incidentio_compat" });
+
+    const activeOutcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({ componentsComplete: true, incidentsComplete: false, components: {}, incidents: [incident({ componentIds: [] })] }),
+      etag: null, lastModified: null,
+    };
+    const resolvedOutcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({
+        componentsComplete: true,
+        incidentsComplete: false,
+        components: {},
+        incidents: [incident({ componentIds: [], state: "resolved", resolvedAt: new Date(NOW.getTime() + 60_000).toISOString(), updatedAt: new Date(NOW.getTime() + 60_000).toISOString() })],
+      }),
+      etag: null, lastModified: null,
+    };
+
+    await persistSnapshot(store, activeOutcome, source, { now: NOW, defaultRecipients: ["ops@example.com"] });
+    await persistSnapshot(store, resolvedOutcome, source, { now: new Date(NOW.getTime() + 60_000), defaultRecipients: ["ops@example.com"] });
+
+    // An inferred provider declines page-level scope, so its active
+    // empty-component incident never matches and neither poll notifies.
+    expect(db.notifications).toHaveLength(0);
+    expect(db.matches.size).toBe(0);
+  });
+});
+
 // -- FIX F-A3: a matched open incident that vanishes from a complete snapshot
 // is closed (resolved_at set) and fires recovery, but only when the snapshot
 // authoritatively enumerates every open incident (incidentsComplete).

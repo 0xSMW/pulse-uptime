@@ -1,6 +1,6 @@
 import "server-only";
 
-import { AdapterParseError, adapterRegistry, type AdapterDocument } from "./adapters";
+import { AdapterParseError, resolveAdapter, type AdapterDocument } from "./adapters";
 import { ProviderFetchError, type FetchDocumentResult, type FetchProviderDocumentDeps } from "./fetch";
 import { createProviderDispatcher, fetchProviderDocument } from "./fetch";
 import type { DependencySourceManifest } from "./manifest";
@@ -42,7 +42,7 @@ export type PollOutcome =
 export interface PollDueSourcesDeps {
   store: PollerStore;
   persist(outcome: PollOutcome, source: PollerSourceRow, now: Date): Promise<void>;
-  fetchDocument?: (source: PollerSourceRow, request: { url: string; validators?: { etag: string | null; lastModified: string | null } }) => Promise<FetchDocumentResult>;
+  fetchDocument?: (source: PollerSourceRow, request: { url: string; validators?: { etag: string | null; lastModified: string | null }; mode?: "json" | "text" }) => Promise<FetchDocumentResult>;
   fetchDeps?: FetchProviderDocumentDeps;
   now?: () => Date;
   concurrency?: number;
@@ -53,6 +53,12 @@ export interface PollDueSourcesResult {
   polled: number;
   notModified: number;
   failed: number;
+}
+
+/** Reads a source's optional per-source body cap out of its config jsonb. The fetch clamps the value into its valid range, so an out-of-range stored value is harmless here. */
+function configuredMaxBodyBytes(config: Record<string, unknown>): number | undefined {
+  const value = config.maxBodyBytes;
+  return typeof value === "number" ? value : undefined;
 }
 
 function toManifestSource(row: PollerSourceRow): DependencySourceManifest {
@@ -133,7 +139,7 @@ async function pollOneSource(
   fetchDocument: NonNullable<PollDueSourcesDeps["fetchDocument"]>,
   now: Date,
 ): Promise<PollOutcome> {
-  const adapter = adapterRegistry[source.adapter];
+  const adapter = resolveAdapter(source.adapter);
   const manifestSource = toManifestSource(source);
 
   try {
@@ -180,7 +186,7 @@ async function pollOneSource(
 
         let result: FetchDocumentResult;
         try {
-          result = await fetchDocument(source, { url: request.url, validators });
+          result = await fetchDocument(source, { url: request.url, validators, mode: request.mode });
         } catch (error) {
           // A fetch failure on an optional document never fails the source. It is
           // skipped and the cycle continues on the primary summary that already
@@ -238,7 +244,7 @@ export async function pollDueSources(deps: PollDueSourcesDeps): Promise<PollDueS
   const dispatcher = deps.fetchDocument || sources.length === 0 ? null : createProviderDispatcher(deps.fetchDeps);
   const fetchDocument = deps.fetchDocument
     ?? ((source, request) => fetchProviderDocument(
-      { id: source.id, allowedHosts: source.allowedHosts },
+      { id: source.id, allowedHosts: source.allowedHosts, maxBodyBytes: configuredMaxBodyBytes(source.config) },
       request,
       { ...deps.fetchDeps, dispatcher: dispatcher ?? undefined },
     ));
