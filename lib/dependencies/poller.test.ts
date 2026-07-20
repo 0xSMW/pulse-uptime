@@ -163,8 +163,68 @@ describe("pollDueSources orchestration", () => {
       expect(outcome.snapshot.incidents).toHaveLength(1);
       expect(outcome.snapshot.incidents[0].externalId).toBe("503440");
     }
-    // components + notices-list + notice-detail: three distinct documents fetched.
+    // components + present notices list + past notices list + notice-detail:
+    // four distinct documents fetched.
     const urlsFetched = new Set(fetchDocument.mock.calls.map((call) => (call[1] as { url: string }).url));
-    expect(urlsFetched.size).toBe(3);
+    expect(urlsFetched.size).toBe(4);
+  });
+
+  it("persists validators from the primary document only, and replays them on the next cycle's first request only", async () => {
+    const currentEtag = "\"current-etag\"";
+    const currentLastModified = "Mon, 01 Jan 2024 00:00:00 GMT";
+    const incidentsEtag = "\"incidents-etag\"";
+    const incidentsLastModified = "Wed, 03 Jan 2024 00:00:00 GMT";
+
+    const persist = vi.fn();
+    const row = sourceRow();
+    const firstCycleFetch = vi.fn(async (_source: PollerSourceRow, request: { url: string }) => {
+      if (request.url === maintenanceDocUrl) return { status: "ok" as const, statusCode: 200, json: emptyMaintenanceDoc, etag: null, lastModified: null };
+      if (request.url === anthropicManifestSource.incidentsUrl) return { status: "ok" as const, statusCode: 200, json: emptyIncidentsDoc, etag: incidentsEtag, lastModified: incidentsLastModified };
+      if (request.url === anthropicManifestSource.currentUrl) return { status: "ok" as const, statusCode: 200, json: anthropicOperational, etag: currentEtag, lastModified: currentLastModified };
+      throw new Error(`unexpected url ${request.url}`);
+    });
+
+    const firstResult = await pollDueSources({
+      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      fetchDocument: firstCycleFetch,
+      persist,
+      now: () => NOW,
+    });
+    expect(firstResult).toEqual({ sourcesDue: 1, polled: 1, notModified: 0, failed: 0 });
+
+    const [firstOutcome] = persist.mock.calls[0] as [PollOutcome];
+    expect(firstOutcome.kind).toBe("snapshot");
+    if (firstOutcome.kind !== "snapshot") throw new Error("expected snapshot outcome");
+    // The incidents document resolves later than the current document, so a
+    // validator capture that is not scoped to the primary document would
+    // persist the incidents document's etag and last-modified instead.
+    expect(firstOutcome.etag).toBe(currentEtag);
+    expect(firstOutcome.lastModified).toBe(currentLastModified);
+
+    const secondRow = sourceRow({ etag: firstOutcome.etag, lastModified: firstOutcome.lastModified });
+    const secondCycleFetch = vi.fn(async (_source: PollerSourceRow, request: { url: string; validators?: { etag: string | null; lastModified: string | null } }) => {
+      if (request.url === anthropicManifestSource.currentUrl) {
+        expect(request.validators).toEqual({ etag: currentEtag, lastModified: currentLastModified });
+        return { status: "ok" as const, statusCode: 200, json: anthropicOperational, etag: currentEtag, lastModified: currentLastModified };
+      }
+      if (request.url === anthropicManifestSource.incidentsUrl) {
+        expect(request.validators).toBeUndefined();
+        return { status: "ok" as const, statusCode: 200, json: emptyIncidentsDoc, etag: incidentsEtag, lastModified: incidentsLastModified };
+      }
+      if (request.url === maintenanceDocUrl) {
+        expect(request.validators).toBeUndefined();
+        return { status: "ok" as const, statusCode: 200, json: emptyMaintenanceDoc, etag: null, lastModified: null };
+      }
+      throw new Error(`unexpected url ${request.url}`);
+    });
+
+    await pollDueSources({
+      store: { listDueSources: vi.fn().mockResolvedValue([secondRow]) },
+      fetchDocument: secondCycleFetch,
+      persist,
+      now: () => NOW,
+    });
+
+    expect(secondCycleFetch).toHaveBeenCalledTimes(3);
   });
 });

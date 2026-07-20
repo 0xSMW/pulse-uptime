@@ -122,8 +122,14 @@ async function pollOneSource(
         }
 
         documents.push({ kind: request.kind, url: request.url, json: result.json, text: result.text });
-        cacheEtag = result.etag ?? cacheEtag;
-        cacheLastModified = result.lastModified ?? cacheLastModified;
+        // Validators are replayed only against the first document of the next
+        // cycle, so only its own etag/lastModified may be persisted here.
+        // Capturing a later document's validators would let a stale-by-then
+        // 304 on the first document short-circuit the whole cycle.
+        if (isFirstDocumentOfCycle) {
+          cacheEtag = result.etag ?? cacheEtag;
+          cacheLastModified = result.lastModified ?? cacheLastModified;
+        }
       }
     }
 
