@@ -1,0 +1,89 @@
+name: Deploy canary
+
+# After a production deployment becomes READY, Vercel promotes it immediately.
+# This canary invokes the two critical crons against the live production alias
+# and fails loudly (red X on the commit, plus a commit comment) if either does
+# not report a healthy run. It catches code that shipped ahead of its schema.
+
+on:
+  deployment_status:
+
+permissions:
+  contents: write # create a commit comment on failure
+
+jobs:
+  canary:
+    name: Cron canary
+    # Only real, promoted production deployments. Skip previews and non-success.
+    if: >-
+      github.event.deployment_status.state == 'success' &&
+      github.event.deployment_status.environment == 'Production'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe crons
+        env:
+          BASE_URL: ${{ secrets.PRODUCTION_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SHA: ${{ github.event.deployment.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${BASE_URL:-}" ] || [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::PRODUCTION_URL and CRON_SECRET secrets must be set"
+            exit 1
+          fi
+
+          MAX_ATTEMPTS=10
+          SLEEP_SECONDS=6
+
+          # Probe one cron path. Passes on status completed or duplicate.
+          # Fails immediately on status failed. Retries lease-held and transient
+          # non-200 responses (alias promotion race) up to MAX_ATTEMPTS.
+          probe() {
+            path="$1"
+            url="${BASE_URL%/}${path}"
+            last=""
+            for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
+              code="$(curl -sS -m 30 -o /tmp/body -w '%{http_code}' \
+                -H "Authorization: Bearer ${CRON_SECRET}" "$url" || echo "000")"
+              status="$(jq -r '.status // "none"' /tmp/body 2>/dev/null || echo "none")"
+              last="http=${code} status=${status}"
+              echo "attempt ${attempt}/${MAX_ATTEMPTS} ${path} -> ${last}"
+
+              if [ "$status" = "failed" ]; then
+                REASON="${path} returned status=failed (http=${code})"
+                return 1
+              fi
+              if [ "$code" = "200" ] && { [ "$status" = "completed" ] || [ "$status" = "duplicate" ]; }; then
+                echo "${path} healthy (${last})"
+                return 0
+              fi
+              sleep "$SLEEP_SECONDS"
+            done
+            REASON="${path} never reported a healthy run (last ${last})"
+            return 1
+          }
+
+          REASON=""
+          rc=0
+          for p in /api/cron/check-monitors /api/cron/check-dependencies; do
+            if ! probe "$p"; then
+              rc=1
+              break
+            fi
+          done
+
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::Canary failed: ${REASON}"
+            if [ -n "${SHA:-}" ]; then
+              jq -nc --arg b "Deploy canary failed: ${REASON}" '{body:$b}' \
+                | gh api --method POST \
+                  "repos/${GITHUB_REPOSITORY}/commits/${SHA}/comments" \
+                  --input - >/dev/null 2>&1 || echo "could not post commit comment"
+            fi
+            exit 1
+          fi
+
+          echo "Both crons healthy."

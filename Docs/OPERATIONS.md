@@ -19,11 +19,41 @@ Never infer service health from a successful Vercel deployment alone.
 
 If a run fails:
 
-1. Inspect the matching structured `cron.failed` event and `cron_runs.error_message`.
+1. Inspect the matching structured `cron.failed` event, `cron_runs.error_message`, and `cron_runs.error_detail`.
 2. Confirm the last accepted configuration still exists in Postgres.
 3. Check Edge Config validity without replacing the accepted snapshot.
 4. Confirm Neon connectivity and lease expiry.
 5. Invoke the cron route once with `Authorization: Bearer $CRON_SECRET` after correcting the cause.
+
+### Recorded failure detail
+
+Every failed run stores the full fault in `cron_runs.error_detail` (jsonb) alongside the single-line `error_message`. The capture holds the message, the Postgres `code`, `detail`, `hint`, `severity`, `constraint`, `table`, `column`, `schema`, and `routine`, and the wrapped cause chain. It is bounded at 16 KB and sets `"truncated": true` when any field or cause was dropped to fit. Read `error_detail` first, it names the real fault where `error_message` only summarizes it.
+
+### Loop failure detection and self-alerting
+
+The monitoring loop reports its own health so a silent stop can never again go unseen.
+
+- The dashboard health banner and the Settings, System screen raise `MONITORING_STALE` when no `monitor-check` run has completed within three minutes, and `MONITORING_FAILING` when the last three terminal runs all failed. Either warning means the loop is broken the moment anyone opens the dashboard.
+- The sweep cron runs every ten minutes on a schedule separate from the per-minute loop and survived the incident that motivated this. It cross-checks `monitor-check` from `cron_runs`. When the loop is stale beyond five minutes or its recent runs are all failing, it enqueues a `system.alert` into the outbox and, because the outbox drainer rides the same broken loop, sends that same mail directly through the email transport in the same pass.
+- Alert recipients are the accepted configuration default recipients. Delivery is deduplicated to one mail per hour per recipient through the outbox idempotency key, so a persistent fault does not mail every ten minutes.
+
+Honest limits. If no default recipients are configured, no mail can send and only the dashboard surfaces the fault. The sweep alert still runs inside the same Vercel project, so a total deployment outage or a stopped Vercel cron scheduler defeats it. Cover that gap with the external dead-mans-switch below.
+
+### External dead-mans-switch (operator setup)
+
+The in-process alert cannot fire if the whole deployment is down. Add an independent outside heartbeat as the outer net.
+
+1. Create a check on an external service Pulse does not depend on (for example Healthchecks.io, Better Stack, or an external cron ping).
+2. Point it at the public `GET /api/health` endpoint on a two to three minute cadence. It answers `{ "app": "ok", "database": "ok" }` without authentication.
+3. Configure that service to alert you when the endpoint stops responding or reports `"database": "unreachable"`.
+
+This is deliberately a separate operator-owned dependency rather than a built-in one, so Pulse never relies on itself to prove it is alive.
+
+## Cold starts and keep-warm
+
+No keep-warm job runs, and none is needed. The `check-monitors` and `check-dependencies` crons fire every minute, so Neon receives a query roughly every sixty seconds around the clock. That traffic keeps the compute active well inside its idle-suspend window, so there is no cold Neon to warm and a dedicated keep-warm cron would only add a redundant per-minute query.
+
+The real cold-start surface is the serverless function itself, not the database. A cron invocation into an idle Vercel function pays the usual Node start and module-load cost on its first request. This is inherent to serverless scheduling, is a small fixed cost against the per-minute cadence and the sixty second `maxDuration`, and is not something a keep-warm query would remove. If a specific route's cold start ever matters, address it at the function level (bundle size, lazy imports) rather than by pinging the database.
 
 ## Notification delivery
 

@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "pnpm run vercel-build",
   "crons": [
     { "path": "/api/cron/check-monitors", "schedule": "* * * * *" },
     { "path": "/api/cron/check-dependencies", "schedule": "* * * * *" },

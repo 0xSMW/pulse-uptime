@@ -93,3 +93,29 @@ vercel deploy --prod --scope <team>
 ```
 
 After deployment, confirm `/api/v1/version`, `/openapi/v1.json`, `/status`, both authenticated cron routes, onboarding readiness, database migrations, Edge Config acceptance, and Resend delivery before declaring the installation ready.
+
+## 7. Deploy safety: migrate-before-traffic gate
+
+Vercel promotes a production deployment the moment its build finishes, so new code serves before manually applied migrations would run. Code that references a not-yet-added column fails at runtime with SQLSTATE 42703 and takes the crons down. The gate removes the manual step by applying migrations inside the production build, before the artifact that serves traffic is produced.
+
+The build command is `pnpm run vercel-build`, set in `vercel.json`. It runs `node scripts/migrate-deploy.mjs && next build`. The migrate script:
+
+- Migrates only when `VERCEL_ENV=production`. Preview and local builds log a skip and exit 0, so they never touch the production database.
+- Uses `DATABASE_URL_UNPOOLED` (the direct, non-pooled Neon connection). A pooled URL is refused, not used as a fallback, because advisory locks and DDL are session scoped and unreliable over the pooler.
+- Serializes overlapping builds with a Postgres advisory lock (`pg_try_advisory_lock`, bounded wait). Two builds cannot corrupt the drizzle journal. The second waits, then finds no pending migrations and no-ops.
+- Fails the build loudly on any migration error, so the previous deployment keeps serving.
+
+Required Vercel setting: `DATABASE_URL_UNPOOLED` must be present in the Production environment. Add the direct Neon connection string to Production in project settings, or `vercel env add DATABASE_URL_UNPOOLED production`. Without it the production build fails fast at the migrate step.
+
+### Expand, migrate, contract
+
+Schema changes ship in additive steps so no deployment ever reads a column that does not yet exist.
+
+- Additive migrations (new nullable columns, new tables, new indexes) ship ahead of or together with the code that reads them. The gate applies them before the reader serves traffic.
+- Destructive migrations (dropping or renaming a column, tightening a constraint) ship only after all code that reads the old shape is gone. Deploy the reader change first, let it go live, then ship the drop in a later deployment.
+
+## 8. Deploy safety: cron canary
+
+`.github/workflows/deploy-canary.yml` runs on GitHub `deployment_status` events (Vercel creates GitHub deployments for this repo). When a Production deployment reaches `success`, the workflow invokes `/api/cron/check-monitors` and `/api/cron/check-dependencies` once each with the `CRON_SECRET` bearer and asserts each returns status `completed` or `duplicate`. A `failed` status or a persistent non-200 fails the workflow (red X on the commit) and posts a commit comment naming the failing cron and its response.
+
+The canary targets the public production alias via the `PRODUCTION_URL` secret, not the immutable per-deployment URL, because that URL is behind Vercel deployment protection and returns an SSO redirect. Required GitHub Actions secrets: `CRON_SECRET` and `PRODUCTION_URL`.
