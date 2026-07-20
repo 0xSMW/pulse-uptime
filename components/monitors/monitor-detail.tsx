@@ -343,11 +343,19 @@ export function MonitorDetail({ monitor: snapshot }: { monitor: MonitorDetailDat
         },
         // The live payload carries the incident's live fields but not the
         // dependency overlaps, which ride the server snapshot and only change on
-        // a full refresh. Carry them across so a live update never drops the
-        // overlap card. A brand-new incident the poll surfaces first shows no
-        // overlaps until router.refresh recomputes them.
+        // a full refresh. Carry them across only when the live incident is the
+        // same incident as the snapshot's, matched by id, so a live update never
+        // drops the overlap card. A brand-new incident the poll surfaces first
+        // has a different id, so it shows no overlaps until router.refresh
+        // recomputes them and never inherits the prior incident's overlaps.
         latestIncident: live.data.latestIncident
-          ? { ...live.data.latestIncident, overlaps: snapshot.latestIncident?.overlaps ?? [] }
+          ? {
+              ...live.data.latestIncident,
+              overlaps:
+                live.data.latestIncident.id === snapshot.latestIncident?.id
+                  ? snapshot.latestIncident?.overlaps ?? []
+                  : [],
+            }
           : null,
       }
     : snapshot;
