@@ -2,14 +2,11 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
-import { and, eq, isNull, lte, or } from "drizzle-orm";
-
 import { loadAcceptedConfig } from "@/lib/api/config-mutation";
 import { db } from "@/lib/db/client";
-import { dependencies, dependencyCatalog, dependencySources } from "@/lib/db/schema";
 import { deliverPendingNotifications, type DeliverySummary } from "@/lib/notifications/delivery";
 import { createResendSender } from "@/lib/notifications/provider";
-import type { SqlExecutor } from "@/lib/notifications/sql";
+import { reconcileStaleClaims, type SqlExecutor } from "@/lib/notifications/sql";
 import { queryExecutor } from "@/lib/scheduler/runtime";
 import { createSqlLeaseStore } from "@/lib/scheduler/sql";
 import { scheduledMinuteAt } from "@/lib/scheduler/time";
@@ -18,6 +15,7 @@ import { createSqlCatalogSyncStore, syncCatalog } from "./catalog-sync";
 import { loadCatalogManifest } from "./manifest";
 import { createSqlPersistStore, persistSnapshot } from "./persist";
 import { pollDueSources, type PollerSourceRow, type PollerStore } from "./poller";
+import type { DependencyAdapterName } from "./types";
 
 // Mirrors runMonitoringCron (lib/scheduler/runtime.ts) but shares no lease,
 // deadline, or transaction with it, per the doc's isolation requirement:
@@ -95,52 +93,106 @@ function createDependencyCronRunStore(executor: SqlExecutor) {
   };
 }
 
-/** Enabled sources with at least one installed, non-removed dependency and next_poll_at due. Polling cadence fields live only in the manifest (not the DB contract), so each row is enriched from the shipped catalog by source id. */
-async function listDueSources(now: Date): Promise<PollerSourceRow[]> {
-  const manifest = loadCatalogManifest();
-  const manifestBySourceId = new Map(manifest.sources.map((source) => [source.id, source]));
+// A due source's next_poll_at is advanced to a near-future claim floor in the
+// same statement that selects it, so a second invocation overlapping this one
+// does not re-select and double-poll the same source. This is defense in depth
+// beyond the 90s process lease, for when the lease holder is hard-killed after
+// maxDuration without releasing, or work overruns the lease. The claim is a
+// floor, not a replacement: persistSnapshot rewrites next_poll_at with the real
+// operational or active cadence (computeNextPollAt) after the poll resolves, so
+// a completed poll always reschedules from the manifest cadence and only a lost
+// run leaves the claim floor standing. This mirrors the outbox claim
+// (CLAIM_NOTIFICATIONS_SQL in lib/notifications/sql.ts), a due CTE under
+// for update skip locked feeding an update ... returning.
+const DUE_SOURCE_CLAIM_INFLIGHT_MS = 60_000;
 
-  const rows = await db.selectDistinct({
-    id: dependencySources.id,
-    provider: dependencySources.providerName,
-    adapter: dependencySources.adapter,
-    currentUrl: dependencySources.currentUrl,
-    incidentsUrl: dependencySources.incidentsUrl,
-    statusPageUrl: dependencySources.statusPageUrl,
-    allowedHosts: dependencySources.allowedHosts,
-    config: dependencySources.config,
-    etag: dependencySources.etag,
-    lastModified: dependencySources.lastModified,
-    consecutiveFailures: dependencySources.consecutiveFailures,
-    lastSuccessAt: dependencySources.lastSuccessAt,
-  }).from(dependencySources)
-    .innerJoin(dependencyCatalog, eq(dependencyCatalog.sourceId, dependencySources.id))
-    .innerJoin(dependencies, and(eq(dependencies.catalogId, dependencyCatalog.id), isNull(dependencies.removedAt)))
-    .where(and(
-      eq(dependencySources.enabled, true),
-      or(isNull(dependencySources.nextPollAt), lte(dependencySources.nextPollAt, now)),
-    ));
+export const CLAIM_DUE_SOURCES_SQL = `
+with due as (
+  select ds.id
+  from dependency_sources ds
+  where ds.enabled = true
+    and (ds.next_poll_at is null or ds.next_poll_at <= $1)
+    and exists (
+      select 1
+      from dependency_catalog dc
+      join dependencies d on d.catalog_id = dc.id and d.removed_at is null
+      where dc.source_id = ds.id
+    )
+  order by ds.next_poll_at nulls first, ds.id
+  for update of ds skip locked
+)
+update dependency_sources as ds
+set next_poll_at = $2
+from due
+where ds.id = due.id
+returning ds.id, ds.provider_name, ds.adapter, ds.current_url, ds.incidents_url,
+          ds.status_page_url, ds.allowed_hosts, ds.config, ds.etag, ds.last_modified,
+          ds.consecutive_failures, ds.last_success_at
+`;
 
-  const due: PollerSourceRow[] = [];
-  for (const row of rows) {
-    const manifestSource = manifestBySourceId.get(row.id);
-    // syncCatalog disables any source dropped from the manifest on the same
-    // version change that drops it, so an enabled row missing from the
-    // manifest here would mean sync has not yet run for the current
-    // manifest. Skip rather than guess a polling cadence for it.
-    if (!manifestSource) continue;
-    due.push({
-      ...row,
-      config: row.config as Record<string, unknown>,
-      operationalPollSeconds: manifestSource.operationalPollSeconds,
-      activePollSeconds: manifestSource.activePollSeconds,
-      staleAfterSeconds: manifestSource.staleAfterSeconds,
-    });
-  }
-  return due;
+interface DueSourceRow {
+  id: string;
+  provider_name: string;
+  adapter: DependencyAdapterName;
+  current_url: string;
+  incidents_url: string | null;
+  status_page_url: string;
+  allowed_hosts: string[];
+  config: unknown;
+  etag: string | null;
+  last_modified: string | null;
+  consecutive_failures: number;
+  last_success_at: Date | null;
 }
 
-const pollerStore: PollerStore = { listDueSources };
+/**
+ * Enabled sources with at least one installed, non-removed dependency and
+ * next_poll_at due, claimed atomically so a concurrent invocation cannot
+ * re-select them (see CLAIM_DUE_SOURCES_SQL). Polling cadence fields live only
+ * in the manifest (not the DB contract), so each row is enriched from the
+ * shipped catalog by source id.
+ */
+export function createDueSourceStore(executor: SqlExecutor): PollerStore {
+  return {
+    async listDueSources(now: Date): Promise<PollerSourceRow[]> {
+      const manifest = loadCatalogManifest();
+      const manifestBySourceId = new Map(manifest.sources.map((source) => [source.id, source]));
+      const claimUntil = new Date(now.getTime() + DUE_SOURCE_CLAIM_INFLIGHT_MS);
+
+      const rows = await executor.query<DueSourceRow>(CLAIM_DUE_SOURCES_SQL, [now, claimUntil]);
+
+      const due: PollerSourceRow[] = [];
+      for (const row of rows) {
+        const manifestSource = manifestBySourceId.get(row.id);
+        // syncCatalog disables any source dropped from the manifest on the same
+        // version change that drops it, so an enabled row missing from the
+        // manifest here would mean sync has not yet run for the current
+        // manifest. Skip rather than guess a polling cadence for it. The claim
+        // above already advanced its next_poll_at, so it simply retries after
+        // the in-flight interval once sync catches up.
+        if (!manifestSource) continue;
+        due.push({
+          id: row.id,
+          provider: row.provider_name,
+          adapter: row.adapter,
+          currentUrl: row.current_url,
+          incidentsUrl: row.incidents_url,
+          statusPageUrl: row.status_page_url,
+          allowedHosts: row.allowed_hosts,
+          config: row.config as Record<string, unknown>,
+          etag: row.etag,
+          lastModified: row.last_modified,
+          consecutiveFailures: row.consecutive_failures,
+          lastSuccessAt: row.last_success_at,
+          operationalPollSeconds: manifestSource.operationalPollSeconds,
+          activePollSeconds: manifestSource.activePollSeconds,
+          staleAfterSeconds: manifestSource.staleAfterSeconds,
+        });
+      }
+      return due;
+    },
+  };
+}
 
 export type DependencyCronRunResult =
   | { status: "lease-held" }
@@ -153,6 +205,7 @@ export type DependencyCronRunResult =
       polled: number;
       notModified: number;
       failed: number;
+      staleClaims: number;
       delivery: DeliverySummary;
     }
   | { status: "failed"; runId: string; error: string };
@@ -174,6 +227,7 @@ export interface DependencyCronCoordinatorDeps {
   syncCatalog(): Promise<{ synced: boolean }>;
   loadDefaultRecipients(): Promise<string[]>;
   poll(defaultRecipients: string[]): Promise<{ sourcesDue: number; polled: number; notModified: number; failed: number }>;
+  reconcileOutbox(now: Date): Promise<number>;
   deliverOutbox(): Promise<DeliverySummary>;
   now?: () => Date;
   createId?: () => string;
@@ -201,6 +255,13 @@ export async function runDependencyCronCoordinator(deps: DependencyCronCoordinat
       const syncResult = await deps.syncCatalog();
       const defaultRecipients = await deps.loadDefaultRecipients();
       const pollResult = await deps.poll(defaultRecipients);
+      // Return stuck sending rows to pending before draining, so this cron
+      // self-heals its own claims left behind when a prior invocation was
+      // killed mid-send. Nothing else recovers them: the monitor and
+      // maintenance paths reconcile on their own schedule but never for a run
+      // that only this cron drives. Same staleness threshold as the monitor
+      // cron (reconcileStaleClaims default).
+      const staleClaims = await deps.reconcileOutbox(now());
       const delivery = await deps.deliverOutbox();
 
       await deps.runs.complete(runId, now(), {
@@ -218,6 +279,7 @@ export async function runDependencyCronCoordinator(deps: DependencyCronCoordinat
         polled: pollResult.polled,
         notModified: pollResult.notModified,
         failed: pollResult.failed,
+        staleClaims,
         delivery,
       } as const;
     } catch (error) {
@@ -240,11 +302,12 @@ export async function runDependencyCron(): Promise<DependencyCronRunResult> {
     syncCatalog: () => syncCatalog(createSqlCatalogSyncStore(db), manifest),
     loadDefaultRecipients: async () => (await loadAcceptedConfig()).config.settings.defaultRecipients,
     poll: (defaultRecipients) => pollDueSources({
-      store: pollerStore,
+      store: createDueSourceStore(queryExecutor),
       persist: async (outcome, source, now) => {
         await persistSnapshot(persistStore, outcome, source, { now, defaultRecipients });
       },
     }),
+    reconcileOutbox: (now) => reconcileStaleClaims(queryExecutor, now),
     deliverOutbox: () => deliverPendingNotifications({
       db: queryExecutor,
       sender: createResendSender({ apiKey: process.env.RESEND_API_KEY ?? "", from: process.env.RESEND_FROM_EMAIL ?? "" }),
