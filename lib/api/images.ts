@@ -139,7 +139,7 @@ export async function createImage(
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export async function getImage(
+export async function findImage(
   id: string,
   dependencies: ImageDependencies = {},
 ): Promise<StoredImage | null> {

@@ -98,7 +98,7 @@ const profileSelection = {
   avatarImageId: adminUsers.avatarImageId,
 };
 
-export async function getAccountProfile(userId: string): Promise<AccountProfile | null> {
+export async function findAccountProfile(userId: string): Promise<AccountProfile | null> {
   const [row] = await db.select(profileSelection).from(adminUsers).where(eq(adminUsers.id, userId)).limit(1);
   return row ?? null;
 }

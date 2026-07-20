@@ -17,7 +17,7 @@ import {
   DependencyApiError,
   DependencyInstallConflictError,
   databaseDependenciesStore,
-  getDependencyDetail,
+  requireDependencyDetail,
   addDependency,
   listCatalog,
   listDependencies,
@@ -233,13 +233,13 @@ describe("read wrappers", () => {
     await expect(listCatalog()).resolves.toEqual([{ category: "hosting", presets: [] }]);
   });
 
-  it("getDependencyDetail throws DEPENDENCY_NOT_FOUND when the query finds nothing", async () => {
+  it("requireDependencyDetail throws DEPENDENCY_NOT_FOUND when the query finds nothing", async () => {
     vi.mocked(queries.getDependencyDetail).mockResolvedValue(null);
-    await expect(getDependencyDetail("missing")).rejects.toMatchObject({ code: "DEPENDENCY_NOT_FOUND" });
+    await expect(requireDependencyDetail("missing")).rejects.toMatchObject({ code: "DEPENDENCY_NOT_FOUND" });
   });
 
-  it("getDependencyDetail returns the row when found", async () => {
-    await expect(getDependencyDetail("dep-1")).resolves.toBe(DETAIL);
+  it("requireDependencyDetail returns the row when found", async () => {
+    await expect(requireDependencyDetail("dep-1")).resolves.toBe(DETAIL);
   });
 });
 

@@ -16,7 +16,7 @@ export class ConfigMutationError extends Error {
   }
 }
 
-export async function loadAcceptedConfig(executor: typeof db = db): Promise<AcceptedConfigSnapshot> {
+export async function requireAcceptedConfig(executor: typeof db = db): Promise<AcceptedConfigSnapshot> {
   const [row] = await executor.select({ configJson: monitoringConfigSnapshots.configJson, configHash: monitoringConfigSnapshots.configHash })
     .from(monitoringConfigSnapshots).where(eq(monitoringConfigSnapshots.status, "accepted"))
     .orderBy(desc(monitoringConfigSnapshots.acceptedAt), desc(monitoringConfigSnapshots.seenAt)).limit(1);
@@ -55,7 +55,7 @@ export async function synchronizeRegistry(tx: DbTransaction, config: MonitoringC
 export async function mutateConfig(principalKey: string, mutator: (config: MonitoringConfig) => MonitoringConfig, handle: DatabaseHandle = db): Promise<MonitoringConfig> {
   return handle.transaction(async (tx) => {
     await tx.execute(drizzleSql`select pg_advisory_xact_lock(hashtext('pulse:configuration'))`);
-    const current = await loadAcceptedConfig(tx as unknown as typeof db);
+    const current = await requireAcceptedConfig(tx as unknown as typeof db);
     const target = validateMonitoringConfig(mutator(current.config));
     const hash = hashMonitoringConfig(target);
     if (hash === current.hash) return current.config;

@@ -112,7 +112,7 @@ export type StatusReportData = {
 
 /**
  * List-shaped row: everything a report list needs without the
- * markdown bodies or the full update timeline. `getStatusReport` keeps the
+ * markdown bodies or the full update timeline. `requireStatusReport` keeps the
  * detailed shape.
  */
 export type StatusReportListItemData = {
@@ -558,7 +558,7 @@ async function loadReportData(store: StatusReportsStore, report: StatusReportRow
   return serializeReport(report, updates, affected);
 }
 
-export async function getStatusReport(id: string, dependencies: StatusReportsDependencies = {}): Promise<StatusReportData> {
+export async function requireStatusReport(id: string, dependencies: StatusReportsDependencies = {}): Promise<StatusReportData> {
   const store = dependencies.store ?? databaseStatusReportsStore;
   const report = await store.getReport(id);
   if (!report) throw new StatusReportError("REPORT_NOT_FOUND", "Status report was not found");
@@ -621,7 +621,7 @@ export async function listStatusReports(
 /**
  * List path: one page query + one batched details fan-out (counts,
  * DISTINCT ON latest status/publishedAt, affected). Never fetches markdown,
- * the detailed shape stays on getStatusReport.
+ * the detailed shape stays on requireStatusReport.
  */
 export async function listStatusReportSummaries(
   input: {
@@ -771,7 +771,7 @@ export async function deleteStatusReport(id: string, dependencies: StatusReports
  * Shared tail of the update mutations: recompute+persist the resolution
  * under the report-row lock (with the affected rows in parallel), and build
  * the response from the rows already in hand rather than a trailing
- * getStatusReport re-fetch, keeping each mutation to at most 4 sequential
+ * requireStatusReport re-fetch, keeping each mutation to at most 4 sequential
  * round-trips.
  */
 async function persistResolutionAndSerialize(
@@ -873,7 +873,7 @@ export async function publishStatusReport(
   if (outcome === "already_published") {
     throw new StatusReportError("ALREADY_PUBLISHED", "The status report is already published");
   }
-  return getStatusReport(id, dependencies);
+  return requireStatusReport(id, dependencies);
 }
 
 /** Matches the public label in lib/reporting/queries/status.ts (failureLabel). */
@@ -930,7 +930,7 @@ export async function promoteIncident(
   if (outcome.created) {
     return { report: serializeReport(report, [update], affected), created: true };
   }
-  return { report: await getStatusReport(outcome.id, dependencies), created: false };
+  return { report: await requireStatusReport(outcome.id, dependencies), created: false };
 }
 
 export type PublicReportPhase = "ongoing" | "upcoming" | "window_ended" | "resolved";

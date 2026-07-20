@@ -40,7 +40,7 @@ vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
 }));
 vi.mock("@/lib/api/monitors", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/monitors")>()),
-  getMonitor: vi.fn(),
+  requireMonitor: vi.fn(),
   updateMonitor: vi.fn(),
   archiveMonitor: vi.fn(),
 }));

@@ -181,8 +181,8 @@ suite("incident activation gate", () => {
   });
 
   it("gates the incidents API per-incident fetch", async () => {
-    expect(await operationalService.getIncident(INC_PRE)).toBeNull();
-    expect((await operationalService.getIncident(INC_POST))?.id).toBe(INC_POST);
+    expect(await operationalService.findIncident(INC_PRE)).toBeNull();
+    expect((await operationalService.findIncident(INC_POST))?.id).toBe(INC_POST);
   });
 
   it("blocks promotion of a pre-activation setup incident but promotes a real one", async () => {
@@ -206,7 +206,7 @@ suite("incident activation gate", () => {
     const paletteIds = (await listCommandPaletteIncidents()).map((row) => row.id);
     expect(paletteIds).toContain(INC_RECOVER);
     expect((await getIncidentDetail(INC_RECOVER))?.id).toBe(INC_RECOVER);
-    expect((await operationalService.getIncident(INC_RECOVER))?.id).toBe(INC_RECOVER);
+    expect((await operationalService.findIncident(INC_RECOVER))?.id).toBe(INC_RECOVER);
 
     const promoted = await promoteIncident(INC_RECOVER);
     expect(promoted.report.originIncidentId).toBe(INC_RECOVER);

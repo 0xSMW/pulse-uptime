@@ -5,7 +5,7 @@ vi.mock("@/lib/db/client", () => ({ db: {} }));
 
 import {
   createImage,
-  getImage,
+  findImage,
   imageResponse,
   ImageServiceError,
   MAX_FAVICON_BYTES,
@@ -110,10 +110,10 @@ describe("createImage", () => {
   });
 });
 
-describe("getImage", () => {
+describe("findImage", () => {
   it("short-circuits non-UUID ids without querying", async () => {
     const store: ImageStore = { insert: vi.fn(), find: vi.fn() };
-    await expect(getImage("../etc/passwd", { store })).resolves.toBeNull();
+    await expect(findImage("../etc/passwd", { store })).resolves.toBeNull();
     expect(store.find).not.toHaveBeenCalled();
   });
 });

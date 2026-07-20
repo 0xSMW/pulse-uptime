@@ -178,10 +178,10 @@ describe("runDependencyCron wiring", () => {
     const syncCatalog = vi.fn().mockResolvedValue({ synced: false, catalogVersion: "2026-07-19.2" });
     const pollDueSources = vi.fn().mockResolvedValue({ sourcesDue: 0, polled: 0, notModified: 0, failed: 0 });
     const deliverPendingNotifications = vi.fn().mockResolvedValue({ claimed: 0, sent: 0, failed: 0, dead: 0, lostClaims: 0 });
-    const loadAcceptedConfig = vi.fn().mockResolvedValue({ config: { settings: { defaultRecipients: ["ops@example.com"] } } });
+    const requireAcceptedConfig = vi.fn().mockResolvedValue({ config: { settings: { defaultRecipients: ["ops@example.com"] } } });
 
     vi.doMock("@/lib/db/client", () => ({ db: {} }));
-    vi.doMock("@/lib/api/config-mutation", () => ({ loadAcceptedConfig }));
+    vi.doMock("@/lib/api/config-mutation", () => ({ requireAcceptedConfig }));
     vi.doMock("@/lib/notifications/delivery", () => ({ deliverPendingNotifications }));
     vi.doMock("@/lib/notifications/provider", () => ({ createResendSender: () => ({ send: vi.fn() }) }));
     vi.doMock("@/lib/scheduler/runtime", () => ({ queryExecutor: { query: vi.fn().mockResolvedValue([{ id: "run-1" }]) } }));

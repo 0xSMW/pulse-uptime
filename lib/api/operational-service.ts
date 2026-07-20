@@ -96,7 +96,7 @@ export function createOperationalService(dependencies: {
       };
     },
 
-    async getIncident(id: string) {
+    async findIncident(id: string) {
       const [row] = await database.select({
         id: incidents.id, monitorId: incidents.monitorId, monitorName: monitorRegistry.name,
         openedAt: incidents.openedAt, resolvedAt: incidents.resolvedAt,

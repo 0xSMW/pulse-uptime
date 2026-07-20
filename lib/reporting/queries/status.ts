@@ -2,11 +2,11 @@ import { cache } from "react";
 
 import { and, desc, eq, gte, inArray, isNotNull, isNull, lt } from "drizzle-orm";
 
-import { getImage } from "@/lib/api/images";
+import { findImage } from "@/lib/api/images";
 import { getStatusPageConfig, StatusPageConfigError } from "@/lib/api/status-page-config";
 import {
   getPublicReports,
-  getStatusReport,
+  requireStatusReport,
   StatusReportError,
   type PublicReports,
   type StatusReportData,
@@ -141,7 +141,7 @@ export const getStatusFaviconDataUri = cache(async (): Promise<string | null> =>
   const config = await getStatusPageDisplayConfig();
   if (!config.faviconImageId) return null;
   try {
-    const image = await getImage(config.faviconImageId);
+    const image = await findImage(config.faviconImageId);
     if (!image || image.kind !== "favicon") return null;
     return imageDataUri(image.mimeType, image.bytes);
   } catch (error) {
@@ -430,7 +430,7 @@ export const getPublicStatus = cache(async (group?: string) => {
 export const getPublicReportDetail = cache(
   async (reportId: string): Promise<StatusReportData | null | "unavailable"> => {
     try {
-      const report = await getStatusReport(reportId);
+      const report = await requireStatusReport(reportId);
       if (!report.publishedAt) return null;
       return report;
     } catch (error) {

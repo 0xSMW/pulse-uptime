@@ -4,7 +4,7 @@ import { apiError, apiJson, errorEnvelope, objectEnvelope } from "@/lib/api/enve
 import { executeIdempotent, type StoredResponse } from "@/lib/api/idempotency";
 import { authorize, isApiResponse } from "@/lib/api/middleware";
 import { routeError, success } from "@/lib/api/route";
-import { archiveMonitor, getMonitor, MonitorApiError, updateMonitor } from "@/lib/api/monitors";
+import { archiveMonitor, requireMonitor, MonitorApiError, updateMonitor } from "@/lib/api/monitors";
 
 type Params = { params: Promise<{ monitorId: string }> };
 
@@ -33,7 +33,7 @@ function storedMonitorError(error: unknown, requestId: string): StoredResponse |
 export async function GET(request: Request, { params }: Params) {
   const context = await authorize(request, { scope: "monitors:read" });
   if (isApiResponse(context)) return context;
-  try { return success("Monitor", await getMonitor((await params).monitorId), context.requestId); }
+  try { return success("Monitor", await requireMonitor((await params).monitorId), context.requestId); }
   catch (error) { return monitorError(error, context.requestId) ?? routeError(error, context.requestId); }
 }
 

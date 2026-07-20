@@ -219,7 +219,7 @@ export async function listDependencies() {
   return listDependenciesForDashboard();
 }
 
-export async function getDependencyDetail(id: string) {
+export async function requireDependencyDetail(id: string) {
   const detail = await queryDependencyDetail(id);
   if (!detail) throw new DependencyApiError("DEPENDENCY_NOT_FOUND", "Dependency was not found");
   return detail;

@@ -36,14 +36,14 @@ vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
 }));
 vi.mock("@/lib/dependencies/service", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/dependencies/service")>()),
-  getDependencyDetail: vi.fn(),
+  requireDependencyDetail: vi.fn(),
   patchDependency: vi.fn(),
   removeDependency: vi.fn(),
 }));
 
 import { apiError } from "@/lib/api/envelopes";
 import { authorize, type ApiContext } from "@/lib/api/middleware";
-import { DependencyApiError, getDependencyDetail, patchDependency, removeDependency } from "@/lib/dependencies/service";
+import { DependencyApiError, requireDependencyDetail, patchDependency, removeDependency } from "@/lib/dependencies/service";
 
 import { DELETE, GET, PATCH } from "./route";
 
@@ -58,7 +58,7 @@ const params = { params: Promise.resolve({ dependencyId: "dep-1" }) };
 
 beforeEach(() => {
   vi.mocked(authorize).mockReset().mockResolvedValue(context);
-  vi.mocked(getDependencyDetail).mockReset().mockResolvedValue(dependency as never);
+  vi.mocked(requireDependencyDetail).mockReset().mockResolvedValue(dependency as never);
   vi.mocked(patchDependency).mockReset().mockResolvedValue(dependency as never);
   vi.mocked(removeDependency).mockReset().mockResolvedValue({ id: "dep-1", removed: true });
   idempotencyRecords.clear();
@@ -72,11 +72,11 @@ describe("GET /api/v1/dependencies/{dependencyId}", () => {
     const payload = await response.json();
     expect(payload.kind).toBe("Dependency");
     expect(payload.data).toEqual(dependency);
-    expect(getDependencyDetail).toHaveBeenCalledWith("dep-1");
+    expect(requireDependencyDetail).toHaveBeenCalledWith("dep-1");
   });
 
   it("maps DEPENDENCY_NOT_FOUND to 404", async () => {
-    vi.mocked(getDependencyDetail).mockRejectedValue(new DependencyApiError("DEPENDENCY_NOT_FOUND", "Dependency was not found"));
+    vi.mocked(requireDependencyDetail).mockRejectedValue(new DependencyApiError("DEPENDENCY_NOT_FOUND", "Dependency was not found"));
     const response = await GET(new Request("https://pulse.test/api/v1/dependencies/dep-1"), params);
     expect(response.status).toBe(404);
     expect((await response.json()).error.code).toBe("DEPENDENCY_NOT_FOUND");
@@ -86,7 +86,7 @@ describe("GET /api/v1/dependencies/{dependencyId}", () => {
     vi.mocked(authorize).mockResolvedValue(apiError("req_denied", 403, "SCOPE_DENIED", "denied"));
     const response = await GET(new Request("https://pulse.test/api/v1/dependencies/dep-1"), params);
     expect(response.status).toBe(403);
-    expect(getDependencyDetail).not.toHaveBeenCalled();
+    expect(requireDependencyDetail).not.toHaveBeenCalled();
   });
 });
 

@@ -2,7 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
-import { loadAcceptedConfig } from "@/lib/api/config-mutation";
+import { requireAcceptedConfig } from "@/lib/api/config-mutation";
 import { db } from "@/lib/db/client";
 import { deliverPendingNotifications, type DeliverySummary } from "@/lib/notifications/delivery";
 import { createResendSender } from "@/lib/notifications/provider";
@@ -300,7 +300,7 @@ export async function runDependencyCron(): Promise<DependencyCronRunResult> {
     leases: createSqlLeaseStore(queryExecutor),
     runs: createDependencyCronRunStore(queryExecutor),
     syncCatalog: () => syncCatalog(createSqlCatalogSyncStore(db), manifest),
-    loadDefaultRecipients: async () => (await loadAcceptedConfig()).config.settings.defaultRecipients,
+    loadDefaultRecipients: async () => (await requireAcceptedConfig()).config.settings.defaultRecipients,
     poll: (defaultRecipients) => pollDueSources({
       store: createDueSourceStore(queryExecutor),
       persist: async (outcome, source, now) => {

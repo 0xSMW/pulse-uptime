@@ -4,7 +4,7 @@ import { apiError, apiJson, objectEnvelope } from "@/lib/api/envelopes";
 import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, isApiResponse } from "@/lib/api/middleware";
 import { routeError, success } from "@/lib/api/route";
-import { DependencyApiError, getDependencyDetail, patchDependency, removeDependency } from "@/lib/dependencies/service";
+import { DependencyApiError, requireDependencyDetail, patchDependency, removeDependency } from "@/lib/dependencies/service";
 
 type Params = { params: Promise<{ dependencyId: string }> };
 
@@ -32,7 +32,7 @@ export async function GET(request: Request, { params }: Params) {
   const context = await authorize(request, { scope: "dependencies:read" });
   if (isApiResponse(context)) return context;
   try {
-    return success("Dependency", await getDependencyDetail((await params).dependencyId), context.requestId);
+    return success("Dependency", await requireDependencyDetail((await params).dependencyId), context.requestId);
   } catch (error) {
     return dependencyError(error, context.requestId) ?? routeError(error, context.requestId);
   }
