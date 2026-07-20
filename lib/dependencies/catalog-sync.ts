@@ -128,10 +128,13 @@ function presetDefinitionChanged(existing: StoredPresetDefinition | null, preset
 /**
  * Values for upserting one preset. A catalog version bump alone must never
  * erase what catalog validation already found, so the update only resets
- * validatedAt and validationError to null when the source, selector, or
+ * enabled, validatedAt, and validationError when the source, selector, or
  * scope materially changed from what's stored. Display copy (name,
  * description, category, sourceScopeNote) changing on its own preserves the
- * existing validation state. A brand new preset always starts unvalidated.
+ * existing validation state and enabled flag, so a version bump can never
+ * re-enable a preset that drift detection intentionally disabled. A brand
+ * new preset always starts enabled and unvalidated, and a materially changed
+ * one legitimately resets to the manifest's enabled default.
  */
 export function presetUpsertPlan(
   existing: StoredPresetDefinition | null,
@@ -148,9 +151,8 @@ export function presetUpsertPlan(
     scopeOptions: preset.scope,
     sourceScopeNote: preset.sourceScopeNote,
     catalogVersion,
-    enabled: preset.enabled,
   };
-  const insert = { ...shared, validatedAt: null, validationError: null };
+  const insert = { ...shared, enabled: preset.enabled, validatedAt: null, validationError: null };
   const update = presetDefinitionChanged(existing, preset) ? insert : shared;
   return { insert, update };
 }

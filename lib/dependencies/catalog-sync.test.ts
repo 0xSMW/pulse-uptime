@@ -179,6 +179,21 @@ describe("presetUpsertPlan", () => {
     expect(plan.update).toMatchObject({ displayName: "Vercel Runtime (renamed)", catalogVersion: "2026-07-19.2" });
   });
 
+  it("leaves the stored enabled flag untouched across a version bump when the definition is unchanged, so a drift-disabled preset is not re-enabled", () => {
+    const plan = presetUpsertPlan(storedDefinition(), manifestPreset({ enabled: true }), "2026-07-19.2");
+    expect(plan.update).not.toHaveProperty("enabled");
+  });
+
+  it("re-enables and resets validation state when the definition materially changed", () => {
+    const plan = presetUpsertPlan(storedDefinition({ sourceId: "aws" }), manifestPreset({ enabled: true }), "2026-07-19.2");
+    expect(plan.update).toMatchObject({ enabled: true, validatedAt: null, validationError: null });
+  });
+
+  it("starts a brand new preset enabled", () => {
+    const plan = presetUpsertPlan(null, manifestPreset({ enabled: true }), "2026-07-19.2");
+    expect(plan.insert).toMatchObject({ enabled: true });
+  });
+
   it("preserves validation state when the scope's option key order differs (jsonb round-trip reordering, not a real change)", () => {
     const stored = storedDefinition({
       selector: { ids: ["kgcsn9c73xzf"], kind: "component_ids", aggregation: "worst_of" } as never,
