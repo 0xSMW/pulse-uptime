@@ -29,6 +29,7 @@ import {
 } from "@/lib/status-page/reports-display";
 import type { StatusPageConfigDocument } from "@/lib/status-page/schema";
 
+import { rollupsSinceActivation } from "./first-run";
 import { buildRollupTimeline, statusGroupSlug, summarizeRollupCoverage } from "./timeline";
 
 /**
@@ -196,6 +197,7 @@ async function loadPublicStatus(group?: string) {
     name: monitorRegistry.name,
     groupName: monitorRegistry.groupName,
     state: monitorState.state,
+    activatedAt: monitorState.activatedAt,
   }).from(monitorRegistry)
     .leftJoin(monitorState, eq(monitorState.monitorId, monitorRegistry.id))
     .where(and(eq(monitorRegistry.enabled, true), isNull(monitorRegistry.archivedAt)))
@@ -257,7 +259,18 @@ async function loadPublicStatus(group?: string) {
       resolvedAt: incidents.resolvedAt,
     }).from(incidents)
       .innerJoin(monitorRegistry, eq(monitorRegistry.id, incidents.monitorId))
-      .where(and(inArray(incidents.monitorId, ids), isNotNull(incidents.resolvedAt)))
+      // Resolved incidents opened before their monitor activated are setup-phase
+      // failures, not real downtime, so the activation gate drops them from
+      // public history. A null activatedAt fails the comparison, so a monitor
+      // that never activated surfaces no resolved incidents. Ongoing incidents
+      // are exempt from this gate below, since a backfilled activatedAt is at or
+      // before their opened_at and must never hide a live outage.
+      .innerJoin(monitorState, eq(monitorState.monitorId, incidents.monitorId))
+      .where(and(
+        inArray(incidents.monitorId, ids),
+        isNotNull(incidents.resolvedAt),
+        gte(incidents.openedAt, monitorState.activatedAt),
+      ))
       .orderBy(desc(incidents.resolvedAt))
       .limit(RECENT_INCIDENTS_FETCH_LIMIT),
     ]),
@@ -316,7 +329,12 @@ async function loadPublicStatus(group?: string) {
       name,
       slug: statusGroupSlug(name),
       monitors: entries.sort((left, right) => left.name.localeCompare(right.name)).map((monitor) => {
-        const rows = rollupsByMonitor.get(monitor.id) ?? [];
+        // Public uptime and history count only buckets at or after activation,
+        // the same exclusive bucket-start gate the dashboard uses, so setup
+        // failures before the first success never read as public downtime. A
+        // never-activated monitor has no observed data, so its uptime is null
+        // and its timeline is all no-data, never down.
+        const rows = rollupsSinceActivation(rollupsByMonitor.get(monitor.id) ?? [], monitor.activatedAt ?? null);
         const summary = summarizeRollupCoverage(rows);
         return {
           id: monitor.id,

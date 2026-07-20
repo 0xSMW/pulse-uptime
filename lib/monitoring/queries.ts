@@ -2,6 +2,7 @@ import { and, eq, isNull, sql as dsql } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 import { checkResults, incidents, metricRollups, monitorRegistry, monitorState } from "@/lib/db/schema";
+import { isRangeUnlocked } from "@/lib/reporting/queries/first-run";
 
 const stateOrder = [
   "DOWN",
@@ -52,6 +53,11 @@ export async function listDashboardMonitors() {
   // check scheduled just before a 15m boundary but completing after it must be
   // compared on scheduled_at, or it would land in the rollup's earlier bucket
   // while the anti-join probed the later checked_at bucket, double-counting it.
+  // Both sides also drop everything before monitor_state.activated_at, matching
+  // rollupsSinceActivation which keeps only buckets whose start is at or after
+  // activation, so setup-phase failures never reach the card and it agrees with
+  // the detail page. A never-activated monitor has a null activated_at, so every
+  // comparison is null and the card reads null, the collecting placeholder.
   const end15m = new Date();
   end15m.setUTCMinutes(Math.floor(end15m.getUTCMinutes() / 15) * 15, 0, 0);
   const start15m = new Date(end15m.getTime() - 86_400_000);
@@ -67,6 +73,7 @@ export async function listDashboardMonitors() {
       state: monitorState.state,
       lastLatencyMs: monitorState.lastLatencyMs,
       lastCheckedAt: monitorState.lastCheckedAt,
+      activatedAt: monitorState.activatedAt,
       activeIncidentOpenedAt: incidents.openedAt,
       uptime24h: dsql<number | null>`(
         select case when coalesce(rollup.completed, 0) + coalesce(raw.completed, 0) = 0 then null
@@ -80,6 +87,7 @@ export async function listDashboardMonitors() {
             and ${metricRollups.resolution} = '15m'
             and ${metricRollups.bucketStart} >= ${start15m.toISOString()}
             and ${metricRollups.bucketStart} < ${end15m.toISOString()}
+            and ${metricRollups.bucketStart} >= ${monitorState.activatedAt}
         ) rollup
         cross join lateral (
           select count(*) as completed,
@@ -88,6 +96,7 @@ export async function listDashboardMonitors() {
           where ${checkResults.monitorId} = ${monitorRegistry.id}
             and ${checkResults.scheduledAt} >= ${start15m.toISOString()}
             and ${checkResults.scheduledAt} < ${end15m.toISOString()}
+            and date_bin('15 minutes', ${checkResults.scheduledAt}, timestamptz '2000-01-01') >= ${monitorState.activatedAt}
             and not exists (
               select 1 from ${metricRollups} covered
               where covered.monitor_id = ${monitorRegistry.id}
@@ -112,7 +121,13 @@ export async function listDashboardMonitors() {
         ...row,
         state: row.state ?? ("PENDING" as const),
         lastCheckedAt: row.lastCheckedAt?.toISOString() ?? null,
+        activatedAt: row.activatedAt?.toISOString() ?? null,
         activeIncidentOpenedAt: row.activeIncidentOpenedAt?.toISOString() ?? null,
+        // The card claims a full 24 hours, so it unlocks only once the completed
+        // window reaches a whole day back to activation, the same gate the detail
+        // page uses. A monitor active by wall clock but activated inside the
+        // window still reads as collecting until its window fills.
+        uptime24hUnlocked: isRangeUnlocked("h24", row.activatedAt, end15m),
         uptime24h: row.uptime24h === null ? null : Number(row.uptime24h),
       }];
     })

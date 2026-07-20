@@ -10,6 +10,7 @@ function state(overrides: Partial<MonitorStateSnapshot> = {}): MonitorStateSnaps
     state: "DOWN",
     consecutiveFailures: 2,
     consecutiveSuccesses: 0,
+    activatedAt: new Date("2026-07-18T02:00:00Z"),
     firstFailureAt: new Date("2026-07-18T03:00:00Z"),
     firstSuccessAt: null,
     lastCheckedAt: new Date("2026-07-18T03:01:00Z"),

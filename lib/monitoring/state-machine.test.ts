@@ -12,6 +12,7 @@ function state(name: MonitorStateName, overrides: Partial<MonitorStateSnapshot> 
     state: name,
     consecutiveFailures: 0,
     consecutiveSuccesses: 0,
+    activatedAt: null,
     firstFailureAt: null,
     firstSuccessAt: null,
     lastCheckedAt: null,
@@ -42,20 +43,33 @@ function check(successful: boolean, at: Date, overrides: Partial<CheckTransition
 }
 
 describe("transitionMonitor", () => {
-  it("moves a pending monitor up on its first success", () => {
+  it("activates a pending monitor and stamps activatedAt on its first success", () => {
     const result = transitionMonitor(state("PENDING"), check(true, minute(1)));
-    expect(result.state).toMatchObject({ state: "UP", lastSuccessAt: minute(1), version: 1 });
+    expect(result.state).toMatchObject({ state: "UP", lastSuccessAt: minute(1), activatedAt: minute(1), version: 1 });
     expect(result.incident).toBeNull();
   });
 
-  it("keeps pending failures pending until the threshold and opens at the first failure time", () => {
+  it("holds a never-activated monitor in setup and never opens an incident from failures", () => {
     const first = transitionMonitor(state("PENDING"), check(false, minute(1)));
-    expect(first.state).toMatchObject({ state: "PENDING", consecutiveFailures: 1, firstFailureAt: minute(1) });
+    expect(first.state).toMatchObject({ state: "PENDING", consecutiveFailures: 1, firstFailureAt: minute(1), activatedAt: null });
     expect(first.incident).toBeNull();
 
     const second = transitionMonitor(first.state, check(false, minute(2)));
+    expect(second.state).toMatchObject({ state: "PENDING", consecutiveFailures: 2, activatedAt: null });
+    expect(second.incident).toBeNull();
+
+    const third = transitionMonitor(second.state, check(false, minute(3)));
+    expect(third.state.state).toBe("PENDING");
+    expect(third.incident).toBeNull();
+  });
+
+  it("opens an incident once an activated monitor fails past the threshold", () => {
+    const up = state("UP", { activatedAt: minute(1) });
+    const first = transitionMonitor(up, check(false, minute(2)));
+    expect(first.state.state).toBe("VERIFYING_DOWN");
+    const second = transitionMonitor(first.state, check(false, minute(3)));
     expect(second.state.state).toBe("DOWN");
-    expect(second.incident).toEqual({ type: "open", openedAt: minute(1), firstFailureAt: minute(1) });
+    expect(second.incident).toEqual({ type: "open", openedAt: minute(2), firstFailureAt: minute(2) });
   });
 
   it("verifies an outage and clears the sequence when the endpoint recovers early", () => {

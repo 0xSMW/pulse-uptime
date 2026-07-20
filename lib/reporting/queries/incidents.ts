@@ -1,7 +1,15 @@
-import { desc, eq, inArray, isNotNull, isNull, sql as dsql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, sql as dsql } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
-import { incidents, monitorRegistry, notificationOutbox } from "@/lib/db/schema";
+import { incidents, monitorRegistry, monitorState, notificationOutbox } from "@/lib/db/schema";
+
+// First-run gate shared by every per-monitor incident surface here. An incident
+// opened before its monitor activated is a setup-phase failure, not real
+// downtime, so joining monitor_state and requiring openedAt at or after
+// activatedAt drops it. A null activatedAt fails the comparison, so a
+// never-activated monitor surfaces no incidents. A genuine ongoing incident is
+// unaffected: the backfill sets activatedAt at or before its openedAt.
+const activationGate = gte(incidents.openedAt, monitorState.activatedAt);
 
 export type IncidentFilter = "all" | "ongoing" | "resolved";
 
@@ -64,7 +72,8 @@ export async function listCommandPaletteIncidents() {
     openingStatusCode: incidents.openingStatusCode,
   }).from(incidents)
     .innerJoin(monitorRegistry, eq(monitorRegistry.id, incidents.monitorId))
-    .where(isNull(incidents.resolvedAt))
+    .innerJoin(monitorState, eq(monitorState.monitorId, incidents.monitorId))
+    .where(and(isNull(incidents.resolvedAt), activationGate))
     .orderBy(desc(incidents.openedAt))
     .limit(100);
 
@@ -93,7 +102,8 @@ export async function listIncidents(filter: IncidentFilter = "all") {
     openingStatusCode: incidents.openingStatusCode,
   }).from(incidents)
     .innerJoin(monitorRegistry, eq(monitorRegistry.id, incidents.monitorId))
-    .where(condition)
+    .innerJoin(monitorState, eq(monitorState.monitorId, incidents.monitorId))
+    .where(and(condition, activationGate))
     .orderBy(desc(incidents.openedAt))
     .limit(100);
 
@@ -140,7 +150,8 @@ export async function getIncidentDetail(id: string) {
     openingStatusCode: incidents.openingStatusCode,
   }).from(incidents)
     .innerJoin(monitorRegistry, eq(monitorRegistry.id, incidents.monitorId))
-    .where(eq(incidents.id, id))
+    .innerJoin(monitorState, eq(monitorState.monitorId, incidents.monitorId))
+    .where(and(eq(incidents.id, id), activationGate))
     .limit(1);
   if (!row) return null;
 

@@ -378,6 +378,46 @@ export function MonitorActions({ monitor }: { monitor: EditableMonitor }) {
   );
 }
 
+export function MonitorRunTestButton({ monitor }: { monitor: EditableMonitor }) {
+  const router = useRouter();
+  const [state, setState] = useState<MutationState>({ status: "idle" });
+  const disabled = state.status === "loading" || !monitor.enabled;
+
+  async function runTest() {
+    setState({ status: "loading", message: "Checking…" });
+    try {
+      const response = await mutateMonitor(`/api/v1/monitors/${encodeURIComponent(monitor.id)}/test`, { method: "POST" });
+      if (!response.ok) {
+        setState({ status: "error", message: await readError(response) });
+        return;
+      }
+      // A completed probe can still fail. The endpoint reports that in the
+      // successful flag, so a failed check reads as a failure, not success.
+      const body = (await response.json()) as {
+        data?: { successful?: boolean; statusCode?: number | null; errorCode?: string | null };
+      };
+      if (body.data?.successful !== true) {
+        const detail = body.data?.statusCode != null
+          ? `HTTP ${body.data.statusCode}`
+          : body.data?.errorCode ?? "Unknown failure";
+        setState({ status: "error", message: `Monitor check failed with ${detail}` });
+        return;
+      }
+      setState({ status: "success", message: "Monitor check complete" });
+      router.refresh();
+    } catch {
+      setState({ status: "error", message: "Unable to reach the server. Try again." });
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <Button variant="secondary" size="sm" disabled={disabled} onClick={() => void runTest()}>Run Test</Button>
+      <MutationMessage state={state} />
+    </div>
+  );
+}
+
 export function MonitorEditButton({ monitor }: { monitor: EditableMonitor }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
