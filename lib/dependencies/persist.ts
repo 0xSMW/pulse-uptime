@@ -66,11 +66,14 @@ export function combinedComponentStates(snapshot: NormalizedProviderSnapshot): M
 
 /**
  * The upstream ids that identify this dependency for both state lookup and
- * incident-component intersection. Google's location-scoped composite
- * (productId@locationId) only ever appears in incident.componentIds, never
- * in the components state map (see google-cloud-status.ts), so it is
- * folded in here purely for matching, not for combinedComponentStates
- * lookups.
+ * incident-component intersection. Two scoped selectors fold in an extra id
+ * here purely for matching, not for the scoped state lookup. Google's
+ * location-scoped composite (productId@locationId) only ever appears in
+ * incident.componentIds, never in the components state map (see
+ * google-cloud-status.ts). A scoped statusio container's parent componentId
+ * aggregates the worst state across every sibling region container, so an
+ * incident naming the parent still associates, but the scoped install's own
+ * severity comes from the container alone (see resolveDependencyState).
  */
 export function matchingIdsForSelector(selector: DependencySelector, scopeId: string | null): string[] {
   switch (selector.kind) {
@@ -84,14 +87,24 @@ export function matchingIdsForSelector(selector: DependencySelector, scopeId: st
 }
 
 /**
- * Resolves one dependency's state from its selector. Google's location
- * scope is the one case that can't use combinedComponentStates directly:
- * the adapter never stores a per-location component state, only a
- * per-location composite id on incidents (see google-cloud-status.ts), so a
- * scoped Google product's severity is approximated from the product's bare
- * aggregate state, gated on whether an active incident actually names this
- * location. This is a documented approximation, not a precise per-location
- * severity, since the normalized snapshot has no other way to carry it.
+ * Resolves one dependency's state from its selector. Two scoped selectors
+ * resolve their severity outside the shared worst_of path.
+ *
+ * Google's location scope can't use combinedComponentStates directly: the
+ * adapter never stores a per-location component state, only a per-location
+ * composite id on incidents (see google-cloud-status.ts), so a scoped Google
+ * product's severity is approximated from the product's bare aggregate
+ * state, gated on whether an active incident actually names this location.
+ * This is a documented approximation, not a precise per-location severity,
+ * since the normalized snapshot has no other way to carry it.
+ *
+ * A scoped statusio container has its own entry in the components state map
+ * keyed by the container id (see statusio-public.ts), so its severity is the
+ * container's own state alone. The parent componentId aggregates the worst
+ * state across every sibling region container, so worst_of'ing it in would
+ * report a different region's outage against a container that is actually
+ * fine. The parent still participates in matching (see
+ * matchingIdsForSelector), just not in this scoped state lookup.
  *
  * A selector id absent from `combined` means UNKNOWN when the snapshot's
  * componentsComplete flag is true (the feed enumerated every component and
@@ -116,6 +129,10 @@ export function resolveDependencyState(
     );
     if (!touchedByActiveIncident) return "OPERATIONAL";
     return combined.get(selector.productId) ?? fallback();
+  }
+
+  if (selector.kind === "statusio_component_container" && scopeId) {
+    return combined.get(scopeId) ?? fallback();
   }
 
   const ids = matchingIdsForSelector(selector, scopeId);

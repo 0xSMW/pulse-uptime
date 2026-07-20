@@ -91,10 +91,37 @@ describe("matchingIdsForSelector and resolveDependencyState", () => {
     expect(resolveDependencyState(selector, "b", combinedComponentStates(snapshot), snapshot)).toBe("OUTAGE");
   });
 
-  it("resolves a statusio_component_container selector as worst_of component and container", () => {
+  it("resolves an unscoped statusio_component_container selector as the parent component's state", () => {
     const selector: DependencySelector = { kind: "statusio_component_container", componentId: "comp", container: { required: true } };
-    const snapshot = snapshotWith({ components: { comp: { state: "OPERATIONAL", updatedAt: null }, region1: { state: "DEGRADED", updatedAt: null } } });
-    expect(resolveDependencyState(selector, "region1", combinedComponentStates(snapshot), snapshot)).toBe("DEGRADED");
+    const snapshot = snapshotWith({ components: { comp: { state: "DEGRADED", updatedAt: null } } });
+    expect(resolveDependencyState(selector, null, combinedComponentStates(snapshot), snapshot)).toBe("DEGRADED");
+  });
+
+  it("resolves a scoped statusio_component_container from the container alone, not worst_of'd with the parent aggregate", () => {
+    const selector: DependencySelector = { kind: "statusio_component_container", componentId: "comp", container: { required: true } };
+    // The parent aggregates the worst state across every region container.
+    // A sibling region's DEGRADED must not surface against the OPERATIONAL
+    // region this install is scoped to.
+    const parentDegraded = snapshotWith({ components: { comp: { state: "DEGRADED", updatedAt: null }, region1: { state: "OPERATIONAL", updatedAt: null } } });
+    expect(resolveDependencyState(selector, "region1", combinedComponentStates(parentDegraded), parentDegraded)).toBe("OPERATIONAL");
+
+    // The selected container's own DEGRADED still surfaces.
+    const containerDegraded = snapshotWith({ components: { comp: { state: "DEGRADED", updatedAt: null }, region1: { state: "DEGRADED", updatedAt: null } } });
+    expect(resolveDependencyState(selector, "region1", combinedComponentStates(containerDegraded), containerDegraded)).toBe("DEGRADED");
+  });
+
+  it("resolves an absent scoped statusio container to UNKNOWN under a complete feed", () => {
+    const selector: DependencySelector = { kind: "statusio_component_container", componentId: "comp", container: { required: true } };
+    const snapshot = snapshotWith({ componentsComplete: true, components: { comp: { state: "OPERATIONAL", updatedAt: null } } });
+    expect(resolveDependencyState(selector, "gone-region", combinedComponentStates(snapshot), snapshot)).toBe("UNKNOWN");
+  });
+
+  it("still matches a scoped statusio container against an incident naming the parent component", () => {
+    const selector: DependencySelector = { kind: "statusio_component_container", componentId: "comp", container: { required: true } };
+    expect(matchingIdsForSelector(selector, "region1")).toEqual(["comp", "region1"]);
+    expect(selectorIntersectsIncident(selector, "region1", ["comp"])).toBe(true);
+    expect(selectorIntersectsIncident(selector, "region1", ["region1"])).toBe(true);
+    expect(selectorIntersectsIncident(selector, "region1", ["other"])).toBe(false);
   });
 
   it("treats an unscoped google_product as the bare product's aggregate state", () => {
@@ -830,6 +857,59 @@ describe("persistSnapshot: FIX C scoped dedup", () => {
     expect(db.notifications).toHaveLength(2);
     const scopeIds = db.notifications.map((n) => n.scopeId).sort();
     expect(scopeIds).toEqual(["eu-west-2", "us-east-1"]);
+  });
+});
+
+// -- FIX #7: a scoped statusio container's persisted state comes from the
+// container alone, so a sibling region's outage on the shared parent never
+// surfaces as downtime for a region that is actually fine. The parent still
+// drives incident matching.
+
+describe("persistSnapshot: scoped statusio container state resolution", () => {
+  it("persists the selected container's OPERATIONAL state even when the parent aggregates a sibling region's outage, and still matches the parent-named incident", async () => {
+    const db = emptyDb([
+      dependencyRow({ id: "dep-us", catalogId: "neon_database", scopeId: "us-east-1", currentState: "OPERATIONAL", selector: { kind: "statusio_component_container", componentId: "c1", container: { required: true } } }),
+    ]);
+    const store = createFakeStore(db);
+    const outcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({
+        components: {
+          // The parent aggregates the worst region: another region is out.
+          c1: { state: "OUTAGE", updatedAt: null },
+          "us-east-1": { state: "OPERATIONAL", updatedAt: null },
+        },
+        incidents: [incident({ componentIds: ["c1"] })],
+      }),
+      etag: null, lastModified: null,
+    };
+    await persistSnapshot(store, outcome, baseSource(), { now: NOW, defaultRecipients: ["ops@example.com"] });
+
+    // State comes from the container alone: the sibling region's OUTAGE on
+    // the parent never surfaces here.
+    expect(db.installed[0]?.currentState).toBe("OPERATIONAL");
+    // The parent-named incident still associates for matching.
+    expect(db.matches.size).toBe(1);
+  });
+
+  it("persists the selected container's own DEGRADED state", async () => {
+    const db = emptyDb([
+      dependencyRow({ id: "dep-us", catalogId: "neon_database", scopeId: "us-east-1", currentState: "OPERATIONAL", selector: { kind: "statusio_component_container", componentId: "c1", container: { required: true } } }),
+    ]);
+    const store = createFakeStore(db);
+    const outcome: PollOutcome = {
+      sourceId: "vercel", kind: "snapshot",
+      snapshot: snapshotWith({
+        components: {
+          c1: { state: "OUTAGE", updatedAt: null },
+          "us-east-1": { state: "DEGRADED", updatedAt: null },
+        },
+      }),
+      etag: null, lastModified: null,
+    };
+    await persistSnapshot(store, outcome, baseSource(), { now: NOW, defaultRecipients: ["ops@example.com"] });
+
+    expect(db.installed[0]?.currentState).toBe("DEGRADED");
   });
 });
 
