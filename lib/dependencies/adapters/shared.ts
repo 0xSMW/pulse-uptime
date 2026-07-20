@@ -50,13 +50,20 @@ export function toBoundedPlainText(input: string | null | undefined): string {
 }
 
 function capUtf8Bytes(text: string, maxBytes: number): string {
-  const encoder = new TextEncoder();
-  if (encoder.encode(text).length <= maxBytes) return text;
-  let end = text.length;
-  while (end > 0 && encoder.encode(text.slice(0, end)).length > maxBytes) {
+  // A UTF-16 code unit encodes to at most 3 UTF-8 bytes, so any string this
+  // short is already under the cap and needs no encoding at all. This keeps the
+  // common case allocation free and bounds the cost on untrusted provider text.
+  if (text.length * 3 <= maxBytes) return text;
+  const bytes = new TextEncoder().encode(text);
+  if (bytes.length <= maxBytes) return text;
+  // Cut at the byte cap, then walk back over any UTF-8 continuation bytes
+  // (0x80 to 0xBF) so we land on a code point boundary and never split a
+  // multibyte sequence or a surrogate pair. Decoding the prefix is then valid.
+  let end = maxBytes;
+  while (end > 0 && (bytes[end] & 0xc0) === 0x80) {
     end -= 1;
   }
-  return text.slice(0, end);
+  return new TextDecoder().decode(bytes.subarray(0, end));
 }
 
 /** Rejects timestamps that don't parse, so a malformed feed fails loudly instead of storing garbage. */
