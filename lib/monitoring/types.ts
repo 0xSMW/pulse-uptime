@@ -8,6 +8,7 @@ export type MonitorStateSnapshot = {
   state: MonitorStateName;
   consecutiveFailures: number;
   consecutiveSuccesses: number;
+  activatedAt: Date | null;
   firstFailureAt: Date | null;
   firstSuccessAt: Date | null;
   lastCheckedAt: Date | null;

@@ -25,6 +25,7 @@ const expectedOperations = [
   "GET /api/v1/monitors", "POST /api/v1/monitors",
   "GET /api/v1/monitors/{monitorId}", "PATCH /api/v1/monitors/{monitorId}", "DELETE /api/v1/monitors/{monitorId}",
   "POST /api/v1/monitors/{monitorId}/pause", "POST /api/v1/monitors/{monitorId}/resume", "POST /api/v1/monitors/{monitorId}/test",
+  "GET /api/v1/monitors/{monitorId}/live",
   "GET /api/v1/groups", "POST /api/v1/groups", "PATCH /api/v1/groups/{groupId}", "DELETE /api/v1/groups/{groupId}",
   "GET /api/v1/incidents", "GET /api/v1/incidents/{incidentId}", "GET /api/v1/status", "GET /api/v1/config",
   "GET /api/v1/config/schema", "POST /api/v1/config/validate", "POST /api/v1/config/plan", "POST /api/v1/config/apply",

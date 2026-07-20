@@ -246,6 +246,7 @@ export function createDrizzleProcessCheckStore(database: Database): ProcessCheck
             state: state.state,
             consecutiveFailures: state.consecutiveFailures,
             consecutiveSuccesses: state.consecutiveSuccesses,
+            activatedAt: state.activatedAt,
             firstFailureAt: state.firstFailureAt,
             firstSuccessAt: state.firstSuccessAt,
             lastCheckedAt: state.lastCheckedAt,

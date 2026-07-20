@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, count, desc, eq, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/pg-core";
 import { z } from "zod";
 
@@ -9,6 +9,7 @@ import type { DatabaseHandle } from "@/lib/db/client";
 import {
   incidents,
   monitorRegistry,
+  monitorState,
   statusReportAffected,
   statusReports,
   statusReportUpdates,
@@ -1440,7 +1441,15 @@ export function createDatabaseStatusReportsStore(handle: DatabaseHandle): Status
         })
         .from(incidents)
         .innerJoin(monitorRegistry, eq(monitorRegistry.id, incidents.monitorId))
-        .where(eq(incidents.id, incidentId))
+        // First-run gate. An incident opened before its monitor activated is a
+        // setup-phase failure, so joining monitor_state and requiring openedAt
+        // at or after activatedAt keeps promotion from turning it into a public
+        // report. The excluded row reads as not found, matching promoteIncident's
+        // INCIDENT_NOT_FOUND path. A null activatedAt fails the comparison, and a
+        // genuine ongoing incident is kept since the backfill sets activatedAt at
+        // or before its openedAt.
+        .innerJoin(monitorState, eq(monitorState.monitorId, incidents.monitorId))
+        .where(and(eq(incidents.id, incidentId), gte(incidents.openedAt, monitorState.activatedAt)))
         .limit(1);
       return row ?? null;
     },

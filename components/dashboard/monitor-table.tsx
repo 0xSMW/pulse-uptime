@@ -12,6 +12,7 @@ import { useTimezone } from "@/components/dashboard/timezone-provider";
 import { StatusDot, type MonitorState } from "@/components/monitors/status-dot";
 import { Input } from "@/components/ui/input";
 import { formatLatency, formatRelativeTime, formatUptimeTable } from "@/lib/reporting/format";
+import { firstRunPhase } from "@/lib/reporting/queries/first-run";
 import { cn } from "@/lib/utils";
 
 export type DashboardMonitor = {
@@ -22,8 +23,24 @@ export type DashboardMonitor = {
   uptime24h: number | null;
   lastLatencyMs: number | null;
   lastCheckedAt: string | null;
+  activatedAt: string | null;
   activeIncidentOpenedAt: string | null;
+  uptime24hUnlocked: boolean;
 };
+
+// The 24h column is a full-window claim, so it stays a placeholder until a
+// monitor has been observed for a whole day. A setup-phase monitor has never
+// succeeded, a collecting one has less than 24 hours of history, and a monitor
+// active by wall clock but activated inside the completed window still lacks a
+// full post-activation day, so all three render as a placeholder rather than a
+// partial figure passed off as a settled score. The unlock flag carries the
+// same completed-bucket gate the detail page applies.
+function uptime24hLabel(monitor: DashboardMonitor, now: Date): string {
+  const phase = firstRunPhase(monitor.activatedAt ? new Date(monitor.activatedAt) : null, now);
+  if (phase === "setup") return "Verifying";
+  if (phase === "collecting" || !monitor.uptime24hUnlocked) return "Collecting";
+  return formatUptimeTable(monitor.uptime24h);
+}
 
 const rowInteractiveSelector = "a, button, input, select, textarea, summary, [role='button'], [role='link'], [contenteditable='true']";
 
@@ -222,7 +239,7 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
                     {monitor.url}
                   </div>
                 </td>
-                <td className="px-4 text-right font-data">{formatUptimeTable(monitor.uptime24h)}</td>
+                <td className="px-4 text-right font-data">{uptime24hLabel(monitor, new Date())}</td>
                 <td className="px-4 text-right font-data">{formatLatency(monitor.lastLatencyMs)}</td>
                 <td className="px-6 text-right font-data text-[var(--fg-muted)]">
                   {monitor.lastCheckedAt ? formatRelativeTime(new Date(monitor.lastCheckedAt), new Date(), resolvedTimeZone) : "Never"}

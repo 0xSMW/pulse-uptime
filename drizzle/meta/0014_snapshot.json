@@ -1,6 +1,6 @@
 {
-  "id": "3db4725b-79ef-4abc-b3c2-d790521fae4d",
-  "prevId": "226fa03d-53fb-4b69-90fc-3ac586a6158a",
+  "id": "c632e5dd-7551-43bb-81ca-29b9ac404921",
+  "prevId": "3db4725b-79ef-4abc-b3c2-d790521fae4d",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1567,6 +1567,619 @@
       },
       "isRLSEnabled": false
     },
+    "public.dependencies": {
+      "name": "dependencies",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "catalog_id": {
+          "name": "catalog_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notifications_enabled": {
+          "name": "notifications_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "removed_at": {
+          "name": "removed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "dependencies_active_catalog_scope": {
+          "name": "dependencies_active_catalog_scope",
+          "columns": [
+            {
+              "expression": "catalog_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "coalesce(\"scope_id\", '')",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"dependencies\".\"removed_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "dependencies_catalog_id_dependency_catalog_id_fk": {
+          "name": "dependencies_catalog_id_dependency_catalog_id_fk",
+          "tableFrom": "dependencies",
+          "tableTo": "dependency_catalog",
+          "columnsFrom": [
+            "catalog_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.dependency_catalog": {
+      "name": "dependency_catalog",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "source_id": {
+          "name": "source_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "selector": {
+          "name": "selector",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_options": {
+          "name": "scope_options",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source_scope_note": {
+          "name": "source_scope_note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "catalog_version": {
+          "name": "catalog_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "enabled": {
+          "name": "enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "validated_at": {
+          "name": "validated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "validation_error": {
+          "name": "validation_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "dependency_catalog_source_id_dependency_sources_id_fk": {
+          "name": "dependency_catalog_source_id_dependency_sources_id_fk",
+          "tableFrom": "dependency_catalog",
+          "tableTo": "dependency_sources",
+          "columnsFrom": [
+            "source_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "dependency_catalog_category": {
+          "name": "dependency_catalog_category",
+          "value": "\"dependency_catalog\".\"category\" in ('ai', 'hosting', 'auth', 'data', 'payments', 'developer')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.dependency_incident_matches": {
+      "name": "dependency_incident_matches",
+      "schema": "",
+      "columns": {
+        "dependency_id": {
+          "name": "dependency_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "incident_id": {
+          "name": "incident_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "match_kind": {
+          "name": "match_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "matched_at": {
+          "name": "matched_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "dependency_incident_matches_dependency_id_dependencies_id_fk": {
+          "name": "dependency_incident_matches_dependency_id_dependencies_id_fk",
+          "tableFrom": "dependency_incident_matches",
+          "tableTo": "dependencies",
+          "columnsFrom": [
+            "dependency_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "dependency_incident_matches_incident_id_provider_incidents_id_fk": {
+          "name": "dependency_incident_matches_incident_id_provider_incidents_id_fk",
+          "tableFrom": "dependency_incident_matches",
+          "tableTo": "provider_incidents",
+          "columnsFrom": [
+            "incident_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "dependency_incident_matches_dependency_id_incident_id_pk": {
+          "name": "dependency_incident_matches_dependency_id_incident_id_pk",
+          "columns": [
+            "dependency_id",
+            "incident_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "dependency_incident_matches_kind": {
+          "name": "dependency_incident_matches_kind",
+          "value": "\"dependency_incident_matches\".\"match_kind\" in ('component_match', 'inferred')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.dependency_sources": {
+      "name": "dependency_sources",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "provider_name": {
+          "name": "provider_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "adapter": {
+          "name": "adapter",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "current_url": {
+          "name": "current_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "incidents_url": {
+          "name": "incidents_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status_page_url": {
+          "name": "status_page_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "allowed_hosts": {
+          "name": "allowed_hosts",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "config": {
+          "name": "config",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "catalog_version": {
+          "name": "catalog_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "enabled": {
+          "name": "enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "etag": {
+          "name": "etag",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_modified": {
+          "name": "last_modified",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_attempt_at": {
+          "name": "last_attempt_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_success_at": {
+          "name": "last_success_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provider_updated_at": {
+          "name": "provider_updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "next_poll_at": {
+          "name": "next_poll_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "consecutive_failures": {
+          "name": "consecutive_failures",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "last_error_code": {
+          "name": "last_error_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "catalog_validated_at": {
+          "name": "catalog_validated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "catalog_validation_error": {
+          "name": "catalog_validation_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "dependency_sources_next_poll": {
+          "name": "dependency_sources_next_poll",
+          "columns": [
+            {
+              "expression": "next_poll_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"dependency_sources\".\"enabled\" = true",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "dependency_sources_adapter": {
+          "name": "dependency_sources_adapter",
+          "value": "\"dependency_sources\".\"adapter\" in ('statuspage_v2', 'incidentio_compat', 'google_cloud_status', 'statusio_public', 'sorry_v1')"
+        },
+        "dependency_sources_failures_nonnegative": {
+          "name": "dependency_sources_failures_nonnegative",
+          "value": "\"dependency_sources\".\"consecutive_failures\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.dependency_state": {
+      "name": "dependency_state",
+      "schema": "",
+      "columns": {
+        "dependency_id": {
+          "name": "dependency_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "checking": {
+          "name": "checking",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "state_started_at": {
+          "name": "state_started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_updated_at": {
+          "name": "provider_updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "observed_at": {
+          "name": "observed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_successful_poll_at": {
+          "name": "last_successful_poll_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "dependency_state_dependency_id_dependencies_id_fk": {
+          "name": "dependency_state_dependency_id_dependencies_id_fk",
+          "tableFrom": "dependency_state",
+          "tableTo": "dependencies",
+          "columnsFrom": [
+            "dependency_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "dependency_state_state": {
+          "name": "dependency_state_state",
+          "value": "\"dependency_state\".\"state\" in ('OPERATIONAL', 'DEGRADED', 'OUTAGE', 'MAINTENANCE', 'UNKNOWN')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.dependency_state_intervals": {
+      "name": "dependency_state_intervals",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "dependency_id": {
+          "name": "dependency_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ended_at": {
+          "name": "ended_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source_observed_at": {
+          "name": "source_observed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "dependency_state_intervals_one_open": {
+          "name": "dependency_state_intervals_one_open",
+          "columns": [
+            {
+              "expression": "dependency_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"dependency_state_intervals\".\"ended_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "dependency_state_intervals_dependency_time": {
+          "name": "dependency_state_intervals_dependency_time",
+          "columns": [
+            {
+              "expression": "dependency_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "started_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "dependency_state_intervals_dependency_id_dependencies_id_fk": {
+          "name": "dependency_state_intervals_dependency_id_dependencies_id_fk",
+          "tableFrom": "dependency_state_intervals",
+          "tableTo": "dependencies",
+          "columnsFrom": [
+            "dependency_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "dependency_state_intervals_state": {
+          "name": "dependency_state_intervals_state",
+          "value": "\"dependency_state_intervals\".\"state\" in ('OPERATIONAL', 'DEGRADED', 'OUTAGE', 'MAINTENANCE', 'UNKNOWN')"
+        },
+        "dependency_state_intervals_order": {
+          "name": "dependency_state_intervals_order",
+          "value": "\"dependency_state_intervals\".\"ended_at\" is null or \"dependency_state_intervals\".\"ended_at\" >= \"dependency_state_intervals\".\"started_at\""
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.device_authorizations": {
       "name": "device_authorizations",
       "schema": "",
@@ -2923,7 +3536,13 @@
           "name": "monitor_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
+        },
+        "dependency_id": {
+          "name": "dependency_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "event_type": {
           "name": "event_type",
@@ -3087,6 +3706,19 @@
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
+        },
+        "notification_outbox_dependency_id_dependencies_id_fk": {
+          "name": "notification_outbox_dependency_id_dependencies_id_fk",
+          "tableFrom": "notification_outbox",
+          "tableTo": "dependencies",
+          "columnsFrom": [
+            "dependency_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -3108,6 +3740,10 @@
         "notification_outbox_attempts_nonnegative": {
           "name": "notification_outbox_attempts_nonnegative",
           "value": "\"notification_outbox\".\"attempt_count\" >= 0"
+        },
+        "notification_outbox_subject": {
+          "name": "notification_outbox_subject",
+          "value": "(\"notification_outbox\".\"monitor_id\" is null) <> (\"notification_outbox\".\"dependency_id\" is null)"
         },
         "notification_outbox_claim_pair": {
           "name": "notification_outbox_claim_pair",
@@ -3186,6 +3822,295 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.provider_incident_components": {
+      "name": "provider_incident_components",
+      "schema": "",
+      "columns": {
+        "incident_id": {
+          "name": "incident_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "external_component_id": {
+          "name": "external_component_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "association_kind": {
+          "name": "association_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "provider_incident_components_incident_id_provider_incidents_id_fk": {
+          "name": "provider_incident_components_incident_id_provider_incidents_id_fk",
+          "tableFrom": "provider_incident_components",
+          "tableTo": "provider_incidents",
+          "columnsFrom": [
+            "incident_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "provider_incident_components_incident_id_external_component_id_pk": {
+          "name": "provider_incident_components_incident_id_external_component_id_pk",
+          "columns": [
+            "incident_id",
+            "external_component_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "provider_incident_components_association_kind": {
+          "name": "provider_incident_components_association_kind",
+          "value": "\"provider_incident_components\".\"association_kind\" in ('explicit', 'inferred')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.provider_incident_updates": {
+      "name": "provider_incident_updates",
+      "schema": "",
+      "columns": {
+        "incident_id": {
+          "name": "incident_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "external_update_id": {
+          "name": "external_update_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "body_text": {
+          "name": "body_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_created_at": {
+          "name": "provider_created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_updated_at": {
+          "name": "provider_updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "provider_incident_updates_incident_id_provider_incidents_id_fk": {
+          "name": "provider_incident_updates_incident_id_provider_incidents_id_fk",
+          "tableFrom": "provider_incident_updates",
+          "tableTo": "provider_incidents",
+          "columnsFrom": [
+            "incident_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "provider_incident_updates_incident_id_external_update_id_pk": {
+          "name": "provider_incident_updates_incident_id_external_update_id_pk",
+          "columns": [
+            "incident_id",
+            "external_update_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "provider_incident_updates_state": {
+          "name": "provider_incident_updates_state",
+          "value": "\"provider_incident_updates\".\"state\" in ('investigating', 'identified', 'monitoring', 'resolved', 'scheduled', 'in_progress', 'completed', 'recovering', 'false_alarm')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.provider_incidents": {
+      "name": "provider_incidents",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "source_id": {
+          "name": "source_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "external_id": {
+          "name": "external_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "impact": {
+          "name": "impact",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "resolved_at": {
+          "name": "resolved_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provider_updated_at": {
+          "name": "provider_updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "canonical_url": {
+          "name": "canonical_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "provider_incidents_source_external": {
+          "name": "provider_incidents_source_external",
+          "columns": [
+            {
+              "expression": "source_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "external_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "provider_incidents_source_started": {
+          "name": "provider_incidents_source_started",
+          "columns": [
+            {
+              "expression": "source_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "started_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "provider_incidents_unresolved": {
+          "name": "provider_incidents_unresolved",
+          "columns": [
+            {
+              "expression": "resolved_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"provider_incidents\".\"resolved_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "provider_incidents_source_id_dependency_sources_id_fk": {
+          "name": "provider_incidents_source_id_dependency_sources_id_fk",
+          "tableFrom": "provider_incidents",
+          "tableTo": "dependency_sources",
+          "columnsFrom": [
+            "source_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "provider_incidents_state": {
+          "name": "provider_incidents_state",
+          "value": "\"provider_incidents\".\"state\" in ('investigating', 'identified', 'monitoring', 'resolved', 'scheduled', 'in_progress', 'completed', 'recovering', 'false_alarm')"
+        },
+        "provider_incidents_resolution_order": {
+          "name": "provider_incidents_resolution_order",
+          "value": "\"provider_incidents\".\"resolved_at\" is null or \"provider_incidents\".\"resolved_at\" >= \"provider_incidents\".\"started_at\""
+        }
+      },
       "isRLSEnabled": false
     },
     "public.status_page_config": {

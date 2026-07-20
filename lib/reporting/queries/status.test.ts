@@ -507,6 +507,54 @@ describe("getPublicStatus", () => {
       Array.from({ length: 10 }, (_, index) => `inc-${100 + index}`),
     );
   });
+
+  it("excludes pre-activation buckets from public uptime and history so setup failures never read as downtime", async () => {
+    vi.mocked(getStatusPageConfig).mockResolvedValue(resolvedConfig());
+    const monitorRow = {
+      id: "mon-1",
+      name: "API",
+      groupName: "Core",
+      state: "UP",
+      activatedAt: new Date("2026-07-10T00:00:00.000Z"),
+    };
+    // One daily bucket before activation carries setup failures, one after is
+    // clean. Only the post-activation bucket may reach public uptime.
+    const rollupRows = [
+      { monitorId: "mon-1", bucketStart: new Date("2026-07-08T00:00:00.000Z"), expectedChecks: 10, completedChecks: 10, successfulChecks: 5, failedChecks: 5, unknownChecks: 0, downtimeSeconds: 600 },
+      { monitorId: "mon-1", bucketStart: new Date("2026-07-12T00:00:00.000Z"), expectedChecks: 10, completedChecks: 10, successfulChecks: 10, failedChecks: 0, unknownChecks: 0, downtimeSeconds: 0 },
+    ];
+    dbMock.select
+      .mockReturnValueOnce(selectChain([monitorRow])) // monitors
+      .mockReturnValueOnce(selectChain(rollupRows)) // rollups
+      .mockReturnValueOnce(selectChain([])) // current incidents
+      .mockReturnValueOnce(selectChain([])); // recent incidents
+
+    const data = await getPublicStatus();
+    const monitor = data!.groups[0]!.monitors[0]!;
+    // Unfiltered the mix would be 15/20 = 75%. Activation filtering keeps only
+    // the clean post-activation bucket, so public uptime is a full 100% and no
+    // pre-activation failure renders as a down history bucket.
+    expect(monitor.uptime).toBe(100);
+    expect(monitor.timeline.every((bucket) => bucket.state !== "down")).toBe(true);
+  });
+
+  it("reads a never-activated monitor as no data, never down, even with recorded failures", async () => {
+    vi.mocked(getStatusPageConfig).mockResolvedValue(resolvedConfig());
+    const monitorRow = { id: "mon-1", name: "API", groupName: "Core", state: "PENDING", activatedAt: null };
+    const rollupRows = [
+      { monitorId: "mon-1", bucketStart: new Date("2026-07-12T00:00:00.000Z"), expectedChecks: 10, completedChecks: 10, successfulChecks: 0, failedChecks: 10, unknownChecks: 0, downtimeSeconds: 600 },
+    ];
+    dbMock.select
+      .mockReturnValueOnce(selectChain([monitorRow])) // monitors
+      .mockReturnValueOnce(selectChain(rollupRows)) // rollups
+      .mockReturnValueOnce(selectChain([])) // current incidents
+      .mockReturnValueOnce(selectChain([])); // recent incidents
+
+    const data = await getPublicStatus();
+    const monitor = data!.groups[0]!.monitors[0]!;
+    expect(monitor.uptime).toBeNull();
+    expect(monitor.timeline.every((bucket) => bucket.state !== "down")).toBe(true);
+  });
 });
 
 describe("getPublicReportDetail", () => {

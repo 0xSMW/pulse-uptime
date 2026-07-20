@@ -72,7 +72,7 @@ export function UserMenu({ email }: { email: string }) {
       <DropdownMenuTrigger
         title="Account"
         aria-label="Account"
-        className="flex size-8 shrink-0 items-center justify-center rounded-full border border-[var(--border-strong)] bg-[var(--chip-bg)] text-[var(--fg)] hover:border-[var(--border-hover)] data-[popup-open]:border-[var(--border-hover)]"
+        className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full border border-[var(--border-strong)] bg-[var(--chip-bg)] text-[var(--fg)] hover:border-[var(--border-hover)] data-[popup-open]:border-[var(--border-hover)]"
       >
         <CircleUser className="size-4" aria-hidden="true" />
       </DropdownMenuTrigger>

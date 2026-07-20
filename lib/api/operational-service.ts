@@ -1,11 +1,11 @@
 import "server-only";
 
-import { and, desc, eq, inArray, isNull, lt, or } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lt, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { monitoringConfigSchema } from "@/lib/config/schema";
 import { db } from "@/lib/db/client";
-import { incidents, monitorRegistry, monitoringConfigSnapshots, notificationOutbox } from "@/lib/db/schema";
+import { incidents, monitorRegistry, monitoringConfigSnapshots, monitorState, notificationOutbox } from "@/lib/db/schema";
 import { normalizeRecipient, testNotificationKey } from "@/lib/notifications/idempotency";
 import { getPublicStatus } from "@/lib/reporting/queries/status";
 
@@ -19,6 +19,14 @@ type NotificationRow = { incidentId: string | null; status: NotificationStatus }
 function durationSeconds(openedAt: Date, resolvedAt: Date | null, now = new Date()): number {
   return Math.max(0, Math.floor(((resolvedAt ?? now).getTime() - openedAt.getTime()) / 1_000));
 }
+
+// First-run gate for the incident APIs. An incident opened before its monitor
+// activated is a setup-phase failure, not real downtime, so joining
+// monitor_state and requiring openedAt at or after activatedAt drops it from the
+// feed and the per-incident fetch. A null activatedAt fails the comparison, so a
+// never-activated monitor surfaces no incidents. A genuine ongoing incident is
+// unaffected: the backfill sets activatedAt at or before its openedAt.
+const activationGate = gte(incidents.openedAt, monitorState.activatedAt);
 
 function notificationSummary(rows: NotificationRow[]) {
   const sentCount = rows.filter((row) => row.status === "sent").length;
@@ -75,7 +83,8 @@ export function createOperationalService(dependencies: {
         openedAt: incidents.openedAt, resolvedAt: incidents.resolvedAt,
         openingErrorCode: incidents.openingErrorCode, openingStatusCode: incidents.openingStatusCode,
       }).from(incidents).innerJoin(monitorRegistry, eq(monitorRegistry.id, incidents.monitorId))
-        .where(after).orderBy(desc(incidents.openedAt), desc(incidents.id)).limit(input.limit + 1);
+        .innerJoin(monitorState, eq(monitorState.monitorId, incidents.monitorId))
+        .where(and(after, activationGate)).orderBy(desc(incidents.openedAt), desc(incidents.id)).limit(input.limit + 1);
       const page = rows.slice(0, input.limit);
       const notifications = page.length === 0 ? [] : await database.select({
         incidentId: notificationOutbox.incidentId, status: notificationOutbox.status,
@@ -93,7 +102,8 @@ export function createOperationalService(dependencies: {
         openedAt: incidents.openedAt, resolvedAt: incidents.resolvedAt,
         openingErrorCode: incidents.openingErrorCode, openingStatusCode: incidents.openingStatusCode,
       }).from(incidents).innerJoin(monitorRegistry, eq(monitorRegistry.id, incidents.monitorId))
-        .where(eq(incidents.id, id)).limit(1);
+        .innerJoin(monitorState, eq(monitorState.monitorId, incidents.monitorId))
+        .where(and(eq(incidents.id, id), activationGate)).limit(1);
       if (!row) return null;
       const notifications = await database.select({ incidentId: notificationOutbox.incidentId, status: notificationOutbox.status })
         .from(notificationOutbox).where(eq(notificationOutbox.incidentId, id)).limit(100);

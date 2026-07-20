@@ -1245,6 +1245,16 @@
     "/api/v1/monitors/{monitorId}/test": {
       "$ref": "#/components/pathItems/MonitorTest"
     },
+    "/api/v1/monitors/{monitorId}/live": {
+      "parameters": [{"name": "monitorId", "in": "path", "required": true, "schema": {"type": "string"}}],
+      "get": {
+        "operationId": "getMonitorLive", "tags": ["Monitors"], "summary": "Get monitor live summary",
+        "description": "Requires monitors:read. The incident fields latestIncident and recentIncidents are included only when the principal also holds incidents:read, otherwise they are withheld as null and an empty array.",
+        "x-required-scopes": ["monitors:read"], "security": [{"bearerAuth": []}, {"humanSession": []}],
+        "parameters": [{"$ref": "#/components/parameters/RequestId"}],
+        "responses": {"200": {"description": "Monitor live summary", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MonitorLiveEnvelope"}}}}, "401": {"$ref": "#/components/responses/AuthenticationRequired"}, "403": {"$ref": "#/components/responses/ScopeDenied"}, "404": {"$ref": "#/components/responses/NotFound"}, "429": {"$ref": "#/components/responses/RateLimited"}}
+      }
+    },
     "/api/v1/groups": {
       "get": {
         "operationId": "listGroups", "tags": ["Monitors"], "summary": "List monitor groups",
@@ -3245,6 +3255,39 @@
           "meta": {
             "$ref": "#/components/schemas/Meta"
           }
+        }
+      },
+      "MonitorLive": {
+        "type": "object",
+        "unevaluatedProperties": false,
+        "required": ["id", "state", "enabled", "latestLatencyMs", "lastCheckedAt", "p95LatencyMs", "uptime", "coverage", "rangeUnlocked", "firstRun", "latestIncident", "recentIncidents", "recentChecks", "rollupVersion", "configVersion", "windowVersion"],
+        "properties": {
+          "id": {"type": "string", "description": "The monitor this payload describes, so a client merges the live fields only under the matching page after a direct navigation between monitors."},
+          "state": {"type": "string"},
+          "enabled": {"type": "boolean", "description": "Whether the monitor is enabled. It tracks the registry row, which flips in step with state, so a pause or resume from another session lands on the next poll."},
+          "latestLatencyMs": {"type": ["integer", "null"]},
+          "lastCheckedAt": {"type": ["string", "null"], "format": "date-time"},
+          "p95LatencyMs": {"type": ["integer", "null"]},
+          "uptime": {"type": "object", "unevaluatedProperties": false, "required": ["h24", "d7"], "properties": {"h24": {"type": ["number", "null"]}, "d7": {"type": ["number", "null"]}}, "description": "Uptime for the ranges the live poll recomputes. d30 and d90 are absent, so a client keeps the snapshot values. A locked range reports null."},
+          "coverage": {"type": "object", "unevaluatedProperties": false, "required": ["h24", "d7"], "properties": {"h24": {"type": ["number", "null"]}, "d7": {"type": ["number", "null"]}}, "description": "Coverage for the ranges the live poll recomputes. d30 and d90 are absent, so a client keeps the snapshot values. A locked range reports null."},
+          "rangeUnlocked": {"type": "object", "additionalProperties": {"type": "boolean"}},
+          "firstRun": {"type": "object"},
+          "latestIncident": {"type": ["object", "null"], "description": "Latest incident summary. Withheld as null unless the principal holds incidents:read."},
+          "recentIncidents": {"type": "array", "items": {"type": "object"}, "description": "Recent incident summaries. Withheld as an empty array unless the principal holds incidents:read."},
+          "recentChecks": {"type": "array", "items": {"type": "object"}},
+          "rollupVersion": {"type": ["string", "null"], "description": "Latest completed rollup bucket start. It advances when a new bucket finalizes."},
+          "configVersion": {"type": ["string", "null"], "description": "Accepted config snapshot version. It advances when a config edit is accepted, so a client refreshes even when no rollup finalizes."},
+          "windowVersion": {"type": "string", "format": "date-time", "description": "Completed 15-minute window boundary the h24 and d7 scores read against. It advances every 15 minutes even on a paused monitor, so a client refreshes once to recompute the timeline and chart against the current window."}
+        }
+      },
+      "MonitorLiveEnvelope": {
+        "type": "object",
+        "required": ["apiVersion", "kind", "data", "meta"],
+        "properties": {
+          "apiVersion": {"$ref": "#/components/schemas/ApiVersion"},
+          "kind": {"const": "MonitorLive"},
+          "data": {"$ref": "#/components/schemas/MonitorLive"},
+          "meta": {"$ref": "#/components/schemas/Meta"}
         }
       },
       "MonitorListEnvelope": {

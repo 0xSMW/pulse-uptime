@@ -37,8 +37,8 @@ function toSQL(query: { toSQL(): { sql: string; params: unknown[] } }): Resolved
 export const queryCases: QueryCase[] = [
   {
     name: "dashboard-monitors-uptime24h",
-    description: "Dashboard monitor list with the rollup+raw-check blended 24h uptime subquery and the active-incident left join production performs alongside it.",
-    source: "lib/monitoring/queries.ts:35-119 (listDashboardMonitors)",
+    description: "Dashboard monitor list with the rollup+raw-check blended 24h uptime subquery, the activation cutoff both sides apply, and the active-incident left join production performs alongside it.",
+    source: "lib/monitoring/queries.ts:35-132 (listDashboardMonitors)",
     mutating: false,
     build: (conn, ctx) => {
       // Use fixture time so plans read seeded rollups.
@@ -65,6 +65,7 @@ export const queryCases: QueryCase[] = [
               and ${schema.metricRollups.resolution} = '15m'
               and ${schema.metricRollups.bucketStart} >= ${start15m}
               and ${schema.metricRollups.bucketStart} < ${end15m}
+              and ${schema.metricRollups.bucketStart} >= ${schema.monitorState.activatedAt}
           ) rollup
           cross join lateral (
             select count(*) as completed,
@@ -73,6 +74,7 @@ export const queryCases: QueryCase[] = [
             where ${schema.checkResults.monitorId} = ${schema.monitorRegistry.id}
               and ${schema.checkResults.scheduledAt} >= ${start15m}
               and ${schema.checkResults.scheduledAt} < ${end15m}
+              and date_bin('15 minutes', ${schema.checkResults.scheduledAt}, timestamptz '2000-01-01') >= ${schema.monitorState.activatedAt}
               and not exists (
                 select 1 from ${schema.metricRollups} covered
                 where covered.monitor_id = ${schema.monitorRegistry.id}
@@ -132,9 +134,9 @@ export const queryCases: QueryCase[] = [
     return [{
       name: `monitor-detail-rollups-${window.label}`,
       description: resolution === "15m"
-        ? "Monitor detail page 15m-resolution rollup scan over the actual 7-day window rollupsFor() issues; production derives its 24h view in-memory from this superset instead of querying it separately."
+        ? "Monitor detail page 15m-resolution rollup scan over the actual 7-day window fetchRollups() issues; production derives its 24h view in-memory from this superset instead of querying it separately."
         : `Monitor detail page rollup series at ${resolution} resolution over a ${window.label} window.`,
-      source: "lib/reporting/queries/monitors.ts:121-134 (rollupsFor call sites in getMonitorDetail)",
+      source: "lib/reporting/queries/monitors.ts:fetchRollups call sites in getMonitorDetail and getMonitorLive",
       mutating: false,
       build: (conn: GatedConnection, ctx: SampleContext) => {
         const end = new Date(ctx.now);
