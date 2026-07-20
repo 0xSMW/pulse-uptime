@@ -21,7 +21,7 @@ export type DashboardMonitor = {
   url: string;
   state: MonitorState;
   uptime24h: number | null;
-  lastLatencyMs: number | null;
+  latestLatencyMs: number | null;
   lastCheckedAt: string | null;
   activatedAt: string | null;
   activeIncidentOpenedAt: string | null;
@@ -240,7 +240,7 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
                   </div>
                 </td>
                 <td className="px-4 text-right font-data">{uptime24hLabel(monitor, new Date())}</td>
-                <td className="px-4 text-right font-data">{formatLatency(monitor.lastLatencyMs)}</td>
+                <td className="px-4 text-right font-data">{formatLatency(monitor.latestLatencyMs)}</td>
                 <td className="px-6 text-right font-data text-[var(--fg-muted)]">
                   {monitor.lastCheckedAt ? formatRelativeTime(new Date(monitor.lastCheckedAt), new Date(), resolvedTimeZone) : "Never"}
                 </td>

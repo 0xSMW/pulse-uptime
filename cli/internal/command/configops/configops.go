@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -176,9 +175,6 @@ func validateCommand(d Dependencies) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		if issues := ValidateDocument(doc); len(issues) > 0 {
-			return &Error{Exit: 2, Code: "INVALID_CONFIGURATION", Message: "configuration is invalid", Details: map[string]any{"errors": issues}}
-		}
 		if err := requireClient(d); err != nil {
 			return err
 		}
@@ -200,9 +196,6 @@ func planCommand(d Dependencies) *cobra.Command {
 		doc, err := ReadDocument(d, file)
 		if err != nil {
 			return err
-		}
-		if issues := ValidateDocument(doc); len(issues) > 0 {
-			return &Error{Exit: 2, Code: "INVALID_CONFIGURATION", Message: "configuration is invalid", Details: map[string]any{"errors": issues}}
 		}
 		plan, err := makePlan(cmd.Context(), d, doc)
 		if err != nil {
@@ -227,9 +220,6 @@ func applyCommand(d Dependencies) *cobra.Command {
 		doc, err := ReadDocument(d, file)
 		if err != nil {
 			return err
-		}
-		if issues := ValidateDocument(doc); len(issues) > 0 {
-			return &Error{Exit: 2, Code: "INVALID_CONFIGURATION", Message: "configuration is invalid", Details: map[string]any{"errors": issues}}
 		}
 		planned, err := makePlan(cmd.Context(), d, doc)
 		if err != nil {
@@ -400,136 +390,7 @@ func ReadDocument(d Dependencies, path string) (map[string]any, error) {
 	return upgraded, nil
 }
 
-type ValidationIssue struct {
-	Path    string `json:"path" yaml:"path"`
-	Message string `json:"message" yaml:"message"`
-}
-
-func ValidateDocument(doc map[string]any) []ValidationIssue {
-	var out []ValidationIssue
-	version, versionOK := number(doc["version"])
-	if !versionOK || (version != 1 && version != 2) {
-		out = append(out, ValidationIssue{"version", "must equal 1 or 2"})
-	}
-	settings, ok := doc["settings"].(map[string]any)
-	if !ok {
-		out = append(out, ValidationIssue{"settings", "must be an object"})
-	} else {
-		checkRange := func(name string, min, max float64) {
-			if n, exists := settings[name]; exists {
-				value, valid := number(n)
-				if !valid || value < min || value > max {
-					out = append(out, ValidationIssue{"settings." + name, fmt.Sprintf("must be between %g and %g", min, max)})
-				}
-			}
-		}
-		checkRange("concurrency", 1, 1000)
-		checkRange("defaultTimeoutMs", 1000, 15000)
-		checkRange("defaultFailureThreshold", 1, 5)
-		checkRange("defaultRecoveryThreshold", 1, 5)
-	}
-	monitors, ok := doc["monitors"].([]any)
-	if !ok {
-		out = append(out, ValidationIssue{"monitors", "must be an array"})
-		return out
-	}
-	seen := map[string]bool{}
-	groupIDs := map[string]bool{}
-	if version == 2 {
-		groups, groupsOK := doc["groups"].([]any)
-		if !groupsOK {
-			out = append(out, ValidationIssue{"groups", "must be an array"})
-		} else {
-			if len(groups) > 100 {
-				out = append(out, ValidationIssue{"groups", "must contain at most 100 groups"})
-			}
-			groupNames := map[string]bool{}
-			for i, raw := range groups {
-				group, groupOK := raw.(map[string]any)
-				if !groupOK {
-					out = append(out, ValidationIssue{fmt.Sprintf("groups[%d]", i), "must be an object"})
-					continue
-				}
-				id, _ := group["id"].(string)
-				if !validSlug(id) {
-					out = append(out, ValidationIssue{fmt.Sprintf("groups[%d].id", i), "must be a lowercase slug between 3 and 64 characters"})
-				} else if groupIDs[id] {
-					out = append(out, ValidationIssue{fmt.Sprintf("groups[%d].id", i), "must be unique"})
-				}
-				groupIDs[id] = true
-				name, _ := group["name"].(string)
-				trimmed := strings.TrimSpace(name)
-				if trimmed == "" || len([]rune(trimmed)) > 50 {
-					out = append(out, ValidationIssue{fmt.Sprintf("groups[%d].name", i), "must contain between 1 and 50 characters"})
-				} else if groupNames[strings.ToLower(trimmed)] {
-					out = append(out, ValidationIssue{fmt.Sprintf("groups[%d].name", i), "must be unique ignoring case"})
-				}
-				groupNames[strings.ToLower(trimmed)] = true
-			}
-		}
-	}
-	for i, raw := range monitors {
-		monitor, ok := raw.(map[string]any)
-		if !ok {
-			out = append(out, ValidationIssue{fmt.Sprintf("monitors[%d]", i), "must be an object"})
-			continue
-		}
-		id, _ := monitor["id"].(string)
-		if id == "" {
-			out = append(out, ValidationIssue{fmt.Sprintf("monitors[%d].id", i), "is required"})
-		} else if seen[id] {
-			out = append(out, ValidationIssue{fmt.Sprintf("monitors[%d].id", i), "must be unique"})
-		}
-		seen[id] = true
-		for _, name := range []string{"name", "url"} {
-			if v, _ := monitor[name].(string); v == "" {
-				out = append(out, ValidationIssue{fmt.Sprintf("monitors[%d].%s", i, name), "is required"})
-			}
-		}
-		if version == 2 {
-			groupID, exists := monitor["groupId"]
-			if !exists {
-				out = append(out, ValidationIssue{fmt.Sprintf("monitors[%d].groupId", i), "is required and may be null"})
-			} else if groupID != nil {
-				value, valid := groupID.(string)
-				if !valid || !validSlug(value) {
-					out = append(out, ValidationIssue{fmt.Sprintf("monitors[%d].groupId", i), "must be a lowercase group slug or null"})
-				} else if !groupIDs[value] {
-					out = append(out, ValidationIssue{fmt.Sprintf("monitors[%d].groupId", i), "must reference a configured group"})
-				}
-			}
-		} else if value, exists := monitor["group"]; exists && value != nil {
-			name, valid := value.(string)
-			if !valid || strings.TrimSpace(name) == "" || len([]rune(strings.TrimSpace(name))) > 50 {
-				out = append(out, ValidationIssue{fmt.Sprintf("monitors[%d].group", i), "must contain between 1 and 50 characters or be null"})
-			}
-		}
-		for name, bounds := range map[string][2]float64{"timeoutMs": {1000, 15000}, "failureThreshold": {1, 5}, "recoveryThreshold": {1, 5}} {
-			if v, exists := monitor[name]; exists {
-				n, valid := number(v)
-				if !valid || n < bounds[0] || n > bounds[1] {
-					out = append(out, ValidationIssue{fmt.Sprintf("monitors[%d].%s", i, name), fmt.Sprintf("must be between %g and %g", bounds[0], bounds[1])})
-				}
-			}
-		}
-		if value, exists := monitor["intervalMinutes"]; exists {
-			minutes, valid := number(value)
-			if !valid || (minutes != 1 && minutes != 5 && minutes != 10 && minutes != 15) {
-				out = append(out, ValidationIssue{fmt.Sprintf("monitors[%d].intervalMinutes", i), "must be one of 1, 5, 10, or 15"})
-			}
-		}
-	}
-	return out
-}
-
 func number(v any) (float64, bool) { n, ok := v.(float64); return n, ok }
-
-var slugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
-
-func validSlug(value string) bool {
-	length := len(value)
-	return length >= 3 && length <= 64 && slugPattern.MatchString(value)
-}
 
 // UpgradeDocument converts a valid-shape v1 document into the v2 group model.
 // IDs match the service adapter so plan/apply hashes remain stable regardless of

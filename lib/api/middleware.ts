@@ -1,6 +1,6 @@
 import "server-only";
 
-import { mutationOriginAllowed } from "@/lib/onboarding/http";
+import { mutationOriginAllowed } from "@/lib/auth/origin";
 
 import { apiError, requestIdFrom } from "./envelopes";
 import { resolvePrincipal, type Principal } from "./principal";

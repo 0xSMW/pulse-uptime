@@ -46,10 +46,7 @@ export const queryExecutor: SqlExecutor = {
 };
 
 async function synchronizeRegistry(config: MonitoringConfig, hash: string, now: Date): Promise<void> {
-  await db.transaction((tx) => syncRegistryRows(tx, config, hash, now, {
-    trackExceptions: true,
-    assertIncidentResolution: true,
-  }));
+  await db.transaction((tx) => syncRegistryRows(tx, config, hash, now, "runtime"));
 }
 
 async function loadAcceptedConfiguration(now: Date): Promise<MonitoringConfig> {

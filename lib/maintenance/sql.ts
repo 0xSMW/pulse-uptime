@@ -50,11 +50,6 @@ deleted as (
   delete from cron_runs using doomed where cron_runs.id = doomed.id returning 1
 )
 select count(*)::int as affected from deleted`;
-const DELETE_ROLLUPS_SQL = `with doomed as (select monitor_id, day from daily_rollups where day < $1::date order by day, monitor_id limit $2),
-deleted as (
-  delete from daily_rollups using doomed where daily_rollups.monitor_id = doomed.monitor_id and daily_rollups.day = doomed.day returning 1
-)
-select count(*)::int as affected from deleted`;
 const EXPIRE_APPROVALS_SQL = `with doomed as (select id from config_change_approvals where (expires_at < $1 and consumed_at is null) or consumed_at < $2 order by created_at, id limit $3),
 deleted as (
   delete from config_change_approvals using doomed where config_change_approvals.id = doomed.id returning 1
@@ -243,8 +238,10 @@ export function createSqlMaintenanceStore(db: QueryExecutor, drizzle?: Database)
     async deleteOldCronRuns(cutoff, limit) {
       return affected(await db.query<AffectedRow>(DELETE_CRON_SQL, [cutoff, limit]));
     },
-    async deleteOldRollups(dayCutoff, limit) {
-      return affected(await db.query<AffectedRow>(DELETE_ROLLUPS_SQL, [dayCutoff, limit]));
+    async deleteOldRollups() {
+      // daily_rollups is dropped. metric_rollups day retention runs through
+      // enforceTelemetryRetention, so this ladder has nothing to delete.
+      return 0;
     },
     async compact15Minute(start, end, now) {
       return count(await db.query(COMPACT_15_MINUTE_SQL, [start, end, now]));

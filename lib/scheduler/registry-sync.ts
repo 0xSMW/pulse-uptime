@@ -5,30 +5,19 @@ import { and, eq, inArray, isNull, notInArray, sql as drizzleSql } from "drizzle
 import type { MonitoringConfig } from "@/lib/config";
 import type { Database } from "@/lib/db/client";
 import { incidents, monitorExceptions, monitorRegistry, monitorState } from "@/lib/db/schema";
+import { deterministicUuid } from "@/lib/ids/deterministic-uuid";
 import type { MonitorStateSnapshot } from "@/lib/monitoring/types";
 
 import { transitionLifecycle, type LifecycleTarget } from "./lifecycle";
 
 export type DbTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
-export type RegistrySyncMode = {
-  // Runtime records configuration, pause, and resume notification exceptions.
-  // The API path skips them.
-  trackExceptions: boolean;
-  // Runtime requires incident resolution to update one row.
-  // The API path permits a no-op.
-  assertIncidentResolution: boolean;
-};
+// Runtime records configuration, pause, and resume notification exceptions and
+// requires incident resolution to update one row. The API path skips exceptions
+// and permits a no-op incident resolution.
+export type RegistrySyncMode = "runtime" | "api";
 
 type ExceptionEventType = "pause" | "resume" | "configuration";
-
-function deterministicUuid(value: string): string {
-  const bytes = Buffer.from(createHash("sha256").update(value).digest().subarray(0, 16));
-  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
-  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
-  const hex = bytes.toString("hex");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
 
 export async function synchronizeRegistry(
   tx: DbTransaction,
@@ -37,11 +26,13 @@ export async function synchronizeRegistry(
   now: Date,
   mode: RegistrySyncMode,
 ): Promise<void> {
+  const trackExceptions = mode === "runtime";
+  const assertIncidentResolution = mode === "runtime";
   const groupNames = new Map(config.groups.map((group) => [group.id, group.name]));
   const desiredIds = config.monitors.map((monitor) => monitor.id);
 
   const previousRegistryById = new Map<string, { configHash: string; enabled: boolean }>();
-  if (mode.trackExceptions && desiredIds.length > 0) {
+  if (trackExceptions && desiredIds.length > 0) {
     const previous = await tx.select({
       id: monitorRegistry.id,
       configHash: monitorRegistry.configHash,
@@ -101,7 +92,7 @@ export async function synchronizeRegistry(
 
   const exceptionRows: (typeof monitorExceptions.$inferInsert)[] = [];
   const addException = (monitorId: string, eventType: ExceptionEventType, errorCode: string | null) => {
-    if (!mode.trackExceptions) return;
+    if (!trackExceptions) return;
     const identity = `${eventType}/${monitorId}/${hash}`;
     exceptionRows.push({
       id: deterministicUuid(identity),
@@ -130,7 +121,7 @@ export async function synchronizeRegistry(
         eq(incidents.id, mutation.resolution.incidentId),
         isNull(incidents.resolvedAt),
       ));
-      if (mode.assertIncidentResolution) {
+      if (assertIncidentResolution) {
         const resolved = await resolution.returning({ id: incidents.id });
         if (resolved.length !== 1) throw new Error(`Active incident not found: ${mutation.resolution.incidentId}`);
       } else {

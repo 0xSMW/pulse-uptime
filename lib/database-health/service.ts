@@ -1,5 +1,7 @@
 import "server-only";
 
+import { GOVERNOR_ACTIONS } from "@/lib/storage/governor";
+
 import { databaseHealthRepository } from "./repository";
 import {
   DATABASE_HEALTH_CATEGORY_KEYS,
@@ -8,7 +10,6 @@ import {
   DATABASE_STORAGE_BUDGET_BYTES,
   MONTHLY_TRANSFER_BUDGET_BYTES,
   type AttributedDatabaseCategoryKey,
-  type DatabaseGovernorMode,
   type DatabaseHealth,
   type DatabaseHealthCategoryKey,
   type DatabaseHealthMeasurement,
@@ -26,15 +27,6 @@ const CATEGORY_LABELS: Record<DatabaseHealthCategoryKey, string> = {
   content: "Images & reports",
   indexes: "Indexes",
   other: "Other",
-};
-
-const DEFAULT_ACTIONS: Record<DatabaseGovernorMode, string> = {
-  FULL_DETAIL: "Keeping full configured detail",
-  EARLY_COMPACTION: "Compacting completed buckets early",
-  SHORTENED_RETENTION: "Shortening minute and 15-minute retention",
-  INCIDENT_HOURLY_ONLY: "Keeping hourly detail around incidents",
-  ESSENTIALS_ONLY: "Preserving current state, incidents, and daily rollups",
-  UNKNOWN: "Waiting for current retention metrics",
 };
 
 type CacheEntry = { measurement: DatabaseHealthMeasurement; eligibleAt: number };
@@ -124,7 +116,7 @@ export function presentDatabaseHealth(
     })),
     governor: {
       mode: measurement.governorMode,
-      action: measurement.governorAction?.trim() || DEFAULT_ACTIONS[measurement.governorMode],
+      action: measurement.governorAction?.trim() || GOVERNOR_ACTIONS[measurement.governorMode],
       lastCompactionAt: measurement.lastCompactionAt?.toISOString() ?? null,
     },
     schedulerCoverage: measurement.schedulerCoverage === null ? null : Math.min(1, Math.max(0, measurement.schedulerCoverage)),

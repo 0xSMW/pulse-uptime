@@ -138,7 +138,7 @@ describe("committed OpenAPI v1 source", () => {
         const route = relative(root, dirname(join(root, file))).split(sep)
           .map((segment) => segment.replace(/^\[(.+)]$/, "{$1}"))
           .join("/");
-        return [...source.matchAll(/export async function (GET|POST|PUT|PATCH|DELETE)\b/g)]
+        return [...source.matchAll(/export (?:async function|const) (GET|POST|PUT|PATCH|DELETE)\b/g)]
           .map((match) => `${match[1]} /api/v1/${route}`.replace(/\/$/, ""));
       });
     expect(implemented.sort()).toEqual(expectedOperations.sort());

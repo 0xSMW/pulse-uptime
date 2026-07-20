@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { GOVERNOR_THRESHOLD_PERCENTS } from "./governor";
 import { COMPACT_15_MINUTE_SQL, FILL_SCHEDULER_GAPS_SQL, MEASURE_USAGE_SQL, PROMOTE_ROLLUP_SQL } from "./sql";
 
 describe("storage maintenance SQL", () => {
@@ -52,5 +53,15 @@ describe("storage maintenance SQL", () => {
     expect(MEASURE_USAGE_SQL).toContain("select $1::timestamptz");
     expect(MEASURE_USAGE_SQL).not.toContain("select date_trunc('day', $1");
     expect(MEASURE_USAGE_SQL).toContain("on conflict (captured_at) do update");
+  });
+
+  it("classifies governor mode from the shared threshold constants", () => {
+    const p = GOVERNOR_THRESHOLD_PERCENTS;
+    expect(MEASURE_USAGE_SQL).toContain(`when projected_bytes * 100 < $2::bigint * ${p.compactEarly} then 'full'`);
+    expect(MEASURE_USAGE_SQL).toContain(`when projected_bytes * 100 < $2::bigint * ${p.shortened} then 'compact_early'`);
+    expect(MEASURE_USAGE_SQL).toContain(`when projected_bytes * 100 < $2::bigint * ${p.incidentOnly} then 'shortened'`);
+    expect(MEASURE_USAGE_SQL).toContain(`when projected_bytes * 100 <= $2::bigint * ${p.essential} then 'incident_only'`);
+    // The dropped daily_rollups table is no longer measured.
+    expect(MEASURE_USAGE_SQL).not.toContain("daily_rollups");
   });
 });

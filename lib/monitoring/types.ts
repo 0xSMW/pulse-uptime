@@ -3,6 +3,28 @@ import type { monitorStates } from "@/lib/db/schema";
 
 export type MonitorStateName = (typeof monitorStates)[number];
 
+export type MonitorState =
+  | "UP"
+  | "VERIFYING_DOWN"
+  | "VERIFYING_UP"
+  | "DOWN"
+  | "PENDING"
+  | "PAUSED";
+
+export type TimelineBucket = {
+  state: "up" | "down" | "verifying" | "paused" | "no-data";
+  label: string;
+  checks: number;
+  failures: number;
+  downtimeSeconds?: number;
+};
+
+export type HealthWarning = {
+  code: string;
+  message: string;
+  action: string;
+};
+
 export type MonitorStateSnapshot = {
   monitorId: string;
   state: MonitorStateName;

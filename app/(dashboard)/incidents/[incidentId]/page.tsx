@@ -49,7 +49,6 @@ export default async function IncidentDetailPage({ params }: { params: Promise<{
         <h2 id="incident-cause-title" className="text-xs font-medium text-[var(--fg-muted)]">Opening Failure</h2>
         <p className="mt-2 font-data text-[13px]">{incident.openingFailure}</p>
         <div className="mt-4 flex flex-wrap gap-x-8 gap-y-2 text-xs text-[var(--fg-muted)]">
-          <span>Status <span className="font-data text-[var(--fg)]">{incident.status ?? "—"}</span></span>
           <span className="inline-flex gap-2">Notifications <NotificationSummary summary={incident.notificationSummary} /></span>
         </div>
       </section>

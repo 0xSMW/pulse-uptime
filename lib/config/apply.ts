@@ -63,8 +63,8 @@ export function validateApplyPreconditions(input: ApplyPreconditionInput): Confi
   if (request.planHash !== authoritative.planHash) {
     throw new ConfigApplyError("PLAN_HASH_MISMATCH", "Plan hash does not match the authoritative plan");
   }
-  if (authoritative.diff.archives.length > 0 && !request.allowDelete) {
-    throw new ConfigApplyError("DELETE_NOT_ALLOWED", "allowDelete is required when monitors are archived");
+  if (authoritative.allowDeleteRequired && !request.allowDelete) {
+    throw new ConfigApplyError("DELETE_NOT_ALLOWED", "allowDelete is required to archive monitors or apply destructive changes");
   }
   return authoritative;
 }

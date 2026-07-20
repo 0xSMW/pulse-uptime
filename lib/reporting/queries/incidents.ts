@@ -1,16 +1,18 @@
-import { and, desc, eq, gte, inArray, isNotNull, isNull, sql as dsql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, sql as dsql } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 import { incidents, monitorRegistry, monitorState, notificationOutbox } from "@/lib/db/schema";
 import { listOverlappingDependencyIncidents } from "@/lib/dependencies/overlap";
+import {
+  activationGate,
+  durationSeconds,
+  failureLabel,
+  summarizeNotificationAggregate,
+  summarizeNotificationRows,
+} from "@/lib/monitoring/incident-shape";
 
-// First-run gate shared by every per-monitor incident surface here. An incident
-// opened before its monitor activated is a setup-phase failure, not real
-// downtime, so joining monitor_state and requiring openedAt at or after
-// activatedAt drops it. A null activatedAt fails the comparison, so a
-// never-activated monitor surfaces no incidents. A genuine ongoing incident is
-// unaffected: the backfill sets activatedAt at or before its openedAt.
-const activationGate = gte(incidents.openedAt, monitorState.activatedAt);
+// Re-exported so existing callers and tests keep importing it from this module.
+export { summarizeNotificationAggregate };
 
 export type IncidentFilter = "all" | "ongoing" | "resolved";
 
@@ -20,45 +22,6 @@ export async function hasConfiguredMonitors(): Promise<boolean> {
     .where(isNull(monitorRegistry.archivedAt))
     .limit(1);
   return Boolean(monitor);
-}
-
-type NotificationRow = {
-  incidentId: string | null;
-  status: "pending" | "sending" | "sent" | "failed" | "dead";
-};
-
-function durationSeconds(openedAt: Date, resolvedAt: Date | null, now = new Date()): number {
-  return Math.max(0, Math.floor(((resolvedAt ?? now).getTime() - openedAt.getTime()) / 1_000));
-}
-
-function failureLabel(errorCode: string | null, statusCode: number | null): string {
-  if (statusCode !== null) return `HTTP ${statusCode}`;
-  return errorCode ?? "Unknown failure";
-}
-
-// Single source of truth for the sent/retrying/dead/none precedence, shared
-// by the SQL aggregate path (listIncidents) and the row path (getIncidentDetail).
-export function summarizeNotificationAggregate(aggregate: {
-  sentCount: number;
-  anyDead: boolean;
-  anyUnsent: boolean;
-}) {
-  const state = aggregate.anyDead
-    ? "dead" as const
-    : aggregate.anyUnsent
-      ? "retrying" as const
-      : aggregate.sentCount > 0
-        ? "sent" as const
-        : "none" as const;
-  return { state, sentCount: aggregate.sentCount };
-}
-
-function summarizeNotifications(rows: NotificationRow[]) {
-  return summarizeNotificationAggregate({
-    sentCount: rows.filter((row) => row.status === "sent").length,
-    anyDead: rows.some((row) => row.status === "dead"),
-    anyUnsent: rows.some((row) => row.status !== "sent"),
-  });
 }
 
 // Slim projection for the command palette: no notification data, so the
@@ -130,7 +93,6 @@ export async function listIncidents(filter: IncidentFilter = "all") {
       resolvedAt: row.resolvedAt?.toISOString() ?? null,
       durationSeconds: durationSeconds(row.openedAt, row.resolvedAt),
       openingFailure: failureLabel(row.openingErrorCode, row.openingStatusCode),
-      status: row.openingStatusCode?.toString() ?? null,
       notificationSummary: summarizeNotificationAggregate(
         summary ?? { sentCount: 0, anyDead: false, anyUnsent: false },
       ),
@@ -192,8 +154,7 @@ export async function getIncidentDetail(id: string) {
     resolvedAt: row.resolvedAt?.toISOString() ?? null,
     durationSeconds: durationSeconds(row.openedAt, row.resolvedAt),
     openingFailure: failureLabel(row.openingErrorCode, row.openingStatusCode),
-    status: row.openingStatusCode?.toString() ?? null,
-    notificationSummary: summarizeNotifications(notifications.map((notification) => ({ incidentId: id, status: notification.status }))),
+    notificationSummary: summarizeNotificationRows(notifications),
     events,
     overlaps,
   };

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { isPublicHttpUrl } from "@/lib/net/public-url";
+
 import { assertPublicAddress, isIpLiteral, normalizeIpLiteral } from "./ip-policy";
 
 export class MonitorValidationError extends Error {
@@ -17,27 +19,13 @@ export function parsePublicHttpUrl(value: string): URL {
     throw new MonitorValidationError(["url must be a valid absolute URL"]);
   }
 
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new MonitorValidationError(["url must use HTTP or HTTPS"]);
-  }
-  if (!url.hostname) throw new MonitorValidationError(["url must include a hostname"]);
-  const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
-  if (hostname === "localhost" || hostname.endsWith(".localhost")) {
-    throw new MonitorValidationError(["url hostname must not be localhost"]);
-  }
-  if (url.username || url.password) {
-    throw new MonitorValidationError(["url must not include credentials"]);
-  }
-  if (url.port && url.port !== "80" && url.port !== "443") {
-    throw new MonitorValidationError(["url port must be 80 or 443"]);
-  }
-  if (url.protocol === "http:" && url.port === "443") {
-    throw new MonitorValidationError(["HTTP URLs must use port 80"]);
-  }
-  if (url.protocol === "https:" && url.port === "80") {
-    throw new MonitorValidationError(["HTTPS URLs must use port 443"]);
-  }
+  // Screen IP literals first so a syntactically valid but non-routable address
+  // (loopback, private, reserved) is classified BLOCKED_TARGET rather than being
+  // flattened into a generic INVALID_URL by the shared policy below.
   if (isIpLiteral(url.hostname)) assertPublicAddress(normalizeIpLiteral(url.hostname));
+  if (!isPublicHttpUrl(value)) {
+    throw new MonitorValidationError(["url must be a public HTTP or HTTPS URL"]);
+  }
   return url;
 }
 

@@ -1,5 +1,5 @@
 import { apiError, apiJson, listEnvelope, objectEnvelope } from "@/lib/api/envelopes";
-import { executeIdempotent, IdempotencyError } from "@/lib/api/idempotency";
+import { executeIdempotent, requireIdempotencyKey } from "@/lib/api/idempotency";
 import { authorize, isApiResponse } from "@/lib/api/middleware";
 import { decodeCursor, encodeCursor, pageLimit } from "@/lib/api/pagination";
 import { routeError } from "@/lib/api/route";
@@ -14,7 +14,7 @@ export async function POST(request: Request) {
   try {
     const input = validateTokenInput(await request.json(), context.principal);
     const canonicalInput = { ...input, expiresAt: input.expiresAt.toISOString() };
-    const idempotencyKey = requiredIdempotencyKey(request);
+    const idempotencyKey = requireIdempotencyKey(request);
     const result = await executeIdempotent<CreatedTokenData>({
       request,
       principalKey: context.principalKey,
@@ -61,14 +61,6 @@ export async function POST(request: Request) {
 }
 
 type CreatedTokenData = ReturnType<typeof serializeToken> & { token: string };
-
-function requiredIdempotencyKey(request: Request) {
-  const key = request.headers.get("idempotency-key")?.trim();
-  if (!key || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key)) {
-    throw new IdempotencyError("IDEMPOTENCY_KEY_REQUIRED", "A UUID Idempotency-Key is required");
-  }
-  return key;
-}
 
 export async function GET(request: Request) {
   const context = await authorize(request, { scope: "tokens:manage" });

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { AuthServiceError, clientIpFromHeaders, login } from "@/lib/auth/service";
 import { getCurrentSession, sessionCookie } from "@/lib/auth/session";
 import { safeReturnTo } from "@/lib/auth/return-to";
-import { mutationOriginAllowed } from "@/lib/onboarding/http";
+import { mutationOriginAllowed } from "@/lib/auth/origin";
 
 export async function POST(request: Request) {
   if (!mutationOriginAllowed(request)) return NextResponse.json({ error: "Sign in failed" }, { status: 403 });

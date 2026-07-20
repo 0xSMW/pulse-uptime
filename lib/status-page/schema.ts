@@ -1,12 +1,16 @@
 import { z } from "zod";
 
+import { isValidIanaTimeZone } from "@/lib/time/iana";
+
 /**
  * Validation for the status page configuration document (PUT
  * /api/v1/status-page-config). Shared by the API route and the settings UI, so
  * this module must stay importable from client components (no server-only).
  */
 
-export const STATUS_PAGE_NAME_FALLBACK = "System Status";
+export const DEFAULT_STATUS_PAGE_NAME = "Pulse Status";
+/** @deprecated Use DEFAULT_STATUS_PAGE_NAME. Retained for existing importers. */
+export const STATUS_PAGE_NAME_FALLBACK = DEFAULT_STATUS_PAGE_NAME;
 export const STATUS_PAGE_LAYOUTS = ["vertical", "horizontal"] as const;
 export const STATUS_PAGE_THEMES = ["system", "light", "dark"] as const;
 export const STATUS_PAGE_HISTORY_DAYS = [30, 60, 90] as const;
@@ -14,16 +18,6 @@ export const MAX_NAV_LINKS = 8;
 export const MAX_CUSTOM_BYTES = 10 * 1024;
 export const MAX_ANNOUNCEMENT_BYTES = 2 * 1024;
 export const MAX_MIN_INCIDENT_SECONDS = 7 * 86_400;
-
-export function isValidIanaTimeZone(value: string): boolean {
-  if (!value || value.length > 64) return false;
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: value });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function utf8Bytes(value: string): number {
   return new TextEncoder().encode(value).length;

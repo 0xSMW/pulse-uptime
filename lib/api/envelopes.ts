@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { isUuid } from "@/lib/ids/uuid";
+
 export const API_VERSION = "v1" as const;
 
 export type ApiMeta = {
@@ -40,7 +42,7 @@ export function errorEnvelope(
 
 export function requestIdFrom(request: Request): string {
   const supplied = request.headers.get("x-request-id")?.trim();
-  return supplied && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(supplied)
+  return supplied && isUuid(supplied)
     ? supplied
     : `req_${crypto.randomUUID()}`;
 }

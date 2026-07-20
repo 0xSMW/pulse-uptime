@@ -11,6 +11,7 @@ import { Sheet, SheetIconButton } from "./sheet";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { isPublicHttpUrl } from "@/lib/net/public-url";
 
 export type EditableMonitor = {
   id: string;
@@ -82,20 +83,7 @@ export function parseRecipients(value: string): string[] {
 }
 
 export function isPublicMonitorUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    if (!(["http:", "https:"].includes(url.protocol)) || url.username || url.password || !url.hostname) return false;
-    const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-    if (host === "localhost" || host.endsWith(".localhost")) return false;
-    if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) {
-      const parts = host.split(".").map(Number);
-      if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
-      const [a, b] = parts;
-      return !(a === 0 || a === 10 || a === 127 || a >= 224 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168));
-    }
-    if (host.includes(":")) return !(host === "::" || host === "::1" || /^(fc|fd|fe[89ab]|ff)/.test(host) || host.startsWith("2001:db8:"));
-    return true;
-  } catch { return false; }
+  return isPublicHttpUrl(value);
 }
 
 export function deriveMonitorName(url: string): string {

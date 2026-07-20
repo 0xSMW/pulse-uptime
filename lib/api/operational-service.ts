@@ -1,11 +1,18 @@
 import "server-only";
 
-import { and, desc, eq, gte, inArray, isNull, lt, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { z } from "zod";
 
-import { monitoringConfigSchema } from "@/lib/config/schema";
+import { findAcceptedSnapshot } from "@/lib/config/accepted-config";
 import { db } from "@/lib/db/client";
-import { incidents, monitorRegistry, monitoringConfigSnapshots, monitorState, notificationOutbox } from "@/lib/db/schema";
+import { incidents, monitorRegistry, monitorState, notificationOutbox } from "@/lib/db/schema";
+import {
+  activationGate,
+  durationSeconds,
+  failureLabel,
+  summarizeNotificationRows,
+  type NotificationDeliveryStatus,
+} from "@/lib/monitoring/incident-shape";
 import { normalizeRecipient, testNotificationKey } from "@/lib/notifications/idempotency";
 import { getPublicStatus } from "@/lib/reporting/queries/status";
 
@@ -13,30 +20,7 @@ import { decodeCursor, encodeCursor, type CursorValue } from "./pagination";
 
 const recipientSchema = z.string().trim().email();
 
-type NotificationStatus = "pending" | "sending" | "sent" | "failed" | "dead";
-type NotificationRow = { incidentId: string | null; status: NotificationStatus };
-
-function durationSeconds(openedAt: Date, resolvedAt: Date | null, now = new Date()): number {
-  return Math.max(0, Math.floor(((resolvedAt ?? now).getTime() - openedAt.getTime()) / 1_000));
-}
-
-// First-run gate for the incident APIs. An incident opened before its monitor
-// activated is a setup-phase failure, not real downtime, so joining
-// monitor_state and requiring openedAt at or after activatedAt drops it from the
-// feed and the per-incident fetch. A null activatedAt fails the comparison, so a
-// never-activated monitor surfaces no incidents. A genuine ongoing incident is
-// unaffected: the backfill sets activatedAt at or before its openedAt.
-const activationGate = gte(incidents.openedAt, monitorState.activatedAt);
-
-function notificationSummary(rows: NotificationRow[]) {
-  const sentCount = rows.filter((row) => row.status === "sent").length;
-  const state = rows.some((row) => row.status === "dead")
-    ? "dead" as const
-    : rows.some((row) => row.status !== "sent")
-      ? "retrying" as const
-      : sentCount > 0 ? "sent" as const : "none" as const;
-  return { state, sentCount };
-}
+type NotificationRow = { incidentId: string | null; status: NotificationDeliveryStatus };
 
 function incidentResponse(row: {
   id: string; monitorId: string; monitorName: string; openedAt: Date; resolvedAt: Date | null;
@@ -49,9 +33,9 @@ function incidentResponse(row: {
     openedAt: row.openedAt.toISOString(),
     resolvedAt: row.resolvedAt?.toISOString() ?? null,
     durationSeconds: durationSeconds(row.openedAt, row.resolvedAt),
-    openingFailure: row.openingStatusCode !== null ? `HTTP ${row.openingStatusCode}` : row.openingErrorCode ?? "Unknown failure",
-    status: row.openingStatusCode?.toString() ?? null,
-    notificationSummary: notificationSummary(notifications),
+    openingFailure: failureLabel(row.openingErrorCode, row.openingStatusCode),
+    openingStatusCode: row.openingStatusCode,
+    notificationSummary: summarizeNotificationRows(notifications),
   };
 }
 
@@ -113,16 +97,23 @@ export function createOperationalService(dependencies: {
     getStatus: () => dependencies.getStatus(),
 
     async enqueueTestNotification(input: { recipient?: string; testId: string; installationName?: string | null }) {
-      const [config, monitor] = await Promise.all([
-        database.select({ configJson: monitoringConfigSnapshots.configJson }).from(monitoringConfigSnapshots)
-          .where(eq(monitoringConfigSnapshots.status, "accepted")).orderBy(desc(monitoringConfigSnapshots.acceptedAt)).limit(1),
-        database.select({ id: monitorRegistry.id }).from(monitorRegistry)
-          .where(and(eq(monitorRegistry.enabled, true), isNull(monitorRegistry.archivedAt))).orderBy(monitorRegistry.id).limit(1),
-      ]);
-      const selected = input.recipient ?? (() => {
-        const parsed = monitoringConfigSchema.safeParse(config[0]?.configJson);
-        return parsed.success ? parsed.data.settings.defaultRecipients[0] : undefined;
-      })();
+      const monitorQuery = database.select({ id: monitorRegistry.id }).from(monitorRegistry)
+        .where(and(eq(monitorRegistry.enabled, true), isNull(monitorRegistry.archivedAt))).orderBy(monitorRegistry.id).limit(1);
+      // The accepted config is only consulted to supply a default recipient. An
+      // explicit recipient never touches it, and a corrupt or hash-mismatched
+      // snapshot yields no default rather than a raw 500, leaving the absent
+      // recipient to surface as RECIPIENT_REQUIRED.
+      let selected = input.recipient;
+      if (selected == null) {
+        let snapshot: Awaited<ReturnType<typeof findAcceptedSnapshot>> = null;
+        try {
+          snapshot = await findAcceptedSnapshot(database);
+        } catch {
+          snapshot = null;
+        }
+        selected = snapshot?.config.settings.defaultRecipients[0];
+      }
+      const monitor = await monitorQuery;
       const parsedRecipient = recipientSchema.safeParse(selected);
       if (!parsedRecipient.success) throw new OperationalInputError("RECIPIENT_REQUIRED", "A configured recipient is required");
       if (!monitor[0]) throw new OperationalInputError("MONITOR_REQUIRED", "An active monitor is required");

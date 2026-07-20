@@ -1,10 +1,7 @@
 import { Button } from "@/components/ui/button";
+import type { HealthWarning } from "@/lib/monitoring/types";
 
-export type HealthWarning = {
-  code: string;
-  message: string;
-  action: string;
-};
+export type { HealthWarning };
 
 export function HealthBanner({ warnings }: { warnings: HealthWarning[] }) {
   if (warnings.length === 0) return null;

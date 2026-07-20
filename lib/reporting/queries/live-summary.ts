@@ -3,7 +3,7 @@
 // and the polled live payload. No database access lives here, which keeps the
 // payload logic pure and testable.
 
-import type { MonitorState } from "@/components/monitors/status-dot";
+import type { MonitorState } from "@/lib/monitoring/types";
 
 import {
   firstRunPhase,

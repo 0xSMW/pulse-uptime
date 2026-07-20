@@ -8,6 +8,8 @@ import { hashPassword, normalizeEmail, validatePassword, verifyPassword } from "
 import { LOGIN_RATE_LIMIT_POLICY, loginRateLimitKey } from "@/lib/auth/service";
 import { db } from "@/lib/db/client";
 import { adminUsers, cliInstallations, cliSessions, humanSessions, images } from "@/lib/db/schema";
+import { isUuid } from "@/lib/ids/uuid";
+import { isValidIanaTimeZone } from "@/lib/time/iana";
 
 export type AccountProfile = {
   name: string | null;
@@ -37,19 +39,7 @@ export class AccountServiceError extends Error {
   }
 }
 
-export function isValidIanaTimeZone(value: string): boolean {
-  if (!value || value.length > 64) return false;
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: value });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export type ProfilePatch = { name?: string; timezone?: string | null; avatarImageId?: string | null };
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function validateProfilePatch(input: unknown): ProfilePatch {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
@@ -79,7 +69,7 @@ export function validateProfilePatch(input: unknown): ProfilePatch {
   if ("avatarImageId" in value) {
     if (value.avatarImageId === null) {
       patch.avatarImageId = null;
-    } else if (typeof value.avatarImageId === "string" && UUID_PATTERN.test(value.avatarImageId)) {
+    } else if (typeof value.avatarImageId === "string" && isUuid(value.avatarImageId)) {
       patch.avatarImageId = value.avatarImageId;
     } else {
       throw new AccountServiceError("INVALID_PROFILE", "Avatar image ID must be an image UUID or null");

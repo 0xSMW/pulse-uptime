@@ -2,6 +2,7 @@ import "server-only";
 
 import { sql } from "@/lib/db/client";
 import { portableQueryValues } from "@/lib/db/query-values";
+import { GOVERNOR_ACTIONS, retentionFor, type GovernorMode } from "@/lib/storage/governor";
 import { MEASURE_USAGE_SQL } from "@/lib/storage/sql";
 
 import type {
@@ -94,14 +95,7 @@ function publicGovernorMode(value: string): DatabaseGovernorMode {
 }
 
 function governorAction(mode: DatabaseGovernorMode): string | null {
-  switch (mode) {
-    case "FULL_DETAIL": return "Full configured detail is retained";
-    case "EARLY_COMPACTION": return "Completed buckets are compacted early";
-    case "SHORTENED_RETENTION": return "Minute and 15-minute retention is shorter";
-    case "INCIDENT_HOURLY_ONLY": return "Hourly detail is retained around incidents";
-    case "ESSENTIALS_ONLY": return "Current state, incidents, and daily uptime are preserved";
-    case "UNKNOWN": return null;
-  }
+  return mode === "UNKNOWN" ? null : GOVERNOR_ACTIONS[mode];
 }
 
 function projectMonthlyTransfer(usedBytes: number | null, capturedAt: Date): number | null {
@@ -160,14 +154,27 @@ async function readLatest(): Promise<DatabaseHealthMeasurement | null> {
   };
 }
 
+const INTERNAL_GOVERNOR_MODE: Partial<Record<DatabaseGovernorMode, GovernorMode>> = {
+  FULL_DETAIL: "full",
+  EARLY_COMPACTION: "compact_early",
+  SHORTENED_RETENTION: "shortened",
+  INCIDENT_HOURLY_ONLY: "incident_only",
+  ESSENTIALS_ONLY: "essential",
+};
+
+// The minute, 15-minute, and hourly ladders are owned by governor.retentionFor.
+// Keys outside that ladder, and an unknown mode, fall back to the configured
+// ages carried by RETENTION_AGES_SQL.
 function effectiveRetentionSeconds(key: string, mode: DatabaseGovernorMode, fallback: number | null): number | null {
-  const byMode: Partial<Record<DatabaseGovernorMode, Partial<Record<string, number>>>> = {
-    EARLY_COMPACTION: { minute: 36 * 3_600 },
-    SHORTENED_RETENTION: { minute: 24 * 3_600, "15m": 3 * 86_400 },
-    INCIDENT_HOURLY_ONLY: { minute: 12 * 3_600, "15m": 86_400, hour: 14 * 86_400 },
-    ESSENTIALS_ONLY: { minute: 0, "15m": 0, hour: 0 },
-  };
-  return byMode[mode]?.[key] ?? fallback;
+  const internal = INTERNAL_GOVERNOR_MODE[mode];
+  if (!internal) return fallback;
+  const policy = retentionFor(internal);
+  switch (key) {
+    case "minute": return policy.minuteHours * 3_600;
+    case "15m": return policy.quarterHourDays * 86_400;
+    case "hour": return policy.hourlyDays * 86_400;
+    default: return fallback;
+  }
 }
 
 /**

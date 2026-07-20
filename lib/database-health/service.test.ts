@@ -89,7 +89,7 @@ describe("database health presentation", () => {
     expect(report.categories.find(({ key }) => key === "content")).toMatchObject({ label: "Images & reports" });
     expect(report.categories.at(-1)).toMatchObject({ key: "other", bytes: 4_000_000 });
     expect(report.availableBytes).toBe(382_000_000);
-    expect(report.governor.action).toBe("Keeping full configured detail");
+    expect(report.governor.action).toBe("Full configured detail is retained");
     expect(report.schedulerCoverage).toBe(0.9999);
   });
 

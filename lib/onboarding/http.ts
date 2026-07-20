@@ -2,14 +2,8 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 
-import { isAllowedOrigin } from "@/lib/auth/origin";
+import { mutationOriginAllowed } from "@/lib/auth/origin";
 import { getCurrentSession } from "@/lib/auth/session";
-
-export function mutationOriginAllowed(request: Request) {
-  const configured = process.env.NEXT_PUBLIC_APP_URL;
-  const appUrl = configured || new URL(request.url).origin;
-  return isAllowedOrigin(request.headers.get("origin"), appUrl);
-}
 
 export async function authenticatedMutation(request: Request) {
   if (!mutationOriginAllowed(request)) {

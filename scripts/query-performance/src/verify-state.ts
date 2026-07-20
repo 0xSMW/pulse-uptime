@@ -16,7 +16,6 @@ const TABLE_CHECKS: TableCheck[] = [
   { table: "monitor_state", countSql: `select count(*)::int n from monitor_state where monitor_id like 'qh-%'`, taggedCountSql: `select count(*)::int n from monitor_state where monitor_id like 'qh-%'` },
   { table: "check_results", countSql: `select count(*)::int n from check_results where monitor_id like 'qh-%'`, taggedCountSql: `select count(*)::int n from check_results where monitor_id like 'qh-%'` },
   { table: "metric_rollups", countSql: `select count(*)::int n from metric_rollups where monitor_id like 'qh-%'`, taggedCountSql: `select count(*)::int n from metric_rollups where monitor_id like 'qh-%'` },
-  { table: "daily_rollups", countSql: `select count(*)::int n from daily_rollups where monitor_id like 'qh-%'`, taggedCountSql: `select count(*)::int n from daily_rollups where monitor_id like 'qh-%'` },
   { table: "incidents", countSql: `select count(*)::int n from incidents where monitor_id like 'qh-%'`, taggedCountSql: `select count(*)::int n from incidents where monitor_id like 'qh-%'` },
   { table: "notification_outbox", countSql: `select count(*)::int n from notification_outbox where monitor_id like 'qh-%'`, taggedCountSql: `select count(*)::int n from notification_outbox where monitor_id like 'qh-%'` },
   { table: "monitoring_config_snapshots", countSql: `select count(*)::int n from monitoring_config_snapshots where source = 'qh-fixture'`, taggedCountSql: `select count(*)::int n from monitoring_config_snapshots where source = 'qh-fixture'` },

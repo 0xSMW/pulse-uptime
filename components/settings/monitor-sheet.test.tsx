@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { deriveMonitorName, MonitorSheet, type EditableMonitor } from "./monitor-sheet";
+import { deriveMonitorName, isPublicMonitorUrl, MonitorSheet, type EditableMonitor } from "./monitor-sheet";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn() }),
@@ -75,6 +75,22 @@ describe("deriveMonitorName", () => {
   it("returns an empty name when no hostname can be derived", () => {
     expect(deriveMonitorName("")).toBe("");
     expect(deriveMonitorName("not a url")).toBe("");
+  });
+});
+
+describe("isPublicMonitorUrl", () => {
+  it.each([
+    "http://203.0.113.10/health",
+    "https://example.com:8443",
+    "http://192.0.0.1/health",
+    "http://[::ffff:192.168.0.1]/health",
+    "http://localhost/health",
+  ])("rejects private or reserved URL %s", (url) => {
+    expect(isPublicMonitorUrl(url)).toBe(false);
+  });
+
+  it("accepts a public HTTPS URL", () => {
+    expect(isPublicMonitorUrl("https://api.example.com/health")).toBe(true);
   });
 });
 

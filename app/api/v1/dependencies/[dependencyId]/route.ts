@@ -1,24 +1,11 @@
-import { z } from "zod";
-
-import { apiError, apiJson, objectEnvelope } from "@/lib/api/envelopes";
+import { apiJson, objectEnvelope } from "@/lib/api/envelopes";
+import { dependencyError } from "@/lib/api/dependency-http";
 import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, isApiResponse } from "@/lib/api/middleware";
 import { routeError, success } from "@/lib/api/route";
-import { DependencyApiError, requireDependencyDetail, patchDependency, removeDependency } from "@/lib/dependencies/service";
+import { requireDependencyDetail, patchDependency, removeDependency } from "@/lib/dependencies/service";
 
 type Params = { params: Promise<{ dependencyId: string }> };
-
-function dependencyErrorStatus(code: DependencyApiError["code"]): number {
-  if (code === "DEPENDENCY_NOT_FOUND") return 404;
-  if (code === "DEPENDENCY_EXISTS") return 409;
-  return 400;
-}
-
-function dependencyError(error: unknown, requestId: string): Response | null {
-  if (error instanceof DependencyApiError) return apiError(requestId, dependencyErrorStatus(error.code), error.code, error.message, error.details);
-  if (error instanceof z.ZodError) return apiError(requestId, 400, "INVALID_REQUEST", "Dependency request is invalid", { issues: error.issues });
-  return null;
-}
 
 // A 204 response must never carry a body. The idempotency store still keeps
 // a small JSON body internally for replay bookkeeping; only the outgoing

@@ -17,9 +17,23 @@ import {
   type statusReportTypes,
   type statusReportUpdateStatuses,
 } from "@/lib/db/schema";
-import { statusGroupSlug } from "@/lib/reporting/queries/timeline";
+import { isUuid } from "@/lib/ids/uuid";
+import {
+  IMPACT_BY_TYPE,
+  INCIDENT_UPDATE_STATUSES,
+  MAINTENANCE_UPDATE_STATUSES,
+  RESOLVING_STATUSES,
+} from "@/lib/status-reports/domain";
+import { getPublicReports, requireStatusReport } from "@/lib/status-reports/queries";
 
 import { decodeCursor, encodeCursor } from "./pagination";
+
+// The vocabulary lives in the client-safe domain module. The two status arrays
+// stay exported from here for the callers that import them off this module.
+export { INCIDENT_UPDATE_STATUSES, MAINTENANCE_UPDATE_STATUSES };
+// The two reporting-facing reads live in lib/status-reports/queries now.
+// Re-exported so existing API-layer callers keep importing them from here.
+export { getPublicReports, requireStatusReport };
 
 /**
  * Status reports service. Store-injected like lib/api/account.ts:
@@ -39,10 +53,6 @@ import { decodeCursor, encodeCursor } from "./pagination";
 export type StatusReportType = (typeof statusReportTypes)[number];
 export type StatusReportUpdateStatus = (typeof statusReportUpdateStatuses)[number];
 export type StatusReportImpact = (typeof statusReportImpacts)[number];
-
-export const INCIDENT_UPDATE_STATUSES = ["investigating", "identified", "monitoring", "resolved"] as const;
-export const MAINTENANCE_UPDATE_STATUSES = ["scheduled", "in_progress", "completed"] as const;
-const RESOLVING_STATUSES: readonly StatusReportUpdateStatus[] = ["resolved", "completed"];
 
 export type StatusReportRow = {
   id: string;
@@ -417,20 +427,6 @@ function assertStatusMatchesType(type: StatusReportType, status: StatusReportUpd
   }
 }
 
-/**
- * Per-type impact vocabulary, mirroring the dashboard editor's own picker
- * (impactOptions in components/incidents/report-status.ts): incidents offer
- * down/degraded, maintenance windows offer maintenance/degraded, neither
- * type exposes the other's exclusive impact. Enforced here too so a non-UI
- * client (API/CLI) can't persist a contradictory pairing, e.g. an incident
- * report with impact "maintenance" or a maintenance report with impact
- * "down", which would render a nonsensical public label.
- */
-const IMPACT_BY_TYPE: Record<StatusReportType, readonly StatusReportImpact[]> = {
-  incident: ["down", "degraded"],
-  maintenance: ["maintenance", "degraded"],
-};
-
 function assertAffectedMatchesType(
   type: StatusReportType,
   entries: ReadonlyArray<{ monitorId: string; impact: StatusReportImpact }>,
@@ -499,7 +495,7 @@ function serializeAffected(affected: readonly StatusReportAffectedRow[]): Affect
     }));
 }
 
-function serializeReport(
+export function serializeReport(
   report: StatusReportRow,
   updates: readonly StatusReportUpdateRow[],
   affected: readonly StatusReportAffectedRow[],
@@ -556,13 +552,6 @@ async function snapshotAffected(
 async function loadReportData(store: StatusReportsStore, report: StatusReportRow): Promise<StatusReportData> {
   const { updates, affected } = await store.getReportDetails([report.id]);
   return serializeReport(report, updates, affected);
-}
-
-export async function requireStatusReport(id: string, dependencies: StatusReportsDependencies = {}): Promise<StatusReportData> {
-  const store = dependencies.store ?? databaseStatusReportsStore;
-  const report = await store.getReport(id);
-  if (!report) throw new StatusReportError("REPORT_NOT_FOUND", "Status report was not found");
-  return loadReportData(store, report);
 }
 
 export function parseStatusReportListQuery(input: {
@@ -1004,102 +993,10 @@ export function classifyPublicReport(
   return "ongoing";
 }
 
-/**
- * Batched public read, exactly 3 queries: (1) published reports through
- * the partial indexes, (2) latest update per report via DISTINCT ON with the
- * contract total order, (3) affected rows. Drafts never appear.
- *
- * `filter` scopes query 1 to a single group's reports (via EXISTS against
- * status_report_affected) for /status/[group] pages, adding one small
- * distinct-names query up front to resolve the slug. The root page passes no
- * filter so its resolved LIMIT stays global. Queries 2 and 3 automatically
- * inherit the scoping since they only fan out over the ids query 1 returned.
- */
-export async function getPublicReports(
-  dependencies: StatusReportsDependencies = {},
-  filter?: PublicReportsFilter,
-): Promise<PublicReports> {
-  const store = dependencies.store ?? databaseStatusReportsStore;
-  const now = dependencies.now?.() ?? new Date();
-  // Slug resolution happens in JS, never in SQL: statusGroupSlug's NFKD
-  // normalization and punctuation folding have no portable SQL equivalent,
-  // so the exact snapshot names whose slug matches are enumerated here and
-  // the store compares raw strings against that list. By construction the
-  // SQL prefilter then keeps exactly the affected rows the JS slug filter
-  // (filterReportsForGroupSlug) would keep, so the row caps inside
-  // getPublicReportRows apply after group scoping and can never starve a
-  // group whose only reports are older than unrelated global history.
-  const rowsFilter = filter
-    ? {
-        monitorIds: filter.monitorIds,
-        groupNames: [...new Set((await store.getAffectedGroupNames()).map((name) => name ?? "Other"))]
-          .filter((name) => statusGroupSlug(name) === filter.groupSlug),
-      }
-    : undefined;
-  const rows = await store.getPublicReportRows({ resolvedLimit: PUBLIC_RESOLVED_LIMIT, now, filter: rowsFilter });
-  const published = rows.filter((row) => row.publishedAt !== null);
-  const ids = published.map((row) => row.id);
-  const [latestUpdates, affected] = ids.length === 0
-    ? [[], []]
-    : await Promise.all([store.getLatestUpdates(ids), store.getAffected(ids)]);
-  const latestByReport = new Map(latestUpdates.map((update) => [update.reportId, update]));
-
-  const result: PublicReports = { ongoing: [], upcoming: [], windowEnded: [], resolved: [] };
-  for (const report of published) {
-    const latest = latestByReport.get(report.id) ?? null;
-    const phase = classifyPublicReport(report, now);
-    const entry: PublicStatusReport = {
-      id: report.id,
-      type: report.type,
-      title: report.title,
-      startsAt: report.startsAt.toISOString(),
-      endsAt: report.endsAt?.toISOString() ?? null,
-      publishedAt: report.publishedAt!.toISOString(),
-      resolvedAt: report.resolvedAt?.toISOString() ?? null,
-      originIncidentId: report.originIncidentId,
-      currentStatus: latest?.status ?? (report.type === "incident" ? "investigating" : "scheduled"),
-      phase,
-      latestUpdate: latest
-        ? {
-            id: latest.id,
-            status: latest.status,
-            markdown: latest.markdown,
-            publishedAt: latest.publishedAt.toISOString(),
-            createdAt: latest.createdAt.toISOString(),
-          }
-        : null,
-      affected: affected
-        .filter((row) => row.reportId === report.id)
-        .sort((left, right) => left.monitorId.localeCompare(right.monitorId))
-        .map((row) => ({
-          monitorId: row.monitorId,
-          monitorName: row.monitorName,
-          groupName: row.groupName,
-          impact: row.impact,
-        })),
-    };
-    if (phase === "ongoing") result.ongoing.push(entry);
-    else if (phase === "upcoming") result.upcoming.push(entry);
-    else if (phase === "window_ended") result.windowEnded.push(entry);
-    else result.resolved.push(entry);
-  }
-  result.ongoing.sort((left, right) => right.startsAt.localeCompare(left.startsAt));
-  result.upcoming.sort((left, right) => left.startsAt.localeCompare(right.startsAt));
-  result.windowEnded.sort((left, right) => right.startsAt.localeCompare(left.startsAt));
-  result.resolved.sort((left, right) => (right.resolvedAt ?? "").localeCompare(left.resolvedAt ?? ""));
-  return result;
-}
-
-/**
- * Route params reach the store verbatim. A non-UUID value would make Postgres
- * raise 22P02 on the uuid comparison (a 500) instead of a clean 404. Mirrors
- * lib/api/images.ts.
- */
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function isUuid(value: string): boolean {
-  return UUID_PATTERN.test(value);
-}
+// Route params reach the store verbatim. A non-UUID value would make Postgres
+// raise 22P02 on the uuid comparison (a 500) instead of a clean 404, so isUuid
+// (imported from lib/ids/uuid) gates every id read below. Mirrors
+// lib/api/images.ts.
 
 /** Detail reads keep at most this many (newest) updates per report. */
 const PER_REPORT_UPDATE_LIMIT = 500;

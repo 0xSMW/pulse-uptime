@@ -28,6 +28,7 @@ describe("validateMonitorEdit", () => {
     "http://192.168.1.1/health",
     "http://203.0.113.10/health",
     "http://[::1]/health",
+    "https://example.com:8443",
   ])("rejects private or reserved URL %s", (url) => {
     expect(validateMonitorEdit({ ...validValues, url }).url).toBe(
       "Enter a public HTTP or HTTPS URL",

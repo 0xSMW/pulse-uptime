@@ -1,12 +1,7 @@
+import type { TimelineBucket } from "@/lib/monitoring/types";
 import { cn } from "@/lib/utils";
 
-export type TimelineBucket = {
-  state: "up" | "down" | "verifying" | "paused" | "no-data";
-  label: string;
-  checks: number;
-  failures: number;
-  downtimeSeconds?: number;
-};
+export type { TimelineBucket };
 
 const bucketClass: Record<TimelineBucket["state"], string> = {
   up: "bg-[var(--up)]",

@@ -390,7 +390,6 @@ describe("CHUNK_SIZE parameter budget", () => {
         schema.monitorRegistry,
         schema.monitorState,
         schema.checkResults,
-        schema.dailyRollups,
         schema.incidents,
         schema.notificationOutbox,
         schema.cronRuns,

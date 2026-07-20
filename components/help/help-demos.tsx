@@ -210,7 +210,7 @@ function DatabaseHealthDemo() {
       </div>
       <dl className="divide-y divide-[var(--border)]">
         <DemoRow label="Recent checks">Kept 2 days · Oldest 26 hours ago</DemoRow>
-        <DemoRow label="Daily rollups">Kept 400 days · Oldest 31 days ago</DemoRow>
+        <DemoRow label="Daily rollups">Kept 730 days · Oldest 31 days ago</DemoRow>
         <DemoRow label="Governor">Full detail — keeping full configured detail</DemoRow>
       </dl>
     </div>

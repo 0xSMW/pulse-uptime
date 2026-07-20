@@ -137,24 +137,6 @@ export function deriveOverallState(
   return overall;
 }
 
-/**
- * A report appears on /status/[group] iff it affects a monitor in that group,
- * matched by live monitor id or snapshotted group name. Null group names
- * collapse to the "Other" bucket exactly as the page groups them.
- */
-export function filterReportsForGroup<T extends Pick<PublicReportEntry, "affected">>(
-  reports: readonly T[],
-  groupMonitors: ReadonlyArray<{ id: string; groupName: string | null }>,
-): T[] {
-  const monitorIds = new Set(groupMonitors.map((monitor) => monitor.id));
-  const groupNames = new Set(groupMonitors.map((monitor) => monitor.groupName ?? "Other"));
-  return reports.filter((report) =>
-    report.affected.some(
-      (entry) => monitorIds.has(entry.monitorId) || groupNames.has(entry.groupName ?? "Other"),
-    ),
-  );
-}
-
 /** Incident ids already represented by a published report (dedupe). */
 export function promotedIncidentIds(
   reports: ReadonlyArray<Pick<PublicReportEntry, "originIncidentId">>,

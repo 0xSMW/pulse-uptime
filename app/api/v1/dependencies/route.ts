@@ -1,42 +1,17 @@
 import { z } from "zod";
 
-import { apiError, apiJson, errorEnvelope, listEnvelope, objectEnvelope } from "@/lib/api/envelopes";
-import { executeIdempotent, type StoredResponse } from "@/lib/api/idempotency";
+import { apiJson, listEnvelope, objectEnvelope } from "@/lib/api/envelopes";
+import { dependencyError, storedDependencyError } from "@/lib/api/dependency-http";
+import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, isApiResponse } from "@/lib/api/middleware";
 import { routeError } from "@/lib/api/route";
-import { addDependency, DependencyApiError, DependencyInstallConflictError, listDependencies } from "@/lib/dependencies/service";
+import { addDependency, listDependencies } from "@/lib/dependencies/service";
 
 const createSchema = z.object({
   presetId: z.string().min(1),
   scopeId: z.string().min(1).optional(),
   notificationsEnabled: z.boolean().optional(),
 }).strict();
-
-function dependencyErrorStatus(code: DependencyApiError["code"]): number {
-  if (code === "DEPENDENCY_NOT_FOUND") return 404;
-  if (code === "DEPENDENCY_EXISTS") return 409;
-  return 400;
-}
-
-function dependencyError(error: unknown, requestId: string): Response | null {
-  if (error instanceof DependencyApiError) return apiError(requestId, dependencyErrorStatus(error.code), error.code, error.message, error.details);
-  if (error instanceof z.ZodError) return apiError(requestId, 400, "INVALID_REQUEST", "Dependency request is invalid", { issues: error.issues });
-  return null;
-}
-
-// Turns a business error thrown inside the idempotency transaction into a
-// stored response so the record commits that outcome instead of rolling back,
-// mirroring the monitors route. A duplicate caught by the pre-check SELECT
-// stores a clean 409 that a retry with the same key replays. A
-// DependencyInstallConflictError means Postgres already aborted this same
-// transaction reaching the unique index, so there is no live transaction left
-// to store a completion into, and this returns null so the error rethrows,
-// leaving the idempotency record running for a retry to redo the work.
-function storedDependencyError(error: unknown, requestId: string): StoredResponse | null {
-  if (error instanceof DependencyInstallConflictError) return null;
-  if (!(error instanceof DependencyApiError)) return null;
-  return { status: dependencyErrorStatus(error.code), body: errorEnvelope(error.code, error.message, requestId, error.details) };
-}
 
 export async function GET(request: Request) {
   const context = await authorize(request, { scope: "dependencies:read" });

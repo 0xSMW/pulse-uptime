@@ -4,7 +4,6 @@ import {
   boolean,
   check,
   customType,
-  date,
   index,
   inet,
   integer,
@@ -296,37 +295,6 @@ export const jobLeases = pgTable("job_leases", {
   updatedAt: timestamptz("updated_at").notNull(),
 });
 
-export const dailyRollups = pgTable("daily_rollups", {
-  monitorId: text("monitor_id").notNull().references(() => monitorRegistry.id),
-  day: date("day", { mode: "string" }).notNull(),
-  totalChecks: integer("total_checks").notNull(),
-  successfulChecks: integer("successful_checks").notNull(),
-  failedChecks: integer("failed_checks").notNull(),
-  uptimePercentage: numeric("uptime_percentage", { precision: 7, scale: 4 }),
-  averageLatencyMs: integer("average_latency_ms"),
-  p50LatencyMs: integer("p50_latency_ms"),
-  p95LatencyMs: integer("p95_latency_ms"),
-  incidentSeconds: integer("incident_seconds").notNull(),
-}, (table) => [
-  primaryKey({ columns: [table.monitorId, table.day] }),
-  check(
-    "daily_rollups_counts",
-    sql`${table.totalChecks} >= 0 and ${table.successfulChecks} >= 0 and ${table.failedChecks} >= 0
-      and ${table.totalChecks} = ${table.successfulChecks} + ${table.failedChecks}`,
-  ),
-  check(
-    "daily_rollups_uptime_percentage",
-    sql`${table.uptimePercentage} is null or ${table.uptimePercentage} between 0 and 100`,
-  ),
-  check(
-    "daily_rollups_latency_nonnegative",
-    sql`(${table.averageLatencyMs} is null or ${table.averageLatencyMs} >= 0)
-      and (${table.p50LatencyMs} is null or ${table.p50LatencyMs} >= 0)
-      and (${table.p95LatencyMs} is null or ${table.p95LatencyMs} >= 0)`,
-  ),
-  check("daily_rollups_incident_nonnegative", sql`${table.incidentSeconds} >= 0`),
-]);
-
 export const checkBatches = pgTable("check_batches", {
   scheduledMinute: timestamptz("scheduled_minute").primaryKey(),
   encodingVersion: integer("encoding_version").notNull(),
@@ -456,8 +424,9 @@ export const images = pgTable("images", {
 /**
  * Single-row status page configuration. The migration seeds row 1 with name
  * NULL and updatedAt NULL. The service coalesces NULL name to
- * NEXT_PUBLIC_STATUS_PAGE_NAME and then "System Status" without persisting, so
- * existing deployments keep their env-derived title until the first PUT.
+ * NEXT_PUBLIC_STATUS_PAGE_NAME and then DEFAULT_STATUS_PAGE_NAME ("Pulse
+ * Status") without persisting, so existing deployments keep their env-derived
+ * title until the first PUT.
  */
 export const statusPageConfig = pgTable("status_page_config", {
   id: smallint("id").primaryKey().default(1),

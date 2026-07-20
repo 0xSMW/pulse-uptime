@@ -3,6 +3,7 @@ import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, isApiResponse } from "@/lib/api/middleware";
 import { routeError } from "@/lib/api/route";
 import { revokeApiToken } from "@/lib/api/token-service";
+import { isUuid } from "@/lib/ids/uuid";
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ tokenId: string }> }) {
   const context = await authorize(request, { scope: "tokens:manage" });
@@ -26,8 +27,4 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ t
   } catch (error) {
     return routeError(error, context.requestId);
   }
-}
-
-function isUuid(value: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }

@@ -71,7 +71,7 @@ export async function listDashboardMonitors() {
       name: monitorRegistry.name,
       url: monitorRegistry.url,
       state: monitorState.state,
-      lastLatencyMs: monitorState.lastLatencyMs,
+      latestLatencyMs: monitorState.lastLatencyMs,
       lastCheckedAt: monitorState.lastCheckedAt,
       activatedAt: monitorState.activatedAt,
       activeIncidentOpenedAt: incidents.openedAt,

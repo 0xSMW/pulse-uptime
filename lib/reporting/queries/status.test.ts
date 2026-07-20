@@ -10,8 +10,8 @@ vi.mock("@/lib/api/status-page-config", async (importOriginal) => {
   return { ...actual, getStatusPageConfig: vi.fn() };
 });
 
-vi.mock("@/lib/api/status-reports", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/api/status-reports")>();
+vi.mock("@/lib/status-reports/queries", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/status-reports/queries")>();
   return { ...actual, getPublicReports: vi.fn(), requireStatusReport: vi.fn() };
 });
 
@@ -22,7 +22,7 @@ vi.mock("@/lib/api/images", async (importOriginal) => {
 
 import { findImage } from "@/lib/api/images";
 import { getStatusPageConfig, StatusPageConfigError } from "@/lib/api/status-page-config";
-import { getPublicReports, requireStatusReport, StatusReportError } from "@/lib/api/status-reports";
+import { getPublicReports, requireStatusReport, StatusReportError } from "@/lib/status-reports/queries";
 import { defaultStatusPageDocument } from "@/lib/status-page/display";
 
 import {

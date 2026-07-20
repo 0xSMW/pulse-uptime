@@ -297,7 +297,7 @@ func (a *App) renderMe(format string, envelope meEnvelope) error {
 }
 
 func fullAccess(scopes []string) bool {
-	want := []string{"config:read", "config:write", "incidents:read", "monitors:read", "monitors:write", "notifications:test", "reports:read", "reports:write", "status:read", "tokens:manage"}
+	want := []string{"config:read", "config:write", "dependencies:read", "dependencies:write", "incidents:read", "monitors:read", "monitors:write", "notifications:test", "reports:read", "reports:write", "status:read", "tokens:manage"}
 	return len(scopes) == len(want) && strings.Join(scopes, "\x00") == strings.Join(want, "\x00")
 }
 

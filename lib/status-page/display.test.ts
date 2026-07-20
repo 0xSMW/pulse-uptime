@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { TimelineBucket } from "@/components/monitors/timeline-bar";
+import type { TimelineBucket } from "@/lib/monitoring/types";
 
 import {
   defaultStatusPageDocument,
@@ -18,7 +18,7 @@ import {
 
 describe("defaultStatusPageDocument", () => {
   it("falls back to the historical runtime literal", () => {
-    expect(defaultStatusPageDocument({}).name).toBe("System Status");
+    expect(defaultStatusPageDocument({}).name).toBe("Pulse Status");
   });
 
   it("prefers the trimmed env page name", () => {

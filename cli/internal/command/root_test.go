@@ -22,6 +22,21 @@ import (
 	"github.com/spf13/pflag"
 )
 
+func TestFullAccessRequiresEveryScope(t *testing.T) {
+	all := []string{"config:read", "config:write", "dependencies:read", "dependencies:write", "incidents:read", "monitors:read", "monitors:write", "notifications:test", "reports:read", "reports:write", "status:read", "tokens:manage"}
+	if !fullAccess(all) {
+		t.Fatalf("full scope set was not recognized as full access")
+	}
+	if fullAccess(all[:len(all)-1]) {
+		t.Fatalf("partial scope set was recognized as full access")
+	}
+	missingDependencies := append([]string{}, all...)
+	missingDependencies[2] = "monitors:read"
+	if fullAccess(missingDependencies) {
+		t.Fatalf("scope set without dependencies:read was recognized as full access")
+	}
+}
+
 func TestMeCallsCanonicalEndpointWithHeaders(t *testing.T) {
 	token := "pulse_live_do_not_print"
 	uuid := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)

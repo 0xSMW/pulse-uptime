@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { revokeSession } from "@/lib/auth/service";
 import { expiredSessionCookie, getCurrentSession } from "@/lib/auth/session";
-import { mutationOriginAllowed } from "@/lib/onboarding/http";
+import { mutationOriginAllowed } from "@/lib/auth/origin";
 
 export async function POST(request: Request) {
   if (!mutationOriginAllowed(request)) return NextResponse.json({ error: "Request origin rejected" }, { status: 403 });

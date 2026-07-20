@@ -827,7 +827,7 @@
         "responses": {
           "200": {
             "description": "The status page configuration document",
-            "headers": {"ETag": {"description": "Quoted updatedAt-derived configuration ETag; resend in If-Match on PUT", "schema": {"type": "string"}}},
+            "headers": {"ETag": {"description": "Quoted version-derived configuration ETag; resend in If-Match on PUT", "schema": {"type": "string"}}},
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StatusPageConfigEnvelope"}}}
           },
           "401": {"$ref": "#/components/responses/AuthenticationRequired"},
@@ -846,13 +846,13 @@
         "parameters": [
           {"$ref": "#/components/parameters/RequestId"},
           {"$ref": "#/components/parameters/IdempotencyKey"},
-          {"name": "If-Match", "in": "header", "required": true, "schema": {"type": "string"}, "description": "Quoted updatedAt-derived ETag captured on the last read"}
+          {"name": "If-Match", "in": "header", "required": true, "schema": {"type": "string"}, "description": "Quoted version-derived ETag captured on the last read"}
         ],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StatusPageConfig"}}}},
         "responses": {
           "200": {
             "description": "The stored configuration document",
-            "headers": {"ETag": {"description": "The new updatedAt-derived configuration ETag", "schema": {"type": "string"}}},
+            "headers": {"ETag": {"description": "The new version-derived configuration ETag", "schema": {"type": "string"}}},
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StatusPageConfigEnvelope"}}}
           },
           "400": {"$ref": "#/components/responses/BadRequest"},
@@ -3425,6 +3425,17 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "openingFailure": {
+            "type": "string",
+            "description": "Human-readable label for the failure that opened the incident, e.g. HTTP 503 or a transport error code."
+          },
+          "openingStatusCode": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "HTTP status code observed when the incident opened, or null when the opening failure was not an HTTP response."
           }
         }
       },

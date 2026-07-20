@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 import { imageKinds, images } from "@/lib/db/schema";
+import { isUuid } from "@/lib/ids/uuid";
 
 /**
  * Postgres-backed image storage. Rows are small (32–512 KB caps) and
@@ -137,13 +138,11 @@ export async function createImage(
   });
 }
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 export async function findImage(
   id: string,
   dependencies: ImageDependencies = {},
 ): Promise<StoredImage | null> {
-  if (!UUID_PATTERN.test(id)) return null;
+  if (!isUuid(id)) return null;
   const store = dependencies.store ?? databaseImageStore;
   return store.find(id);
 }

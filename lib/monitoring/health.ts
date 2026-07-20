@@ -1,6 +1,6 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
 
-import type { HealthWarning } from "@/components/dashboard/health-banner";
+import type { HealthWarning } from "@/lib/monitoring/types";
 import { db } from "@/lib/db/client";
 import { cronRuns, dependencies, monitoringConfigSnapshots, notificationOutbox } from "@/lib/db/schema";
 

@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 
+import { enforceRateLimit, sourceIpKey } from "@/lib/api/rate-limit";
 import { getCurrentSession } from "@/lib/auth/session";
 import { hasAdministrator } from "@/lib/auth/service";
 import { checkOnboardingReadiness } from "@/lib/onboarding/readiness";
 
-const limits = new Map<string, { count: number; resetAt: number }>();
+// Postgres-backed so the bucket holds across serverless instances.
+const READINESS_LIMIT = { routeKey: "onboarding-readiness", limit: 10, windowSeconds: 60 };
 let cache: { expiresAt: number; report: Awaited<ReturnType<typeof checkOnboardingReadiness>> } | null = null;
 
 export async function GET(request: Request) {
@@ -17,16 +19,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Onboarding is already complete" }, { status: 410, headers: { "Cache-Control": "no-store" } });
   }
 
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-  const now = Date.now();
-  const current = limits.get(ip);
-  if (current && current.resetAt > now && current.count >= 10) {
+  const rate = await enforceRateLimit(sourceIpKey(request), READINESS_LIMIT);
+  if (!rate.allowed) {
     return NextResponse.json({ error: "Try again shortly" }, { status: 429 });
   }
-  limits.set(ip, current && current.resetAt > now
-    ? { ...current, count: current.count + 1 }
-    : { count: 1, resetAt: now + 60_000 });
 
+  const now = Date.now();
   if (cache && cache.expiresAt > now) {
     return NextResponse.json(cache.report, { headers: { "Cache-Control": "no-store" } });
   }

@@ -2,6 +2,8 @@
 
 import * as React from "react";
 
+import { isValidIanaTimeZone } from "@/lib/time/iana";
+
 export const DEFAULT_TIMEZONE = "system";
 /**
  * Deliberate this-device overrides only. The legacy "pulse-timezone" key was
@@ -40,12 +42,7 @@ const TimezoneContext = React.createContext<TimezoneContextValue | undefined>(un
 
 export function isValidTimeZone(value: string): boolean {
   if (value === "system") return true;
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: value });
-    return true;
-  } catch {
-    return false;
-  }
+  return isValidIanaTimeZone(value);
 }
 
 function getSystemTimeZone(): string {

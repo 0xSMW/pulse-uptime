@@ -109,6 +109,8 @@ describe("configuration schemas and normalization", () => {
     ["duplicate IDs", document([monitor("api"), monitor("api")])],
     ["uppercase slug", document([monitor("API")])],
     ["private IPv4", document([monitor("api", { url: "http://127.0.0.1" })])],
+    ["reserved documentation IPv4", document([monitor("api", { url: "http://203.0.113.10/health" })])],
+    ["disallowed port", document([monitor("api", { url: "https://example.com:8443" })])],
     ["localhost", document([monitor("api", { url: "http://localhost" })])],
     ["non-http URL", document([monitor("api", { url: "ftp://example.com" })])],
     ["reversed status range", document([monitor("api", { expectedStatus: { minimum: 500, maximum: 200 } })])],
@@ -323,5 +325,38 @@ describe("pure apply preconditions", () => {
       currentConfigHash: baseConfigHash,
     });
     expect(result.diff.archives.map(({ id }) => id)).toEqual(["web"]);
+  });
+});
+
+describe("authoritative allowDelete requirement", () => {
+  it("requires allowDelete for a destructive change that archives no monitors", () => {
+    const active = Array.from({ length: 6 }, (_, index) => monitor(`site${index}`));
+    const current = validateDeclarativeConfig(document(active));
+    const target = validateDeclarativeConfig(document(active.map((entry) => ({ ...entry, enabled: false }))));
+    const baseConfigHash = hashDeclarativeConfig(current);
+    const plan = createConfigurationPlan(current, target, { baseConfigHash });
+
+    expect(plan.diff.archives).toHaveLength(0);
+    expect(plan.destructiveApprovalRequired).toBe(true);
+    expect(plan.allowDeleteRequired).toBe(true);
+
+    const request = {
+      baseConfigHash, targetConfigHash: plan.targetConfigHash, planHash: plan.planHash,
+      targetConfig: target, allowDelete: false,
+    };
+    try {
+      validateApplyPreconditions({ ifMatch: baseConfigHash, request, currentConfig: current, currentConfigHash: baseConfigHash });
+      throw new Error("Expected rejection");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ConfigApplyError);
+      expect((error as ConfigApplyError).code).toBe("DELETE_NOT_ALLOWED");
+    }
+  });
+
+  it("does not require allowDelete for a non-destructive, non-archiving change", () => {
+    const current = validateDeclarativeConfig(document([monitor("api")]));
+    const target = validateDeclarativeConfig(document([monitor("api", { timeoutMs: 9_000 })]));
+    const plan = createConfigurationPlan(current, target, { baseConfigHash: hashDeclarativeConfig(current) });
+    expect(plan.allowDeleteRequired).toBe(false);
   });
 });

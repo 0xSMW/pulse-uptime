@@ -1,12 +1,7 @@
+import type { MonitorState } from "@/lib/monitoring/types";
 import { cn } from "@/lib/utils";
 
-export type MonitorState =
-  | "UP"
-  | "VERIFYING_DOWN"
-  | "VERIFYING_UP"
-  | "DOWN"
-  | "PENDING"
-  | "PAUSED";
+export type { MonitorState };
 
 export interface StatusDotProps {
   state: MonitorState;

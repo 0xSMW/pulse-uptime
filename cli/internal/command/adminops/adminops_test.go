@@ -52,6 +52,18 @@ func TestTokenCreateSortsScopesAndUsesAbsoluteExpiry(t *testing.T) {
 	}
 }
 
+func TestSupportedScopesIncludeDependencies(t *testing.T) {
+	allowed := scopeSet()
+	for _, scope := range []string{"dependencies:read", "dependencies:write"} {
+		if !allowed[scope] {
+			t.Errorf("scope %q is not supported", scope)
+		}
+	}
+	if len(SupportedScopes) != 12 {
+		t.Fatalf("SupportedScopes = %d, want 12", len(SupportedScopes))
+	}
+}
+
 func TestCompareVersions(t *testing.T) {
 	if CompareVersions("v1.2.0", "1.1.9") <= 0 || CompareVersions("1.0.0", "1.0.0") != 0 || CompareVersions("0.9.0", "1.0.0") >= 0 {
 		t.Fatal("unexpected version ordering")

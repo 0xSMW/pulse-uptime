@@ -1,6 +1,6 @@
 import { apiError, apiJson, objectEnvelope, requestIdFrom } from "@/lib/api/envelopes";
 import { DeviceAuthorizationError, pollDeviceAuthorization } from "@/lib/api/device-authorization";
-import { executeIdempotent, IdempotencyError } from "@/lib/api/idempotency";
+import { executeIdempotent, requireIdempotencyKey } from "@/lib/api/idempotency";
 import { enforceRateLimit, sourceIpKey } from "@/lib/api/rate-limit";
 import { routeError } from "@/lib/api/route";
 import { credentialDerivationContext, deriveBearerToken, digestDeviceCode, CLI_SESSION_PREFIX } from "@/lib/api/tokens";
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
     return response;
   }
   try {
-    const idempotencyKey = requiredIdempotencyKey(request);
+    const idempotencyKey = requireIdempotencyKey(request);
     const result = await executeIdempotent<PollResponse>({
       request,
       principalKey: deviceKey,
@@ -115,11 +115,3 @@ export async function POST(request: Request) {
 type PollResponse =
   | { outcome: "session"; token: string; tokenType: "Bearer"; expiresAt: string; scopes: readonly string[] }
   | { outcome: "error"; code: DeviceAuthorizationError["code"]; message: string };
-
-function requiredIdempotencyKey(request: Request) {
-  const key = request.headers.get("idempotency-key")?.trim();
-  if (!key || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key)) {
-    throw new IdempotencyError("IDEMPOTENCY_KEY_REQUIRED", "A UUID Idempotency-Key is required");
-  }
-  return key;
-}

@@ -1,8 +1,9 @@
-import { apiError, apiJson, objectEnvelope } from "@/lib/api/envelopes";
+import { apiJson, objectEnvelope } from "@/lib/api/envelopes";
+import { dependencyError } from "@/lib/api/dependency-http";
 import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, isApiResponse } from "@/lib/api/middleware";
 import { routeError } from "@/lib/api/route";
-import { DependencyApiError, scheduleDependencyPoll } from "@/lib/dependencies/service";
+import { scheduleDependencyPoll } from "@/lib/dependencies/service";
 
 // Only sets the source's next_poll_at to now; the dependency cron does the
 // actual fetch. Never fetches inline, so the SSRF surface stays in the cron
@@ -17,7 +18,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
     });
     return apiJson(result.body, { status: result.status });
   } catch (error) {
-    if (error instanceof DependencyApiError) return apiError(context.requestId, error.code === "DEPENDENCY_NOT_FOUND" ? 404 : 400, error.code, error.message, error.details);
-    return routeError(error, context.requestId);
+    return dependencyError(error, context.requestId) ?? routeError(error, context.requestId);
   }
 }

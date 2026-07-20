@@ -10,7 +10,6 @@ export interface IncidentSummary {
   resolvedAt: string | null;
   durationSeconds: number;
   openingFailure: string;
-  status: string | null;
   notificationSummary: {
     state: NotificationState;
     sentCount: number;

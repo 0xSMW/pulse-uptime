@@ -3,6 +3,7 @@ import { apiError, apiJson, objectEnvelope } from "@/lib/api/envelopes";
 import { authorize, isApiResponse } from "@/lib/api/middleware";
 import { routeError } from "@/lib/api/route";
 import { getCurrentSession } from "@/lib/auth/session";
+import { isUuid } from "@/lib/ids/uuid";
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ sessionId: string }> }) {
   const context = await authorize(request);
@@ -32,8 +33,4 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ s
     }
     return routeError(error, context.requestId);
   }
-}
-
-function isUuid(value: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }

@@ -1,31 +1,31 @@
 import { and, desc, eq, gt, isNull } from "drizzle-orm";
 
-import { validateMonitoringConfig, type MonitoringConfig } from "@/lib/config";
+import type { MonitoringConfig } from "@/lib/config";
+import { findAcceptedSnapshot } from "@/lib/config/accepted-config";
 import { DEFAULT_MONITOR_VALUES } from "@/lib/config/defaults";
+import { findAccountProfile } from "@/lib/api/account";
 import { normalizeScopes, resolveScopeProfile } from "@/lib/api/scopes";
 import { getStatusPageConfig } from "@/lib/api/status-page-config";
 import { parseUserAgent } from "@/lib/auth/user-agent";
 import { db } from "@/lib/db/client";
 import { getDatabaseHealth } from "@/lib/database-health";
 import {
-  adminUsers,
   apiTokens,
   cliInstallations,
   cliSessions,
   humanSessions,
   monitorRegistry,
-  monitoringConfigSnapshots,
   monitorState,
 } from "@/lib/db/schema";
 
 async function getAcceptedConfig(): Promise<MonitoringConfig | null> {
-  const accepted = await db.select({ configJson: monitoringConfigSnapshots.configJson })
-    .from(monitoringConfigSnapshots)
-    .where(eq(monitoringConfigSnapshots.status, "accepted"))
-    .orderBy(desc(monitoringConfigSnapshots.acceptedAt))
-    .limit(1);
+  // A missing accepted snapshot returns null, and an invalid or hash-mismatched
+  // one throws in findAcceptedSnapshot. The settings pages degrade to defaults
+  // through the pervasive config?. optional chaining, so a bad snapshot must
+  // read as absent here rather than crash the whole render.
   try {
-    return accepted[0] ? validateMonitoringConfig(accepted[0].configJson) : null;
+    const snapshot = await findAcceptedSnapshot();
+    return snapshot?.config ?? null;
   } catch {
     return null;
   }
@@ -85,13 +85,7 @@ export async function getNotificationSettings() {
 }
 
 export async function getAccountSettings(userId: string) {
-  const [row] = await db.select({
-    name: adminUsers.name,
-    email: adminUsers.email,
-    timezone: adminUsers.timezone,
-    avatarImageId: adminUsers.avatarImageId,
-  }).from(adminUsers).where(eq(adminUsers.id, userId)).limit(1);
-  return row ?? null;
+  return findAccountProfile(userId);
 }
 
 const sessionColumns = {

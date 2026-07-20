@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   deriveOverallState,
   excludePromotedIncidents,
-  filterReportsForGroup,
   monitorReportAnnotations,
   promotedIncidentIds,
   publicReportPhase,
@@ -109,34 +108,6 @@ describe("deriveOverallState", () => {
         report({ affected: [{ monitorId: "a", impact: "down" }] }),
       ]),
     ).toBe("outage");
-  });
-});
-
-describe("filterReportsForGroup", () => {
-  const groupMonitors = [
-    { id: "api-prod", groupName: "APIs" },
-    { id: "worker", groupName: null },
-  ];
-
-  it("keeps reports matching a monitor id in the group", () => {
-    const matching = report({ affected: [{ monitorId: "api-prod", groupName: "Old Group" }] });
-    expect(filterReportsForGroup([matching], groupMonitors)).toEqual([matching]);
-  });
-
-  it("keeps reports matching the snapshotted group name", () => {
-    const matching = report({ affected: [{ monitorId: "api-archived", groupName: "APIs" }] });
-    expect(filterReportsForGroup([matching], groupMonitors)).toEqual([matching]);
-  });
-
-  it("collapses null group names to the Other bucket", () => {
-    const matching = report({ affected: [{ monitorId: "gone", groupName: null }] });
-    expect(filterReportsForGroup([matching], groupMonitors)).toEqual([matching]);
-    expect(filterReportsForGroup([matching], [{ id: "api-prod", groupName: "APIs" }])).toEqual([]);
-  });
-
-  it("drops reports with no overlap and reports with no affected services", () => {
-    const other = report({ affected: [{ monitorId: "db", groupName: "Databases" }] });
-    expect(filterReportsForGroup([other, report()], groupMonitors)).toEqual([]);
   });
 });
 

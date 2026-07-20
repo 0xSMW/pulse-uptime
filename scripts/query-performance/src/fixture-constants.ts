@@ -33,7 +33,6 @@ export interface FixtureCardinalities {
   monitor_state: number;
   check_results: number;
   metric_rollups: number;
-  daily_rollups: number;
   incidents: number;
   notification_outbox: number;
   monitoring_config_snapshots: number;

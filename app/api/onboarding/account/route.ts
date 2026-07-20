@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 
+import { mutationOriginAllowed } from "@/lib/auth/origin";
 import { createOnlyAdmin, AuthServiceError } from "@/lib/auth/service";
 import { sessionCookie } from "@/lib/auth/session";
 import { enforceRateLimit, sourceIpKey } from "@/lib/api/rate-limit";
 import { bootstrapTokenFrom } from "@/lib/onboarding/bootstrap";
-import { mutationOriginAllowed } from "@/lib/onboarding/http";
 import { checkOnboardingReadiness } from "@/lib/onboarding/readiness";
 
 // Bound unauthenticated account-creation attempts per source IP before any expensive

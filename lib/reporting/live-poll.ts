@@ -2,7 +2,7 @@
 // and the staleness threshold are pure functions so the client hook stays thin
 // and the behavior is unit tested without a browser.
 
-import type { MonitorState } from "@/components/monitors/status-dot";
+import type { MonitorState } from "@/lib/monitoring/types";
 import type { MonitorPhase } from "./queries/first-run";
 
 // Steady monitors refresh every 30 seconds. A monitor mid-setup, verifying, or

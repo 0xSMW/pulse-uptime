@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -46,6 +47,12 @@ func (f *fakeTransport) Do(_ context.Context, method, path string, body any, hea
 	return nil, nil
 }
 
+type errorTransport struct{ err error }
+
+func (e *errorTransport) Do(context.Context, string, string, any, http.Header, any) (http.Header, error) {
+	return nil, e.err
+}
+
 func validConfig() string { return "version: 2\nsettings: {}\ngroups: []\nmonitors: []\n" }
 
 func TestApplyCarriesPlanMetadataAndIfMatch(t *testing.T) {
@@ -78,14 +85,26 @@ func TestReadDocumentRejectsOversize(t *testing.T) {
 	}
 }
 
-func TestValidateDocumentFindsDuplicateIDsAndRanges(t *testing.T) {
-	doc, err := ReadDocument(defaults(Dependencies{In: strings.NewReader("version: 1\nsettings:\n  defaultTimeoutMs: 20\nmonitors:\n  - {id: api, name: API, url: https://a}\n  - {id: api, name: API2, url: https://b}\n")}), "-")
-	if err != nil {
+func TestValidateSendsSemanticallyInvalidDocumentToServer(t *testing.T) {
+	client := &fakeTransport{}
+	cmd := NewCommand(Dependencies{Client: client, In: strings.NewReader("version: 1\nsettings:\n  defaultTimeoutMs: 20\nmonitors:\n  - {id: api, name: API, url: https://a}\n  - {id: api, name: API2, url: https://b}\n"), Out: io.Discard, Output: func(string) string { return "json" }})
+	cmd.SetArgs([]string{"validate", "--file", "-"})
+	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	issues := ValidateDocument(doc)
-	if len(issues) != 2 {
-		t.Fatalf("issues = %#v", issues)
+	if len(client.calls) != 1 || client.calls[0].path != "/api/v1/config/validate" {
+		t.Fatalf("calls = %#v", client.calls)
+	}
+}
+
+func TestValidatePropagatesServerErrors(t *testing.T) {
+	client := &errorTransport{err: &Error{Exit: 2, Code: "INVALID_CONFIGURATION", Message: "configuration is invalid"}}
+	cmd := NewCommand(Dependencies{Client: client, In: strings.NewReader(validConfig()), Out: io.Discard, Output: func(string) string { return "json" }})
+	cmd.SetArgs([]string{"validate", "--file", "-"})
+	err := cmd.Execute()
+	var got *Error
+	if !errors.As(err, &got) || got.Code != "INVALID_CONFIGURATION" {
+		t.Fatalf("err = %#v", err)
 	}
 }
 
@@ -140,21 +159,6 @@ monitors:
 	}
 	if monitors[0].(map[string]any)["groupId"] != monitors[1].(map[string]any)["groupId"] {
 		t.Fatalf("monitors = %#v", monitors)
-	}
-}
-
-func TestValidateDocumentChecksV2GroupReferencesAndUniqueness(t *testing.T) {
-	doc := map[string]any{
-		"version": float64(2), "settings": map[string]any{},
-		"groups": []any{
-			map[string]any{"id": "prod", "name": "Production"},
-			map[string]any{"id": "prod", "name": "production"},
-		},
-		"monitors": []any{map[string]any{"id": "api", "name": "API", "url": "https://api.example", "groupId": "missing"}},
-	}
-	issues := ValidateDocument(doc)
-	if len(issues) != 3 {
-		t.Fatalf("issues = %#v", issues)
 	}
 }
 

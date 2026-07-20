@@ -11,6 +11,7 @@ import {
   type MonitorConfig,
   type MonitoringConfig,
 } from "@/lib/config";
+import { writeMonitoringEdgeConfig } from "@/lib/config/edge-config-write";
 import { db } from "@/lib/db/client";
 import {
   adminUsers,
@@ -168,18 +169,8 @@ function validateRecipients(email?: string) {
 }
 
 async function writeEdgeConfig(config: MonitoringConfig) {
-  const configId = process.env.EDGE_CONFIG_ID;
-  const token = process.env.VERCEL_API_TOKEN;
-  if (!configId || !token) throw new OnboardingError("ACTIVATION_FAILED", "Edge Config is unavailable");
-  const teamQuery = process.env.VERCEL_TEAM_ID ? `?teamId=${encodeURIComponent(process.env.VERCEL_TEAM_ID)}` : "";
   try {
-    const response = await fetch(`https://api.vercel.com/v1/edge-config/${encodeURIComponent(configId)}/items${teamQuery}`, {
-      method: "PATCH",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ items: [{ operation: "upsert", key: "monitoring", value: config }] }),
-      signal: AbortSignal.timeout(8_000),
-    });
-    if (!response.ok) throw new Error("write failed");
+    await writeMonitoringEdgeConfig(config);
   } catch {
     throw new OnboardingError("ACTIVATION_FAILED", "Could not start monitoring. Try again");
   }

@@ -24,7 +24,7 @@ export type PaletteMonitor = {
   id: string;
   name: string;
   state: MonitorState;
-  lastLatencyMs: number | null;
+  latestLatencyMs: number | null;
 };
 
 export type PaletteIncident = {
@@ -74,8 +74,8 @@ export function buildPaletteGroups(
         searchText: monitor.name,
         hint: monitor.state === "DOWN"
           ? "Down"
-          : monitor.lastLatencyMs !== null
-            ? formatLatency(monitor.lastLatencyMs)
+          : monitor.latestLatencyMs !== null
+            ? formatLatency(monitor.latestLatencyMs)
             : stateLabels[monitor.state],
         href: `/monitors/${encodeURIComponent(monitor.id)}`,
         state: monitor.state,

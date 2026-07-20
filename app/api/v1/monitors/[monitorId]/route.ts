@@ -1,34 +1,11 @@
-import { z } from "zod";
-
-import { apiError, apiJson, errorEnvelope, objectEnvelope } from "@/lib/api/envelopes";
-import { executeIdempotent, type StoredResponse } from "@/lib/api/idempotency";
+import { apiJson, objectEnvelope } from "@/lib/api/envelopes";
+import { executeIdempotent } from "@/lib/api/idempotency";
 import { authorize, isApiResponse } from "@/lib/api/middleware";
+import { monitorError, storedMonitorError } from "@/lib/api/monitor-http";
 import { routeError, success } from "@/lib/api/route";
-import { archiveMonitor, requireMonitor, MonitorApiError, updateMonitor } from "@/lib/api/monitors";
+import { archiveMonitor, requireMonitor, updateMonitor } from "@/lib/api/monitors";
 
 type Params = { params: Promise<{ monitorId: string }> };
-
-function monitorError(error: unknown, requestId: string): Response | null {
-  if (error instanceof MonitorApiError) {
-    const status = error.code === "MONITOR_NOT_FOUND" ? 404 : error.code === "MONITOR_EXISTS" ? 409 : error.code === "INVALID_REQUEST" ? 400 : 503;
-    return apiError(requestId, status, error.code, error.message);
-  }
-  if (error instanceof z.ZodError) return apiError(requestId, 400, "INVALID_REQUEST", "Monitor request is invalid", { issues: error.issues });
-  return null;
-}
-
-// MONITOR_NOT_FOUND/MONITOR_EXISTS/INVALID_REQUEST are deterministic outcomes
-// of this request, not proof it never ran, so store them as the operation's
-// own completed response instead of letting them roll back the transaction.
-// A stale-window retry would otherwise rerun updateMonitor/archiveMonitor
-// against whatever config exists by then (e.g. a monitor created later).
-// CONFIGURATION_UNAVAILABLE/EDGE_CONFIG_UNAVAILABLE are transient infra
-// failures, not request outcomes, so those still propagate and roll back.
-function storedMonitorError(error: unknown, requestId: string): StoredResponse | null {
-  if (!(error instanceof MonitorApiError)) return null;
-  const status = error.code === "MONITOR_NOT_FOUND" ? 404 : error.code === "MONITOR_EXISTS" ? 409 : error.code === "INVALID_REQUEST" ? 400 : null;
-  return status ? { status, body: errorEnvelope(error.code, error.message, requestId) } : null;
-}
 
 export async function GET(request: Request, { params }: Params) {
   const context = await authorize(request, { scope: "monitors:read" });

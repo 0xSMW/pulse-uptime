@@ -17,6 +17,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { isPublicHttpUrl } from "@/lib/net/public-url";
 
 export type EditableMonitor = {
   id: string;
@@ -64,44 +65,6 @@ export function hasAdvancedMonitorEditErrors(errors: MonitorEditErrors): boolean
 }
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-function isPublicHttpUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return false;
-    const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-    if (!host || host === "localhost" || host.endsWith(".localhost")) return false;
-    if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) {
-      const octets = host.split(".").map(Number);
-      if (octets.length !== 4 || octets.some((part) => !Number.isInteger(part) || part > 255)) return false;
-      const [a, b, c] = octets;
-      return !(
-        a === 0 || a === 10 || a === 127 || a >= 224 ||
-        (a === 100 && b >= 64 && b <= 127) ||
-        (a === 169 && b === 254) ||
-        (a === 172 && b >= 16 && b <= 31) ||
-        (a === 192 && b === 0) ||
-        (a === 192 && b === 168) ||
-        (a === 192 && b === 88 && c === 99) ||
-        (a === 198 && (b === 18 || b === 19)) ||
-        (a === 198 && b === 51 && c === 100) ||
-        (a === 203 && b === 0 && c === 113)
-      );
-    }
-    if (host.includes(":")) {
-      const compact = host.replace(/(^|:)0+(?=[0-9a-f])/g, "$1");
-      return !(
-        compact === "::" || compact === "::1" || compact.startsWith("fc") || compact.startsWith("fd") ||
-        compact.startsWith("fe8") || compact.startsWith("fe9") || compact.startsWith("fea") ||
-        compact.startsWith("feb") || compact.startsWith("ff") || compact.startsWith("::ffff:") ||
-        compact.startsWith("2001:db8:")
-      );
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function initialValues(monitor: EditableMonitor): MonitorEditValues {
   return {
