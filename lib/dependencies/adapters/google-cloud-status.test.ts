@@ -7,6 +7,7 @@ import malformed from "./fixtures/google_cloud/malformed.json";
 import missingComponent from "./fixtures/google_cloud/missing-component.json";
 import operational from "./fixtures/google_cloud/operational.json";
 import outage from "./fixtures/google_cloud/outage.json";
+import partialRecovery from "./fixtures/google_cloud/partial-recovery.json";
 import resolved from "./fixtures/google_cloud/resolved.json";
 import { googleCloudStatusAdapter } from "./google-cloud-status";
 import type { AdapterDocument } from "./index";
@@ -58,6 +59,22 @@ describe("googleCloudStatusAdapter.normalize: location selection", () => {
     const snapshot = googleCloudStatusAdapter.normalize({ source: googleSource, documents: [currentDoc(degraded)], observedAt: "2026-07-19T10:30:00Z" });
     const [incident] = snapshot.incidents;
     expect(incident.componentIds).toContain("Z0FZJAMvEB4j3NbCJs6B");
+    expect(incident.componentIds).toContain("Z0FZJAMvEB4j3NbCJs6B@us-east4");
+  });
+
+  it("excludes a recovered location from an active incident's composites so its scope is no longer touched", () => {
+    const snapshot = googleCloudStatusAdapter.normalize({ source: googleSource, documents: [currentDoc(partialRecovery)], observedAt: "2026-07-19T11:05:00Z" });
+    const [incident] = snapshot.incidents;
+    expect(incident.resolvedAt).toBeNull();
+    expect(incident.componentIds).toContain("Z0FZJAMvEB4j3NbCJs6B");
+    expect(incident.componentIds).toContain("Z0FZJAMvEB4j3NbCJs6B@us-central1");
+    expect(incident.componentIds).not.toContain("Z0FZJAMvEB4j3NbCJs6B@us-east4");
+  });
+
+  it("keeps a resolved incident's previously affected location composite for historical matching", () => {
+    const snapshot = googleCloudStatusAdapter.normalize({ source: googleSource, documents: [currentDoc(resolved)], observedAt: "2026-07-17T10:00:00Z" });
+    const [incident] = snapshot.incidents;
+    expect(incident.resolvedAt).not.toBeNull();
     expect(incident.componentIds).toContain("Z0FZJAMvEB4j3NbCJs6B@us-east4");
   });
 });

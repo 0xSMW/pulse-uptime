@@ -75,10 +75,24 @@ function updateState(update: z.infer<typeof updateSchema>): "resolved" | "identi
   return update.status === "AVAILABLE" ? "resolved" : "identified";
 }
 
-/** Bare product ids for direct component matching, plus productId@locationId composites for optional location scoping. */
+/**
+ * Bare product ids for direct component matching, plus productId@locationId
+ * composites for optional location scoping. The composite set reflects the
+ * incident's current affected footprint. While an incident is active only
+ * currently_affected_locations count, because Google moves a location to
+ * previously_affected once that region recovers while the incident stays open
+ * for other regions. Folding previously_affected in for an active incident
+ * would leave a recovered location's composite on the open incident, and
+ * resolveDependencyState in persist.ts would report it as touched and still
+ * degraded. A resolved incident includes both sets so location-scoped
+ * dependencies still match it as history.
+ */
 function componentIdsForIncident(incident: Incident): string[] {
   const productIds = incident.affected_products.map((product) => product.id);
-  const locationIds = [...incident.currently_affected_locations, ...incident.previously_affected_locations].map((location) => location.id);
+  const locationRefs = incident.end
+    ? [...incident.currently_affected_locations, ...incident.previously_affected_locations]
+    : incident.currently_affected_locations;
+  const locationIds = locationRefs.map((location) => location.id);
   const composites = productIds.flatMap((productId) => locationIds.map((locationId) => `${productId}@${locationId}`));
   return [...new Set([...productIds, ...composites])];
 }

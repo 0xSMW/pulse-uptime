@@ -1,0 +1,20 @@
+[
+  {
+    "id": "geminipartial01",
+    "number": "5",
+    "begin": "2026-07-19T08:00:00+00:00",
+    "created": "2026-07-19T08:15:00+00:00",
+    "modified": "2026-07-19T11:00:00+00:00",
+    "external_desc": "Vertex Gemini API disruption. One region has recovered while another remains affected.",
+    "severity": "medium",
+    "status_impact": "SERVICE_DISRUPTION",
+    "uri": "incidents/geminipartial01",
+    "affected_products": [{ "id": "Z0FZJAMvEB4j3NbCJs6B", "title": "Vertex Gemini API" }],
+    "currently_affected_locations": [{ "id": "us-central1", "title": "Council Bluffs (us-central1)" }],
+    "previously_affected_locations": [{ "id": "us-east4", "title": "Ashburn (us-east4)" }],
+    "updates": [
+      { "created": "2026-07-19T11:00:00+00:00", "modified": "2026-07-19T11:00:00+00:00", "text": "us-east4 has recovered. We continue to work on us-central1.", "status": "SERVICE_DISRUPTION" },
+      { "created": "2026-07-19T08:15:00+00:00", "modified": "2026-07-19T08:15:00+00:00", "text": "We are investigating a service disruption for a subset of Vertex Gemini API requests.", "status": "SERVICE_DISRUPTION" }
+    ]
+  }
+]
