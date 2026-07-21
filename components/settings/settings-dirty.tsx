@@ -1,6 +1,5 @@
 "use client"
 
-import Link from "next/link"
 import * as React from "react"
 
 import { useNavigationGuard } from "@/components/navigation/use-navigation-guard"
@@ -71,19 +70,6 @@ export function SettingsDirtyProvider({
 /** Null outside the settings shell so shared components stay reusable. */
 export function useSettingsDirty(): SettingsDirtyContextValue | null {
   return React.useContext(SettingsDirtyContext)
-}
-
-/**
- * A next/link. The unsaved-changes confirm is provided globally by
- * SettingsDirtyProvider's useNavigationGuard (a document-wide click
- * listener), so this component must not add its own confirm here, since
- * that would double-confirm alongside the global one. Kept as a named
- * export, rather than inlining next/link at call sites, so existing usages
- * don't need to change if a link-specific behavior is needed here again
- * later.
- */
-export function GuardedLink(props: React.ComponentProps<typeof Link>) {
-  return <Link {...props} />
 }
 
 /** Registers a form's dirty state with the settings shell while mounted. */

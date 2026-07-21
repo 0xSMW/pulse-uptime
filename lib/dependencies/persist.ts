@@ -885,7 +885,7 @@ async function applyAllOperationalNextPoll(
   }
 }
 
-export async function persistSnapshot(
+export async function applyPollOutcome(
   store: PersistStore,
   outcome: PollOutcome,
   source: PersistSourceRow,

@@ -264,6 +264,36 @@ func TestArchiveRequiresYesWhenNoninteractive(t *testing.T) {
 	}
 }
 
+// The rendered archive envelope is the server's MonitorArchival response, never
+// a locally fabricated document.
+func TestArchiveRendersServerEnvelope(t *testing.T) {
+	client := clientFunc(func(_ context.Context, r Request) error {
+		if r.Method != "DELETE" {
+			t.Fatalf("method = %q", r.Method)
+		}
+		doc, ok := r.Result.(*Envelope)
+		if !ok {
+			t.Fatalf("result type = %T", r.Result)
+		}
+		doc.APIVersion, doc.Kind = "v1", "MonitorArchival"
+		doc.Data = json.RawMessage(`{"id":"api","archived":true}`)
+		return nil
+	})
+	var out bytes.Buffer
+	cmd := NewGroup(Dependencies{Client: client, Out: &out, Format: func() string { return "json" }, NewID: func() (string, error) { return "key", nil }})
+	cmd.SetArgs([]string{"archive", "api", "--yes"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var env Envelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	if env.Kind != "MonitorArchival" {
+		t.Fatalf("kind = %q", env.Kind)
+	}
+}
+
 func TestArchiveIsCanonicalAndDeleteIsRetired(t *testing.T) {
 	cmd := NewGroup(Dependencies{})
 	archive, _, err := cmd.Find([]string{"archive"})

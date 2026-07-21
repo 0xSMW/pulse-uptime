@@ -54,13 +54,3 @@ export async function findAcceptedSnapshot(
   }
   return { config, hash: row.configHash, acceptedAt: row.acceptedAt ?? null }
 }
-
-export async function requireAcceptedSnapshot(
-  executor: SnapshotReader = db
-): Promise<AcceptedSnapshot> {
-  const snapshot = await findAcceptedSnapshot(executor)
-  if (!snapshot) {
-    throw new Error("No accepted monitoring configuration is available")
-  }
-  return snapshot
-}

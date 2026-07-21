@@ -117,7 +117,7 @@ describe("pollDueSources orchestration", () => {
   it("skips entirely when no source is due", async () => {
     const persist = vi.fn()
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([]) },
       persist,
       now: () => NOW,
     })
@@ -135,7 +135,7 @@ describe("pollDueSources orchestration", () => {
     const persist = vi.fn()
     const row = sourceRow()
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([row]) },
       fetchDocument: anthropicFetchDocument(anthropicOperational),
       persist,
       now: () => NOW,
@@ -184,7 +184,7 @@ describe("pollDueSources orchestration", () => {
       }
     )
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([row]) },
       fetchDocument,
       persist,
       now: () => NOW,
@@ -215,7 +215,7 @@ describe("pollDueSources orchestration", () => {
     )
     const result = await pollDueSources({
       store: {
-        listDueSources: vi.fn().mockResolvedValue([failingRow, healthyRow]),
+        claimDueSources: vi.fn().mockResolvedValue([failingRow, healthyRow]),
       },
       fetchDocument,
       persist,
@@ -258,7 +258,7 @@ describe("pollDueSources orchestration", () => {
       }
     )
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([row]) },
       fetchDocument,
       persist,
       now: () => NOW,
@@ -302,7 +302,7 @@ describe("pollDueSources orchestration", () => {
       }
     )
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([row]) },
       fetchDocument,
       persist,
       now: () => NOW,
@@ -378,7 +378,7 @@ describe("pollDueSources orchestration", () => {
     )
 
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([postmarkRow]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([postmarkRow]) },
       fetchDocument,
       persist,
       now: () => NOW,
@@ -475,7 +475,7 @@ describe("pollDueSources orchestration", () => {
     )
 
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([postmarkRow]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([postmarkRow]) },
       fetchDocument,
       persist,
       now: () => NOW,
@@ -552,7 +552,7 @@ describe("pollDueSources orchestration", () => {
     )
 
     const firstResult = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([row]) },
       fetchDocument: firstCycleFetch,
       persist,
       now: () => NOW,
@@ -628,7 +628,7 @@ describe("pollDueSources orchestration", () => {
     )
 
     await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([secondRow]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([secondRow]) },
       fetchDocument: secondCycleFetch,
       persist,
       now: () => NOW,
@@ -667,7 +667,7 @@ describe("pollDueSources orchestration", () => {
     )
 
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([row]) },
       fetchDocument,
       persist,
       now: () => NOW,
@@ -756,7 +756,7 @@ describe("pollDueSources orchestration", () => {
     )
 
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([row]) },
       fetchDocument,
       persist,
       now: () => NOW,
@@ -812,7 +812,7 @@ describe("pollDueSources orchestration", () => {
       }
     )
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([row]) },
       fetchDocument,
       persist,
       now: () => NOW,
@@ -856,7 +856,7 @@ describe("pollDueSources orchestration", () => {
       }
     )
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([row]) },
       fetchDocument,
       persist,
       now: () => NOW,
@@ -904,7 +904,7 @@ describe("pollDueSources orchestration", () => {
       lastModified: null,
     }))
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([row]) },
       fetchDocument,
       persist,
       now: () => NOW,
@@ -971,7 +971,7 @@ describe("pollDueSources orchestration", () => {
     )
 
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([postmarkRow]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([postmarkRow]) },
       fetchDocument,
       persist,
       now: () => NOW,
@@ -1007,7 +1007,7 @@ describe("pollDueSources orchestration", () => {
         anthropicFetchDocument(anthropicOperational)(source, request)
     )
     await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([row]) },
       fetchDocument,
       persist,
       now: () => NOW,
@@ -1038,7 +1038,7 @@ describe("pollDueSources orchestration", () => {
       clock = deadlineAtMs - MIN_SOURCE_START_BUDGET_MS + 1
     })
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue(rows) },
+      store: { claimDueSources: vi.fn().mockResolvedValue(rows) },
       fetchDocument,
       persist,
       now: () => NOW,
@@ -1072,7 +1072,7 @@ describe("pollDueSources orchestration", () => {
       }
     )
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([row]) },
       fetchDocument,
       persist,
       now: () => NOW,
@@ -1115,7 +1115,7 @@ describe("pollDueSources orchestration", () => {
     })
     await expect(
       pollDueSources({
-        store: { listDueSources: vi.fn().mockResolvedValue(rows) },
+        store: { claimDueSources: vi.fn().mockResolvedValue(rows) },
         fetchDocument,
         persist,
         now: () => NOW,
@@ -1138,7 +1138,7 @@ describe("pollDueSources orchestration", () => {
   it("keeps domain failure path for per-source fetch errors without throwing", async () => {
     const persist = vi.fn()
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([sourceRow()]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([sourceRow()]) },
       fetchDocument: vi.fn(async () => {
         throw new ProviderFetchError(
           "NETWORK_ERROR",

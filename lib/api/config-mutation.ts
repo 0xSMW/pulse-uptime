@@ -21,7 +21,7 @@ import {
   configChangeApprovals,
   monitoringConfigSnapshots,
 } from "@/lib/db/schema"
-import { synchronizeRegistry as syncRegistryRows } from "@/lib/scheduler/registry-sync"
+import { synchronizeRegistry } from "@/lib/scheduler/registry-sync"
 
 import { lockConfiguration, lockedNow } from "./configuration-lock"
 
@@ -74,16 +74,16 @@ async function writeEdgeConfig(config: MonitoringConfig): Promise<void> {
   }
 }
 
-async function synchronizeRegistry(
+async function syncMonitorRegistryRows(
   tx: DbTransaction,
   config: MonitoringConfig,
   hash: string,
   now: Date
 ): Promise<void> {
-  await syncRegistryRows(tx, config, hash, now, "api")
+  await synchronizeRegistry(tx, config, hash, now, "api")
 }
 
-export async function mutateConfig(
+export async function applyConfigChange(
   principalKey: string,
   mutator: (config: MonitoringConfig) => MonitoringConfig,
   handle: DatabaseHandle = db
@@ -125,7 +125,7 @@ export async function mutateConfig(
       seenAt: now,
       acceptedAt: now,
     })
-    await synchronizeRegistry(tx, target, hash, now)
+    await syncMonitorRegistryRows(tx, target, hash, now)
     // writeEdgeConfig is an external HTTP call and cannot be rolled back, so it runs last,
     // after every statement in this transaction that could still abort it. Only the
     // caller's completion write and commit remain between it and durability.

@@ -415,7 +415,7 @@ export function MonitorSheet({
         await apiRequest(
           `/api/v1/monitors/${encodeURIComponent(monitor.id)}`,
           { method: "PATCH", body: JSON.stringify(body) },
-          true
+          { mutation: true }
         )
       } else {
         await apiRequest(
@@ -427,7 +427,7 @@ export function MonitorSheet({
               ...body,
             }),
           },
-          true
+          { mutation: true }
         )
       }
       onMonitorGroupChanged?.(monitor?.groupId ?? null, values.groupId)
@@ -460,7 +460,7 @@ export function MonitorSheet({
       await apiRequest(
         `/api/v1/monitors/${encodeURIComponent(monitor.id)}/${action}`,
         { method: "POST" },
-        true
+        { mutation: true }
       )
       setStatus(
         action === "test"
@@ -487,7 +487,7 @@ export function MonitorSheet({
       await apiRequest(
         `/api/v1/monitors/${encodeURIComponent(monitor.id)}`,
         { method: "DELETE" },
-        true
+        { mutation: true }
       )
       onMonitorGroupChanged?.(monitor.groupId, null)
       setStatus("Monitor archived")

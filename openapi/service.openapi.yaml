@@ -4180,7 +4180,6 @@
           "targetConfigHash",
           "planHash",
           "diff",
-          "tripwireApprovalRequired",
           "destructiveConsentRequired",
           "destructiveChange"
         ],
@@ -4303,10 +4302,6 @@
                 }
               }
             }
-          },
-          "tripwireApprovalRequired": {
-            "type": "boolean",
-            "description": "Whether runtime acceptance requires a short-lived tripwire approval."
           },
           "destructiveConsentRequired": {
             "type": "boolean",

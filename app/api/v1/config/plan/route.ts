@@ -33,7 +33,6 @@ export async function POST(request: Request) {
           targetConfigHash: plan.targetConfigHash,
           planHash: plan.planHash,
           diff: plan.diff,
-          tripwireApprovalRequired: plan.tripwireApprovalRequired,
           destructiveConsentRequired: plan.destructiveConsentRequired,
           destructiveChange: plan.destructiveChange,
         },

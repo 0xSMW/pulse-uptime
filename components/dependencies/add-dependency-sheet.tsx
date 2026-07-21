@@ -290,7 +290,7 @@ export function AddDependencySheet({
             scopeId ? { presetId: preset.id, scopeId } : { presetId: preset.id }
           ),
         },
-        true
+        { mutation: true }
       )
       setAddedKeys((current) => new Set(current).add(key))
       router.refresh()

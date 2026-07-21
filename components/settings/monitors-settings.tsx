@@ -73,7 +73,7 @@ export function MonitorsSettings({ data }: { data: MonitorSettingsData }) {
       await apiRequest(
         `/api/v1/monitors/${encodeURIComponent(monitor.id)}/${action}`,
         { method: "POST" },
-        true
+        { mutation: true }
       )
       setRowStatus(`${monitor.name} ${monitor.enabled ? "paused" : "resumed"}`)
       router.refresh()
@@ -125,7 +125,7 @@ export function MonitorsSettings({ data }: { data: MonitorSettingsData }) {
       await apiRequest(
         `/api/v1/groups/${encodeURIComponent(group.id)}`,
         { method: "DELETE" },
-        true
+        { mutation: true }
       )
       setGroups((current) => current.filter((item) => item.id !== group.id))
       setDeleteGroupId(null)

@@ -60,7 +60,7 @@ export function GroupDialog({
         ? await apiRequest<ApiEnvelope<SettingsGroup>>(
             `/api/v1/groups/${encodeURIComponent(group.id)}`,
             { method: "PATCH", body: JSON.stringify({ name: name.trim() }) },
-            true
+            { mutation: true }
           )
         : await apiRequest<ApiEnvelope<SettingsGroup>>(
             "/api/v1/groups",
@@ -71,7 +71,7 @@ export function GroupDialog({
                 name: name.trim(),
               }),
             },
-            true
+            { mutation: true }
           )
       onSaved(response.data)
     } catch (caught) {

@@ -72,7 +72,6 @@ type Plan struct {
 	TargetConfigHash           string            `json:"targetConfigHash" yaml:"targetConfigHash"`
 	PlanHash                   string            `json:"planHash" yaml:"planHash"`
 	Diff                       Diff              `json:"diff" yaml:"diff"`
-	TripwireApprovalRequired   bool              `json:"tripwireApprovalRequired" yaml:"tripwireApprovalRequired"`
 	DestructiveConsentRequired bool              `json:"destructiveConsentRequired" yaml:"destructiveConsentRequired"`
 	DestructiveChange          DestructiveChange `json:"destructiveChange" yaml:"destructiveChange"`
 }
@@ -240,9 +239,7 @@ func applyCommand(d Dependencies) *cobra.Command {
 			return err
 		}
 		archives := len(planned.Data.Diff.Archives)
-		requiresConsent := planned.Data.DestructiveConsentRequired ||
-			planned.Data.TripwireApprovalRequired ||
-			archives > 0
+		requiresConsent := planned.Data.DestructiveConsentRequired || archives > 0
 		if requiresConsent && !(allowDestructiveChanges && yes) {
 			if !d.StdinTTY {
 				return invalid("destructive apply requires --allow-destructive and --yes in noninteractive mode", "")

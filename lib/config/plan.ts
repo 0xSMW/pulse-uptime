@@ -49,7 +49,6 @@ export interface ConfigurationPlan {
   planHash: string
   targetConfig: DeclarativeConfig
   diff: ConfigurationDiff
-  tripwireApprovalRequired: boolean
   destructiveConsentRequired: boolean
   destructiveChange: DestructiveChangeEvaluation
 }
@@ -235,7 +234,6 @@ export function createConfigurationPlan(
     planHash,
     targetConfig,
     diff,
-    tripwireApprovalRequired: destructiveChange.required,
     destructiveConsentRequired:
       diff.archives.length > 0 || destructiveChange.required,
     destructiveChange,

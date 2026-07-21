@@ -4,7 +4,7 @@ vi.mock("server-only", () => ({}))
 vi.mock("@/lib/db/client", () => ({ db: { impl: "default-db" } }))
 vi.mock("./config-mutation", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./config-mutation")>()),
-  mutateConfig: vi.fn(
+  applyConfigChange: vi.fn(
     async (
       _principalKey: string,
       mutator: (config: MonitoringConfig) => MonitoringConfig
@@ -19,7 +19,7 @@ import {
 } from "@/lib/config"
 import type { DatabaseHandle } from "@/lib/db/client"
 import { db } from "@/lib/db/client"
-import { mutateConfig } from "./config-mutation"
+import { applyConfigChange } from "./config-mutation"
 import {
   addGroup,
   createGroup,
@@ -38,7 +38,7 @@ const base = (): MonitoringConfig => ({
   monitors: [],
 })
 
-/** Seed config used only by the mutateConfig-mock-backed handle-threading tests below: a preexisting "production" group so update/delete reach the success path. */
+/** Seed config used only by the applyConfigChange-mock-backed handle-threading tests below: a preexisting "production" group so update/delete reach the success path. */
 function seededConfig(): MonitoringConfig {
   return { ...base(), groups: [{ id: "production", name: "Production" }] }
 }
@@ -83,12 +83,12 @@ describe("group configuration mutations", () => {
   })
 })
 
-describe("handle threading to mutateConfig (finding: the mutation and the idempotency completion must commit in the same transaction, so the route's tx must reach mutateConfig, not the default pool)", () => {
+describe("handle threading to applyConfigChange (finding: the mutation and the idempotency completion must commit in the same transaction, so the route's tx must reach applyConfigChange, not the default pool)", () => {
   const routeTx = { impl: "route-tx" } as unknown as DatabaseHandle
 
   it("createGroup forwards the given handle", async () => {
     await createGroup({ id: "staging", name: "Staging" }, "human:1", routeTx)
-    expect(mutateConfig).toHaveBeenLastCalledWith(
+    expect(applyConfigChange).toHaveBeenLastCalledWith(
       "human:1",
       expect.any(Function),
       routeTx
@@ -97,7 +97,7 @@ describe("handle threading to mutateConfig (finding: the mutation and the idempo
 
   it("createGroup defaults to the db handle when none is given", async () => {
     await createGroup({ id: "staging", name: "Staging" }, "human:1")
-    expect(mutateConfig).toHaveBeenLastCalledWith(
+    expect(applyConfigChange).toHaveBeenLastCalledWith(
       "human:1",
       expect.any(Function),
       db
@@ -106,7 +106,7 @@ describe("handle threading to mutateConfig (finding: the mutation and the idempo
 
   it("updateGroup forwards the given handle", async () => {
     await updateGroup("production", { name: "Core" }, "human:1", routeTx)
-    expect(mutateConfig).toHaveBeenLastCalledWith(
+    expect(applyConfigChange).toHaveBeenLastCalledWith(
       "human:1",
       expect.any(Function),
       routeTx
@@ -115,7 +115,7 @@ describe("handle threading to mutateConfig (finding: the mutation and the idempo
 
   it("deleteGroup forwards the given handle", async () => {
     await deleteGroup("production", "human:1", routeTx)
-    expect(mutateConfig).toHaveBeenLastCalledWith(
+    expect(applyConfigChange).toHaveBeenLastCalledWith(
       "human:1",
       expect.any(Function),
       routeTx

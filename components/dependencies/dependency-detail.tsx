@@ -15,17 +15,7 @@ import { apiRequest, messageForError } from "@/components/settings/settings-api"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { DependencyDetail as DependencyDetailData } from "@/lib/dependencies/queries"
-
-function formatTimestamp(value: string, timeZone: string): string {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone,
-  }).format(new Date(value))
-}
+import { formatTimestamp } from "@/lib/reporting/format"
 
 function DetailField({ label, value }: { label: string; value: string }) {
   return (
@@ -70,7 +60,7 @@ function RemoveDependencyDialog({
       await apiRequest(
         `/api/v1/dependencies/${encodeURIComponent(dependency.id)}`,
         { method: "DELETE" },
-        true
+        { mutation: true }
       )
       router.push("/")
       router.refresh()
@@ -157,7 +147,7 @@ export function DependencyDetail({
           method: "PATCH",
           body: JSON.stringify({ notificationsEnabled: next }),
         },
-        true
+        { mutation: true }
       )
       router.refresh()
     } catch (error) {
@@ -175,7 +165,7 @@ export function DependencyDetail({
       await apiRequest(
         `/api/v1/dependencies/${encodeURIComponent(dependency.id)}/backfill`,
         { method: "POST" },
-        true
+        { mutation: true }
       )
       router.refresh()
     } catch (error) {

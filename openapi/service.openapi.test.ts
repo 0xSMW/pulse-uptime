@@ -178,12 +178,12 @@ describe("committed OpenAPI v1 source", () => {
     expect(monitorFields.groupId).toMatchObject({ minLength: 3, maxLength: 64 })
     expect(diff.settingsChanged!.type).toBe("array")
     expect(diff.groupCreates!.type).toBe("array")
-    expect(plan.tripwireApprovalRequired!.type).toBe("boolean")
     expect(plan.destructiveConsentRequired!.type).toBe("boolean")
     expect(plan.destructiveChange!.$ref).toBe(
       "#/components/schemas/DestructiveChangeEvaluation"
     )
     expect(plan.destructiveApprovalRequired).toBeUndefined()
+    expect(plan.tripwireApprovalRequired).toBeUndefined()
     expect(plan.allowDeleteRequired).toBeUndefined()
     const applyRequest = schemas.ConfigurationApplyRequest as {
       properties: Record<string, Record<string, unknown>>

@@ -472,10 +472,10 @@ func newArchiveCommand(d Dependencies) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := d.Client.Do(cmd.Context(), Request{Method: http.MethodDelete, Path: monitorPath(id), IdempotencyKey: key}); err != nil {
+			var doc Envelope
+			if err := d.Client.Do(cmd.Context(), Request{Method: http.MethodDelete, Path: monitorPath(id), IdempotencyKey: key, Result: &doc}); err != nil {
 				return d.MapError(err)
 			}
-			doc := Envelope{APIVersion: "v1", Kind: "MonitorArchived", Data: json.RawMessage(fmt.Sprintf(`{"id":%q}`, id))}
 			return renderEnvelope(d, d.Format(), doc)
 		},
 	}

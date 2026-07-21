@@ -4,7 +4,7 @@ import { mutationOriginAllowed } from "@/lib/auth/origin"
 import { AuthServiceError, createOnlyAdmin } from "@/lib/auth/service"
 import { sessionCookie } from "@/lib/auth/session"
 import { bootstrapTokenFrom } from "@/lib/onboarding/bootstrap"
-import { checkOnboardingReadiness } from "@/lib/onboarding/readiness"
+import { syncOnboardingReadiness } from "@/lib/onboarding/readiness"
 
 // Bound unauthenticated account-creation attempts per source IP before any expensive
 // work (Argon2 hashing, readiness probes) runs. Vercel overwrites X-Forwarded-For,
@@ -37,7 +37,7 @@ export async function POST(request: Request) {
     const body = await request.json()
     const result = await createOnlyAdmin(
       { ...body, bootstrapToken: bootstrapTokenFrom(request, body) },
-      { checkReadiness: checkOnboardingReadiness }
+      { checkReadiness: syncOnboardingReadiness }
     )
     const response = NextResponse.json({ nextStep: "monitor" }, { status: 201 })
     response.cookies.set(sessionCookie(result.sessionToken, result.expiresAt))

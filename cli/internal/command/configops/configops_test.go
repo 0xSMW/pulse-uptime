@@ -93,7 +93,6 @@ func TestApplyCarriesPlanMetadataAndIfMatch(t *testing.T) {
 
 func TestApplyRequiresExplicitConsentForTripwireOnlyPlan(t *testing.T) {
 	client := &fakeTransport{plan: Plan{
-		TripwireApprovalRequired:   true,
 		DestructiveConsentRequired: true,
 		DestructiveChange: DestructiveChange{Reasons: []DestructiveChangeReason{{
 			Type:                "all-active-monitors-removed",

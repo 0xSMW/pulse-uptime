@@ -201,7 +201,7 @@ export function DatabaseHealthCard({
       const response = await apiRequest<ApiEnvelope<DatabaseHealth>>(
         "/api/v1/database-health/refresh",
         { method: "POST" },
-        true
+        { mutation: true }
       )
       setData(response.data)
       setStatus(

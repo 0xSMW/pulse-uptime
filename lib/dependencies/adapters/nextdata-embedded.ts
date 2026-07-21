@@ -14,6 +14,7 @@ import type { DependencySourceManifest } from "../manifest"
 import type {
   NormalizedProviderSnapshot,
   ProviderComponentState,
+  ProviderIncidentState,
 } from "../types"
 import { scopeFromComponentIds } from "../types"
 
@@ -152,7 +153,10 @@ const CLOSED_STATES: ReadonlySet<string> = new Set([
  * A genuinely novel state throws so the source fails loud and keeps its last
  * known state rather than silently mismapping.
  */
-function mapIncidentState(raw: string, sourceId: string): string {
+function mapIncidentState(
+  raw: string,
+  sourceId: string
+): ProviderIncidentState {
   if (raw === "update") {
     return "monitoring"
   }
@@ -402,7 +406,7 @@ export const nextdataEmbeddedAdapter: DependencyAdapter = {
 
 function mapIncident(
   item: IncidentItem,
-  mappedState: string,
+  mappedState: ProviderIncidentState,
   systemId: string | null,
   source: { id: string; statusPageUrl: string }
 ): NormalizedProviderSnapshot["incidents"][number] {
@@ -469,7 +473,7 @@ function mapIncident(
 
 function mapMaintenance(
   item: IncidentItem,
-  mappedState: string,
+  mappedState: ProviderIncidentState,
   systemId: string | null,
   sourceId: string
 ): NormalizedProviderSnapshot["maintenances"][number] {

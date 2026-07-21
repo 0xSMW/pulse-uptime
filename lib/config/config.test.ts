@@ -216,6 +216,31 @@ describe("configuration schemas and normalization", () => {
         Array.from({ length: 101 }, (_, index) => monitor(`mon-${index}`))
       ),
     ],
+    [
+      "interval outside the allowed set",
+      document([
+        { ...monitor("api"), intervalMinutes: 2 } as unknown as ReturnType<
+          typeof monitor
+        >,
+      ]),
+    ],
+    [
+      "more than 20 recipients",
+      document([
+        monitor("api", {
+          recipients: Array.from(
+            { length: 21 },
+            (_, index) => `user${index}@example.com`
+          ),
+        }),
+      ]),
+    ],
+    [
+      "unknown monitor field",
+      document([
+        { ...monitor("api"), retries: 3 } as ReturnType<typeof monitor>,
+      ]),
+    ],
   ])("rejects invalid schema: %s", (_label, input) => {
     expect(() => validateDeclarativeConfig(input)).toThrow()
   })
@@ -617,7 +642,7 @@ describe("authoritative destructive consent requirement", () => {
     const plan = createConfigurationPlan(current, target, { baseConfigHash })
 
     expect(plan.diff.archives).toHaveLength(0)
-    expect(plan.tripwireApprovalRequired).toBe(true)
+    expect(plan.destructiveChange.required).toBe(true)
     expect(plan.destructiveConsentRequired).toBe(true)
 
     const request = {

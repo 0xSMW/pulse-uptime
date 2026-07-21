@@ -18,7 +18,7 @@ import { createSqlCronRunStore, createSqlLeaseStore } from "@/lib/scheduler/sql"
 
 import { createSqlCatalogSyncStore, syncCatalog } from "./catalog-sync"
 import { loadCatalogManifest } from "./manifest"
-import { createSqlPersistStore, persistSnapshot } from "./persist"
+import { applyPollOutcome, createSqlPersistStore } from "./persist"
 import {
   type PollerSourceRow,
   type PollerStore,
@@ -42,7 +42,7 @@ export const DEPENDENCY_WORK_BUDGET_MS = 52_000
 // does not re-select and double-poll the same source. This is defense in depth
 // beyond the process lease, for when the lease holder is hard-killed after
 // maxDuration without releasing, or work overruns the lease. The claim is a
-// floor, not a replacement: persistSnapshot rewrites next_poll_at with the real
+// floor, not a replacement: applyPollOutcome rewrites next_poll_at with the real
 // operational or active cadence (computeNextPollAt) after the poll resolves, so
 // a completed poll always reschedules from the manifest cadence and only a lost
 // run leaves the claim floor standing. This mirrors the outbox claim
@@ -98,7 +98,7 @@ interface DueSourceRow {
  */
 export function createDueSourceStore(executor: SqlExecutor): PollerStore {
   return {
-    async listDueSources(now: Date): Promise<PollerSourceRow[]> {
+    async claimDueSources(now: Date): Promise<PollerSourceRow[]> {
       const manifest = loadCatalogManifest()
       const manifestBySourceId = new Map(
         manifest.sources.map((source) => [source.id, source])
@@ -305,7 +305,7 @@ export async function runDependencyCron(): Promise<DependencyCronRunResult> {
         store: createDueSourceStore(queryExecutor),
         deadlineAtMs,
         persist: async (outcome, source, now) => {
-          await persistSnapshot(persistStore, outcome, source, {
+          await applyPollOutcome(persistStore, outcome, source, {
             now,
             defaultRecipients,
           })

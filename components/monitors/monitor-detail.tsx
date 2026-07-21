@@ -34,6 +34,7 @@ import {
   formatDuration,
   formatLatency,
   formatRelativeDay,
+  formatTimestamp,
   formatUptimeDetail,
 } from "@/lib/reporting/format"
 import { formatUpdatedAgo } from "@/lib/reporting/live-poll"
@@ -129,17 +130,6 @@ const responseRanges: Array<{ key: ResponseRange; label: string }> = [
   { key: "d7", label: "7d" },
   { key: "d30", label: "30d" },
 ]
-
-function formatTimestamp(value: string, timeZone: string): string {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone,
-  }).format(new Date(value))
-}
 
 function formatInterval(seconds: number): string {
   if (seconds % 60 === 0) {

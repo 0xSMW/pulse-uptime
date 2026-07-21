@@ -220,7 +220,7 @@ func (a *App) meCommand() *cobra.Command {
 	var noBrowser bool
 	cmd := &cobra.Command{
 		Use:         "me",
-		Short:       "Show identity or link this installation",
+		Short:       "Show the current authenticated user or link this installation",
 		Long:        "Show the current identity. In an interactive unauthenticated session, create or activate the selected context, authorize this installation, and store the approved credential. Token and noninteractive invocations remain read-only.",
 		Args:        cobra.NoArgs,
 		Annotations: map[string]string{"supportsOutput": "table,json,yaml,tsv", "requiredScope": "authenticated"},

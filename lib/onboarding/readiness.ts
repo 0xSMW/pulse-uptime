@@ -43,7 +43,7 @@ export async function getOnboardingReadiness(
     const deadlineAtMs =
       options.deadlineAtMs ?? nowMs + ONBOARDING_READINESS_TIMEOUT_MS
     const signal = abortSignalForDeadline(deadlineAtMs, nowMs)
-    inFlightReport = checkOnboardingReadiness({ deadlineAtMs, signal })
+    inFlightReport = syncOnboardingReadiness({ deadlineAtMs, signal })
       .then((report) => {
         if (report.canContinue) {
           cachedReport = {
@@ -62,7 +62,7 @@ export async function getOnboardingReadiness(
 }
 
 /** Absolute deadline + abort bound every provider probe. */
-export async function checkOnboardingReadiness(
+export async function syncOnboardingReadiness(
   options: { deadlineAtMs?: number; signal?: AbortSignal } = {}
 ): Promise<ReadinessReport> {
   const deadlineAtMs =

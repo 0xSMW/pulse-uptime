@@ -281,7 +281,7 @@ export function ReportEditor({
       const result = await apiRequest<ApiEnvelope<{ id: string }>>(
         "/api/v1/status-reports",
         { method: "POST", body: JSON.stringify(body) },
-        true
+        { mutation: true }
       )
       router.push(`/incidents/reports/${encodeURIComponent(result.data.id)}`)
     } catch (cause) {
@@ -341,7 +341,7 @@ export function ReportEditor({
       await apiRequest(
         `/api/v1/status-reports/${encodeURIComponent(report.id)}`,
         { method: "PATCH", body: JSON.stringify(body) },
-        true
+        { mutation: true }
       )
       setBaseline({ title: title.trim(), startsAt, endsAt, impacts })
       resetOlderTimeline()
@@ -387,7 +387,7 @@ export function ReportEditor({
             publishedAt: fromDatetimeLocal(composerPublishedAt)!,
           }),
         },
-        true
+        { mutation: true }
       )
       setComposerMarkdown("")
       setComposerPublishedAt(toDatetimeLocal(new Date().toISOString()))
@@ -504,7 +504,7 @@ export function ReportEditor({
             ...(publishedAtChanged && publishedAt ? { publishedAt } : {}),
           }),
         },
-        true
+        { mutation: true }
       )
       setEditing(null)
       resetOlderTimeline()
@@ -527,7 +527,7 @@ export function ReportEditor({
       await apiRequest(
         `/api/v1/status-reports/${encodeURIComponent(report.id)}/updates/${encodeURIComponent(updateId)}`,
         { method: "DELETE" },
-        true
+        { mutation: true }
       )
       setConfirmDeleteUpdateId(null)
       resetOlderTimeline()
@@ -550,7 +550,7 @@ export function ReportEditor({
       await apiRequest(
         `/api/v1/status-reports/${encodeURIComponent(report.id)}/publish`,
         { method: "POST" },
-        true
+        { mutation: true }
       )
       setConfirmPublish(false)
       resetOlderTimeline()
@@ -563,7 +563,7 @@ export function ReportEditor({
     }
   }
 
-  async function destroyReport() {
+  async function deleteReport() {
     if (!report) {
       return
     }
@@ -573,7 +573,7 @@ export function ReportEditor({
       await apiRequest(
         `/api/v1/status-reports/${encodeURIComponent(report.id)}`,
         { method: "DELETE" },
-        true
+        { mutation: true }
       )
       router.push("/incidents/reports")
     } catch (cause) {
@@ -639,7 +639,7 @@ export function ReportEditor({
                 <Button
                   className="px-2.5"
                   disabled={anyBusy}
-                  onClick={() => void destroyReport()}
+                  onClick={() => void deleteReport()}
                   size="sm"
                   variant="error"
                 >

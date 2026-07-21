@@ -28,7 +28,7 @@ interface Props {
   initialStep: Step
   initialDraft?: MonitorDraft
   email?: string
-  alertsDisabled?: boolean
+  initialEmailWarningAcknowledged?: boolean
 }
 
 async function post(path: string, body: unknown = {}) {
@@ -50,7 +50,7 @@ export function OnboardingFlow({
   initialStep,
   initialDraft,
   email = "",
-  alertsDisabled = false,
+  initialEmailWarningAcknowledged = false,
 }: Props) {
   const [step, setStep] = useState<Step>(initialStep)
   const [draft, setDraft] = useState<MonitorDraft>(
@@ -58,8 +58,9 @@ export function OnboardingFlow({
   )
   const [check, setCheck] = useState<CheckResult | null>(null)
   const [canStartAnyway, setCanStartAnyway] = useState(false)
-  const [emailWarningAcknowledged, setEmailWarningAcknowledged] =
-    useState(alertsDisabled)
+  const [emailWarningAcknowledged, setEmailWarningAcknowledged] = useState(
+    initialEmailWarningAcknowledged
+  )
   const [accountCreated, setAccountCreated] = useState(
     initialStep !== "readiness"
   )
@@ -84,7 +85,7 @@ export function OnboardingFlow({
   if (step === "account") {
     return (
       <Account
-        acknowledgeEmailWarning={emailWarningAcknowledged}
+        emailWarningAcknowledged={emailWarningAcknowledged}
         onBack={() => setStep("readiness")}
         onCreated={(accountEmail) => {
           setAccountCreated(true)
@@ -127,10 +128,10 @@ export function OnboardingFlow({
   if (step === "verify") {
     return (
       <VerifyStep
-        alertsDisabled={emailWarningAcknowledged}
         busy={busy}
         canStartAnyway={canStartAnyway}
         draft={draft}
+        emailWarningAcknowledged={emailWarningAcknowledged}
         error={error}
         onBack={() => void back("monitor")}
         onStart={async (alertEmail) => {
@@ -296,11 +297,11 @@ function Readiness({
 }
 
 function Account({
-  acknowledgeEmailWarning,
+  emailWarningAcknowledged,
   onBack,
   onCreated,
 }: {
-  acknowledgeEmailWarning: boolean
+  emailWarningAcknowledged: boolean
   onBack: () => void
   onCreated: (email: string) => void
 }) {
@@ -327,7 +328,7 @@ function Account({
         email,
         password,
         passwordConfirmation: confirmation,
-        acknowledgeEmailWarning,
+        acknowledgeEmailWarning: emailWarningAcknowledged,
         bootstrapToken,
       })
       onCreated(email.trim().toLowerCase())
@@ -571,7 +572,7 @@ function MonitorStep({
 function VerifyStep({
   draft,
   result,
-  alertsDisabled,
+  emailWarningAcknowledged,
   error,
   busy,
   canStartAnyway,
@@ -580,7 +581,7 @@ function VerifyStep({
 }: {
   draft: MonitorDraft
   result: CheckResult | null
-  alertsDisabled: boolean
+  emailWarningAcknowledged: boolean
   error: string
   busy: boolean
   canStartAnyway: boolean
@@ -622,7 +623,7 @@ function VerifyStep({
       )}
       <Field
         description={
-          alertsDisabled
+          emailWarningAcknowledged
             ? "Alerts are disabled until email is ready"
             : undefined
         }
@@ -630,11 +631,11 @@ function VerifyStep({
         label="Alert Email"
       >
         <Input
-          disabled={alertsDisabled}
+          disabled={emailWarningAcknowledged}
           id="alert-email"
           onChange={(e) => setAlertEmail(e.target.value)}
           type="email"
-          value={alertsDisabled ? "" : alertEmail}
+          value={emailWarningAcknowledged ? "" : alertEmail}
         />
       </Field>
       <div className={styles.summary}>

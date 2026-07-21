@@ -36,11 +36,13 @@ export default async function OnboardingPage() {
   }
   return (
     <OnboardingFlow
-      alertsDisabled={Boolean(progress?.emailWarningAcknowledged)}
       email={session.email}
       initialDraft={
         (progress?.draftMonitor as MonitorDraft | null) ?? undefined
       }
+      initialEmailWarningAcknowledged={Boolean(
+        progress?.emailWarningAcknowledged
+      )}
       initialStep={(progress?.currentStep as OnboardingStep) || "monitor"}
     />
   )

@@ -22,6 +22,49 @@ export function formatLatency(value: number | null): string {
   return value === null ? "—" : `${Math.round(value)} ms`
 }
 
+// Short date-time in the viewer's zone, e.g. "Jul 20, 14:30".
+export function formatTimestamp(value: string, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone,
+  }).format(new Date(value))
+}
+
+// Calendar date in the viewer's zone, e.g. "Jul 20, 2026". Unparseable
+// input renders as a placeholder dash rather than throwing.
+export function formatCalendarDate(value: string, timeZone: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.valueOf())) {
+    return "—"
+  }
+  return new Intl.DateTimeFormat("en-US", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone,
+  }).format(date)
+}
+
+// Same calendar day in the DISPLAY timezone, not UTC. Two instants can share
+// a UTC date yet fall on different local days, and vice versa.
+export function sameDayInZone(
+  a: Date | string,
+  b: Date | string,
+  timeZone = "UTC"
+): boolean {
+  const day = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+  return day.format(new Date(a)) === day.format(new Date(b))
+}
+
 export function formatDuration(totalSeconds: number): string {
   const seconds = Math.max(0, Math.floor(totalSeconds))
   if (seconds < 60) {
@@ -144,8 +187,7 @@ export function formatRelativeTime(
     return `${Math.floor(seconds / 60)}m ago`
   }
 
-  const dayOf = (date: Date) => date.toLocaleDateString("en-CA", { timeZone })
-  if (dayOf(value) === dayOf(now)) {
+  if (sameDayInZone(value, now, timeZone)) {
     return value.toLocaleTimeString("en-US", {
       hour: "2-digit",
       minute: "2-digit",

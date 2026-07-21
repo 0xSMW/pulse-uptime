@@ -162,7 +162,7 @@ type CatalogCategory struct {
 	Presets  []CatalogPreset `json:"presets"`
 }
 
-type CatalogData struct {
+type Catalog struct {
 	Categories []CatalogCategory `json:"categories"`
 }
 
@@ -445,7 +445,7 @@ func invalid(message string) error {
 
 // flattenCatalog flattens the category-grouped catalog into rows suitable for
 // a table, stamping each preset with its parent category.
-func flattenCatalog(data CatalogData) []CatalogPreset {
+func flattenCatalog(data Catalog) []CatalogPreset {
 	rows := make([]CatalogPreset, 0)
 	for _, category := range data.Categories {
 		for _, preset := range category.Presets {
@@ -494,7 +494,7 @@ func renderCatalog(d Dependencies, format string, doc Envelope) error {
 	case "yaml":
 		return yamlValue(d.Out, doc)
 	}
-	var data CatalogData
+	var data Catalog
 	if err := json.Unmarshal(doc.Data, &data); err != nil {
 		_, e := fmt.Fprintln(d.Out, string(doc.Data))
 		return e

@@ -40,7 +40,7 @@ suite("configuration lock PostgreSQL concurrency", () => {
   const dbA = drizzle(clientA, { schema })
   const dbB = drizzle(clientB, { schema })
 
-  let mutateConfig: typeof import("./config-mutation").mutateConfig
+  let applyConfigChange: typeof import("./config-mutation").applyConfigChange
   let acceptDesiredConfiguration: typeof import("@/lib/scheduler/configuration-acceptance").acceptDesiredConfiguration
   let closeModuleConnection: (() => Promise<void>) | undefined
 
@@ -139,10 +139,10 @@ suite("configuration lock PostgreSQL concurrency", () => {
       }
     }
 
-    // mutateConfig / acceptDesiredConfiguration bind their default handle to
+    // applyConfigChange / acceptDesiredConfiguration bind their default handle to
     // DATABASE_URL at import time.
     process.env.DATABASE_URL = databaseUrl
-    ;({ mutateConfig } = await import("./config-mutation"))
+    ;({ applyConfigChange } = await import("./config-mutation"))
     ;({ acceptDesiredConfiguration } = await import(
       "@/lib/scheduler/configuration-acceptance"
     ))
@@ -190,7 +190,7 @@ suite("configuration lock PostgreSQL concurrency", () => {
     expect(order).toEqual(["first-acquired", "first-done", "second-acquired"])
   })
 
-  it("keeps accepted snapshot hash and active registry hash agreed under concurrent mutateConfig", async () => {
+  it("keeps accepted snapshot hash and active registry hash agreed under concurrent applyConfigChange", async () => {
     const bumpConcurrency =
       (delta: number) =>
       (config: MonitoringConfig): MonitoringConfig => ({
@@ -203,11 +203,11 @@ suite("configuration lock PostgreSQL concurrency", () => {
         },
       })
 
-    // Two independent handles so each mutateConfig transaction uses its own
+    // Two independent handles so each applyConfigChange transaction uses its own
     // connection and can contend on the configuration advisory lock.
     const results = await Promise.all([
-      mutateConfig("human:a", bumpConcurrency(1), dbA),
-      mutateConfig("human:b", bumpConcurrency(2), dbB),
+      applyConfigChange("human:a", bumpConcurrency(1), dbA),
+      applyConfigChange("human:b", bumpConcurrency(2), dbB),
     ])
 
     expect(results.map((config) => config.configVersion).sort()).toEqual([2, 3])
@@ -271,7 +271,7 @@ suite("configuration lock PostgreSQL concurrency", () => {
     }
 
     await Promise.all([
-      mutateConfig("human:interleave", apiBump, dbA),
+      applyConfigChange("human:interleave", apiBump, dbA),
       acceptDesiredConfiguration(cronDesired, now, dbB),
     ])
 

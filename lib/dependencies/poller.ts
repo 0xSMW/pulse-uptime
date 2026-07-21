@@ -51,8 +51,8 @@ export interface PollerSourceRow {
 }
 
 export interface PollerStore {
-  /** Enabled sources with at least one installed dependency and next_poll_at <= now. */
-  listDueSources: (now: Date) => Promise<PollerSourceRow[]>
+  /** Claims and returns enabled sources with at least one installed dependency and next_poll_at <= now. */
+  claimDueSources: (now: Date) => Promise<PollerSourceRow[]>
 }
 
 export type PollOutcome =
@@ -252,7 +252,7 @@ export async function pollDueSources(
   const now = deps.now ?? (() => new Date())
   const nowMs = deps.nowMs ?? Date.now
   const nowDate = now()
-  const sources = await deps.store.listDueSources(nowDate)
+  const sources = await deps.store.claimDueSources(nowDate)
   const deadlineAtMs = deps.deadlineAtMs
   const concurrency = deps.concurrency ?? 4
 

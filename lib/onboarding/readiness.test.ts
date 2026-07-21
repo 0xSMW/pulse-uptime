@@ -36,10 +36,10 @@ import type {
 } from "@/lib/readiness/types"
 
 import {
-  checkOnboardingReadiness,
   getOnboardingReadiness,
   getOnboardingReadinessInFlightForTests,
   resetOnboardingReadinessCache,
+  syncOnboardingReadiness,
 } from "./readiness"
 
 function report(overrides: Partial<ReadinessReport> = {}): ReadinessReport {
@@ -182,7 +182,7 @@ describe("onboarding readiness cache and in-flight coalescing", () => {
   })
 })
 
-describe("checkOnboardingReadiness deadlines and DB probe", () => {
+describe("syncOnboardingReadiness deadlines and DB probe", () => {
   beforeEach(() => {
     resetOnboardingReadinessCache()
     withStatementTimeout.mockReset()
@@ -215,7 +215,7 @@ describe("checkOnboardingReadiness deadlines and DB probe", () => {
       return report()
     })
 
-    await checkOnboardingReadiness({
+    await syncOnboardingReadiness({
       deadlineAtMs,
       signal: controller.signal,
     })
@@ -257,7 +257,7 @@ describe("checkOnboardingReadiness deadlines and DB probe", () => {
       return report()
     })
 
-    await checkOnboardingReadiness({
+    await syncOnboardingReadiness({
       deadlineAtMs: Date.now() + 2500,
       signal: new AbortController().signal,
     })
@@ -305,7 +305,7 @@ describe("checkOnboardingReadiness deadlines and DB probe", () => {
       return report()
     })
 
-    await checkOnboardingReadiness({
+    await syncOnboardingReadiness({
       deadlineAtMs,
       signal: new AbortController().signal,
     })

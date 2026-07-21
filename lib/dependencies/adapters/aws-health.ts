@@ -206,25 +206,26 @@ function mapEvent(
   sourceId: string
 ): NormalizedProviderSnapshot["incidents"][number] {
   const startedAt = epochSecondsToIso(event.date, sourceId, "event.date")
-  const updates = event.event_log.map((entry) => {
-    const at = epochSecondsToIso(
-      entry.timestamp,
-      sourceId,
-      "event_log.timestamp"
-    )
-    return {
-      // AWS log entries carry no id of their own, and the feed lists them
-      // append-only oldest-first, so the entry timestamp is the stable
-      // immutable identity across polls.
-      externalId: String(entry.timestamp),
-      // The feed is active-only with no per-update lifecycle field, so every
-      // update reads as identified, matching the active-incident convention.
-      state: "identified",
-      bodyText: toBoundedPlainText(entry.message),
-      createdAt: at,
-      updatedAt: at,
-    }
-  })
+  const updates: NormalizedProviderSnapshot["incidents"][number]["updates"] =
+    event.event_log.map((entry) => {
+      const at = epochSecondsToIso(
+        entry.timestamp,
+        sourceId,
+        "event_log.timestamp"
+      )
+      return {
+        // AWS log entries carry no id of their own, and the feed lists them
+        // append-only oldest-first, so the entry timestamp is the stable
+        // immutable identity across polls.
+        externalId: String(entry.timestamp),
+        // The feed is active-only with no per-update lifecycle field, so every
+        // update reads as identified, matching the active-incident convention.
+        state: "identified",
+        bodyText: toBoundedPlainText(entry.message),
+        createdAt: at,
+        updatedAt: at,
+      }
+    })
   const updatedAt =
     latestTimestamp(updates.map((update) => update.updatedAt)) ?? startedAt
   return {

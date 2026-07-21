@@ -27,14 +27,14 @@ export function ReportRowActions({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
 
-  async function destroy() {
+  async function deleteReport() {
     setBusy(true)
     setError("")
     try {
       await apiRequest(
         `/api/v1/status-reports/${encodeURIComponent(reportId)}`,
         { method: "DELETE" },
-        true
+        { mutation: true }
       )
       setConfirming(false)
       router.refresh()
@@ -54,7 +54,7 @@ export function ReportRowActions({
           <span className="text-[var(--fg-muted)] text-xs">Delete report?</span>
           <Button
             disabled={busy}
-            onClick={() => void destroy()}
+            onClick={() => void deleteReport()}
             size="sm"
             variant="error"
           >

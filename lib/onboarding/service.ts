@@ -33,7 +33,7 @@ import {
 } from "@/lib/db/schema"
 import { synchronizeRegistry } from "@/lib/scheduler/registry-sync"
 
-import { checkOnboardingReadiness } from "./readiness"
+import { syncOnboardingReadiness } from "./readiness"
 
 export type OnboardingStep = "monitor" | "verify" | "getting_started"
 export interface MonitorDraft {
@@ -414,7 +414,7 @@ export async function activateFirstMonitor(
   deps: ActivateFirstMonitorDeps = {}
 ) {
   const store = deps.store ?? defaultStore
-  const checkReadiness = deps.checkReadiness ?? checkOnboardingReadiness
+  const checkReadiness = deps.checkReadiness ?? syncOnboardingReadiness
   const runCheck = deps.runCheck ?? runManualCheck
   const writeEdge =
     deps.writeEdgeConfig ??

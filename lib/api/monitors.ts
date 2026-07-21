@@ -17,9 +17,9 @@ import { uptime24hByMonitorId } from "@/lib/monitoring/queries"
 import { MONITOR_STATE_ORDER, type MonitorState } from "@/lib/monitoring/types"
 
 import {
+  applyConfigChange as applyConfigurationChange,
   ConfigMutationError,
   requireAcceptedConfig as loadConfigSnapshot,
-  mutateConfig as mutateConfiguration,
   nextConfig,
 } from "./config-mutation"
 import { decodeCursor, encodeCursor } from "./pagination"
@@ -100,9 +100,11 @@ async function requireAcceptedConfig() {
   }
 }
 
-async function mutateConfig(...args: Parameters<typeof mutateConfiguration>) {
+async function applyConfigChange(
+  ...args: Parameters<typeof applyConfigurationChange>
+) {
   try {
-    return await mutateConfiguration(...args)
+    return await applyConfigurationChange(...args)
   } catch (error) {
     return translateConfigError(error)
   }
@@ -178,7 +180,7 @@ export async function createMonitor(
   handle: DatabaseHandle = db
 ) {
   let created!: MonitorConfig
-  const result = await mutateConfig(
+  const result = await applyConfigChange(
     principalKey,
     (current) => {
       const monitor = parseCreateMonitor(input, current.groups)
@@ -212,7 +214,7 @@ export async function updateMonitor(
   handle: DatabaseHandle = db
 ) {
   const patch = parsePatchMonitor(input)
-  const result = await mutateConfig(
+  const result = await applyConfigChange(
     principalKey,
     (current) => {
       const existing = current.monitors.find((item) => item.id === id)
@@ -243,7 +245,7 @@ export async function archiveMonitor(
   handle: DatabaseHandle = db
 ) {
   try {
-    await mutateConfig(
+    await applyConfigChange(
       principalKey,
       (current) => {
         if (!current.monitors.some((item) => item.id === id)) {
@@ -288,7 +290,7 @@ export async function setMonitorEnabled(
   principalKey: string,
   handle: DatabaseHandle = db
 ) {
-  const result = await mutateConfig(
+  const result = await applyConfigChange(
     principalKey,
     (current) => {
       if (!current.monitors.some((item) => item.id === id)) {

@@ -362,7 +362,7 @@ describe("createDueSourceStore", () => {
     ])
     const store = createDueSourceStore({ query } as unknown as SqlExecutor)
 
-    const rows = await store.listDueSources(claimed)
+    const rows = await store.claimDueSources(claimed)
 
     expect(query).toHaveBeenCalledWith(CLAIM_DUE_SOURCES_SQL, [
       claimed,
@@ -402,7 +402,7 @@ describe("createDueSourceStore", () => {
       },
     ])
     const store = createDueSourceStore({ query } as unknown as SqlExecutor)
-    const rows = await store.listDueSources(
+    const rows = await store.claimDueSources(
       new Date("2026-07-19T15:30:00.000Z")
     )
     expect(rows).toEqual([])
@@ -463,7 +463,7 @@ describe("runDependencyCron wiring", () => {
     vi.doMock("./poller", () => ({ pollDueSources }))
     vi.doMock("./persist", () => ({
       createSqlPersistStore: () => ({}),
-      persistSnapshot: vi.fn(),
+      applyPollOutcome: vi.fn(),
     }))
 
     const { runDependencyCron } = await import("./runtime")

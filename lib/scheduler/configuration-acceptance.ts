@@ -24,7 +24,7 @@ import {
 } from "@/lib/db/schema"
 
 import { requireApprovalConsumption } from "./configuration"
-import { synchronizeRegistry as syncRegistryRows } from "./registry-sync"
+import { synchronizeRegistry } from "./registry-sync"
 
 type DbTransaction = DatabaseTransaction
 
@@ -210,7 +210,7 @@ export async function acceptDesiredConfiguration(
       })
       // Registry sync shares the locked transaction so snapshot and registry
       // hashes cannot diverge from concurrent API mutations.
-      await syncRegistryRows(
+      await synchronizeRegistry(
         tx,
         guarded.config,
         guarded.hash,

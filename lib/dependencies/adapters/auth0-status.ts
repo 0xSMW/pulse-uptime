@@ -20,6 +20,7 @@ import type { DependencySourceManifest } from "../manifest"
 import type {
   NormalizedProviderSnapshot,
   ProviderComponentState,
+  ProviderIncidentState,
 } from "../types"
 import { scopeFromComponentIds } from "../types"
 
@@ -133,7 +134,10 @@ function incidentComponentState(
 // "verifying" pairs with "monitoring" (a fix is applied and being watched) and
 // "postmortem" with "resolved" (the incident is closed with a retrospective).
 // Anything unrecognized throws so a drifted status never mislabels an incident.
-function mapIncidentStatus(status: string, sourceId: string): string {
+function mapIncidentStatus(
+  status: string,
+  sourceId: string
+): ProviderIncidentState {
   const folded =
     status === "verifying"
       ? "monitoring"

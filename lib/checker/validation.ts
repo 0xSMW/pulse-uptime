@@ -72,44 +72,12 @@ const checkTargetSchema = z
   })
   .strict()
 
-const emailSchema = z.string().email()
-
-const monitorConfigSchema = checkTargetSchema
-  .extend({
-    id: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{1,62})[a-z0-9]$/),
-    name: z.string().trim().min(1).max(80),
-    enabled: z.boolean(),
-    group: z.string().trim().min(1).max(50).nullable(),
-    intervalMinutes: z.union([
-      z.literal(1),
-      z.literal(5),
-      z.literal(10),
-      z.literal(15),
-    ]),
-    failureThreshold: z.number().int().min(1).max(5),
-    recoveryThreshold: z.number().int().min(1).max(5),
-    recipients: z.array(emailSchema).max(20),
-  })
-  .strict()
-
 export function validateCheckTarget(value: unknown) {
   const parsed = checkTargetSchema.safeParse(value)
   if (!parsed.success) {
     throw new MonitorValidationError(
       parsed.error.issues.map(
         (issue) => `${issue.path.join(".") || "target"}: ${issue.message}`
-      )
-    )
-  }
-  return parsed.data
-}
-
-export function validateMonitorConfig(value: unknown) {
-  const parsed = monitorConfigSchema.safeParse(value)
-  if (!parsed.success) {
-    throw new MonitorValidationError(
-      parsed.error.issues.map(
-        (issue) => `${issue.path.join(".") || "monitor"}: ${issue.message}`
       )
     )
   }

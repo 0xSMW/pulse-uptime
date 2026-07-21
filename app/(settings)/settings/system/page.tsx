@@ -1,7 +1,7 @@
 import { Suspense } from "react"
 
 import { DatabaseHealthCard } from "@/components/settings/database-health"
-import { MonitoringHealthCard } from "@/components/settings/monitoring-health"
+import { MonitoringLoopCard } from "@/components/settings/monitoring-health"
 import { SettingsCardsSkeleton } from "@/components/settings/settings-skeleton"
 import { getSystemSettings } from "@/lib/reporting/queries/settings"
 
@@ -28,7 +28,7 @@ async function SystemSettingsIsland() {
     await getSystemSettings()
   return (
     <div className="space-y-6">
-      <MonitoringHealthCard warnings={monitoringWarnings} />
+      <MonitoringLoopCard warnings={monitoringWarnings} />
       <DatabaseHealthCard
         initialData={databaseHealth}
         initialError={databaseHealthError}

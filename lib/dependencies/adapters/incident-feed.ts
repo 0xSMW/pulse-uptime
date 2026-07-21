@@ -12,7 +12,10 @@
 // (OpenRouter) is a window that must never treat silence as resolution.
 
 import type { DependencySourceManifest } from "../manifest"
-import type { NormalizedProviderSnapshot } from "../types"
+import type {
+  NormalizedProviderSnapshot,
+  ProviderIncidentState,
+} from "../types"
 import { sourceIncidentScope } from "../types"
 import { parseFeed, type XmlFeedItem, XmlParseError } from "../xml"
 
@@ -24,18 +27,9 @@ import type {
 } from "./index"
 import { AdapterParseError, documentsOfKind, latestTimestamp } from "./shared"
 
-type ProviderIncidentState =
-  | "investigating"
-  | "identified"
-  | "monitoring"
-  | "resolved"
-  | "scheduled"
-  | "in_progress"
-  | "completed"
-
 export type IncidentFeedInventory = "active_only" | "rolling_history"
 
-interface MarkerInfo {
+interface StatusMarker {
   state: ProviderIncidentState
   resolved: boolean
 }
@@ -45,7 +39,7 @@ interface MarkerInfo {
 // incident. A postmortem is post-resolution, so it maps to resolved. Verifying
 // is a still-running maintenance phase, so it maps to in_progress rather than
 // a terminal state.
-const STATUS_MARKERS: Record<string, MarkerInfo> = {
+const STATUS_MARKERS: Record<string, StatusMarker> = {
   RESOLVED: { state: "resolved", resolved: true },
   POSTMORTEM: { state: "resolved", resolved: true },
   COMPLETED: { state: "completed", resolved: true },
@@ -73,7 +67,7 @@ const MARKER_AFTER_TZ = new RegExp(
 // resolved, so it is surfaced as an active, unresolved incident. This is the
 // safe direction: it never hides an outage behind a false resolution.
 const DEFAULT_ACTIVE_STATE: ProviderIncidentState = "investigating"
-const DEFAULT_ACTIVE_MARKER: MarkerInfo = {
+const DEFAULT_ACTIVE_MARKER: StatusMarker = {
   state: DEFAULT_ACTIVE_STATE,
   resolved: false,
 }
@@ -88,7 +82,7 @@ const DEFAULT_ACTIVE_MARKER: MarkerInfo = {
  */
 export function parseIncidentFeedUpdateMarker(
   description: string | null
-): MarkerInfo {
+): StatusMarker {
   if (!description) {
     return DEFAULT_ACTIVE_MARKER
   }
