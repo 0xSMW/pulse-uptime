@@ -109,7 +109,7 @@ export function TimelineBar({
               "min-w-0 flex-1 rounded-[1.5px]",
               bucketClass[bucket.state]
             )}
-            key={`${bucket.label}-${index}`}
+            key={bucket.label}
             onPointerEnter={(event) =>
               setActive({ index, element: event.currentTarget })
             }

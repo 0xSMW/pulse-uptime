@@ -82,13 +82,13 @@ function diffSettings(
       const keys = [
         ...new Set([...Object.keys(left), ...Object.keys(right)]),
       ].sort()
-      keys.forEach((key) =>
+      for (const key of keys) {
         walk(
           (left as Record<string, unknown>)[key],
           (right as Record<string, unknown>)[key],
           path ? `${path}.${key}` : key
         )
-      )
+      }
       return
     }
     changes.push({ path, before: left, after: right })

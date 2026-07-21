@@ -812,6 +812,7 @@ export async function persistSnapshot(
         // Match by explicit scope. Empty component arrays never stand alone.
         let isNewMatch: boolean
         switch (incident.scope.kind) {
+          // biome-ignore lint/suspicious/noUnnecessaryConditions: reachable at runtime, biome cannot resolve the scope discriminated union
           case "components": {
             // Active and resolved: intersect current ids. When the provider
             // no longer lists a former id, keep the durable match row.
@@ -840,6 +841,7 @@ export async function persistSnapshot(
             }
             break
           }
+          // biome-ignore lint/suspicious/noUnnecessaryConditions: reachable at runtime, biome cannot resolve the scope discriminated union
           case "source": {
             if (isActive) {
               // Active source-wide: every installed dependency matches.
@@ -860,6 +862,7 @@ export async function persistSnapshot(
             }
             break
           }
+          // biome-ignore lint/suspicious/noUnnecessaryConditions: reachable at runtime, biome cannot resolve the scope discriminated union
           case "unmapped": {
             // Preserve existing matches only. Never create a new match or
             // open notification from unavailable scope.

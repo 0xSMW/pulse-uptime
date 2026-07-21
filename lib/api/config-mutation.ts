@@ -29,9 +29,10 @@ type DbTransaction = DatabaseTransaction
 export class ConfigMutationError extends Error {
   constructor(
     readonly code: "CONFIGURATION_UNAVAILABLE" | "EDGE_CONFIG_UNAVAILABLE",
-    message: string
+    message: string,
+    options?: ErrorOptions
   ) {
-    super(message)
+    super(message, options)
     this.name = "ConfigMutationError"
   }
 }
@@ -42,10 +43,12 @@ export async function requireAcceptedConfig(
   let snapshot: Awaited<ReturnType<typeof findAcceptedSnapshot>>
   try {
     snapshot = await findAcceptedSnapshot(executor)
-  } catch {
+  } catch (error) {
+    // biome-ignore lint/style/useErrorCause: cause is threaded through the error options arg, biome only detects the native second-argument position
     throw new ConfigMutationError(
       "CONFIGURATION_UNAVAILABLE",
-      "Accepted monitoring configuration is invalid"
+      "Accepted monitoring configuration is invalid",
+      { cause: error }
     )
   }
   if (!snapshot) {
@@ -60,10 +63,12 @@ export async function requireAcceptedConfig(
 async function writeEdgeConfig(config: MonitoringConfig): Promise<void> {
   try {
     await writeMonitoringEdgeConfig(config)
-  } catch {
+  } catch (error) {
+    // biome-ignore lint/style/useErrorCause: cause is threaded through the error options arg, biome only detects the native second-argument position
     throw new ConfigMutationError(
       "EDGE_CONFIG_UNAVAILABLE",
-      "Could not update Edge Config"
+      "Could not update Edge Config",
+      { cause: error }
     )
   }
 }

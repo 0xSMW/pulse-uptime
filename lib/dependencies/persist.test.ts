@@ -784,24 +784,24 @@ function createExecutor(db: FakeDb): PersistExecutor {
       }
       return result
     },
-    async upsertIncident(sourceId, candidateId, incident) {
-      const key = `${sourceId}:${incident.externalId}`
+    async upsertIncident(sourceId, candidateId, incidentInput) {
+      const key = `${sourceId}:${incidentInput.externalId}`
       const existing = db.incidentsBySourceExternal.get(key)
       const internalId = existing ?? candidateId
-      db.upsertedCanonicalUrls.set(internalId, incident.canonicalUrl)
+      db.upsertedCanonicalUrls.set(internalId, incidentInput.canonicalUrl)
       db.incidentResolvedAt.set(
         key,
-        incident.resolvedAt ? new Date(incident.resolvedAt) : null
+        incidentInput.resolvedAt ? new Date(incidentInput.resolvedAt) : null
       )
       // Mirrors the real ON CONFLICT SET, which re-anchors started_at on every
       // upsert (FIX F-A4): an unchanged poll rewrites the same value, a reopen
       // rewrites the reopen's new started time.
       db.incidentMeta.set(internalId, {
         sourceId,
-        externalId: incident.externalId,
-        title: incident.title,
-        canonicalUrl: incident.canonicalUrl,
-        startedAt: new Date(incident.startedAt),
+        externalId: incidentInput.externalId,
+        title: incidentInput.title,
+        canonicalUrl: incidentInput.canonicalUrl,
+        startedAt: new Date(incidentInput.startedAt),
       })
       if (existing) {
         return existing
@@ -1675,7 +1675,13 @@ describe("persistSnapshot: FIX C scoped dedup", () => {
 
     expect(summary.notificationsEnqueued).toBe(2)
     expect(db.notifications).toHaveLength(2)
-    const scopeIds = db.notifications.map((n) => n.scopeId).sort()
+    const scopeIds = db.notifications
+      .map((n) => n.scopeId)
+      .sort((a, b) => {
+        const sa = String(a)
+        const sb = String(b)
+        return sa < sb ? -1 : sa > sb ? 1 : 0
+      })
     expect(scopeIds).toEqual(["eu-west-2", "us-east-1"])
   })
 })

@@ -40,8 +40,8 @@ const refreshes = new WeakMap<
 >()
 
 export class DatabaseHealthUnavailableError extends Error {
-  constructor() {
-    super("Database health measurements are unavailable")
+  constructor(options?: ErrorOptions) {
+    super("Database health measurements are unavailable", options)
     this.name = "DatabaseHealthUnavailableError"
   }
 }
@@ -227,8 +227,9 @@ export async function getDatabaseHealth(
   let measurement: DatabaseHealthMeasurement | null
   try {
     measurement = await repository.readLatest()
-  } catch {
-    throw new DatabaseHealthUnavailableError()
+  } catch (error) {
+    // biome-ignore lint/style/useErrorCause: cause is threaded through the error options arg, biome only detects the native second-argument position
+    throw new DatabaseHealthUnavailableError({ cause: error })
   }
   if (!measurement) {
     return null
@@ -273,14 +274,15 @@ export async function refreshDatabaseHealth(
   let measurement: DatabaseHealthMeasurement | null
   try {
     measurement = await pending
-  } catch {
+  } catch (error) {
     if (current) {
       return presentDatabaseHealth(current, {
         now,
         refreshStatus: "STALE_FALLBACK",
       })
     }
-    throw new DatabaseHealthUnavailableError()
+    // biome-ignore lint/style/useErrorCause: cause is threaded through the error options arg, biome only detects the native second-argument position
+    throw new DatabaseHealthUnavailableError({ cause: error })
   } finally {
     if (refreshes.get(repository) === pending) {
       refreshes.delete(repository)

@@ -54,7 +54,9 @@ function getSystemTimeZone(): string {
 }
 
 function subscribeToSystemTimeZone() {
-  return () => {}
+  return () => {
+    // no-op unsubscribe, the system zone is read once per mount
+  }
 }
 
 function TimezoneProvider({

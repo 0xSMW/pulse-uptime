@@ -4,6 +4,7 @@ export default function StatusPageSettingsLoading() {
       aria-busy="true"
       aria-label="Loading status page settings"
       className="animate-pulse space-y-6"
+      role="status"
     >
       <div className="h-9 w-40 rounded bg-[var(--chip-bg)]" />
       <div className="h-96 rounded-xl bg-[var(--chip-bg)]" />

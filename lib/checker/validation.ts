@@ -9,8 +9,11 @@ import {
 } from "./ip-policy"
 
 export class MonitorValidationError extends Error {
-  constructor(readonly issues: string[]) {
-    super(issues.join("; "))
+  constructor(
+    readonly issues: string[],
+    options?: ErrorOptions
+  ) {
+    super(issues.join("; "), options)
     this.name = "MonitorValidationError"
   }
 }
@@ -19,8 +22,10 @@ export function parsePublicHttpUrl(value: string): URL {
   let url: URL
   try {
     url = new URL(value)
-  } catch {
-    throw new MonitorValidationError(["url must be a valid absolute URL"])
+  } catch (error) {
+    throw new MonitorValidationError(["url must be a valid absolute URL"], {
+      cause: error,
+    })
   }
 
   // Screen IP literals first so a syntactically valid but non-routable address

@@ -230,7 +230,9 @@ export function AccountSettings({ data }: { data: AccountSettingsData }) {
                   <img
                     alt=""
                     className="size-full object-cover"
+                    height={48}
                     src={`/api/v1/images/${data.avatarImageId}`}
+                    width={48}
                   />
                 ) : (
                   initials || <User aria-hidden className="size-5" />

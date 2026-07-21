@@ -44,7 +44,8 @@ function fail(message) {
   process.exit(1)
 }
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+const sleep = (ms) =>
+  new Promise((resolvePromise) => setTimeout(resolvePromise, ms))
 
 /**
  * @param {object} [deps]
@@ -99,7 +100,9 @@ export async function main({
   // migrations, and the unlock must all run on the same connection.
   const sql = connect(validated.connectionString, {
     max: 1,
-    onnotice: () => {},
+    onnotice: () => {
+      // Intentionally ignore postgres NOTICE messages during migration.
+    },
   })
   let locked = false
   try {

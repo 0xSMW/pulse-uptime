@@ -127,7 +127,7 @@ export function createEdgeConfigProbe(
 
 export function createEmailProbe(
   env: Record<string, string | undefined> = process.env,
-  createClient: (apiKey: string) => ResendProbeClient = (apiKey) =>
+  createEmailClient: (apiKey: string) => ResendProbeClient = (apiKey) =>
     new Resend(apiKey)
 ): () => Promise<ReadinessResult> {
   return async () => {
@@ -142,7 +142,7 @@ export function createEmailProbe(
       if (!domain) {
         return emailWarning("EMAIL_SENDER_INVALID")
       }
-      const resend = createClient(key)
+      const resend = createEmailClient(key)
       const result = await withTimeout(
         resend.domains.list(),
         PROBE_TIMEOUT_MS,

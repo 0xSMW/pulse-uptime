@@ -352,6 +352,7 @@ function HeaderIconAction({
   const tooltipId = useId()
 
   return (
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: focusable wrapper surfaces the disabled reason when the inner button cannot take focus
     <span
       aria-label={
         disabled && disabledDescription

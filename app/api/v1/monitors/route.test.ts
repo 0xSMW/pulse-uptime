@@ -19,7 +19,7 @@ vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/idempotency")>()),
   executeIdempotent: vi.fn(
     async ({
-      request,
+      request: incomingRequest,
       work,
     }: {
       request: Request
@@ -30,7 +30,7 @@ vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
         ) => Promise<{ status: number; body: unknown }>
       }) => Promise<{ status: number; body: unknown }>
     }) => {
-      const key = request.headers.get("idempotency-key")!
+      const key = incomingRequest.headers.get("idempotency-key")!
       const existing = idempotencyRecords.get(key)
       if (existing) {
         return { ...existing, replayed: true }

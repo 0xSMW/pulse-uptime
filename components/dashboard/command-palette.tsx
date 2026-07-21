@@ -300,10 +300,12 @@ function PaletteDialogLoading() {
         aria-busy="true"
         aria-label="Loading commands"
         className="min-h-0 flex-1 overflow-y-auto p-2"
+        role="status"
       >
         {Array.from({ length: 4 }, (_, index) => (
           <div
             className="my-1 h-10 animate-pulse rounded-[6px] bg-[var(--chip-bg)]"
+            // biome-ignore lint/suspicious/noArrayIndexKey: static placeholder list that never reorders
             key={index}
           />
         ))}

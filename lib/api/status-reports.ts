@@ -12,6 +12,7 @@ import {
   lt,
   lte,
   or,
+  type SQL,
   sql,
 } from "drizzle-orm"
 import { unionAll } from "drizzle-orm/pg-core"
@@ -1380,7 +1381,7 @@ export function createDatabaseStatusReportsStore(
     },
 
     async listReports({ state, type, cursor, limit }) {
-      const conditions = []
+      const conditions: SQL[] = []
       if (state === "draft") {
         conditions.push(isNull(statusReports.publishedAt))
       }

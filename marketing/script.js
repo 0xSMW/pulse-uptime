@@ -326,7 +326,7 @@
       .join("")
     demo.lastAdded = null
 
-    $$("tr[data-monitor-id]", elements.monitorRows).forEach((row) => {
+    for (const row of $$("tr[data-monitor-id]", elements.monitorRows)) {
       const open = () => {
         const monitor = demo.monitors.find(
           (item) => item.id === row.dataset.monitorId
@@ -344,7 +344,7 @@
           open()
         }
       })
-    })
+    }
   }
 
   function renderSimulation() {
@@ -900,7 +900,7 @@
         })
         .join("") || '<p class="dep-empty">No matching service</p>'
 
-    $$(".dep-add", container).forEach((button) =>
+    for (const button of $$(".dep-add", container)) {
       button.addEventListener("click", () => {
         const item = DEP_CATALOG.find(
           (entry) => entry.id === button.dataset.dep
@@ -918,7 +918,7 @@
         renderCLI(false)
         showToast(`${item.name} added`)
       })
-    )
+    }
   }
 
   function renderLogoStrip() {
@@ -1063,12 +1063,12 @@
   function renderCLI(animate) {
     const command = commandValue()
     elements.copyCommand.dataset.copyValue = command
-    $$(".command").forEach((button) =>
+    for (const button of $$(".command")) {
       button.classList.toggle("active", button.dataset.command === demo.command)
-    )
-    $$("[data-output]").forEach((button) =>
+    }
+    for (const button of $$("[data-output]")) {
       button.classList.toggle("active", button.dataset.output === demo.output)
-    )
+    }
 
     window.clearInterval(typeTimer)
     if (!animate || prefersReducedMotion()) {
@@ -1128,14 +1128,14 @@
     const hint = $("#control-hint")
     const hintDot = $("#control-hint-dot")
     if (hint && !prefersReducedMotion()) {
-      ;[hint, hintDot].forEach((el) => {
+      for (const el of [hint, hintDot]) {
         if (!el) {
-          return
+          continue
         }
         el.classList.remove("ping")
         void el.offsetWidth
         el.classList.add("ping")
-      })
+      }
       window.clearTimeout(hintTimer)
       hintTimer = window.setTimeout(() => {
         hint.classList.remove("ping")
@@ -1209,9 +1209,9 @@
     monitorTicker = window.setInterval(() => {
       const now = Date.now()
       let changed = false
-      demo.monitors.forEach((monitor) => {
+      for (const monitor of demo.monitors) {
         if (!monitor.custom) {
-          return
+          continue
         }
         if (monitor.status === "PENDING" && now - monitor.addedAt > 1800) {
           monitor.status = "UP"
@@ -1238,7 +1238,7 @@
           monitor.checked = seconds < 4 ? "Just now" : `${seconds}s ago`
           changed = true
         }
-      })
+      }
       if (changed) {
         renderMonitors()
         renderStatusPage()
@@ -1361,23 +1361,23 @@
     $("#hourly-retention").textContent = hourlyRetention
 
     const totalMB = Math.round(percentage * 5)
-    ;[
+    for (const [key, share] of [
       ["rollups", 0.53],
       ["exceptions", 0.15],
       ["incidents", 0.08],
       ["recent", 0.03],
       ["core", 0.21],
-    ].forEach(([key, share]) => {
+    ]) {
       const row = $(`[data-breakdown="${key}"]`)
       if (!row) {
-        return
+        continue
       }
       const mb = Math.max(1, Math.round(totalMB * share))
       $(".bar i", row).style.width =
         `${Math.min(100, (mb / 500) * 180).toFixed(1)}%`
       $(".value-mb", row).textContent = `${mb} MB`
       $(".value-pct", row).textContent = `${Math.round(share * 100)}%`
-    })
+    }
   }
 
   let playTimer = 0
@@ -1424,21 +1424,21 @@
     stopPlayback()
     setStage(demo.stage === 4 ? 0 : demo.stage + 1)
   })
-  $$("[data-scroll-to]").forEach((button) => {
+  for (const button of $$("[data-scroll-to]")) {
     button.addEventListener("click", () => {
       $(`#${button.dataset.scrollTo}`)?.scrollIntoView({
         behavior: preferredScrollBehavior(),
         block: "start",
       })
     })
-  })
+  }
 
-  $$("[data-open-monitor]").forEach((button) =>
+  for (const button of $$("[data-open-monitor]")) {
     button.addEventListener("click", () => elements.dialog.showModal())
-  )
-  $$("[data-close-monitor]").forEach((button) =>
+  }
+  for (const button of $$("[data-close-monitor]")) {
     button.addEventListener("click", () => elements.dialog.close())
-  )
+  }
   elements.dialog.addEventListener("click", (event) => {
     if (event.target === elements.dialog) {
       elements.dialog.close()
@@ -1715,47 +1715,47 @@
   function highlightLabel(label, tokens) {
     const ranges = []
     const lower = label.toLowerCase()
-    tokens.forEach((token) => {
+    for (const token of tokens) {
       const index = lower.indexOf(token)
       if (index >= 0) {
         ranges.push([index, index + token.length])
       }
-    })
+    }
     if (!ranges.length) {
       return escapeHtml(label)
     }
     ranges.sort((a, b) => a[0] - b[0])
     const merged = [ranges[0]]
-    ranges.slice(1).forEach(([start, end]) => {
+    for (const [start, end] of ranges.slice(1)) {
       const last = merged.at(-1)
       if (start <= last[1]) {
         last[1] = Math.max(last[1], end)
       } else {
         merged.push([start, end])
       }
-    })
+    }
     let html = ""
     let cursor = 0
-    merged.forEach(([start, end]) => {
+    for (const [start, end] of merged) {
       html +=
         escapeHtml(label.slice(cursor, start)) +
         "<b>" +
         escapeHtml(label.slice(start, end)) +
         "</b>"
       cursor = end
-    })
+    }
     return html + escapeHtml(label.slice(cursor))
   }
 
   function highlightPalette() {
-    $$(".palette-item", paletteList).forEach((item) => {
+    for (const item of $$(".palette-item", paletteList)) {
       const selected = Number(item.dataset.index) === paletteIndex
       item.classList.toggle("selected", selected)
       item.setAttribute("aria-selected", String(selected))
       if (selected) {
         item.scrollIntoView({ block: "nearest" })
       }
-    })
+    }
   }
 
   function renderPalette(filter) {
@@ -1803,12 +1803,12 @@
       if (recents.length) {
         sections.push(["Recent", recents])
       }
-      PALETTE_GROUPS.forEach((group) => {
+      for (const group of PALETTE_GROUPS) {
         sections.push([
           group,
           PALETTE_COMMANDS.filter((command) => command.group === group),
         ])
-      })
+      }
     }
 
     paletteMatches = sections.flatMap(([, items]) => items)
@@ -1852,7 +1852,7 @@
         (paletteMatches.length === 1 ? "" : "s")
     }
 
-    $$(".palette-item", paletteList).forEach((item) => {
+    for (const item of $$(".palette-item", paletteList)) {
       item.addEventListener("mouseenter", () => {
         const itemIndex = Number(item.dataset.index)
         if (itemIndex === paletteIndex) {
@@ -1862,7 +1862,7 @@
         highlightPalette()
       })
       item.addEventListener("click", runPaletteCommand)
-    })
+    }
     highlightPalette()
   }
 
@@ -1917,9 +1917,9 @@
     }
   })
 
-  $$("[data-open-palette]").forEach((button) =>
+  for (const button of $$("[data-open-palette]")) {
     button.addEventListener("click", openPalette)
-  )
+  }
 
   window.addEventListener("keydown", (event) => {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
@@ -1946,19 +1946,19 @@
     elements.dialog.close()
   })
 
-  $$(".command").forEach((button) =>
+  for (const button of $$(".command")) {
     button.addEventListener("click", () => {
       demo.command = button.dataset.command
       renderCLI(true)
     })
-  )
+  }
 
-  $$("[data-output]").forEach((button) =>
+  for (const button of $$("[data-output]")) {
     button.addEventListener("click", () => {
       demo.output = button.dataset.output
       renderCLI(true)
     })
-  )
+  }
 
   elements.copyCommand.addEventListener("click", () =>
     copyText(elements.copyCommand.dataset.copyValue, elements.copyCommand)
@@ -2084,15 +2084,15 @@
       if (wantsJson) {
         demo.output = "json"
       }
-      $$(".command").forEach((button) =>
+      for (const button of $$(".command")) {
         button.classList.toggle(
           "active",
           button.dataset.command === demo.command
         )
-      )
-      $$("[data-output]").forEach((button) =>
+      }
+      for (const button of $$("[data-output]")) {
         button.classList.toggle("active", button.dataset.output === demo.output)
-      )
+      }
       elements.copyCommand.dataset.copyValue = commandValue()
       appendCLI(cmd, cliData())
       return
@@ -2132,12 +2132,12 @@
     })
   }
 
-  $$("[data-copy-target]").forEach((button) =>
+  for (const button of $$("[data-copy-target]")) {
     button.addEventListener("click", () => {
       const target = $(`#${button.dataset.copyTarget} code`)
       copyText(target.textContent.trim(), button)
     })
-  )
+  }
 
   function positionRangeTooltip() {
     const wrap = $(".range-wrap")
@@ -2373,11 +2373,11 @@ Docs     <span class="dv-num">UP</span>  58ms
     }
   })
 
-  $$("[data-system]").forEach((button) => {
+  for (const button of $$("[data-system]")) {
     const reveal = () => {
-      $$(".system-node").forEach((node) =>
+      for (const node of $$(".system-node")) {
         node.classList.toggle("active", node === button)
-      )
+      }
       const description = $("#system-description")
       if (description.textContent === button.dataset.system) {
         return
@@ -2390,7 +2390,7 @@ Docs     <span class="dv-num">UP</span>  58ms
     button.addEventListener("mouseenter", reveal)
     button.addEventListener("focus", reveal)
     button.addEventListener("click", () => openSystemDetail(button))
-  })
+  }
 
   elements.themeToggle.addEventListener("click", () =>
     setTheme(demo.theme === "dark" ? "light" : "dark")
@@ -2409,9 +2409,9 @@ Docs     <span class="dv-num">UP</span>  58ms
     setMenu(!elements.navLinks.classList.contains("open"))
   })
 
-  $$("a", elements.navLinks).forEach((link) =>
+  for (const link of $$("a", elements.navLinks)) {
     link.addEventListener("click", () => setMenu(false))
-  )
+  }
 
   document.addEventListener("click", (event) => {
     if (!elements.navLinks.classList.contains("open")) {
@@ -2432,40 +2432,44 @@ Docs     <span class="dv-num">UP</span>  58ms
   if ("IntersectionObserver" in window) {
     const revealObserver = new IntersectionObserver(
       (entries) => {
-        entries.forEach((entry) => {
+        for (const entry of entries) {
           if (!entry.isIntersecting) {
-            return
+            continue
           }
           entry.target.classList.add("is-visible")
           revealObserver.unobserve(entry.target)
-        })
+        }
       },
       { threshold: 0.12, rootMargin: "0px 0px -8% 0px" }
     )
-    revealTargets.forEach((target) => revealObserver.observe(target))
+    for (const target of revealTargets) {
+      revealObserver.observe(target)
+    }
 
     const sectionLinks = new Map()
-    $$(".nav-links a[href^='#']").forEach((link) =>
+    for (const link of $$(".nav-links a[href^='#']")) {
       sectionLinks.set(link.getAttribute("href").slice(1), link)
-    )
+    }
     const spyObserver = new IntersectionObserver(
       (entries) => {
-        entries.forEach((entry) => {
+        for (const entry of entries) {
           if (!entry.isIntersecting) {
-            return
+            continue
           }
-          sectionLinks.forEach((link) => link.classList.remove("active"))
+          for (const link of sectionLinks.values()) {
+            link.classList.remove("active")
+          }
           sectionLinks.get(entry.target.id)?.classList.add("active")
-        })
+        }
       },
       { rootMargin: "-30% 0px -60% 0px" }
     )
-    sectionLinks.forEach((link, id) => {
+    for (const [id] of sectionLinks) {
       const target = document.getElementById(id)
       if (target) {
         spyObserver.observe(target)
       }
-    })
+    }
 
     const STAGE_LANDMARKS = [
       ["#simulation", 1],
@@ -2475,32 +2479,34 @@ Docs     <span class="dv-num">UP</span>  58ms
     ]
     const stageObserver = new IntersectionObserver(
       (entries) => {
-        entries.forEach((entry) => {
+        for (const entry of entries) {
           if (!entry.isIntersecting) {
-            return
+            continue
           }
           stageObserver.unobserve(entry.target)
           if (manualControl) {
-            return
+            continue
           }
           const landmark = Number(entry.target.dataset.stageLandmark)
           if (demo.stage < landmark) {
             setStage(landmark)
           }
-        })
+        }
       },
       { rootMargin: "-35% 0px -35% 0px" }
     )
-    STAGE_LANDMARKS.forEach(([selector, stage]) => {
+    for (const [selector, stage] of STAGE_LANDMARKS) {
       const target = $(selector)
       if (!target) {
-        return
+        continue
       }
       target.dataset.stageLandmark = String(stage)
       stageObserver.observe(target)
-    })
+    }
   } else {
-    revealTargets.forEach((target) => target.classList.add("is-visible"))
+    for (const target of revealTargets) {
+      target.classList.add("is-visible")
+    }
   }
 
   const SECURITY_FILES = {
@@ -2580,9 +2586,9 @@ Docs     <span class="dv-num">UP</span>  58ms
     if (!(data && trace)) {
       return
     }
-    $$(".security-tree button").forEach((button) =>
+    for (const button of $$(".security-tree button")) {
       button.classList.toggle("active", button.dataset.file === key)
-    )
+    }
     trace.classList.remove("fade-in")
     void trace.offsetWidth
     trace.innerHTML = data.trace
@@ -2602,11 +2608,11 @@ Docs     <span class="dv-num">UP</span>  58ms
     }
   }
 
-  $$(".security-tree button").forEach((button) =>
+  for (const button of $$(".security-tree button")) {
     button.addEventListener("click", () =>
       renderSecurityFile(button.dataset.file)
     )
-  )
+  }
 
   const perfCards = $("#perf-cards")
   if (perfCards && "IntersectionObserver" in window) {
@@ -2640,19 +2646,22 @@ Docs     <span class="dv-num">UP</span>  58ms
           return
         }
         watcher.disconnect()
-        $$("[data-count-from]", perfCards).forEach((el, index) =>
+        for (const [index, el] of $$(
+          "[data-count-from]",
+          perfCards
+        ).entries()) {
           runCounter(el, 500 + index * 280)
-        )
+        }
       },
       { threshold: 0.35 }
     )
     watcher.observe(perfCards)
   }
 
-  $$(".principles article").forEach((article) => {
+  for (const article of $$(".principles article")) {
     const mark = $(".principle-mark", article)
     if (!mark) {
-      return
+      continue
     }
     let pingTimer = 0
     article.addEventListener("click", () => {
@@ -2665,7 +2674,7 @@ Docs     <span class="dv-num">UP</span>  58ms
       window.clearTimeout(pingTimer)
       pingTimer = window.setTimeout(() => mark.classList.remove("ping"), 1500)
     })
-  })
+  }
 
   const deployCommand = $("#deploy-command")
   if (deployCommand) {

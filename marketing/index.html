@@ -203,13 +203,18 @@
           class="product-frame hero-dashboard"
           data-reveal
           id="product"
+          role="group"
         >
           <div class="app-bar">
             <a class="brand app-brand" href="#top">
               <span aria-hidden="true" class="status-dot up"></span>
               <span>Pulse</span>
             </a>
-            <div aria-label="Product demo navigation" class="app-tabs">
+            <div
+              aria-label="Product demo navigation"
+              class="app-tabs"
+              role="toolbar"
+            >
               <button class="app-tab active" type="button">Overview</button>
               <button class="app-tab" data-scroll-to="response" type="button">
                 Incidents
@@ -307,6 +312,7 @@
                 <div
                   aria-label="OpenAI API provider-reported timeline"
                   class="mini-timeline dep-timeline"
+                  role="img"
                 >
                   <span aria-hidden="true" class="timeline-segment up"></span
                   ><span aria-hidden="true" class="timeline-segment up"></span
@@ -353,6 +359,7 @@
                 <div
                   aria-label="Stripe API provider-reported timeline"
                   class="mini-timeline dep-timeline"
+                  role="img"
                 >
                   <span aria-hidden="true" class="timeline-segment up"></span
                   ><span aria-hidden="true" class="timeline-segment up"></span
@@ -396,6 +403,7 @@
                 <div
                   aria-label="Vercel Runtime provider-reported timeline"
                   class="mini-timeline dep-timeline"
+                  role="img"
                 >
                   <span aria-hidden="true" class="timeline-segment"></span
                   ><span aria-hidden="true" class="timeline-segment"></span
@@ -933,12 +941,17 @@
               aria-label="Recent monitor checks"
               class="large-timeline"
               id="large-timeline"
+              role="img"
             ></div>
             <div class="timeline-labels mono">
               <span>24 hours ago</span><span>Now</span>
             </div>
 
-            <div aria-label="Outage simulation progress" class="state-track">
+            <div
+              aria-label="Outage simulation progress"
+              class="state-track"
+              role="img"
+            >
               <div class="state-step active" data-stage="0">
                 <span></span><small>Up</small>
               </div>
@@ -1233,6 +1246,7 @@
           class="logo-strip"
           data-reveal
           id="logo-strip"
+          role="img"
         ></div>
         <p class="logo-caption">Works with the services you already run on</p>
       </section>
@@ -1253,6 +1267,7 @@
           aria-label="Public status page preview"
           class="product-frame status-frame"
           data-reveal
+          role="group"
         >
           <div class="browser-bar">
             <div aria-hidden="true" class="terminal-dots">
@@ -1363,7 +1378,7 @@
               <div
                 aria-label="CLI output format"
                 class="output-toggle"
-                role="group"
+                role="toolbar"
               >
                 <button class="active" data-output="table" type="button">
                   Table
@@ -1372,7 +1387,11 @@
               </div>
             </div>
             <div class="terminal-body">
-              <div aria-label="Example CLI commands" class="command-list">
+              <div
+                aria-label="Example CLI commands"
+                class="command-list"
+                role="toolbar"
+              >
                 <button class="command active" data-command="me" type="button">
                   <span class="mono">pulsectl me</span><span>Run</span>
                 </button>
@@ -1585,6 +1604,7 @@
           aria-label="Pulse system architecture"
           class="architecture-map"
           data-reveal
+          role="group"
         >
           <button
             class="system-node vercel"
@@ -1760,6 +1780,7 @@
             <div class="detail-inner">
               <div class="detail-text">
                 <p class="app-kicker" id="detail-kicker"></p>
+                <!-- biome-ignore lint/a11y/useHeadingContent: filled at runtime from the selected system -->
                 <h3 id="detail-title"></h3>
                 <p class="detail-copy" id="detail-copy"></p>
                 <dl class="detail-stats" id="detail-stats"></dl>

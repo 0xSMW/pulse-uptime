@@ -8,7 +8,9 @@ export function isValidIanaTimeZone(value: string): boolean {
     return false
   }
   try {
-    new Intl.DateTimeFormat("en-US", { timeZone: value })
+    // Constructing (with or without new) validates the zone and throws
+    // RangeError for an unknown timeZone. The instance itself is unused.
+    Intl.DateTimeFormat("en-US", { timeZone: value })
     return true
   } catch {
     return false

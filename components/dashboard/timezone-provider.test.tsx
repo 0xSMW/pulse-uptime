@@ -43,7 +43,9 @@ async function mountProvider() {
     </TimezoneProvider>
   )
   // Flush the storage-loading effect and its queued microtask.
-  await act(async () => {})
+  await act(async () => {
+    // flush effects only
+  })
 }
 
 afterEach(() => {

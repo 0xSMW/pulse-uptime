@@ -45,7 +45,11 @@ function fakeDeps(
     now: () => NOW,
     createId: (() => {
       let n = 0
-      return () => `id-${n++}`
+      return () => {
+        const id = `id-${n}`
+        n += 1
+        return id
+      }
     })(),
     ...overrides,
   }

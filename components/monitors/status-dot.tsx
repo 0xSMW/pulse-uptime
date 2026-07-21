@@ -39,6 +39,7 @@ function StatusDot({
   "aria-hidden": ariaHidden,
 }: StatusDotProps) {
   return (
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: role img is set whenever aria-label is present, both guarded by aria-hidden
     <span
       aria-hidden={ariaHidden}
       aria-label={ariaHidden ? undefined : (ariaLabel ?? stateLabels[state])}

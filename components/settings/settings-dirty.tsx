@@ -28,13 +28,13 @@ export function SettingsDirtyProvider({
     () => new Set()
   )
 
-  const markDirty = React.useCallback((key: string, dirty: boolean) => {
+  const markDirty = React.useCallback((key: string, isDirty: boolean) => {
     setDirtyKeys((current) => {
-      if (current.has(key) === dirty) {
+      if (current.has(key) === isDirty) {
         return current
       }
       const next = new Set(current)
-      if (dirty) {
+      if (isDirty) {
         next.add(key)
       } else {
         next.delete(key)
@@ -91,6 +91,7 @@ export function useDirtyGuard(key: string, isDirty: boolean) {
   const context = useSettingsDirty()
   const markDirty = context?.markDirty
   React.useEffect(() => {
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: markDirty is undefined outside the settings provider
     if (!markDirty) {
       return
     }

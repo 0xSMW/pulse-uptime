@@ -30,6 +30,7 @@ function assertPayloadType(
   expected: NotificationPayload["type"]
 ): void {
   if (
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: payload is typed non-null but the stored JSON can be null at runtime, this yields a typed error instead of a TypeError
     !row.payload ||
     row.payload.type !== expected ||
     row.eventType !== expected

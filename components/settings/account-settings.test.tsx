@@ -22,10 +22,18 @@ beforeAll(() => {
       matches: false,
       media: query,
       onchange: null,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      addListener: () => {},
-      removeListener: () => {},
+      addEventListener: () => {
+        // matchMedia stub
+      },
+      removeEventListener: () => {
+        // matchMedia stub
+      },
+      addListener: () => {
+        // matchMedia stub
+      },
+      removeListener: () => {
+        // matchMedia stub
+      },
       dispatchEvent: () => false,
     }),
   })
@@ -38,6 +46,7 @@ afterEach(() => {
 
 function DirtyReader() {
   const context = useSettingsDirty()
+  // biome-ignore lint/suspicious/noUnnecessaryConditions: useSettingsDirty returns null outside the provider
   return <span data-testid="dirty">{String(context?.dirty ?? false)}</span>
 }
 

@@ -31,7 +31,11 @@ export function LatencyChart({ data }: { data: LatencyPoint[] }) {
   }))
 
   return (
-    <div aria-label="Response time chart" className="h-[220px] w-full">
+    <div
+      aria-label="Response time chart"
+      className="h-[220px] w-full"
+      role="img"
+    >
       <ResponsiveContainer height="100%" width="100%">
         <AreaChart
           data={points}

@@ -186,10 +186,7 @@ export default async function PublicReportPage({ params }: ReportPageProps) {
         <h2 className="font-semibold text-sm" id="updates-heading">
           Updates
         </h2>
-        <ol
-          className="mt-4 space-y-5 border-[var(--border)] border-l pl-5"
-          role="list"
-        >
+        <ol className="mt-4 space-y-5 border-[var(--border)] border-l pl-5">
           {report.updates.map((update) => (
             <li className="relative" key={update.id}>
               <span

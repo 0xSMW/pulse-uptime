@@ -75,7 +75,7 @@ export function renameGroup(
   id: string,
   input: unknown
 ): MonitoringConfig {
-  const current = config.groups.find((group) => group.id === id)
+  const current = config.groups.find((candidate) => candidate.id === id)
   if (!current) {
     throw new GroupApiError("GROUP_NOT_FOUND", "Group was not found")
   }

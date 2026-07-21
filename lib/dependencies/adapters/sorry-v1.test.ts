@@ -422,7 +422,9 @@ describe("sorryV1Adapter.normalize: notices", () => {
       observedAt: "2026-07-19T11:00:00.000Z",
     })
     expect(
-      snapshot.incidents.map((incident) => incident.externalId).sort()
+      snapshot.incidents
+        .map((incident) => incident.externalId)
+        .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
     ).toEqual(["503440", "503441"])
   })
 

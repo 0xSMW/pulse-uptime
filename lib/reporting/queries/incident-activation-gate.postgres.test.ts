@@ -22,7 +22,7 @@ suite("incident activation gate", () => {
   let operationalService: typeof import("@/lib/api/operational-service").operationalService
   let promoteIncident: typeof import("@/lib/api/status-reports").promoteIncident
   let StatusReportError: typeof import("@/lib/api/status-reports").StatusReportError
-  let closeModuleConnection: () => Promise<void>
+  let closeModuleConnection: (() => Promise<void>) | undefined
 
   const ACTIVATED = new Date("2026-07-10T00:00:00.000Z")
   // mon-act activated on 2026-07-10.

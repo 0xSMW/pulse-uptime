@@ -44,6 +44,7 @@ function ScopeChips({ scopes }: { scopes: string[] }) {
         <span
           aria-label={`${overflow} more ${overflow === 1 ? "scope" : "scopes"}: ${scopes.slice(VISIBLE_SCOPES).join(", ")}`}
           className="rounded-full bg-[var(--chip-bg)] px-2 py-0.5 font-data text-[11px] text-[var(--fg-muted)]"
+          role="img"
           title={scopes.join(", ")}
         >
           +{overflow}

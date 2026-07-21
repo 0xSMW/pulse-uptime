@@ -579,7 +579,7 @@ export interface CatalogReconcileStore {
 export interface ReconcileCatalogDeps {
   store: CatalogReconcileStore
   /** Live complete directory fetcher. Null means feed failure: no availability changes. */
-  fetchCatalogDirectory: FetchCatalogDirectory
+  fetchCatalogDirectory?: FetchCatalogDirectory
   /**
    * @deprecated Prefer fetchCatalogDirectory. When only this is set, it is used
    * as the directory fetcher so older call sites keep working during rename.

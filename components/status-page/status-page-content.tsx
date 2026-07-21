@@ -107,6 +107,7 @@ function PageLogo({
   const image =
     config.theme === "light" || config.theme === "dark" || light === dark ? (
       // eslint-disable-next-line @next/next/no-img-element -- dynamic uploaded bytes served from the CDN-cached asset route
+      // biome-ignore lint/correctness/useImageSize: uploaded logo of unknown intrinsic size, css fixes height and width scales by aspect
       <img
         alt={`${pageName} logo`}
         className="h-8 w-auto max-w-[240px] object-contain"
@@ -115,12 +116,14 @@ function PageLogo({
     ) : (
       <>
         {/* eslint-disable-next-line @next/next/no-img-element -- dynamic uploaded bytes served from the CDN-cached asset route */}
+        {/* biome-ignore lint/correctness/useImageSize: uploaded logo of unknown intrinsic size, css fixes height and width scales by aspect */}
         <img
           alt={`${pageName} logo`}
           className={`${styles.logoLight} h-8 w-auto max-w-[240px] object-contain`}
           src={statusAssetUrl(light)}
         />
         {/* eslint-disable-next-line @next/next/no-img-element -- dynamic uploaded bytes served from the CDN-cached asset route */}
+        {/* biome-ignore lint/correctness/useImageSize: uploaded logo of unknown intrinsic size, css fixes height and width scales by aspect */}
         <img
           alt=""
           aria-hidden
@@ -157,6 +160,7 @@ function HeaderNav({ config }: { config: StatusPageDisplayConfig }) {
         <a
           className="text-[13px] text-[var(--fg-muted)] transition-colors duration-150 hover:text-[var(--fg)]"
           href={link.url}
+          // biome-ignore lint/suspicious/noArrayIndexKey: nav link urls may repeat, index disambiguates a non-reordering list
           key={`${link.url}-${index}`}
         >
           {link.label}
@@ -334,7 +338,7 @@ function MaintenanceSchedule({
       <h2 className="px-6 py-4 font-semibold text-sm" id="maintenance-heading">
         {heading}
       </h2>
-      <ul className="divide-y divide-[var(--border)]" role="list">
+      <ul className="divide-y divide-[var(--border)]">
         {upcoming.map((report) => (
           <li
             className="grid gap-1 px-6 py-4 text-[13px] sm:grid-cols-[1fr_auto] sm:items-center sm:gap-6"
@@ -446,7 +450,7 @@ function StatusCard({
   const statusTimeZone = timezoneDisplay(data.config.timezone).timeZone
 
   return (
-    <div aria-label="System availability" className="space-y-6">
+    <div aria-label="System availability" className="space-y-6" role="group">
       {data.groups.map((group) => (
         <section
           aria-labelledby={`group-${group.slug}`}
@@ -684,7 +688,7 @@ export function StatusPageContent({
           Recent Incidents
         </h2>
         {data.reports.resolved.length > 0 || data.recentIncidents.length > 0 ? (
-          <ul className="divide-y divide-[var(--border)]" role="list">
+          <ul className="divide-y divide-[var(--border)]">
             {/* Authored resolved reports (snapshotted names) and the machine
                 incidents not folded into a report, merged into one list sorted
                 by resolved time descending, matching the resolved-history

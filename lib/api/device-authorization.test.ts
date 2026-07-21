@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noThenProperty: thenable mocks emulate the drizzle query builder which is itself a PromiseLike
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("server-only", () => ({}))

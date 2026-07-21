@@ -221,10 +221,10 @@ export function DependencyDetail({
           </CardHeader>
           <CardContent className="space-y-3">
             {activeIncident.updates.length ? (
-              activeIncident.updates.map((update, index) => (
+              activeIncident.updates.map((update) => (
                 <div
                   className="border-[var(--border)] border-t pt-3 first:border-t-0 first:pt-0"
-                  key={index}
+                  key={update.createdAt}
                 >
                   <p className="text-[13px]">{update.bodyText}</p>
                   <p className="mt-1 font-data text-[var(--fg-faint)] text-xs">

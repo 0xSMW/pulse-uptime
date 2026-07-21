@@ -123,7 +123,9 @@ describe("useNavigationGuard history (popstate)", () => {
     // jsdom has too little synthetic history for a real -2 traversal (it
     // logs "Not implemented: navigation to another Document"). Stub it so
     // the test asserts the call without depending on jsdom's navigation.
-    const goSpy = vi.spyOn(window.history, "go").mockImplementation(() => {})
+    const goSpy = vi.spyOn(window.history, "go").mockImplementation(() => {
+      // block real navigation
+    })
     render(<Harness dirty />)
     fireEvent(window, new PopStateEvent("popstate"))
 
@@ -149,6 +151,7 @@ describe("useNavigationGuard history (popstate)", () => {
 describe("useNavigationGuard link clicks", () => {
   function renderLink(attrs: Record<string, string> = {}) {
     const anchor = document.createElement("a")
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: attrs omits href at runtime when renderLink is called with no arguments
     anchor.href = attrs.href ?? "/somewhere"
     for (const [key, value] of Object.entries(attrs)) {
       anchor.setAttribute(key, value)

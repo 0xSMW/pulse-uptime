@@ -27,6 +27,7 @@ function selectChain(rows: unknown[]) {
     orderBy: () => node,
     groupBy: () => node,
     limit: () => node,
+    // biome-ignore lint/suspicious/noThenProperty: thenable mock emulates the drizzle query builder which is itself a PromiseLike
     then: (
       res: (value: unknown[]) => unknown,
       rej?: (reason: unknown) => unknown

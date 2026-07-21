@@ -37,13 +37,17 @@ function useIsIntersecting(containerRef: RefObject<HTMLDivElement | null>) {
     (onChange: () => void) => {
       const container = containerRef.current
       if (!container || visibleRef.current) {
-        return () => {}
+        return () => {
+          // no-op unsubscribe
+        }
       }
 
       if (typeof IntersectionObserver === "undefined") {
         visibleRef.current = true
         onChange()
-        return () => {}
+        return () => {
+          // no-op unsubscribe
+        }
       }
 
       const observer = new IntersectionObserver(

@@ -27,9 +27,10 @@ function readProjectState(): TempProjectState {
   let raw: string
   try {
     raw = readFileSync(PROJECT_STATE_PATH, "utf8")
-  } catch {
+  } catch (error) {
     throw new LocalStateError(
-      `Missing ${PROJECT_STATE_PATH}. Run the migrate command after creating the temp Neon project.`
+      `Missing ${PROJECT_STATE_PATH}. Run the migrate command after creating the temp Neon project.`,
+      { cause: error }
     )
   }
   const parsed: unknown = JSON.parse(raw)
@@ -64,9 +65,10 @@ function readConnectionString(): string {
   let raw: string
   try {
     raw = readFileSync(CONNECTION_PATH, "utf8")
-  } catch {
+  } catch (error) {
     throw new LocalStateError(
-      `Missing ${CONNECTION_PATH}. Run the migrate command after creating the temp Neon project.`
+      `Missing ${CONNECTION_PATH}. Run the migrate command after creating the temp Neon project.`,
+      { cause: error }
     )
   }
   const uri = raw.trim()
@@ -90,9 +92,10 @@ export function loadTempProjectState(): {
   let parsedHost: string
   try {
     parsedHost = new URL(connectionString).hostname
-  } catch {
+  } catch (error) {
     throw new LocalStateError(
-      `${CONNECTION_PATH} does not contain a parseable postgres connection URI.`
+      `${CONNECTION_PATH} does not contain a parseable postgres connection URI.`,
+      { cause: error }
     )
   }
   if (parsedHost !== project.host) {

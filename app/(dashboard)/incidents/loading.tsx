@@ -21,6 +21,7 @@ export default function IncidentsLoading() {
         aria-busy="true"
         aria-label="Loading incidents"
         className="animate-pulse space-y-6"
+        role="status"
       >
         <div className="h-32 rounded-xl bg-[var(--chip-bg)]" />
         <div className="h-80 rounded-xl bg-[var(--chip-bg)]" />

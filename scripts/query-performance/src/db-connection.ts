@@ -33,7 +33,8 @@ async function verifyIdentity(
     throw new SafetyGateError(
       `Could not connect to verify database identity before running any benchmark query: ${
         cause instanceof Error ? cause.message : String(cause)
-      }`
+      }`,
+      { cause }
     )
   }
   const datname = rows[0]?.datname
@@ -56,7 +57,7 @@ export async function withConnection<T>(
     state = loadTempProjectState()
   } catch (error) {
     if (error instanceof LocalStateError) {
-      throw new SafetyGateError(error.message)
+      throw new SafetyGateError(error.message, { cause: error })
     }
     throw error
   }

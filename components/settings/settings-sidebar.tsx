@@ -66,6 +66,7 @@ export function SettingsSidebar() {
   const pathname = usePathname()
   const router = useRouter()
   const dirtyContext = useSettingsDirty()
+  // biome-ignore lint/suspicious/noUnnecessaryConditions: useSettingsDirty returns null outside the provider
   const dirty = dirtyContext?.dirty ?? false
   const [escFeedback, setEscFeedback] = useState("")
   const returnPath = useSyncExternalStore(

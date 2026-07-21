@@ -245,7 +245,9 @@
 
 @media (prefers-reduced-motion: reduce) {
   *,
+  /* biome-ignore lint/style/noDescendingSpecificity: reduced-motion reset uses !important so selector specificity order is moot */
   *::before,
+  /* biome-ignore lint/style/noDescendingSpecificity: reduced-motion reset uses !important so selector specificity order is moot */
   *::after {
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;

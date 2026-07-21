@@ -95,7 +95,7 @@ export async function runBenchmark(
 
   const artifact = await withConnection(async (conn) => {
     const ctx = await loadSampleContext(conn)
-    const results = []
+    const results: Awaited<ReturnType<typeof runQueryCase>>[] = []
     for (const queryCase of queryCases) {
       results.push(
         await runQueryCase(conn, ctx, queryCase, {

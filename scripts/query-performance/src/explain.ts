@@ -114,7 +114,7 @@ async function explainOnce(
     query.params.map(serializeParam) as never[]
   )
   const first = rows[0] as unknown as
-    | { "QUERY PLAN": [RawExplainOutput] }
+    | { "QUERY PLAN"?: [RawExplainOutput] }
     | undefined
   const output = first?.["QUERY PLAN"]?.[0]
   if (!output) {

@@ -152,6 +152,7 @@ describe("default database store operation projection", () => {
       for (const method of ["from", "where", "orderBy", "limit"]) {
         c[method] = vi.fn(() => c)
       }
+      // biome-ignore lint/suspicious/noThenProperty: thenable mock emulates the drizzle query builder which is itself a PromiseLike
       c.then = (
         resolve: (value: unknown) => unknown,
         reject: (reason: unknown) => unknown

@@ -18,6 +18,7 @@ export function MonitorDetailSkeleton({
       aria-busy="true"
       aria-label="Loading monitor details"
       className="space-y-6"
+      role="status"
     >
       <header>
         <Link
@@ -86,6 +87,7 @@ export function MonitorDetailSkeleton({
         {Array.from({ length: 4 }, (_, index) => (
           <div
             className="h-[122px] rounded-xl bg-[var(--chip-bg)]"
+            // biome-ignore lint/suspicious/noArrayIndexKey: static placeholder list that never reorders
             key={index}
           />
         ))}

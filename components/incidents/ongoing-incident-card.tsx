@@ -52,7 +52,10 @@ export function OngoingIncidentCard({
         <span>
           Started <IncidentTime value={incident.openedAt} />
         </span>
-        <span aria-label={`Ongoing for ${formatIncidentDuration(elapsed)}`}>
+        <span
+          aria-label={`Ongoing for ${formatIncidentDuration(elapsed)}`}
+          role="img"
+        >
           {formatIncidentDuration(elapsed)} elapsed
         </span>
       </div>

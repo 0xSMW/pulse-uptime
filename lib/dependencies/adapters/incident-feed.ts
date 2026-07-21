@@ -104,19 +104,19 @@ export function parseIncidentFeedUpdateMarker(
   }
 
   const atStart = MARKER_AT_START.exec(description)
+  // biome-ignore lint/suspicious/noUnnecessaryConditions: exec returns null when the pattern does not match, biome infers it as non-null
   if (atStart) {
     consider(atStart[1], 0)
   }
 
   MARKER_AFTER_TZ.lastIndex = 0
-  for (
-    let match = MARKER_AFTER_TZ.exec(description);
-    match;
-    match = MARKER_AFTER_TZ.exec(description)
-  ) {
+  let match = MARKER_AFTER_TZ.exec(description)
+  // biome-ignore lint/suspicious/noUnnecessaryConditions: exec returns null when the pattern does not match, biome infers it as non-null
+  while (match) {
     // match[0] starts at UTC/GMT; the token itself is the position we rank.
     const tokenOffset = match[0].indexOf(match[1])
     consider(match[1], match.index + tokenOffset)
+    match = MARKER_AFTER_TZ.exec(description)
   }
 
   if (!bestToken) {
@@ -241,9 +241,11 @@ export const incidentFeedAdapter: DependencyAdapter = {
       // Network failures, optional misses, malformed envelopes, and budget
       // exhaustion never reach here as an authoritative empty set.
       if (error instanceof XmlParseError) {
+        // biome-ignore lint/style/useErrorCause: cause is threaded through the error options arg, biome only detects the native second-argument position
         throw new AdapterParseError(
           "SCHEMA_INVALID",
-          `${source.id}: incident feed rejected by parser (${error.code})`
+          `${source.id}: incident feed rejected by parser (${error.code})`,
+          { cause: error }
         )
       }
       throw error

@@ -42,9 +42,10 @@ export class ConfigurationServiceError extends Error {
       | "CONFIG_NOT_INITIALIZED"
       | "CONFIG_VERSION_CONFLICT"
       | "EDGE_CONFIG_WRITE_FAILED",
-    message: string
+    message: string,
+    options?: ErrorOptions
   ) {
-    super(message)
+    super(message, options)
     this.name = "ConfigurationServiceError"
   }
 }
@@ -132,10 +133,12 @@ async function defaultWriteEdgeConfig(
 ): Promise<{ version: number | null }> {
   try {
     return { version: await writeMonitoringEdgeConfig(config) }
-  } catch {
+  } catch (error) {
+    // biome-ignore lint/style/useErrorCause: cause is threaded through the error options arg, biome only detects the native second-argument position
     throw new ConfigurationServiceError(
       "EDGE_CONFIG_WRITE_FAILED",
-      "Could not write Edge Config"
+      "Could not write Edge Config",
+      { cause: error }
     )
   }
 }
@@ -146,10 +149,12 @@ function createDatabaseStore(): ConfigurationStore {
   ): Promise<AcceptedConfigSnapshot | null> => {
     try {
       return await findAcceptedSnapshot(executor)
-    } catch {
+    } catch (error) {
+      // biome-ignore lint/style/useErrorCause: cause is threaded through the error options arg, biome only detects the native second-argument position
       throw new ConfigurationServiceError(
         "CONFIG_NOT_INITIALIZED",
-        "Accepted configuration hash is invalid"
+        "Accepted configuration hash is invalid",
+        { cause: error }
       )
     }
   }
@@ -288,9 +293,11 @@ export function createConfigurationService(
           if (cause instanceof ConfigurationServiceError) {
             throw cause
           }
+          // biome-ignore lint/style/useErrorCause: cause is threaded through the error options arg, biome only detects the native second-argument position
           throw new ConfigurationServiceError(
             "EDGE_CONFIG_WRITE_FAILED",
-            "Could not write Edge Config"
+            "Could not write Edge Config",
+            { cause }
           )
         }
         return await tx.insertOperation({

@@ -53,6 +53,7 @@ const data: SecuritySettingsData = {
 
 function DirtyReader() {
   const context = useSettingsDirty()
+  // biome-ignore lint/suspicious/noUnnecessaryConditions: useSettingsDirty returns null outside the provider
   return <span data-testid="dirty">{String(context?.dirty ?? false)}</span>
 }
 

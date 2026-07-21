@@ -166,7 +166,7 @@ function validateManifestInvariants(
       source.statusPageUrl,
       ...(source.incidentsUrl ? [source.incidentsUrl] : []),
     ]
-    urls.forEach((url) => {
+    for (const url of urls) {
       const host = urlHost(url)
       if (!source.allowedHosts.includes(host)) {
         context.addIssue({
@@ -175,7 +175,7 @@ function validateManifestInvariants(
           path: ["sources", index, "allowedHosts"],
         })
       }
-    })
+    }
 
     // maxBodyBytes may raise the 512 KB default up to the 4 MB ceiling and no
     // higher. Checked here rather than in the config schema so config stays a

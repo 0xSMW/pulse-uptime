@@ -71,7 +71,9 @@ function encodeBitmap(bits: boolean[]): Buffer {
 
 function encodeLatencies(values: number[]): Buffer {
   const buffer = Buffer.alloc(values.length * 4)
-  values.forEach((value, index) => buffer.writeUInt32BE(value >>> 0, index * 4))
+  values.forEach((value, index) => {
+    buffer.writeUInt32BE(value >>> 0, index * 4)
+  })
   return buffer
 }
 

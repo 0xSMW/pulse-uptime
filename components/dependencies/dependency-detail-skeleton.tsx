@@ -7,6 +7,7 @@ export function DependencyDetailSkeleton() {
       aria-busy="true"
       aria-label="Loading dependency details"
       className="space-y-6"
+      role="status"
     >
       <header>
         <div

@@ -290,10 +290,12 @@ export const nextdataEmbeddedAdapter: DependencyAdapter = {
     let raw: unknown
     try {
       raw = JSON.parse(slice)
-    } catch {
+    } catch (error) {
+      // biome-ignore lint/style/useErrorCause: cause is threaded through the error options arg, biome only detects the native second-argument position
       throw new AdapterParseError(
         "SCHEMA_INVALID",
-        `${source.id}: __NEXT_DATA__ payload is not valid JSON`
+        `${source.id}: __NEXT_DATA__ payload is not valid JSON`,
+        { cause: error }
       )
     }
 

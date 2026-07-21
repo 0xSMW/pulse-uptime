@@ -179,6 +179,7 @@ function RangeButtons<T extends string>({
     <div
       aria-label={label}
       className="inline-flex rounded-md bg-[var(--chip-bg)] p-0.5"
+      role="group"
     >
       {ranges.map((range) => (
         <button
@@ -374,7 +375,8 @@ export function MonitorDetail({
                 ...live.data.latestIncident,
                 overlaps:
                   live.data.latestIncident.id === snapshot.latestIncident?.id
-                    ? (snapshot.latestIncident?.overlaps ?? [])
+                    ? // biome-ignore lint/suspicious/noUnnecessaryConditions: typescript does not narrow the optional incident through the id comparison
+                      (snapshot.latestIncident?.overlaps ?? [])
                     : [],
               }
             : null,

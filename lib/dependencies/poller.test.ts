@@ -479,7 +479,7 @@ describe("pollDueSources orchestration", () => {
       (call) => (call[1] as { url: string }).url === componentsUrl
     )
     expect(
-      (componentsCall?.[1] as { validators?: unknown }).validators
+      (componentsCall![1] as { validators?: unknown }).validators
     ).toBeUndefined()
     const [outcome] = persist.mock.calls[0] as [PollOutcome]
     expect(outcome.kind).toBe("snapshot")

@@ -129,7 +129,7 @@ export async function collectAdapterDocuments(
     documents.length === 0 &&
     input.primaryValidators !== undefined
 
-  while (true) {
+  for (;;) {
     const requests = input.adapter
       .requests(input.source, documents.length > 0 ? documents : undefined)
       .filter((request) => kindAllowed(request.kind, input.allowedKinds))

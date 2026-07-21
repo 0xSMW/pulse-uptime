@@ -198,38 +198,38 @@
     return html
   }
 
-  $$("pre code[class*='language-']").forEach((block) => {
+  for (const block of $$("pre code[class*='language-']")) {
     const lang = (block.className.match(/language-(\w+)/) || [])[1]
     const rules = GRAMMARS[lang === "sh" || lang === "shell" ? "bash" : lang]
     if (rules) {
       block.innerHTML = highlight(block.textContent, rules)
     }
-  })
+  }
 
   /* ---- Code tabs ---- */
 
-  $$(".code-tabs").forEach((tabs) => {
+  for (const tabs of $$(".code-tabs")) {
     const figure = tabs.closest(".code-block, .dv-frame")
-    $$(".code-tab", tabs).forEach((tab) => {
+    for (const tab of $$(".code-tab", tabs)) {
       tab.addEventListener("click", () => {
-        $$(".code-tab", tabs).forEach((other) => {
+        for (const other of $$(".code-tab", tabs)) {
           const active = other === tab
           other.classList.toggle("active", active)
           other.setAttribute("aria-selected", String(active))
-        })
-        $$(".code-tab-panel", figure).forEach((panel) => {
+        }
+        for (const panel of $$(".code-tab-panel", figure)) {
           panel.hidden = panel.dataset.tabPanel !== tab.dataset.tab
-        })
+        }
       })
-    })
-  })
+    }
+  }
 
   /* ---- Code copy buttons ---- */
 
-  $$(".code-block").forEach((figure) => {
+  for (const figure of $$(".code-block")) {
     const button = $(".code-copy", figure)
     if (!button) {
-      return
+      continue
     }
     button.addEventListener("click", () => {
       const code =
@@ -244,21 +244,21 @@
         .trim()
       copyText(text || code.textContent.trim(), button)
     })
-  })
+  }
 
   /* ---- Heading anchors ---- */
 
-  $$(".docs-main h2[id], .docs-main h3[id], .docs-main h4[id]").forEach(
-    (heading) => {
-      heading.classList.add("anchor-heading")
-      const anchor = document.createElement("a")
-      anchor.className = "anchor-link"
-      anchor.href = `#${heading.id}`
-      anchor.setAttribute("aria-label", `Link to ${heading.textContent.trim()}`)
-      anchor.textContent = "#"
-      heading.append(anchor)
-    }
-  )
+  for (const heading of $$(
+    ".docs-main h2[id], .docs-main h3[id], .docs-main h4[id]"
+  )) {
+    heading.classList.add("anchor-heading")
+    const anchor = document.createElement("a")
+    anchor.className = "anchor-link"
+    anchor.href = `#${heading.id}`
+    anchor.setAttribute("aria-label", `Link to ${heading.textContent.trim()}`)
+    anchor.textContent = "#"
+    heading.append(anchor)
+  }
 
   /* ---- Scrollspy ---- */
 
@@ -373,7 +373,7 @@
           )
           .join("")
       : '<li class="palette-empty">No matching entry</li>'
-    $$(".palette-item", paletteList).forEach((item) => {
+    for (const item of $$(".palette-item", paletteList)) {
       item.addEventListener("click", runSelected)
       item.addEventListener("mousemove", () => {
         const index = Number(item.dataset.index)
@@ -381,14 +381,14 @@
           return
         }
         paletteIndex = index
-        $$(".palette-item", paletteList).forEach((other) =>
+        for (const other of $$(".palette-item", paletteList)) {
           other.classList.toggle(
             "selected",
             Number(other.dataset.index) === paletteIndex
           )
-        )
+        }
       })
-    })
+    }
   }
 
   function runSelected() {
@@ -441,9 +441,9 @@
     }
   })
 
-  $$("[data-open-palette]").forEach((button) =>
+  for (const button of $$("[data-open-palette]")) {
     button.addEventListener("click", openPalette)
-  )
+  }
 
   document.addEventListener("keydown", (event) => {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {

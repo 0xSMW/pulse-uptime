@@ -29,4 +29,5 @@ export function RecoveryEmail({
   )
 }
 
+// biome-ignore lint/complexity/noRedundantDefaultExport: react-email preview server discovers the default export, named export is used by the app
 export default RecoveryEmail

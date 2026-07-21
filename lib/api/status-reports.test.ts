@@ -373,7 +373,10 @@ function memoryStore(
 
 function sequentialIds(prefix: string) {
   let counter = 0
-  return () => `${prefix}-${String(++counter).padStart(4, "0")}`
+  return () => {
+    counter += 1
+    return `${prefix}-${String(counter).padStart(4, "0")}`
+  }
 }
 
 /**
@@ -1396,7 +1399,10 @@ describe("listStatusReports", () => {
     const deps = {
       store,
       newId,
-      now: () => new Date(NOW.getTime() + (tick += 1000)),
+      now: () => {
+        tick += 1000
+        return new Date(NOW.getTime() + tick)
+      },
     }
     const draft = await createStatusReport(
       { ...validCreate, draft: true },
@@ -1498,7 +1504,10 @@ describe("listStatusReports", () => {
     const deps = {
       store,
       newId,
-      now: () => new Date(NOW.getTime() + (tick += 1000)),
+      now: () => {
+        tick += 1000
+        return new Date(NOW.getTime() + tick)
+      },
     }
     await createStatusReport(validCreate, deps)
     const second = await createStatusReport(

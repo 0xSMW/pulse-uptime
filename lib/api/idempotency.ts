@@ -147,8 +147,8 @@ export async function executeIdempotent<T>(input: {
     now,
     insert: insertRunning,
     find: findOwner,
-    reclaim: async (existing) =>
-      await reclaimExpiredRecord(existing, now, async (expiredId) => {
+    reclaim: async (expiredOwner) =>
+      await reclaimExpiredRecord(expiredOwner, now, async (expiredId) => {
         const replacementId = crypto.randomUUID()
         return await persistence.reclaimExpired(expiredId, now, {
           id: replacementId,

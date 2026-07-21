@@ -564,6 +564,7 @@ function decodeBody(
     }
     return text
   } catch (error) {
+    // biome-ignore lint/style/useErrorCause: cause is threaded through the ProviderFetchError meta arg
     throw new ProviderFetchError(
       "INVALID_ENCODING",
       `${context.sourceId}: response body encoding is unsupported or invalid`,
@@ -614,7 +615,8 @@ export async function fetchProviderDocument(
   let currentUrl: URL
   try {
     currentUrl = new URL(req.url)
-  } catch {
+  } catch (error) {
+    // biome-ignore lint/style/useErrorCause: cause is threaded through the ProviderFetchError meta arg
     throw new ProviderFetchError(
       "BLOCKED_HOST",
       `${source.id}: invalid URL "${req.url}"`,
@@ -625,6 +627,7 @@ export async function fetchProviderDocument(
         documentKind: req.documentKind ?? null,
         url: req.url,
         stage: "request",
+        cause: error,
       }
     )
   }
@@ -650,7 +653,7 @@ export async function fetchProviderDocument(
 
   let redirects = 0
   try {
-    while (true) {
+    for (;;) {
       context.url = currentUrl.toString()
       assertAllowedUrl(currentUrl, source)
 
@@ -735,13 +738,14 @@ export async function fetchProviderDocument(
         let destination: URL
         try {
           destination = new URL(location, currentUrl)
-        } catch {
+        } catch (error) {
+          // biome-ignore lint/style/useErrorCause: cause is threaded through the ProviderFetchError meta arg
           throw new ProviderFetchError(
             "INVALID_REDIRECT",
             `${source.id}: redirect location "${location}" is not a valid URL`,
             null,
             null,
-            withMeta(context, "request")
+            withMeta(context, "request", error)
           )
         }
         redirects += 1
@@ -798,6 +802,7 @@ export async function fetchProviderDocument(
           lastModified,
         }
       } catch (error) {
+        // biome-ignore lint/style/useErrorCause: cause is threaded through the ProviderFetchError meta arg
         throw new ProviderFetchError(
           "INVALID_JSON",
           `${source.id}: response body is not valid JSON`,

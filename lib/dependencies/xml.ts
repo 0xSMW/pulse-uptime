@@ -233,6 +233,7 @@ function firstTagText(
       `<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}>`,
       "i"
     ).exec(block)
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: exec returns null when the pattern does not match, biome infers it as non-null
     if (match) {
       const text = decodeText(match[1], maxTextLength)
       if (text) {
@@ -313,36 +314,34 @@ function decodeText(raw: string, maxTextLength: number): string {
  * left as literal text, which is what neutralizes both external-entity and
  * billion-laughs payloads: they never resolve and the result never re-expands.
  */
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+}
+
 function decodeEntities(text: string): string {
   return text.replace(
     /&(#x[0-9a-f]+|#[0-9]+|amp|lt|gt|quot|apos);/gi,
     (whole, body: string) => {
       const lower = body.toLowerCase()
-      switch (lower) {
-        case "amp":
-          return "&"
-        case "lt":
-          return "<"
-        case "gt":
-          return ">"
-        case "quot":
-          return '"'
-        case "apos":
-          return "'"
-        default: {
-          const code =
-            lower[1] === "x"
-              ? Number.parseInt(lower.slice(2), 16)
-              : Number.parseInt(lower.slice(1), 10)
-          if (!Number.isFinite(code) || code <= 0 || code > 0x10_ff_ff) {
-            return whole
-          }
-          try {
-            return String.fromCodePoint(code)
-          } catch {
-            return whole
-          }
-        }
+      const named = NAMED_ENTITIES[lower]
+      if (named !== undefined) {
+        return named
+      }
+      const code =
+        lower[1] === "x"
+          ? Number.parseInt(lower.slice(2), 16)
+          : Number.parseInt(lower.slice(1), 10)
+      if (!Number.isFinite(code) || code <= 0 || code > 0x10_ff_ff) {
+        return whole
+      }
+      try {
+        return String.fromCodePoint(code)
+      } catch {
+        return whole
       }
     }
   )

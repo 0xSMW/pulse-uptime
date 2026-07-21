@@ -191,7 +191,7 @@ export function createHttpChecker(dependencies: CheckerDependencies = {}) {
       currentUrl = parsePublicHttpUrl(input.url)
       const target = validateCheckTarget(input)
 
-      while (true) {
+      for (;;) {
         const remaining = target.timeoutMs - (now() - startedAt)
         if (remaining <= 0) {
           return failure(metadata(), "TIMEOUT")

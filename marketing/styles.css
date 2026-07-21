@@ -4038,6 +4038,7 @@ html,
 
 /* ---- Mobile menu ---- */
 
+/* biome-ignore lint/style/noDescendingSpecificity: base hide rule stays first, the responsive override lives in the mobile media query */
 .menu-cta {
   display: none;
 }

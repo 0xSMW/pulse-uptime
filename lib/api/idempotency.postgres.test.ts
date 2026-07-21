@@ -310,11 +310,11 @@ suite("idempotency PostgreSQL atomicity", () => {
     const now = new Date()
     let release!: () => void
     let started!: () => void
-    const startedPromise = new Promise<void>((resolve) => {
-      started = resolve
+    const startedPromise = new Promise<void>((resolvePromise) => {
+      started = resolvePromise
     })
-    const gate = new Promise<void>((resolve) => {
-      release = resolve
+    const gate = new Promise<void>((resolvePromise) => {
+      release = resolvePromise
     })
 
     // The owner opens its mutation transaction, takes the record lock, inserts
@@ -354,7 +354,7 @@ suite("idempotency PostgreSQL atomicity", () => {
     })
 
     // Give the retry time to reach claimStale and block, then let the owner commit.
-    await new Promise((resolve) => setTimeout(resolve, 250))
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 250))
     release()
 
     const ownerResult = await owner

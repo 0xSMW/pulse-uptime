@@ -47,9 +47,10 @@ export type AdapterParseErrorCode =
 export class AdapterParseError extends Error {
   constructor(
     readonly code: AdapterParseErrorCode,
-    message: string
+    message: string,
+    options?: ErrorOptions
   ) {
-    super(message)
+    super(message, options)
     this.name = "AdapterParseError"
   }
 }

@@ -44,7 +44,8 @@ export async function dispatchDueMonitors(options: {
     { length: Math.min(options.concurrency, due.length) },
     async () => {
       while (cursor < due.length) {
-        const monitor = due[cursor++]
+        const monitor = due[cursor]
+        cursor += 1
         if (!monitor) {
           continue
         }

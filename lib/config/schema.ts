@@ -15,6 +15,7 @@ const recipientsSchema = z.array(emailSchema).max(20)
 // them verbatim, so an ESC or bidi override in a monitor name becomes ANSI injection
 // or forged tabular rows. Reject them at the trust boundary.
 const DISPLAY_CONTROL_CHARS =
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: matching control and bidi characters is the point, they are rejected at the trust boundary
   /[\u0000-\u001F\u007F-\u009F\u200E\u200F\u202A-\u202E\u2066-\u2069]/
 
 export function displayName(min: number, max: number) {

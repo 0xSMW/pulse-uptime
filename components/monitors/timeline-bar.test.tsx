@@ -10,10 +10,16 @@ import { TimelineBar } from "./timeline-bar"
 // and scroll APIs that are unimplemented. Stub them so opening the tooltip
 // popup does not throw.
 beforeEach(() => {
-  Element.prototype.scrollIntoView ??= () => {}
+  Element.prototype.scrollIntoView ??= () => {
+    // jsdom stub
+  }
   Element.prototype.hasPointerCapture ??= () => false
-  Element.prototype.setPointerCapture ??= () => {}
-  Element.prototype.releasePointerCapture ??= () => {}
+  Element.prototype.setPointerCapture ??= () => {
+    // jsdom stub
+  }
+  Element.prototype.releasePointerCapture ??= () => {
+    // jsdom stub
+  }
 })
 
 afterEach(() => {

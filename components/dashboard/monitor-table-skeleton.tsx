@@ -2,7 +2,7 @@
 // footprint, same table frame and header, shimmer rows at the real row height.
 export function MonitorTableSkeleton({ rows = 3 }: { rows?: number }) {
   return (
-    <div aria-busy="true" aria-label="Loading monitors">
+    <div aria-busy="true" aria-label="Loading monitors" role="status">
       {/* Chrome copied from components/ui/input.tsx (md) so the swap to the
           real search input changes nothing visually. */}
       <div className="mb-4 h-10 animate-pulse rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)]" />
@@ -22,6 +22,7 @@ export function MonitorTableSkeleton({ rows = 3 }: { rows?: number }) {
             {Array.from({ length: rows }, (_, index) => (
               <tr
                 className="h-[60px] border-[var(--border)] border-b last:border-0"
+                // biome-ignore lint/suspicious/noArrayIndexKey: static placeholder list that never reorders
                 key={index}
               >
                 <td className="px-6">

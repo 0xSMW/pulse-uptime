@@ -96,7 +96,9 @@ export function UserMenu({
           <img
             alt=""
             className="size-full object-cover"
+            height={32}
             src={`/api/v1/images/${avatarImageId}`}
+            width={32}
           />
         ) : initials ? (
           initials
@@ -115,7 +117,9 @@ export function UserMenu({
               <img
                 alt=""
                 className="size-full object-cover"
+                height={32}
                 src={`/api/v1/images/${avatarImageId}`}
+                width={32}
               />
             ) : initials ? (
               initials

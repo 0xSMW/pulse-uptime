@@ -39,6 +39,7 @@ export function StatusMessage({
       role={message?.tone === "error" ? "alert" : undefined}
       tabIndex={-1}
     >
+      {/* biome-ignore lint/suspicious/noUnnecessaryConditions: message is null when the card is idle */}
       {message?.text ?? ""}
     </p>
   )

@@ -163,10 +163,12 @@ function extractNextData(text: string, sourceId: string): unknown {
   }
   try {
     return JSON.parse(match[1])
-  } catch {
+  } catch (error) {
+    // biome-ignore lint/style/useErrorCause: cause is threaded through the error options arg, biome only detects the native second-argument position
     throw new AdapterParseError(
       "SCHEMA_INVALID",
-      `${sourceId}: __NEXT_DATA__ payload is not valid JSON`
+      `${sourceId}: __NEXT_DATA__ payload is not valid JSON`,
+      { cause: error }
     )
   }
 }

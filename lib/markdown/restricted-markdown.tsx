@@ -19,6 +19,7 @@ export function RestrictedMarkdown({
   return (
     <div
       className={className}
+      // biome-ignore lint/security/noDangerouslySetInnerHtml: renderRestrictedMarkdown escapes all HTML then emits only whitelisted tags
       dangerouslySetInnerHTML={{ __html: renderRestrictedMarkdown(markdown) }}
     />
   )

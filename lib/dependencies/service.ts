@@ -40,9 +40,10 @@ export class DependencyApiError extends Error {
       | "DEPENDENCY_EXISTS"
       | "DEPENDENCY_NOT_FOUND",
     message: string,
-    readonly details: Record<string, unknown> = {}
+    readonly details: Record<string, unknown> = {},
+    options?: ErrorOptions
   ) {
-    super(message)
+    super(message, options)
     this.name = "DependencyApiError"
   }
 }
@@ -62,8 +63,12 @@ export interface DiscoveredScopeOptionRow {
  * statement on it.
  */
 export class DependencyInstallConflictError extends DependencyApiError {
-  constructor(message: string, details: Record<string, unknown> = {}) {
-    super("DEPENDENCY_EXISTS", message, details)
+  constructor(
+    message: string,
+    details: Record<string, unknown> = {},
+    options?: ErrorOptions
+  ) {
+    super("DEPENDENCY_EXISTS", message, details, options)
     this.name = "DependencyInstallConflictError"
   }
 }
@@ -539,8 +544,11 @@ export const databaseDependenciesStore: DependenciesStore = {
         return await runInsert(handle)
       } catch (error) {
         if ((error as { code?: string }).code === "23505") {
+          // biome-ignore lint/style/useErrorCause: cause is threaded through the error options arg, biome only detects the native second-argument position
           throw new DependencyInstallConflictError(
-            "An active dependency already exists for this preset and scope"
+            "An active dependency already exists for this preset and scope",
+            {},
+            { cause: error }
           )
         }
         throw error

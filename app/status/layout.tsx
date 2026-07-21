@@ -36,11 +36,13 @@ export default async function PublicStatusLayout({
     >
       {config.customHead ? (
         <div
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: custom head is the status page owner's own configured markup, an intentional customization
           dangerouslySetInnerHTML={{ __html: config.customHead }}
           data-status-custom-head
         />
       ) : null}
       {config.customCss ? (
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: custom css is the status page owner's own configured stylesheet, an intentional customization
         <style dangerouslySetInnerHTML={{ __html: config.customCss }} />
       ) : null}
       {children}
@@ -53,6 +55,7 @@ export default async function PublicStatusLayout({
           <script
             // The tag id is schema-validated (^G(T)?-[A-Z0-9]+$), so it cannot
             // break out of this inline snippet.
+            // biome-ignore lint/security/noDangerouslySetInnerHtml: static gtag bootstrap with a schema-validated tag id, no untrusted data
             dangerouslySetInnerHTML={{
               __html: `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${config.googleTagId}');`,
             }}

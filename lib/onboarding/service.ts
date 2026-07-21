@@ -42,9 +42,10 @@ export class OnboardingError extends Error {
       | "CHECK_BLOCKED"
       | "CHECK_FAILED"
       | "ACTIVATION_FAILED",
-    message: string
+    message: string,
+    options?: ErrorOptions
   ) {
-    super(message)
+    super(message, options)
     this.name = "OnboardingError"
   }
 }
@@ -70,10 +71,12 @@ export function validateDraft(input: MonitorDraft): MonitorDraft {
   let parsed: URL
   try {
     parsed = parsePublicHttpUrl(input.url.trim())
-  } catch {
+  } catch (error) {
+    // biome-ignore lint/style/useErrorCause: cause is threaded through the error options arg, biome only detects the native second-argument position
     throw new OnboardingError(
       "INVALID_DRAFT",
-      "Enter a public HTTP or HTTPS URL"
+      "Enter a public HTTP or HTTPS URL",
+      { cause: error }
     )
   }
   const name = input.name.trim()
@@ -294,10 +297,12 @@ function validateRecipients(email?: string) {
 async function writeEdgeConfig(config: MonitoringConfig) {
   try {
     await writeMonitoringEdgeConfig(config)
-  } catch {
+  } catch (error) {
+    // biome-ignore lint/style/useErrorCause: cause is threaded through the error options arg, biome only detects the native second-argument position
     throw new OnboardingError(
       "ACTIVATION_FAILED",
-      "Could not start monitoring. Try again"
+      "Could not start monitoring. Try again",
+      { cause: error }
     )
   }
 }

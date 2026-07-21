@@ -362,7 +362,7 @@ export async function getMonitorDetail(id: string) {
     rollupsSinceActivation(rollups90d, activatedAt)
   )
 
-  let acceptedConfig = null
+  let acceptedConfig: ReturnType<typeof validateMonitoringConfig> | null = null
   try {
     acceptedConfig = accepted[0]
       ? validateMonitoringConfig(accepted[0].configJson)

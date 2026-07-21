@@ -21,6 +21,66 @@
       "semicolons": "asNeeded"
     }
   },
+  "linter": {
+    "rules": {
+      "performance": {
+        // React 19 makes stable JSX callbacks a compiler concern, not a lint concern
+        "noJsxPropsBind": "off",
+        // regex locality beats micro optimization
+        "useTopLevelRegex": "off",
+        // sequential awaits are deliberate in the checker and pollers
+        "noAwaitInLoops": "off",
+        // import * as is idiomatic for schema and test modules
+        "noNamespaceImport": "off",
+        // the lib barrels are intentional module boundaries
+        "noBarrelFile": "off",
+        "noDelete": "off",
+        // the status page and marketing stay dependency light, plain img is fine
+        "noImgElement": "off"
+      },
+      "style": {
+        // 365 sites, revisit after noUncheckedIndexedAccess lands
+        "noNonNullAssertion": "off",
+        // nested ternaries are idiomatic in JSX rendering chains
+        "noNestedTernary": "off",
+        "useDestructuring": "off",
+        "noParameterProperties": "off",
+        "noExportedImports": "off",
+        // exhaustive switches rely on the absence of default for type narrowing
+        "useDefaultSwitchClause": "off"
+      },
+      "suspicious": {
+        // async without await keeps handler and store interfaces uniform
+        "useAwait": "off",
+        // availability bitmaps use bitwise math on purpose
+        "noBitwiseOperators": "off",
+        // shared test helpers assert on purpose
+        "noMisplacedAssertion": "off",
+        // x == null deliberately covers null and undefined
+        "noEqualsToNull": "off"
+      },
+      "a11y": {
+        // decorative icons want aria-hidden, not title spam the rule cannot tell apart
+        "noSvgWithoutTitle": "off",
+        // role to element rewrites fight the styled component layer
+        "useSemanticElements": "off",
+        // the row click pattern keeps a real link inside for keyboard and
+        // assistive tech, the div handler is an enhancement on top
+        "noStaticElementInteractions": "off",
+        "noNoninteractiveElementInteractions": "off",
+        "noNoninteractiveElementToInteractiveRole": "off",
+        "noNoninteractiveTabindex": "off",
+        "useKeyWithClickEvents": "off",
+        "useFocusableInteractive": "off"
+      },
+      "complexity": {
+        // void marks intentional fire and forget promises
+        "noVoid": "off",
+        // complexity is refactoring guidance, not a merge gate
+        "noExcessiveCognitiveComplexity": "off"
+      }
+    }
+  },
   "assist": {
     "actions": {
       "source": {

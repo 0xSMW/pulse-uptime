@@ -63,7 +63,7 @@ function document(
   const ids = [
     ...new Set(
       monitors
-        .map((monitor) => monitor.groupId)
+        .map((entry) => entry.groupId)
         .filter((id): id is string => id !== null)
     ),
   ]
@@ -82,7 +82,7 @@ function runtime(
   const ids = [
     ...new Set(
       monitors
-        .map((monitor) => monitor.groupId)
+        .map((entry) => entry.groupId)
         .filter((id): id is string => id !== null)
     ),
   ]

@@ -25,7 +25,7 @@ const tabs = [
  * (that would double-confirm). See useNavigationGuard.
  */
 export function IncidentsTabs({ className }: { className?: string }) {
-  const pathname = usePathname() ?? "/incidents"
+  const pathname = usePathname()
   return (
     <nav
       aria-label="Incidents sections"

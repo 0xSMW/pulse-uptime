@@ -232,7 +232,7 @@ function boundBySize(capture: CronErrorCapture, cap: number): CronErrorCapture {
 }
 
 export function captureCronError(error: unknown): CronErrorCapture {
-  const mark = { truncated: false }
+  const mark: { truncated: boolean } = { truncated: false }
   const capture = buildCapture(error, MAX_CAUSE_DEPTH, mark)
   if (mark.truncated) {
     capture.truncated = true

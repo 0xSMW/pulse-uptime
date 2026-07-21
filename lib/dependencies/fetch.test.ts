@@ -590,10 +590,10 @@ describe("fetchProviderDocument connection reuse", () => {
 
     expect(request).toHaveBeenCalledTimes(2)
     expect(
-      (request.mock.calls[0]?.[1] as { dispatcher: unknown }).dispatcher
+      (request.mock.calls[0]![1] as { dispatcher: unknown }).dispatcher
     ).toBe(dispatcher)
     expect(
-      (request.mock.calls[1]?.[1] as { dispatcher: unknown }).dispatcher
+      (request.mock.calls[1]![1] as { dispatcher: unknown }).dispatcher
     ).toBe(dispatcher)
     // A supplied dispatcher means fetch neither creates its own nor closes the caller's.
     expect(createDispatcher).not.toHaveBeenCalled()
@@ -636,6 +636,7 @@ describe("fetchProviderDocument connection reuse", () => {
 describe("fetchProviderDocument error boundary stages", () => {
   it("classifies a body-stream UND_ERR_BODY_TIMEOUT as TIMEOUT with stage body", async () => {
     const body: FetchResponse["body"] = {
+      // biome-ignore lint/correctness/useYield: async-iterator mock throws before yielding to simulate a mid-stream failure
       async *[Symbol.asyncIterator]() {
         const error = Object.assign(new Error("body timeout"), {
           code: "UND_ERR_BODY_TIMEOUT",
@@ -666,6 +667,7 @@ describe("fetchProviderDocument error boundary stages", () => {
 
   it("classifies a body-stream socket reset as NETWORK_ERROR with stage body", async () => {
     const body: FetchResponse["body"] = {
+      // biome-ignore lint/correctness/useYield: async-iterator mock throws before yielding to simulate a mid-stream failure
       async *[Symbol.asyncIterator]() {
         throw Object.assign(new Error("socket hang up"), { code: "ECONNRESET" })
       },
@@ -692,6 +694,7 @@ describe("fetchProviderDocument error boundary stages", () => {
 
   it("classifies an aborted body stream as NETWORK_ERROR, not TIMEOUT", async () => {
     const body: FetchResponse["body"] = {
+      // biome-ignore lint/correctness/useYield: async-iterator mock throws before yielding to simulate a mid-stream failure
       async *[Symbol.asyncIterator]() {
         throw Object.assign(new Error("aborted"), { name: "AbortError" })
       },
