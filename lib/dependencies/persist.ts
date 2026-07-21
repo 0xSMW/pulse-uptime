@@ -353,13 +353,25 @@ export function notificationKeyExternalId(
     : incidentExternalId
 }
 
-/** Retry-After wins outright when the provider sent one; otherwise the fixed 5/15/30 minute ladder, indexed by how many consecutive failures this is. */
+/** Upper bound on provider Retry-After delays used for next_poll_at. */
+export const MAX_RETRY_AFTER_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Retry-After wins when it is a finite nonnegative delay at most 24h.
+ * Invalid or oversized values fall through to the fixed 5/15/30 minute ladder,
+ * indexed by how many consecutive failures this is.
+ */
 export function failureDelayMs(
   consecutiveFailures: number,
   retryAfterMs: number | null
 ): number {
-  if (retryAfterMs !== null) {
-    return Math.max(0, retryAfterMs)
+  if (
+    retryAfterMs !== null &&
+    Number.isFinite(retryAfterMs) &&
+    retryAfterMs >= 0 &&
+    retryAfterMs <= MAX_RETRY_AFTER_MS
+  ) {
+    return retryAfterMs
   }
   const index = Math.min(
     Math.max(consecutiveFailures - 1, 0),

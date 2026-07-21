@@ -3,14 +3,26 @@ import { describe, expect, it, vi } from "vitest"
 vi.mock("server-only", () => ({}))
 
 import type { SqlExecutor } from "@/lib/notifications/sql"
+import type { CronRunStore } from "@/lib/scheduler/run-record"
 import {
   CLAIM_DUE_SOURCES_SQL,
   createDueSourceStore,
+  DEPENDENCY_WORK_BUDGET_MS,
   type DependencyCronCoordinatorDeps,
   runDependencyCronCoordinator,
+  toDependencyCronRunCounts,
 } from "./runtime"
 
 const NOW = new Date("2026-07-19T15:00:30.000Z")
+
+function fakeRuns(overrides: Partial<CronRunStore> = {}): CronRunStore {
+  return {
+    start: vi.fn().mockResolvedValue(true),
+    complete: vi.fn().mockResolvedValue(undefined),
+    fail: vi.fn().mockResolvedValue(undefined),
+    ...overrides,
+  }
+}
 
 function fakeDeps(
   overrides: Partial<DependencyCronCoordinatorDeps> = {}
@@ -20,11 +32,7 @@ function fakeDeps(
       acquire: vi.fn().mockResolvedValue(true),
       release: vi.fn().mockResolvedValue(undefined),
     },
-    runs: {
-      start: vi.fn().mockResolvedValue(true),
-      complete: vi.fn().mockResolvedValue(undefined),
-      fail: vi.fn().mockResolvedValue(undefined),
-    },
+    runs: fakeRuns(),
     releaseId: "dpl_test",
     syncCatalog: vi.fn().mockResolvedValue({ synced: false }),
     loadDefaultRecipients: vi.fn().mockResolvedValue(["ops@example.com"]),
@@ -33,6 +41,7 @@ function fakeDeps(
       polled: 1,
       notModified: 0,
       failed: 0,
+      skipped: 0,
     }),
     reconcileOutbox: vi.fn().mockResolvedValue(0),
     deliverOutbox: vi.fn().mockResolvedValue({
@@ -43,6 +52,7 @@ function fakeDeps(
       lostClaims: 0,
     }),
     now: () => NOW,
+    nowMs: () => NOW.getTime(),
     createId: (() => {
       let n = 0
       return () => {
@@ -54,6 +64,25 @@ function fakeDeps(
     ...overrides,
   }
 }
+
+describe("toDependencyCronRunCounts", () => {
+  it("maps domain poll counters into the four cron_runs columns", () => {
+    expect(
+      toDependencyCronRunCounts({
+        sourcesDue: 5,
+        polled: 2,
+        notModified: 1,
+        failed: 1,
+        skipped: 1,
+      })
+    ).toEqual({
+      monitorCount: 5,
+      successCount: 2,
+      failureCount: 1,
+      skippedCount: 2,
+    })
+  })
+})
 
 describe("runDependencyCronCoordinator", () => {
   it("returns lease-held without starting a run when the lease is unavailable", async () => {
@@ -67,11 +96,7 @@ describe("runDependencyCronCoordinator", () => {
 
   it("returns duplicate and does no work when this minute already has a run", async () => {
     const deps = fakeDeps({
-      runs: {
-        start: vi.fn().mockResolvedValue(false),
-        complete: vi.fn(),
-        fail: vi.fn(),
-      },
+      runs: fakeRuns({ start: vi.fn().mockResolvedValue(false) }),
     })
     const result = await runDependencyCronCoordinator(deps)
     expect(result).toEqual({ status: "duplicate", runId: "id-1" })
@@ -90,9 +115,16 @@ describe("runDependencyCronCoordinator", () => {
         callOrder.push("recipients")
         return ["ops@example.com"]
       }),
-      poll: vi.fn(async (recipients: string[]) => {
+      poll: vi.fn(async (recipients: string[], deadlineAtMs: number) => {
         callOrder.push(`poll:${recipients.join(",")}`)
-        return { sourcesDue: 3, polled: 2, notModified: 1, failed: 0 }
+        expect(deadlineAtMs).toBe(NOW.getTime() + DEPENDENCY_WORK_BUDGET_MS)
+        return {
+          sourcesDue: 3,
+          polled: 2,
+          notModified: 1,
+          failed: 0,
+          skipped: 0,
+        }
       }),
       reconcileOutbox: vi.fn(async () => {
         callOrder.push("reconcile")
@@ -121,18 +153,79 @@ describe("runDependencyCronCoordinator", () => {
       polled: 2,
       notModified: 1,
       failed: 0,
+      skipped: 0,
       staleClaims: 2,
+      counts: {
+        monitorCount: 3,
+        successCount: 2,
+        failureCount: 0,
+        skippedCount: 1,
+      },
     })
     expect(deps.runs.start).toHaveBeenCalledWith(
-      expect.objectContaining({ releaseId: "dpl_test" })
+      expect.objectContaining({
+        jobName: "check-dependencies",
+        releaseId: "dpl_test",
+      })
     )
     expect(deps.runs.complete).toHaveBeenCalledWith("id-1", NOW, {
-      sourcesDue: 3,
-      polled: 2,
-      notModified: 1,
-      failed: 0,
+      monitorCount: 3,
+      successCount: 2,
+      failureCount: 0,
+      skippedCount: 1,
     })
     expect(deps.leases.release).toHaveBeenCalledTimes(1)
+  })
+
+  it("honors a tighter absolute deadline when provided", async () => {
+    const tighter = NOW.getTime() + 10_000
+    const deps = fakeDeps({
+      deadlineAtMs: tighter,
+      poll: vi.fn(async (_recipients, deadlineAtMs) => {
+        expect(deadlineAtMs).toBe(tighter)
+        return {
+          sourcesDue: 0,
+          polled: 0,
+          notModified: 0,
+          failed: 0,
+          skipped: 0,
+        }
+      }),
+    })
+    await runDependencyCronCoordinator(deps)
+    expect(deps.poll).toHaveBeenCalled()
+  })
+
+  it("records poll counts before reconcile so a late failure keeps truthful values", async () => {
+    const fail = vi.fn()
+    const deps = fakeDeps({
+      poll: vi.fn().mockResolvedValue({
+        sourcesDue: 4,
+        polled: 2,
+        notModified: 1,
+        failed: 0,
+        skipped: 1,
+      }),
+      reconcileOutbox: vi.fn().mockRejectedValue(new Error("reconcile boom")),
+      runs: fakeRuns({ fail }),
+    })
+    const result = await runDependencyCronCoordinator(deps)
+    expect(result).toEqual({
+      status: "failed",
+      runId: "id-1",
+      error: "reconcile boom",
+    })
+    expect(fail).toHaveBeenCalledWith(
+      "id-1",
+      NOW,
+      expect.objectContaining({ message: "reconcile boom" }),
+      {
+        monitorCount: 4,
+        successCount: 2,
+        failureCount: 0,
+        skippedCount: 2,
+      }
+    )
   })
 
   it("reconciles stale outbox claims before draining so the dependency cron self-heals its own stuck sends", async () => {
@@ -155,8 +248,10 @@ describe("runDependencyCronCoordinator", () => {
   })
 
   it("records a failed run and still releases the lease when polling throws", async () => {
+    const fail = vi.fn()
     const deps = fakeDeps({
       poll: vi.fn().mockRejectedValue(new Error("feed exploded")),
+      runs: fakeRuns({ fail }),
     })
     const result = await runDependencyCronCoordinator(deps)
     expect(result).toEqual({
@@ -164,8 +259,60 @@ describe("runDependencyCronCoordinator", () => {
       runId: "id-1",
       error: "feed exploded",
     })
-    expect(deps.runs.fail).toHaveBeenCalledWith("id-1", NOW, "feed exploded")
+    expect(fail).toHaveBeenCalledWith(
+      "id-1",
+      NOW,
+      expect.objectContaining({ message: "feed exploded" }),
+      {
+        monitorCount: 0,
+        successCount: 0,
+        failureCount: 0,
+        skippedCount: 0,
+      }
+    )
     expect(deps.leases.release).toHaveBeenCalledTimes(1)
+  })
+
+  it("persists partial poll counts when poll throws with pollCounts attached", async () => {
+    const fail = vi.fn()
+    const error = new AggregateError(
+      [new Error("persist boom")],
+      "Dependency source persistence failed"
+    ) as AggregateError & {
+      pollCounts: {
+        sourcesDue: number
+        polled: number
+        notModified: number
+        failed: number
+        skipped: number
+      }
+    }
+    error.pollCounts = {
+      sourcesDue: 3,
+      polled: 2,
+      notModified: 0,
+      failed: 0,
+      skipped: 1,
+    }
+    const deps = fakeDeps({
+      poll: vi.fn().mockRejectedValue(error),
+      runs: fakeRuns({ fail }),
+    })
+    const result = await runDependencyCronCoordinator(deps)
+    expect(result.status).toBe("failed")
+    expect(fail).toHaveBeenCalledWith(
+      "id-1",
+      NOW,
+      expect.objectContaining({
+        message: "Dependency source persistence failed",
+      }),
+      {
+        monitorCount: 3,
+        successCount: 2,
+        failureCount: 0,
+        skippedCount: 1,
+      }
+    )
   })
 
   it("sanitizes newlines out of a failure message before recording it", async () => {
@@ -274,6 +421,7 @@ describe("runDependencyCron wiring", () => {
       polled: 0,
       notModified: 0,
       failed: 0,
+      skipped: 0,
     })
     const deliverPendingNotifications = vi.fn().mockResolvedValue({
       claimed: 0,
@@ -302,6 +450,11 @@ describe("runDependencyCron wiring", () => {
         acquire: vi.fn().mockResolvedValue(true),
         release: vi.fn(),
       }),
+      createSqlCronRunStore: () => ({
+        start: vi.fn().mockResolvedValue(true),
+        complete: vi.fn(),
+        fail: vi.fn(),
+      }),
     }))
     vi.doMock("./catalog-sync", () => ({
       syncCatalog,
@@ -322,6 +475,11 @@ describe("runDependencyCron wiring", () => {
       loadCatalogManifest()
     )
     expect(result.status).toBe("completed")
+    expect(pollDueSources).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deadlineAtMs: expect.any(Number),
+      })
+    )
     vi.doUnmock("@/lib/db/client")
     vi.doUnmock("@/lib/api/config-mutation")
     vi.doUnmock("@/lib/notifications/delivery")

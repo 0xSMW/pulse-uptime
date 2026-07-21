@@ -1,5 +1,8 @@
 import "server-only"
 
+import { runBoundedWork } from "@/lib/async/bounded-work"
+import { deadlineCanStart } from "@/lib/async/deadline"
+
 import { AdapterParseError, resolveAdapter } from "./adapters"
 import {
   collectAdapterDocuments,
@@ -21,6 +24,13 @@ import type { DependencyAdapterName, NormalizedProviderSnapshot } from "./types"
 // outcome (snapshot, not-modified, or failure) is handed off whole.
 
 export { MAX_DOCUMENTS_PER_CYCLE }
+
+/**
+ * Minimum remaining budget required to start another source. Matches one
+ * provider request ceiling so a source is not claimed when it cannot open a
+ * fetch before the work deadline.
+ */
+export const MIN_SOURCE_START_BUDGET_MS = 5000
 
 export interface PollerSourceRow {
   id: string
@@ -86,7 +96,10 @@ export interface PollDueSourcesDeps {
   ) => Promise<FetchDocumentResult>
   fetchDeps?: FetchProviderDocumentDeps
   now?: () => Date
+  nowMs?: () => number
   concurrency?: number
+  /** Absolute wall-clock deadline for the poll pool and every fetch. */
+  deadlineAtMs?: number
 }
 
 export interface PollDueSourcesResult {
@@ -94,6 +107,8 @@ export interface PollDueSourcesResult {
   polled: number
   notModified: number
   failed: number
+  /** Due sources never started because the work budget was exhausted. */
+  skipped: number
 }
 
 function toManifestSource(row: PollerSourceRow): DependencySourceManifest {
@@ -123,25 +138,13 @@ export class DocumentBudgetExceededError extends Error {
   }
 }
 
-async function runBounded<T>(
-  items: readonly T[],
-  concurrency: number,
-  worker: (item: T) => Promise<void>
-): Promise<void> {
-  let cursor = 0
-  const runners = Array.from(
-    { length: Math.min(Math.max(concurrency, 1), items.length) },
-    async () => {
-      while (cursor < items.length) {
-        const item = items[cursor]
-        cursor += 1
-        if (item) {
-          await worker(item)
-        }
-      }
-    }
-  )
-  await Promise.all(runners)
+/** Raised when collection stops mid-source because the work deadline is spent. */
+export class PollDeadlineExceededError extends Error {
+  readonly code = "POLL_DEADLINE_EXCEEDED"
+  constructor(sourceId: string) {
+    super(`${sourceId}: poll deadline exceeded before documents completed`)
+    this.name = "PollDeadlineExceededError"
+  }
 }
 
 /**
@@ -149,14 +152,16 @@ async function runBounded<T>(
  * collector. The primary "current" document is fetched with stored validators
  * when it is the source's one required document, so a 304 short-circuits the
  * whole cycle. Optional secondary fetch failures are skipped so normalize()
- * can apply its documented fallback. A document-cap incomplete result becomes
- * DocumentBudgetExceededError so a partial fetch never resolves an incident
+ * can apply its documented fallback. A document-cap or deadline incomplete
+ * result becomes a typed error so a partial fetch never resolves an incident
  * from truncated data.
  */
 async function pollOneSource(
   source: PollerSourceRow,
   fetchDocument: NonNullable<PollDueSourcesDeps["fetchDocument"]>,
-  now: Date
+  now: Date,
+  deadlineAtMs: number | undefined,
+  nowMs: () => number
 ): Promise<PollOutcome> {
   const adapter = resolveAdapter(source.adapter)
   const manifestSource = toManifestSource(source)
@@ -179,6 +184,8 @@ async function pollOneSource(
       primaryValidators: primaryStandsAlone
         ? { etag: source.etag, lastModified: source.lastModified }
         : undefined,
+      deadlineAtMs,
+      nowMs,
       fetchDocument: (request, options) =>
         fetchDocument(source, {
           url: request.url,
@@ -199,8 +206,10 @@ async function pollOneSource(
     }
 
     if (collected.status === "incomplete") {
-      // Cap (or deadline, unused in normal polling) never normalizes a partial
-      // snapshot. Fail the source with the recorded budget code.
+      // Cap or deadline never normalizes a partial snapshot.
+      if (collected.reason === "deadline") {
+        throw new PollDeadlineExceededError(source.id)
+      }
       throw new DocumentBudgetExceededError(source.id, MAX_DOCUMENTS_PER_CYCLE)
     }
 
@@ -220,7 +229,10 @@ async function pollOneSource(
     const retryAfterMs =
       error instanceof ProviderFetchError ? error.retryAfterMs : null
     const normalized =
-      error instanceof ProviderFetchError || error instanceof AdapterParseError
+      error instanceof ProviderFetchError ||
+      error instanceof AdapterParseError ||
+      error instanceof DocumentBudgetExceededError ||
+      error instanceof PollDeadlineExceededError
         ? error
         : error instanceof Error
           ? error
@@ -238,8 +250,11 @@ export async function pollDueSources(
   deps: PollDueSourcesDeps
 ): Promise<PollDueSourcesResult> {
   const now = deps.now ?? (() => new Date())
+  const nowMs = deps.nowMs ?? Date.now
   const nowDate = now()
   const sources = await deps.store.listDueSources(nowDate)
+  const deadlineAtMs = deps.deadlineAtMs
+  const concurrency = deps.concurrency ?? 4
 
   // One dispatcher serves the whole cycle so a source's documents on the same
   // host reuse a single keep-alive connection instead of paying TLS and DNS
@@ -280,22 +295,87 @@ export async function pollDueSources(
   let polled = 0
   let notModified = 0
   let failed = 0
+  let stopStartingForInfra = false
 
   try {
-    await runBounded(sources, deps.concurrency ?? 4, async (source) => {
-      const outcome = await pollOneSource(source, fetchDocument, nowDate)
-      if (outcome.kind === "snapshot") {
-        polled += 1
-      } else if (outcome.kind === "not_modified") {
-        notModified += 1
-      } else {
-        failed += 1
-      }
-      await deps.persist(outcome, source, nowDate)
+    const outcomes = await runBoundedWork(sources, {
+      concurrency,
+      shouldStop: () => {
+        if (stopStartingForInfra) {
+          return true
+        }
+        if (typeof deadlineAtMs !== "number") {
+          return false
+        }
+        return !deadlineCanStart(
+          deadlineAtMs,
+          MIN_SOURCE_START_BUDGET_MS,
+          nowMs()
+        )
+      },
+      worker: async (source) => {
+        const outcome = await pollOneSource(
+          source,
+          fetchDocument,
+          nowDate,
+          deadlineAtMs,
+          nowMs
+        )
+        if (outcome.kind === "snapshot") {
+          polled += 1
+        } else if (outcome.kind === "not_modified") {
+          notModified += 1
+        } else {
+          failed += 1
+        }
+        try {
+          await deps.persist(outcome, source, nowDate)
+        } catch (error) {
+          // Persistence is infrastructure. Stop claiming new sources, let
+          // started workers settle, then surface after the pool returns.
+          stopStartingForInfra = true
+          throw error
+        }
+        return outcome
+      },
     })
 
-    return { sourcesDue: sources.length, polled, notModified, failed }
+    let skipped = 0
+    const infraErrors: Error[] = []
+    for (const outcome of outcomes) {
+      if (outcome.status === "skipped") {
+        skipped += 1
+      } else if (outcome.status === "rejected") {
+        infraErrors.push(
+          outcome.reason instanceof Error
+            ? outcome.reason
+            : new Error(String(outcome.reason))
+        )
+      }
+    }
+
+    const pollCounts = {
+      sourcesDue: sources.length,
+      polled,
+      notModified,
+      failed,
+      skipped,
+    }
+
+    if (infraErrors.length > 0) {
+      const error = new AggregateError(
+        infraErrors,
+        "Dependency source persistence failed"
+      ) as AggregateError & { pollCounts: typeof pollCounts }
+      // Truthful partial counters for cron_runs even when persistence fails.
+      error.pollCounts = pollCounts
+      throw error
+    }
+
+    return pollCounts
   } finally {
+    // Close only after every started worker has settled so in-flight fetches
+    // still use the shared dispatcher.
     if (dispatcher) {
       await dispatcher.close()
     }

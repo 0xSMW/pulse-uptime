@@ -13,6 +13,7 @@ import {
   failureDelayMs,
   type InstalledDependencyRow,
   isSourceStale,
+  MAX_RETRY_AFTER_MS,
   matchingIdsForSelector,
   notificationKeyExternalId,
   type PersistExecutor,
@@ -581,6 +582,15 @@ describe("failureDelayMs and isSourceStale", () => {
   it("honors an explicit Retry-After over the ladder", () => {
     expect(failureDelayMs(1, 2 * 60_000)).toBe(2 * 60_000)
     expect(failureDelayMs(1, 60 * 60_000)).toBe(60 * 60_000)
+    expect(failureDelayMs(1, MAX_RETRY_AFTER_MS)).toBe(MAX_RETRY_AFTER_MS)
+  })
+
+  it("falls back to the ladder for invalid or oversized Retry-After values", () => {
+    expect(failureDelayMs(1, Number.NaN)).toBe(5 * 60_000)
+    expect(failureDelayMs(1, Number.POSITIVE_INFINITY)).toBe(5 * 60_000)
+    expect(failureDelayMs(1, -1)).toBe(5 * 60_000)
+    expect(failureDelayMs(2, MAX_RETRY_AFTER_MS + 1)).toBe(15 * 60_000)
+    expect(failureDelayMs(3, Number.NEGATIVE_INFINITY)).toBe(30 * 60_000)
   })
 
   it("treats a never-successful source and a source stale past its window as stale", () => {

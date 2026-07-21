@@ -319,6 +319,58 @@ describe("fetchProviderDocument conditional requests", () => {
     })
   })
 
+  it("caps a huge Retry-After at 24 hours", async () => {
+    const request = vi
+      .fn<
+        (url: URL, options: Record<string, unknown>) => Promise<FetchResponse>
+      >()
+      .mockResolvedValueOnce({
+        statusCode: 503,
+        headers: { "retry-after": String(48 * 60 * 60) },
+        body: jsonBody({}),
+      })
+    await expect(
+      fetchProviderDocument(
+        SOURCE,
+        { url: "https://www.vercel-status.com/summary.json" },
+        {
+          request,
+          createDispatcher: () => fakeDispatcher(),
+        }
+      )
+    ).rejects.toMatchObject({
+      code: "HTTP_STATUS",
+      statusCode: 503,
+      retryAfterMs: 24 * 60 * 60 * 1000,
+    })
+  })
+
+  it("drops a non-finite Retry-After as null so callers use local backoff", async () => {
+    const request = vi
+      .fn<
+        (url: URL, options: Record<string, unknown>) => Promise<FetchResponse>
+      >()
+      .mockResolvedValueOnce({
+        statusCode: 503,
+        headers: { "retry-after": "not-a-delay" },
+        body: jsonBody({}),
+      })
+    await expect(
+      fetchProviderDocument(
+        SOURCE,
+        { url: "https://www.vercel-status.com/summary.json" },
+        {
+          request,
+          createDispatcher: () => fakeDispatcher(),
+        }
+      )
+    ).rejects.toMatchObject({
+      code: "HTTP_STATUS",
+      statusCode: 503,
+      retryAfterMs: null,
+    })
+  })
+
   it("classifies an abort/timeout error as TIMEOUT", async () => {
     const request = vi
       .fn<
