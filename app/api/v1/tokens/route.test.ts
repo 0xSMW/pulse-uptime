@@ -68,6 +68,7 @@ vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
 vi.mock("@/lib/api/token-service", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/token-service")>()),
   createApiToken: vi.fn(),
+  listApiTokens: vi.fn(),
   validateTokenInput: vi.fn(),
 }))
 vi.mock("@/lib/api/tokens", async (importOriginal) => ({
@@ -81,15 +82,18 @@ vi.mock("@/lib/api/tokens", async (importOriginal) => ({
 }))
 
 import { type ApiContext, authorize } from "@/lib/api/middleware"
+import { encodeCursor } from "@/lib/api/pagination"
 import type { ApiScope } from "@/lib/api/scopes"
 import {
   createApiToken,
+  listApiTokens,
   type TokenRecord,
   validateTokenInput,
 } from "@/lib/api/token-service"
 
 import {
   type CreatedTokenData,
+  GET,
   type PersistedCreatedTokenData,
   POST,
   persistCreatedToken,
@@ -174,6 +178,7 @@ beforeEach(() => {
   idempotencyRecords.clear()
   vi.mocked(authorize).mockReset()
   vi.mocked(createApiToken).mockReset()
+  vi.mocked(listApiTokens).mockReset()
   vi.mocked(validateTokenInput).mockReset()
   process.env.API_TOKEN_HASH_KEY = "api-token-key-with-at-least-32-characters"
 })
@@ -232,6 +237,42 @@ describe("CreatedToken persist/replay helpers", () => {
       token: "pulse_live_replayed",
     })
     expect(replayed.expiryClamped).toBe(true)
+  })
+})
+
+describe("GET /api/v1/tokens cursor validation", () => {
+  it("returns INVALID_CURSOR and never lists tokens for a non-UUID cursor id", async () => {
+    vi.mocked(authorize).mockResolvedValue(humanContext)
+    const cursor = encodeCursor({
+      sort: "2026-07-18T00:00:00.000Z",
+      id: "not-a-uuid",
+    })
+    const response = await GET(
+      new Request(`https://pulse.test/api/v1/tokens?cursor=${cursor}`)
+    )
+    const body = await response.json()
+    expect(response.status).toBe(400)
+    expect(body.error.code).toBe("INVALID_CURSOR")
+    expect(listApiTokens).not.toHaveBeenCalled()
+  })
+
+  it("lists tokens when the cursor is a valid timestamp+UUID pair", async () => {
+    vi.mocked(authorize).mockResolvedValue(humanContext)
+    vi.mocked(listApiTokens).mockResolvedValue({
+      tokens: [tokenRecord],
+      nextCursor: null,
+    })
+    const sort = "2026-07-18T00:00:00.000Z"
+    const id = "11111111-1111-4111-8111-111111111111"
+    const cursor = encodeCursor({ sort, id })
+    const response = await GET(
+      new Request(`https://pulse.test/api/v1/tokens?cursor=${cursor}`)
+    )
+    expect(response.status).toBe(200)
+    expect(listApiTokens).toHaveBeenCalledWith({
+      cursor: { sort: new Date(sort), id },
+      limit: 50,
+    })
   })
 })
 

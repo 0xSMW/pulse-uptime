@@ -6,7 +6,11 @@ import {
 } from "@/lib/api/envelopes"
 import { executeIdempotent, requireIdempotencyKey } from "@/lib/api/idempotency"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
-import { decodeCursor, encodeCursor, pageLimit } from "@/lib/api/pagination"
+import {
+  decodeTimestampUuidCursor,
+  encodeCursor,
+  pageLimit,
+} from "@/lib/api/pagination"
 import { routeError } from "@/lib/api/route"
 import {
   createApiToken,
@@ -138,8 +142,8 @@ export async function GET(request: Request) {
   }
   const url = new URL(request.url)
   const limit = pageLimit(url.searchParams.get("limit"))
-  const cursor = decodeCursor(url.searchParams.get("cursor"))
-  if (!limit || (url.searchParams.has("cursor") && !cursor)) {
+  const decoded = decodeTimestampUuidCursor(url.searchParams.get("cursor"))
+  if (!(limit && decoded.ok)) {
     return apiError(
       context.requestId,
       400,
@@ -147,7 +151,7 @@ export async function GET(request: Request) {
       "Cursor or limit is invalid"
     )
   }
-  const page = await listApiTokens({ cursor, limit })
+  const page = await listApiTokens({ cursor: decoded.cursor, limit })
   return apiJson(
     listEnvelope(
       "TokenList",

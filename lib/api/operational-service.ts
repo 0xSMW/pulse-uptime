@@ -24,7 +24,11 @@ import {
 } from "@/lib/notifications/idempotency"
 import { getPublicStatus } from "@/lib/reporting/queries/status"
 
-import { type CursorValue, decodeCursor, encodeCursor } from "./pagination"
+import {
+  decodeTimestampUuidCursor,
+  encodeCursor,
+  type TimestampUuidCursor,
+} from "./pagination"
 
 const recipientSchema = z.string().trim().email()
 
@@ -74,21 +78,20 @@ export function createOperationalService(
   const database = dependencies.database
 
   return {
-    async listIncidents(input: { cursor: CursorValue | null; limit: number }) {
-      const cursorDate = input.cursor ? new Date(input.cursor.sort) : null
-      if (cursorDate && Number.isNaN(cursorDate.getTime())) {
-        throw new OperationalInputError("INVALID_CURSOR", "Cursor is invalid")
-      }
-      const after =
-        cursorDate && input.cursor
-          ? or(
-              lt(incidents.openedAt, cursorDate),
-              and(
-                eq(incidents.openedAt, cursorDate),
-                lt(incidents.id, input.cursor.id)
-              )
+    async listIncidents(input: {
+      cursor: TimestampUuidCursor | null
+      limit: number
+    }) {
+      // Cursor is already Date+UUID-validated by parseIncidentCursor.
+      const after = input.cursor
+        ? or(
+            lt(incidents.openedAt, input.cursor.sort),
+            and(
+              eq(incidents.openedAt, input.cursor.sort),
+              lt(incidents.id, input.cursor.id)
             )
-          : undefined
+          )
+        : undefined
       const rows = await database
         .select({
           id: incidents.id,
@@ -274,15 +277,14 @@ export class OperationalInputError extends Error {
   }
 }
 
-export function parseIncidentCursor(value: string | null): CursorValue | null {
-  if (!value) {
-    return null
-  }
-  const cursor = decodeCursor(value)
-  if (!cursor || Number.isNaN(new Date(cursor.sort).getTime())) {
+export function parseIncidentCursor(
+  value: string | null
+): TimestampUuidCursor | null {
+  const decoded = decodeTimestampUuidCursor(value)
+  if (!decoded.ok) {
     throw new OperationalInputError("INVALID_CURSOR", "Cursor is invalid")
   }
-  return cursor
+  return decoded.cursor
 }
 
 export const operationalService = createOperationalService()
