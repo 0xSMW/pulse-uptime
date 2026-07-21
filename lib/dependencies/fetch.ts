@@ -580,8 +580,8 @@ function byteSwap16(buffer: Buffer): Buffer {
   const evenLength = buffer.length - (buffer.length % 2)
   const swapped = Buffer.allocUnsafe(evenLength)
   for (let index = 0; index < evenLength; index += 2) {
-    swapped[index] = buffer[index + 1]
-    swapped[index + 1] = buffer[index]
+    swapped[index] = buffer[index + 1]!
+    swapped[index + 1] = buffer[index]!
   }
   return swapped
 }

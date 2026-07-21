@@ -281,9 +281,9 @@ function ModalFrame({
     if (!focusable?.length) {
       return
     }
-    const first = focusable[0]
+    const first = focusable[0]!
     // biome-ignore lint/style/useAtIndex: NodeListOf has no .at in the DOM lib
-    const last = focusable[focusable.length - 1]
+    const last = focusable[focusable.length - 1]!
     if (event.shiftKey && document.activeElement === first) {
       event.preventDefault()
       last.focus()

@@ -1626,11 +1626,11 @@ export function createDatabaseStatusReportsStore(
         if (!existing) {
           return "missing"
         }
-        const [{ total }] = await tx
+        const [totals] = await tx
           .select({ total: count() })
           .from(statusReportUpdates)
           .where(eq(statusReportUpdates.reportId, reportId))
-        if (total <= 1) {
+        if (!totals || totals.total <= 1) {
           return "last_update"
         }
         await tx

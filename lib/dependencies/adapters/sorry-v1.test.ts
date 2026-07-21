@@ -63,13 +63,13 @@ describe("sorryV1Adapter.requests: first round", () => {
       url: componentsUrl,
       optional: false,
     })
-    const presentRequest = requests[1]
+    const presentRequest = requests[1]!
     expect(presentRequest.kind).toBe("incidents")
     expect(presentRequest.url).toContain(
       "filter%5Btimeline_state_eq%5D=present"
     )
     expect(presentRequest.url).toContain("filter%5Btype_eq%5D=unplanned")
-    const pastRequest = requests[2]
+    const pastRequest = requests[2]!
     expect(pastRequest.kind).toBe("incidents")
     expect(pastRequest.url).toContain("filter%5Btimeline_state_eq%5D=past")
     expect(pastRequest.url).toContain("filter%5Btype_eq%5D=unplanned")
@@ -301,14 +301,14 @@ describe("sorryV1Adapter.normalize: component status mapping", () => {
           empty,
         ],
         observedAt: "2026-07-19T12:00:00.000Z",
-      }).components["87154"].state
+      }).components["87154"]!.state
     ).toBe("OPERATIONAL")
     expect(
       sorryV1Adapter.normalize({
         source: postmarkSource,
         documents: [doc("current", componentsUrl, componentsDegraded), empty],
         observedAt: "2026-07-19T12:00:00.000Z",
-      }).components["87154"].state
+      }).components["87154"]!.state
     ).toBe("DEGRADED")
     expect(
       sorryV1Adapter.normalize({
@@ -318,7 +318,7 @@ describe("sorryV1Adapter.normalize: component status mapping", () => {
           empty,
         ],
         observedAt: "2026-07-19T12:00:00.000Z",
-      }).components["87151"].state
+      }).components["87151"]!.state
     ).toBe("MAINTENANCE")
   })
 })
@@ -335,7 +335,7 @@ describe("sorryV1Adapter.normalize: notices", () => {
       observedAt: "2026-07-07T02:00:00.000Z",
     })
     expect(snapshot.incidents).toHaveLength(1)
-    const [incident] = snapshot.incidents
+    const incident = snapshot.incidents[0]!
     expect(incident.externalId).toBe("503440")
     expect(incident.state).toBe("resolved")
     expect(incident.scope).toEqual({
@@ -360,7 +360,7 @@ describe("sorryV1Adapter.normalize: notices", () => {
       ],
       observedAt: "2026-07-07T02:00:00.000Z",
     })
-    const firstUpdate = snapshot.incidents[0].updates[0]
+    const firstUpdate = snapshot.incidents[0]!.updates[0]!
     expect(firstUpdate.bodyText).toBe(
       "We are investigating an issue causing inbound webhook delays."
     )
@@ -376,7 +376,7 @@ describe("sorryV1Adapter.normalize: notices", () => {
       ],
       observedAt: "2026-07-07T02:00:00.000Z",
     })
-    const states = snapshot.incidents[0].updates.map((update) => update.state)
+    const states = snapshot.incidents[0]!.updates.map((update) => update.state)
     expect(states).toContain("recovering")
     expect(states.at(-1)).toBe("resolved")
   })
@@ -401,8 +401,8 @@ describe("sorryV1Adapter.normalize: notices", () => {
       second.incidents.map((incident) => incident.externalId)
     )
     expect(
-      first.incidents[0].updates.map((update) => update.externalId)
-    ).toEqual(second.incidents[0].updates.map((update) => update.externalId))
+      first.incidents[0]!.updates.map((update) => update.externalId)
+    ).toEqual(second.incidents[0]!.updates.map((update) => update.externalId))
   })
 
   it("assembles incidents across a paginated notice list, each with its own detail document", () => {
@@ -453,8 +453,8 @@ describe("sorryV1Adapter.normalize: a notice that ends between polls", () => {
       observedAt: "2026-07-18T09:15:00.000Z",
     })
     expect(pollOneSnapshot.incidents).toHaveLength(1)
-    expect(pollOneSnapshot.incidents[0].externalId).toBe("503442")
-    expect(pollOneSnapshot.incidents[0].resolvedAt).toBeNull()
+    expect(pollOneSnapshot.incidents[0]!.externalId).toBe("503442")
+    expect(pollOneSnapshot.incidents[0]!.resolvedAt).toBeNull()
 
     // The notice ended and left the present list entirely between polls, the past list is where its
     // ended_at is now observed.
@@ -469,9 +469,9 @@ describe("sorryV1Adapter.normalize: a notice that ends between polls", () => {
       observedAt: "2026-07-18T12:00:00.000Z",
     })
     expect(pollTwoSnapshot.incidents).toHaveLength(1)
-    expect(pollTwoSnapshot.incidents[0].externalId).toBe("503442")
-    expect(pollTwoSnapshot.incidents[0].state).toBe("resolved")
-    expect(pollTwoSnapshot.incidents[0].resolvedAt).toBe(
+    expect(pollTwoSnapshot.incidents[0]!.externalId).toBe("503442")
+    expect(pollTwoSnapshot.incidents[0]!.state).toBe("resolved")
+    expect(pollTwoSnapshot.incidents[0]!.resolvedAt).toBe(
       "2026-07-18T11:45:00.000Z"
     )
   })

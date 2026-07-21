@@ -198,8 +198,8 @@ describe("getAccessSettings (finding: after the scope_profile backfill, auth gra
 
     const result = await getAccessSettings()
     expect(result.tokens).toHaveLength(1)
-    expect(result.tokens[0].scopes).toEqual([...ADMINISTRATOR_SCOPES])
-    expect(result.tokens[0].scopes).toContain("reports:read")
+    expect(result.tokens[0]!.scopes).toEqual([...ADMINISTRATOR_SCOPES])
+    expect(result.tokens[0]!.scopes).toContain("reports:read")
   })
 
   it("falls back to the literal scopes column when scope_profile is null", async () => {
@@ -212,7 +212,10 @@ describe("getAccessSettings (finding: after the scope_profile backfill, auth gra
       .mockReturnValueOnce(selectChain([session]))
 
     const result = await getAccessSettings()
-    expect(result.tokens[0].scopes).toEqual(["monitors:read", "incidents:read"])
+    expect(result.tokens[0]!.scopes).toEqual([
+      "monitors:read",
+      "incidents:read",
+    ])
   })
 
   it("falls back to the literal scopes column when the stored profile name is unknown, matching auth's resolution", async () => {
@@ -225,6 +228,6 @@ describe("getAccessSettings (finding: after the scope_profile backfill, auth gra
       .mockReturnValueOnce(selectChain([session]))
 
     const result = await getAccessSettings()
-    expect(result.tokens[0].scopes).toEqual(["status:read"])
+    expect(result.tokens[0]!.scopes).toEqual(["status:read"])
   })
 })

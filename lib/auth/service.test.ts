@@ -60,8 +60,8 @@ describe("administrator creation service", () => {
     )
     expect(result.email).toBe("admin@example.com")
     expect(fake.inserts).toHaveLength(1)
-    expect(fake.inserts[0].sessionDigest).toHaveLength(32)
-    expect(fake.inserts[0].name).toBeNull()
+    expect(fake.inserts[0]!.sessionDigest).toHaveLength(32)
+    expect(fake.inserts[0]!.name).toBeNull()
   })
 
   it("trims and persists an optional name", async () => {
@@ -80,7 +80,7 @@ describe("administrator creation service", () => {
         verifyBootstrap: allowBootstrap,
       }
     )
-    expect(fake.inserts[0].name).toBe("Ada Lovelace")
+    expect(fake.inserts[0]!.name).toBe("Ada Lovelace")
   })
 
   it("stores a blank name as null", async () => {
@@ -99,7 +99,7 @@ describe("administrator creation service", () => {
         verifyBootstrap: allowBootstrap,
       }
     )
-    expect(fake.inserts[0].name).toBeNull()
+    expect(fake.inserts[0]!.name).toBeNull()
   })
 
   it("rejects a name longer than 120 characters", async () => {

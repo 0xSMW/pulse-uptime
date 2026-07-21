@@ -102,7 +102,7 @@ describe("auth0StatusAdapter.normalize: single region incident", () => {
       })
     }
     expect(snapshot.incidents).toHaveLength(1)
-    const incident = snapshot.incidents[0]
+    const incident = snapshot.incidents[0]!
     expect(incident).toMatchObject({
       externalId: "inc_eu1_9x2",
       title: "Elevated authentication error rates",
@@ -133,7 +133,7 @@ describe("auth0StatusAdapter.normalize: authenticationAffected surfacing", () =>
     expect(snapshot.components["US-1"]).toMatchObject({ state: "OUTAGE" })
     expect(snapshot.components["US-3"]).toMatchObject({ state: "OUTAGE" })
     expect(snapshot.incidents).toHaveLength(1)
-    const incident = snapshot.incidents[0]
+    const incident = snapshot.incidents[0]!
     expect(incident.externalId).toBe("inc_multi_c4")
     expect(incident.impact).toBe("critical")
     expect(incident.scope.kind).toBe("components")
@@ -144,10 +144,10 @@ describe("auth0StatusAdapter.normalize: authenticationAffected surfacing", () =>
     expect(incident.updates).toHaveLength(1)
     // authenticationAffected is true in the US-1 leg, so the OR across regions
     // reports it affected.
-    expect(incident.updates[0].bodyText).toBe(
+    expect(incident.updates[0]!.bodyText).toBe(
       "Authentication affected: yes. Impact: critical."
     )
-    expect(incident.updates[0].state).toBe("identified")
+    expect(incident.updates[0]!.state).toBe("identified")
   })
 
   it("reports authentication not affected when no region flags it", () => {
@@ -159,7 +159,7 @@ describe("auth0StatusAdapter.normalize: authenticationAffected surfacing", () =>
       (r: { region: string }) => r.region === "EU-1"
     ).response.incidents[0].authenticationAffected = false
     const recomputed = normalize(body)
-    expect(recomputed.incidents[0].updates[0].bodyText).toBe(
+    expect(recomputed.incidents[0]!.updates[0]!.bodyText).toBe(
       "Authentication affected: no. Impact: major."
     )
   })
@@ -195,11 +195,11 @@ describe("auth0StatusAdapter.normalize: private incidents", () => {
 describe("auth0StatusAdapter.normalize: terminal lifecycle and synthetic update timestamps", () => {
   it("pins the synthetic :active update createdAt to the stable start and updatedAt to the latest provider time", () => {
     const snapshot = normalize(authAffected)
-    const update = snapshot.incidents[0].updates[0]
+    const update = snapshot.incidents[0]!.updates[0]!
     expect(update.externalId).toBe("inc_multi_c4:active")
     // Winning leg is US-3 at 08:31 (later than US-1). startedAt falls back to
     // that leg's updated_at when no scheduled_for/monitoring_at is present.
-    expect(update.createdAt).toBe(snapshot.incidents[0].startedAt)
+    expect(update.createdAt).toBe(snapshot.incidents[0]!.startedAt)
     expect(update.updatedAt).toBe("2026-07-20T08:31:00.000Z")
     expect(update.createdAt).toBe("2026-07-20T08:31:00.000Z")
   })
@@ -217,9 +217,9 @@ describe("auth0StatusAdapter.normalize: terminal lifecycle and synthetic update 
     const snapshot = normalize(body)
     expect(snapshot.components["EU-1"]).toMatchObject({ state: "OPERATIONAL" })
     expect(snapshot.incidents).toHaveLength(1)
-    expect(snapshot.incidents[0].state).toBe("resolved")
-    expect(snapshot.incidents[0].startedAt).toBe("2026-07-20T09:40:00.000Z")
-    expect(snapshot.incidents[0].resolvedAt).toBe("2026-07-20T09:50:00.000Z")
+    expect(snapshot.incidents[0]!.state).toBe("resolved")
+    expect(snapshot.incidents[0]!.startedAt).toBe("2026-07-20T09:40:00.000Z")
+    expect(snapshot.incidents[0]!.resolvedAt).toBe("2026-07-20T09:50:00.000Z")
   })
 
   it("uses updated_at as resolvedAt for a terminal entry without resolved_at", () => {
@@ -231,8 +231,8 @@ describe("auth0StatusAdapter.normalize: terminal lifecycle and synthetic update 
     eu1.response.incidents[0].resolved_at = null
     eu1.response.incidents[0].updated_at = "2026-07-20T09:58:00.000Z"
     const snapshot = normalize(body)
-    expect(snapshot.incidents[0].resolvedAt).toBe("2026-07-20T09:58:00.000Z")
-    expect(snapshot.components["EU-1"].state).toBe("OPERATIONAL")
+    expect(snapshot.incidents[0]!.resolvedAt).toBe("2026-07-20T09:58:00.000Z")
+    expect(snapshot.components["EU-1"]!.state).toBe("OPERATIONAL")
   })
 })
 

@@ -80,19 +80,19 @@ describe("filterCatalogCategories", () => {
   it("matches by preset name, case-insensitively", () => {
     const result = filterCatalogCategories(categories, "chatgpt")
     expect(result).toHaveLength(1)
-    expect(result[0].presets.map((entry) => entry.id)).toEqual(["chatgpt"])
+    expect(result[0]!.presets.map((entry) => entry.id)).toEqual(["chatgpt"])
   })
 
   it("matches by provider name", () => {
     const result = filterCatalogCategories(categories, "neon")
     expect(result).toHaveLength(1)
-    expect(result[0].category).toBe("data")
+    expect(result[0]!.category).toBe("data")
   })
 
   it("matches across multiple presets within a category", () => {
     const result = filterCatalogCategories(categories, "openai")
     expect(result).toHaveLength(1)
-    expect(result[0].presets).toHaveLength(2)
+    expect(result[0]!.presets).toHaveLength(2)
   })
 
   it("drops categories left with no matching presets", () => {

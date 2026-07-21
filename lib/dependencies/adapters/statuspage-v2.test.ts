@@ -138,7 +138,7 @@ describe("statuspageV2Adapter.normalize: incidents", () => {
       observedAt: "2026-07-17T20:00:00Z",
     })
     expect(snapshot.incidents).toHaveLength(1)
-    const [incident] = snapshot.incidents
+    const incident = snapshot.incidents[0]!
     expect(incident.externalId).toBe("g613ntyj2pwf")
     expect(incident.state).toBe("resolved")
     expect(incident.resolvedAt).toBe("2026-07-17T19:43:35.467Z")
@@ -168,7 +168,7 @@ describe("statuspageV2Adapter.normalize: incidents", () => {
       observedAt: "2026-07-15T13:00:00Z",
     })
     expect(snapshot.incidents).toHaveLength(1)
-    const [incident] = snapshot.incidents
+    const incident = snapshot.incidents[0]!
     expect(incident.externalId).toBe("pm7x3incident01")
     expect(incident.state).toBe("resolved")
     expect(incident.resolvedAt).toBe("2026-07-14T19:43:35.467Z")
@@ -186,7 +186,7 @@ describe("statuspageV2Adapter.normalize: incidents", () => {
       observedAt: "2026-07-19T15:10:00Z",
     })
     expect(snapshot.incidents).toHaveLength(1)
-    expect(snapshot.incidents[0].externalId).toBe("sample1degraded01")
+    expect(snapshot.incidents[0]!.externalId).toBe("sample1degraded01")
   })
 
   it("deep-links canonicalUrl to the incident permalink on the source's own host, not the shared stspg.io shortlink", () => {
@@ -199,11 +199,11 @@ describe("statuspageV2Adapter.normalize: incidents", () => {
       documents: [currentDoc(degraded)],
       observedAt: "2026-07-19T15:10:00Z",
     })
-    expect(snapshot.incidents[0].canonicalUrl).toBe(
+    expect(snapshot.incidents[0]!.canonicalUrl).toBe(
       "https://status.claude.com/incidents/sample1degraded01"
     )
-    expect(snapshot.incidents[0].canonicalUrl).not.toContain("stspg.io")
-    expect(new URL(snapshot.incidents[0].canonicalUrl!).hostname).toBe(
+    expect(snapshot.incidents[0]!.canonicalUrl).not.toContain("stspg.io")
+    expect(new URL(snapshot.incidents[0]!.canonicalUrl!).hostname).toBe(
       new URL(anthropicSource.statusPageUrl).hostname
     )
   })
@@ -218,7 +218,7 @@ describe("statuspageV2Adapter.normalize: incidents", () => {
       observedAt: "2026-07-19T15:10:00Z",
     })
     expect(
-      snapshot.incidents[0].updates.find(
+      snapshot.incidents[0]!.updates.find(
         (update) => update.externalId === "sample1degraded01-u2"
       )?.bodyText
     ).toBe("A fix has been applied .")
@@ -239,8 +239,8 @@ describe("statuspageV2Adapter.normalize: incidents", () => {
       second.incidents.map((incident) => incident.externalId)
     )
     expect(
-      first.incidents[0].updates.map((update) => update.externalId)
-    ).toEqual(second.incidents[0].updates.map((update) => update.externalId))
+      first.incidents[0]!.updates.map((update) => update.externalId)
+    ).toEqual(second.incidents[0]!.updates.map((update) => update.externalId))
   })
 })
 

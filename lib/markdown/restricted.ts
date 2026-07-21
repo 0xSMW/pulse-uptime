@@ -125,7 +125,7 @@ function renderParagraph(escaped: string): string {
     text = text.replace(
       // biome-ignore lint/suspicious/noControlCharactersInRegex: U+0000 is the internal sentinel that delimits stashed tokens
       /\u0000(\d+)\u0000/g,
-      (_, index: string) => tokens[Number(index)]
+      (_, index: string) => tokens[Number(index)]!
     )
   }
   return text

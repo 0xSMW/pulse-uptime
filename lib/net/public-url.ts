@@ -12,6 +12,10 @@ function isReservedIpv4(host: string): boolean {
     return true
   }
   const [a, b, c] = octets
+  // Length was pinned to 4 above, so this fails closed and never fires.
+  if (a === undefined || b === undefined || c === undefined) {
+    return true
+  }
   return (
     a === 0 ||
     a === 10 ||

@@ -190,7 +190,7 @@ function createDatabaseStore(): ConfigurationStore {
                     .insert(configOperations)
                     .values({ id: crypto.randomUUID(), ...value })
                     .returning(OPERATION_COLUMNS)
-                )[0]
+                )[0]!
               ),
           })
       ),

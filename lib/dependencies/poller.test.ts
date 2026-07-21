@@ -147,7 +147,9 @@ describe("pollDueSources orchestration", () => {
     const [outcome] = persist.mock.calls[0] as [PollOutcome]
     expect(outcome.kind).toBe("snapshot")
     if (outcome.kind === "snapshot") {
-      expect(outcome.snapshot.components.k8w3r06qmzrp.state).toBe("OPERATIONAL")
+      expect(outcome.snapshot.components.k8w3r06qmzrp!.state).toBe(
+        "OPERATIONAL"
+      )
       expect(outcome.etag).toBe('"abc"')
     }
   })
@@ -264,7 +266,9 @@ describe("pollDueSources orchestration", () => {
     const [outcome] = persist.mock.calls[0] as [PollOutcome]
     expect(outcome.kind).toBe("snapshot")
     if (outcome.kind === "snapshot") {
-      expect(outcome.snapshot.components.k8w3r06qmzrp.state).toBe("OPERATIONAL")
+      expect(outcome.snapshot.components.k8w3r06qmzrp!.state).toBe(
+        "OPERATIONAL"
+      )
     }
     // The failed optional document is requested exactly once, not re-fetched in a loop.
     const maintenanceCalls = fetchDocument.mock.calls.filter(
@@ -377,7 +381,7 @@ describe("pollDueSources orchestration", () => {
     expect(outcome.kind).toBe("snapshot")
     if (outcome.kind === "snapshot") {
       expect(outcome.snapshot.incidents).toHaveLength(1)
-      expect(outcome.snapshot.incidents[0].externalId).toBe("503440")
+      expect(outcome.snapshot.incidents[0]!.externalId).toBe("503440")
     }
     // components + present notices list + past notices list + notice-detail:
     // four distinct documents fetched.
@@ -485,9 +489,9 @@ describe("pollDueSources orchestration", () => {
     expect(outcome.kind).toBe("snapshot")
     if (outcome.kind === "snapshot") {
       expect(outcome.snapshot.incidents).toHaveLength(1)
-      expect(outcome.snapshot.incidents[0].externalId).toBe("503440")
+      expect(outcome.snapshot.incidents[0]!.externalId).toBe("503440")
       // The ended notice's resolvedAt is observed, which a 304-aborted cycle would never see.
-      expect(outcome.snapshot.incidents[0].resolvedAt).toBe(
+      expect(outcome.snapshot.incidents[0]!.resolvedAt).toBe(
         "2026-07-07T01:06:26.688Z"
       )
     }
@@ -761,8 +765,8 @@ describe("pollDueSources orchestration", () => {
     expect(outcome.kind).toBe("snapshot")
     if (outcome.kind === "snapshot") {
       expect(outcome.snapshot.incidents).toHaveLength(1)
-      expect(outcome.snapshot.incidents[0].externalId).toBe("inc-resolved-1")
-      expect(outcome.snapshot.incidents[0].resolvedAt).toBe(
+      expect(outcome.snapshot.incidents[0]!.externalId).toBe("inc-resolved-1")
+      expect(outcome.snapshot.incidents[0]!.resolvedAt).toBe(
         "2026-07-18T12:00:00.000Z"
       )
       // The primary summary's own new etag is persisted for the next cycle.
@@ -810,7 +814,9 @@ describe("pollDueSources orchestration", () => {
     const [outcome] = persist.mock.calls[0] as [PollOutcome]
     expect(outcome.kind).toBe("snapshot")
     if (outcome.kind === "snapshot") {
-      expect(outcome.snapshot.components.k8w3r06qmzrp.state).toBe("OPERATIONAL")
+      expect(outcome.snapshot.components.k8w3r06qmzrp!.state).toBe(
+        "OPERATIONAL"
+      )
     }
   })
 

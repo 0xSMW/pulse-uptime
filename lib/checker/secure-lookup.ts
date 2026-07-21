@@ -110,6 +110,17 @@ export function createSecureLookup(
           requestedFamily(lookupOptions)
         )
         const selected = ordered[0]
+        if (!selected) {
+          // ordered mirrors the non-empty addresses list, so this fails closed
+          // and never fires.
+          callback(
+            Object.assign(new Error("Hostname did not resolve"), {
+              code: "ENOTFOUND",
+            }),
+            ""
+          )
+          return
+        }
         if (wantsAll(lookupOptions)) {
           // Return the full validated list so Node's autoSelectFamily
           // (Happy-Eyeballs) can fail over past a dead anycast pool member or an

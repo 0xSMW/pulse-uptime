@@ -39,7 +39,7 @@ export const MAINTENANCE_UPDATE_STATUSES = [
 /** Per-type ordered status lists, keyed by report type. */
 export const REPORT_STATUSES: Record<
   ReportType,
-  readonly ReportUpdateStatus[]
+  readonly [ReportUpdateStatus, ...ReportUpdateStatus[]]
 > = {
   incident: INCIDENT_UPDATE_STATUSES,
   maintenance: MAINTENANCE_UPDATE_STATUSES,

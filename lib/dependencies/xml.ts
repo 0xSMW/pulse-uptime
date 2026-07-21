@@ -235,7 +235,7 @@ function firstTagText(
     ).exec(block)
     // biome-ignore lint/suspicious/noUnnecessaryConditions: exec returns null when the pattern does not match, biome infers it as non-null
     if (match) {
-      const text = decodeText(match[1], maxTextLength)
+      const text = decodeText(match[1]!, maxTextLength)
       if (text) {
         return text
       }
@@ -247,13 +247,13 @@ function firstTagText(
 /** RSS carries the link as element text, Atom as a self-closing `<link href=...>`. Element text wins when present, else the href attribute. */
 function extractLink(block: string, maxTextLength: number): string | null {
   const textMatch = /<link(?:\s[^>]*)?>([\s\S]*?)<\/link>/i.exec(block)
-  const text = textMatch ? decodeText(textMatch[1], maxTextLength) : ""
+  const text = textMatch ? decodeText(textMatch[1]!, maxTextLength) : ""
   if (text) {
     return text
   }
   const hrefMatch = /<link\b[^>]*\bhref\s*=\s*"([^"]*)"/i.exec(block)
   if (hrefMatch) {
-    const href = decodeText(hrefMatch[1], maxTextLength)
+    const href = decodeText(hrefMatch[1]!, maxTextLength)
     if (href) {
       return href
     }
@@ -282,7 +282,7 @@ function extractCategories(
     match && found.length < maxCategories;
     match = textRe.exec(block)
   ) {
-    push(decodeText(match[1], maxTextLength))
+    push(decodeText(match[1]!, maxTextLength))
   }
   const termRe = /<category\b[^>]*\bterm\s*=\s*"([^"]*)"/gi
   for (
@@ -290,7 +290,7 @@ function extractCategories(
     match && found.length < maxCategories;
     match = termRe.exec(block)
   ) {
-    push(decodeText(match[1], maxTextLength))
+    push(decodeText(match[1]!, maxTextLength))
   }
   return found
 }

@@ -365,7 +365,7 @@ export function failureDelayMs(
     Math.max(consecutiveFailures - 1, 0),
     BACKOFF_MINUTES.length - 1
   )
-  return BACKOFF_MINUTES[index] * 60_000
+  return BACKOFF_MINUTES[index]! * 60_000
 }
 
 export function isSourceStale(

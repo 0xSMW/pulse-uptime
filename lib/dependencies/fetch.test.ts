@@ -432,8 +432,8 @@ describe("fetchProviderDocument UTF-16 decode", () => {
     const le = Buffer.from(text, "utf16le")
     const be = Buffer.allocUnsafe(le.length)
     for (let index = 0; index < le.length; index += 2) {
-      be[index] = le[index + 1]
-      be[index + 1] = le[index]
+      be[index] = le[index + 1]!
+      be[index + 1] = le[index]!
     }
     return Uint8Array.from([0xfe, 0xff, ...be])
   }

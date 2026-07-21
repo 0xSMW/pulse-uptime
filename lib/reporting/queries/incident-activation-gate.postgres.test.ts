@@ -249,7 +249,7 @@ suite("incident activation gate", () => {
       select activated_at as "activatedAt" from monitor_state where monitor_id = ${"mon-recover"}`
     // The success pass set activated_at to the recovery time after the incident
     // open, then the clamp pulled it back to at or before the incident open.
-    expect(state.activatedAt.getTime()).toBeLessThanOrEqual(
+    expect(state!.activatedAt.getTime()).toBeLessThanOrEqual(
       RECOVER_OPENED.getTime()
     )
 
@@ -274,7 +274,7 @@ suite("incident activation gate", () => {
     // The old successful day rollup ends 2026-05-02, well before the only retained
     // raw success on 2026-07-19, so LEAST anchors activation at the old start
     // rather than the newest retained check.
-    expect(state.activatedAt.getTime()).toBe(
+    expect(state!.activatedAt.getTime()).toBe(
       new Date("2026-05-02T00:00:00.000Z").getTime()
     )
   })

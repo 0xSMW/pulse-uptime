@@ -847,7 +847,7 @@ describe("report update lifecycle", () => {
     const deps = dependencies(store)
     const created = await createStatusReport(validCreate, deps)
     await expect(
-      deleteReportUpdate(created.id, created.updates[0].id, deps)
+      deleteReportUpdate(created.id, created.updates[0]!.id, deps)
     ).rejects.toMatchObject({ code: "LAST_UPDATE" })
   })
 
@@ -866,13 +866,13 @@ describe("report update lifecycle", () => {
     // loser sees "last_update" (row exists, zero rows deleted), never a
     // report with no updates left.
     await expect(
-      store.deleteUpdate({ reportId: created.id, updateId: first })
+      store.deleteUpdate({ reportId: created.id, updateId: first! })
     ).resolves.toBe("deleted")
     await expect(
-      store.deleteUpdate({ reportId: created.id, updateId: second })
+      store.deleteUpdate({ reportId: created.id, updateId: second! })
     ).resolves.toBe("last_update")
     await expect(
-      store.deleteUpdate({ reportId: created.id, updateId: first })
+      store.deleteUpdate({ reportId: created.id, updateId: first! })
     ).resolves.toBe("missing")
     expect(
       [...store.updates.values()].filter((row) => row.reportId === created.id)
@@ -880,7 +880,7 @@ describe("report update lifecycle", () => {
 
     // The service maps the guarded outcome even though the row still exists.
     await expect(
-      deleteReportUpdate(created.id, second, deps)
+      deleteReportUpdate(created.id, second!, deps)
     ).rejects.toMatchObject({ code: "LAST_UPDATE" })
   })
 
@@ -901,8 +901,8 @@ describe("report update lifecycle", () => {
     // non-locking count-subquery implementation could let both observe
     // count=2 under READ COMMITTED and both report "deleted".
     const [firstOutcome, secondOutcome] = await Promise.all([
-      store.deleteUpdate({ reportId: created.id, updateId: first }),
-      store.deleteUpdate({ reportId: created.id, updateId: second }),
+      store.deleteUpdate({ reportId: created.id, updateId: first! }),
+      store.deleteUpdate({ reportId: created.id, updateId: second! }),
     ])
     expect([firstOutcome, secondOutcome].sort()).toEqual([
       "deleted",
@@ -1346,14 +1346,14 @@ describe("promoteIncident", () => {
       },
     ])
     expect(report.currentStatus).toBe("investigating")
-    expect(report.updates[0].markdown).toContain("HTTP 503")
-    expect(report.updates[0].markdown).not.toContain("ECONNREFUSED")
+    expect(report.updates[0]!.markdown).toContain("HTTP 503")
+    expect(report.updates[0]!.markdown).not.toContain("ECONNREFUSED")
   })
 
   it("sanitizes checker error codes to the public label", async () => {
     const store = storeWithIncident(null)
     const { report } = await promoteIncident("inc-1", dependencies(store))
-    expect(report.updates[0].markdown).toContain("Availability check failed")
+    expect(report.updates[0]!.markdown).toContain("Availability check failed")
     expect(publicIncidentCause(null)).toBe("Availability check failed")
     expect(publicIncidentCause(502)).toBe("HTTP 502")
   })
@@ -1697,7 +1697,7 @@ describe("getPublicReports", () => {
     expect(result.upcoming.map((row) => row.id)).toEqual([upcoming.id])
     expect(result.ongoing.map((row) => row.id)).toEqual([ongoing.id])
     expect(result.windowEnded.map((row) => row.id)).toEqual([stale.id])
-    expect(result.ongoing[0].latestUpdate?.status).toBe("in_progress")
+    expect(result.ongoing[0]!.latestUpdate?.status).toBe("in_progress")
   })
 
   it("classifies a started-but-still-scheduled maintenance window as ongoing, matching the SQL active-bucket ranking (finding: classification vs SQL cap mismatch)", () => {
@@ -1756,8 +1756,8 @@ describe("getPublicReports", () => {
     const result = await getPublicReports(deps)
     expect(result.ongoing).toEqual([])
     expect(result.resolved.map((row) => row.id)).toEqual([created.id])
-    expect(result.resolved[0].phase).toBe("resolved")
-    expect(result.resolved[0].resolvedAt).toBe("2026-07-18T13:00:00.000Z")
+    expect(result.resolved[0]!.phase).toBe("resolved")
+    expect(result.resolved[0]!.resolvedAt).toBe("2026-07-18T13:00:00.000Z")
   })
 
   it("keeps an active report inside the unresolved cap even behind 100 future-scheduled windows (finding: active reports starved by future maintenance)", async () => {
@@ -1822,10 +1822,10 @@ describe("getPublicReports", () => {
     expect(result.ongoing.map((row) => row.id)).toContain(active.id)
     expect(result.upcoming).toHaveLength(99)
     // The NEAREST future rows (smallest startsAt) must survive the cap...
-    expect(result.upcoming.map((row) => row.id)).toContain(future[0].id)
-    expect(result.upcoming.map((row) => row.id)).toContain(future[98].id)
+    expect(result.upcoming.map((row) => row.id)).toContain(future[0]!.id)
+    expect(result.upcoming.map((row) => row.id)).toContain(future[98]!.id)
     // ...while the FARTHEST rows are the ones dropped.
-    expect(result.upcoming.map((row) => row.id)).not.toContain(future[149].id)
+    expect(result.upcoming.map((row) => row.id)).not.toContain(future[149]!.id)
   })
 
   it("classifies a published future-dated incident as upcoming, not ongoing (finding: future incidents fed the ongoing banner)", async () => {

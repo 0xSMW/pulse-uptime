@@ -190,7 +190,7 @@ function parseSystemId(ref: string | null | undefined): string | null {
     return null
   }
   const match = /^\/systems\/(\d+)$/.exec(ref)
-  return match ? match[1] : null
+  return match?.[1] ?? null
 }
 
 function firstNonEmpty(
@@ -353,7 +353,7 @@ export const nextdataEmbeddedAdapter: DependencyAdapter = {
         systemId in componentStates
       ) {
         componentStates[systemId] = worseOf(
-          componentStates[systemId],
+          componentStates[systemId]!,
           impactForType(item.incidentType)
         )
       }

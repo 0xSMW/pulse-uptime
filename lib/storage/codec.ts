@@ -20,7 +20,8 @@ function encodeBitmap(values: readonly boolean[]): Buffer {
   const packed = Buffer.alloc(Math.ceil(values.length / 8))
   values.forEach((value, index) => {
     if (value) {
-      packed[index >> 3] |= 1 << (index & 7)
+      const byte = index >> 3
+      packed[byte] = packed[byte]! | (1 << (index & 7))
     }
   })
   return packed

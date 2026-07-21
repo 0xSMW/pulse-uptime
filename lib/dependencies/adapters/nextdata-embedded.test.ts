@@ -110,21 +110,21 @@ describe("nextdataEmbeddedAdapter.normalize operational", () => {
 
   it("keeps every pinned system operational when no active incident references it", () => {
     for (const id of ["3", "91", "6", "36", "78"]) {
-      expect(snapshot.components[id].state).toBe("OPERATIONAL")
+      expect(snapshot.components[id]!.state).toBe("OPERATIONAL")
     }
   })
 
   it("routes a future maintenance to maintenances without flipping the component", () => {
     expect(snapshot.maintenances).toHaveLength(1)
-    const maintenance = snapshot.maintenances[0]
+    const maintenance = snapshot.maintenances[0]!
     expect(maintenance.state).toBe("scheduled")
     expect(maintenance.componentIds).toEqual(["6"])
-    expect(snapshot.components["6"].state).toBe("OPERATIONAL")
+    expect(snapshot.components["6"]!.state).toBe("OPERATIONAL")
   })
 
   it("emits a resolved history incident with its resolved timestamp and mapped updates", () => {
     expect(snapshot.incidents).toHaveLength(1)
-    const incident = snapshot.incidents[0]
+    const incident = snapshot.incidents[0]!
     expect(incident.state).toBe("resolved")
     expect(incident.resolvedAt).toBe("2026-07-10T09:30:00+00:00")
     expect(incident.scope).toEqual({ kind: "components", componentIds: ["91"] })
@@ -140,20 +140,20 @@ describe("nextdataEmbeddedAdapter.normalize active incident", () => {
   const snapshot = normalize(readFixture("active-incident.html"))
 
   it("flips a component to OUTAGE when an active outage references its system", () => {
-    expect(snapshot.components["91"].state).toBe("OUTAGE")
+    expect(snapshot.components["91"]!.state).toBe("OUTAGE")
   })
 
   it("flips a component to DEGRADED when an active other-type advisory references its system", () => {
-    expect(snapshot.components["3"].state).toBe("DEGRADED")
+    expect(snapshot.components["3"]!.state).toBe("DEGRADED")
   })
 
   it("flips a component to MAINTENANCE when an in-progress maintenance references its system", () => {
-    expect(snapshot.components["36"].state).toBe("MAINTENANCE")
+    expect(snapshot.components["36"]!.state).toBe("MAINTENANCE")
   })
 
   it("leaves unreferenced systems operational", () => {
-    expect(snapshot.components["6"].state).toBe("OPERATIONAL")
-    expect(snapshot.components["78"].state).toBe("OPERATIONAL")
+    expect(snapshot.components["6"]!.state).toBe("OPERATIONAL")
+    expect(snapshot.components["78"]!.state).toBe("OPERATIONAL")
   })
 
   it("maps a plain Hetzner update note onto monitoring", () => {
@@ -189,7 +189,7 @@ describe("nextdataEmbeddedAdapter.normalize active incident", () => {
 describe("nextdataEmbeddedAdapter.normalize terminal resolution", () => {
   it("sets resolvedAt from endTime for a resolved history item", () => {
     const snapshot = normalize(readFixture("operational.html"))
-    const incident = snapshot.incidents[0]
+    const incident = snapshot.incidents[0]!
     expect(incident.state).toBe("resolved")
     expect(incident.resolvedAt).toBe("2026-07-10T09:30:00+00:00")
     expect(incident.startedAt).toBe("2026-07-10T08:00:00+00:00")
@@ -212,7 +212,7 @@ describe("nextdataEmbeddedAdapter.normalize terminal resolution", () => {
       '"endTime":null'
     )
     const snapshot = normalize(html)
-    const incident = snapshot.incidents[0]
+    const incident = snapshot.incidents[0]!
     expect(incident.state).toBe("resolved")
     expect(incident.resolvedAt).toBe("2026-07-10T09:30:00+00:00")
   })

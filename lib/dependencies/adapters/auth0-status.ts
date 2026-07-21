@@ -162,7 +162,7 @@ function extractNextData(text: string, sourceId: string): unknown {
     )
   }
   try {
-    return JSON.parse(match[1])
+    return JSON.parse(match[1]!)
   } catch (error) {
     // biome-ignore lint/style/useErrorCause: cause is threaded through the error options arg, biome only detects the native second-argument position
     throw new AdapterParseError(

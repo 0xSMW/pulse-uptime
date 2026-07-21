@@ -31,7 +31,7 @@ export function retryAt(now: Date, attemptCount: number): Date {
     0,
     Math.min(attemptCount - 1, RETRY_DELAYS_MS.length - 1)
   )
-  return new Date(now.getTime() + RETRY_DELAYS_MS[index])
+  return new Date(now.getTime() + RETRY_DELAYS_MS[index]!)
 }
 
 export interface DeliveryDependencies {

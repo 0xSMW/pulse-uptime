@@ -560,7 +560,7 @@ async function insertRollups(
     for (let index = 0; index < count; index += 1) {
       const bucketIndex =
         rand() < successRate ? intBetween(rand, 0, 2) : intBetween(rand, 3, 7)
-      buckets[bucketIndex] += 1
+      buckets[bucketIndex] = buckets[bucketIndex]! + 1
     }
     return buckets
   }

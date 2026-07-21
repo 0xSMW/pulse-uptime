@@ -140,7 +140,7 @@ function capUtf8Bytes(text: string, maxBytes: number): string {
   // (0x80 to 0xBF) so we land on a code point boundary and never split a
   // multibyte sequence or a surrogate pair. Decoding the prefix is then valid.
   let end = maxBytes
-  while (end > 0 && (bytes[end] & 0xc0) === 0x80) {
+  while (end > 0 && ((bytes[end] ?? 0) & 0xc0) === 0x80) {
     end -= 1
   }
   return new TextDecoder().decode(bytes.subarray(0, end))

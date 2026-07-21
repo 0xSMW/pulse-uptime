@@ -46,21 +46,21 @@ describe("incidentioCompatAdapter.normalize: component status mapping", () => {
         source: openaiSource,
         documents: [currentDoc(operational)],
         observedAt: "2026-07-19T12:00:00Z",
-      }).components[targetId].state
+      }).components[targetId]!.state
     ).toBe("OPERATIONAL")
     expect(
       incidentioCompatAdapter.normalize({
         source: openaiSource,
         documents: [currentDoc(degraded)],
         observedAt: "2026-07-19T12:30:00Z",
-      }).components[targetId].state
+      }).components[targetId]!.state
     ).toBe("DEGRADED")
     expect(
       incidentioCompatAdapter.normalize({
         source: openaiSource,
         documents: [currentDoc(outage)],
         observedAt: "2026-07-19T13:00:00Z",
-      }).components[targetId].state
+      }).components[targetId]!.state
     ).toBe("OUTAGE")
     const maintenanceTargetId = "01JMXBRMFEMZK0HPK19RYET250"
     expect(
@@ -68,7 +68,7 @@ describe("incidentioCompatAdapter.normalize: component status mapping", () => {
         source: openaiSource,
         documents: [currentDoc(maintenance)],
         observedAt: "2026-07-19T03:00:00Z",
-      }).components[maintenanceTargetId].state
+      }).components[maintenanceTargetId]!.state
     ).toBe("MAINTENANCE")
   })
 })
@@ -86,7 +86,7 @@ describe("incidentioCompatAdapter.normalize: component selection against the cat
       documents: [currentDoc(singleIncidentInferred)],
       observedAt: "2026-07-19T15:05:00Z",
     })
-    expect(snapshot.components["01JMXBNJXGV1T5GT2M9XA83XNG"].state).toBe(
+    expect(snapshot.components["01JMXBNJXGV1T5GT2M9XA83XNG"]!.state).toBe(
       "DEGRADED"
     )
   })
@@ -100,7 +100,7 @@ describe("incidentioCompatAdapter.normalize: single active incident inference", 
       observedAt: "2026-07-19T15:05:00Z",
     })
     expect(snapshot.incidents).toHaveLength(1)
-    const [incident] = snapshot.incidents
+    const incident = snapshot.incidents[0]!
     expect(incident.scope.kind).toBe("components")
     if (incident.scope.kind !== "components") {
       throw new Error("expected components scope")
@@ -125,10 +125,10 @@ describe("incidentioCompatAdapter.normalize: single active incident inference", 
       documents: [currentDoc(singleIncidentInferred)],
       observedAt: "2026-07-19T15:06:00Z",
     })
-    expect(first.incidents[0].scope).toEqual(second.incidents[0].scope)
+    expect(first.incidents[0]!.scope).toEqual(second.incidents[0]!.scope)
     expect(
-      first.incidents[0].updates.map((update) => update.externalId)
-    ).toEqual(second.incidents[0].updates.map((update) => update.externalId))
+      first.incidents[0]!.updates.map((update) => update.externalId)
+    ).toEqual(second.incidents[0]!.updates.map((update) => update.externalId))
   })
 
   it("marks every incident unmapped, with no component guess, when several incidents are active at once", () => {

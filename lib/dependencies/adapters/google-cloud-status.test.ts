@@ -84,8 +84,8 @@ describe("googleCloudStatusAdapter.normalize: status_impact mapping", () => {
       observedAt: "2026-07-17T10:00:00Z",
     })
     expect(snapshot.components.Z0FZJAMvEB4j3NbCJs6B).toBeUndefined()
-    expect(snapshot.incidents[0].state).toBe("resolved")
-    expect(snapshot.incidents[0].resolvedAt).toBe("2026-07-17T09:30:00+00:00")
+    expect(snapshot.incidents[0]!.state).toBe("resolved")
+    expect(snapshot.incidents[0]!.resolvedAt).toBe("2026-07-17T09:30:00+00:00")
   })
 })
 
@@ -96,7 +96,7 @@ describe("googleCloudStatusAdapter.normalize: location selection", () => {
       documents: [currentDoc(degraded)],
       observedAt: "2026-07-19T10:30:00Z",
     })
-    const [incident] = snapshot.incidents
+    const incident = snapshot.incidents[0]!
     expect(incident.scope.kind).toBe("components")
     if (incident.scope.kind !== "components") {
       throw new Error("expected components scope")
@@ -113,7 +113,7 @@ describe("googleCloudStatusAdapter.normalize: location selection", () => {
       documents: [currentDoc(partialRecovery)],
       observedAt: "2026-07-19T11:05:00Z",
     })
-    const [incident] = snapshot.incidents
+    const incident = snapshot.incidents[0]!
     expect(incident.resolvedAt).toBeNull()
     expect(incident.scope.kind).toBe("components")
     if (incident.scope.kind !== "components") {
@@ -134,7 +134,7 @@ describe("googleCloudStatusAdapter.normalize: location selection", () => {
       documents: [currentDoc(resolved)],
       observedAt: "2026-07-17T10:00:00Z",
     })
-    const [incident] = snapshot.incidents
+    const incident = snapshot.incidents[0]!
     expect(incident.resolvedAt).not.toBeNull()
     expect(incident.scope.kind).toBe("components")
     if (incident.scope.kind !== "components") {
@@ -162,8 +162,8 @@ describe("googleCloudStatusAdapter.normalize: incident and update idempotency", 
       second.incidents.map((incident) => incident.externalId)
     )
     expect(
-      first.incidents[0].updates.map((update) => update.externalId)
-    ).toEqual(second.incidents[0].updates.map((update) => update.externalId))
+      first.incidents[0]!.updates.map((update) => update.externalId)
+    ).toEqual(second.incidents[0]!.updates.map((update) => update.externalId))
   })
 
   it("maps a final AVAILABLE update to resolved and earlier updates to identified", () => {
@@ -172,9 +172,9 @@ describe("googleCloudStatusAdapter.normalize: incident and update idempotency", 
       documents: [currentDoc(resolved)],
       observedAt: "2026-07-17T10:00:00Z",
     })
-    expect(snapshot.incidents[0].updates.map((update) => update.state)).toEqual(
-      ["resolved", "identified"]
-    )
+    expect(
+      snapshot.incidents[0]!.updates.map((update) => update.state)
+    ).toEqual(["resolved", "identified"])
   })
 })
 

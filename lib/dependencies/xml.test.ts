@@ -50,9 +50,9 @@ describe("parseFeed RSS and Atom", () => {
       categories: ["API", "Webhooks"],
       description: "We are investigating elevated errors.",
     })
-    expect(items[1].guid).toBe("incident-2")
-    expect(items[1].description).toBeNull()
-    expect(items[1].categories).toEqual([])
+    expect(items[1]!.guid).toBe("incident-2")
+    expect(items[1]!.description).toBeNull()
+    expect(items[1]!.categories).toEqual([])
   })
 
   it("reads Atom entries, taking the link href and category term", () => {
@@ -71,13 +71,13 @@ describe("parseFeed RSS and Atom", () => {
   it("replaces markup with whitespace so token boundaries survive, then collapses spacing", () => {
     const feed =
       "<rss><channel><item><description>line one\n\n  line   two<script>x</script></description></item></channel></rss>"
-    expect(parseFeed(feed)[0].description).toBe("line one line two x")
+    expect(parseFeed(feed)[0]!.description).toBe("line one line two x")
   })
 
   it("keeps a word boundary between adjacent tags so lifecycle markers stay separate from timestamps", () => {
     const feed =
       "<rss><channel><item><description><![CDATA[<small>Jul 15, 09:15 UTC</small><br/><strong>IDENTIFIED</strong> - cause found]]></description></item></channel></rss>"
-    expect(parseFeed(feed)[0].description).toBe(
+    expect(parseFeed(feed)[0]!.description).toBe(
       "Jul 15, 09:15 UTC IDENTIFIED - cause found"
     )
   })
@@ -110,7 +110,7 @@ describe("parseFeed hardening", () => {
     // predefined entity and must stay literal rather than resolve to anything.
     const feed =
       "<rss><channel><item><title>value &xxe; here</title></item></channel></rss>"
-    expect(parseFeed(feed)[0].title).toBe("value &xxe; here")
+    expect(parseFeed(feed)[0]!.title).toBe("value &xxe; here")
   })
 
   it("rejects oversized input before scanning", () => {
@@ -136,14 +136,14 @@ describe("parseFeed hardening", () => {
     expect(items).toHaveLength(5)
 
     const long = `<rss><channel><item><title>${"z".repeat(500)}</title></item></channel></rss>`
-    expect(parseFeed(long, { maxTextLength: 16 })[0].title).toHaveLength(16)
+    expect(parseFeed(long, { maxTextLength: 16 })[0]!.title).toHaveLength(16)
   })
 
   it("decodes numeric character references but ignores out-of-range ones", () => {
     const feed =
       "<rss><channel><item><title>&#65;&#x42; &#0; &#1114113;</title></item></channel></rss>"
     // 65 -> A, 0x42 -> B, and the invalid code points stay literal.
-    expect(parseFeed(feed)[0].title).toBe("AB &#0; &#1114113;")
+    expect(parseFeed(feed)[0]!.title).toBe("AB &#0; &#1114113;")
   })
 })
 

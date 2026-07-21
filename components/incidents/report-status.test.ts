@@ -212,7 +212,7 @@ describe("stateFlipAfterRemoval", () => {
   })
 
   it("stays silent for the last remaining update — the server refuses it", () => {
-    expect(stateFlipAfterRemoval([updates[0]], "u2")).toBeNull()
+    expect(stateFlipAfterRemoval([updates[0]!], "u2")).toBeNull()
   })
 })
 

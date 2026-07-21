@@ -106,7 +106,7 @@ export function parseIncidentFeedUpdateMarker(
   const atStart = MARKER_AT_START.exec(description)
   // biome-ignore lint/suspicious/noUnnecessaryConditions: exec returns null when the pattern does not match, biome infers it as non-null
   if (atStart) {
-    consider(atStart[1], 0)
+    consider(atStart[1]!, 0)
   }
 
   MARKER_AFTER_TZ.lastIndex = 0
@@ -114,8 +114,8 @@ export function parseIncidentFeedUpdateMarker(
   // biome-ignore lint/suspicious/noUnnecessaryConditions: exec returns null when the pattern does not match, biome infers it as non-null
   while (match) {
     // match[0] starts at UTC/GMT; the token itself is the position we rank.
-    const tokenOffset = match[0].indexOf(match[1])
-    consider(match[1], match.index + tokenOffset)
+    const tokenOffset = match[0].indexOf(match[1]!)
+    consider(match[1]!, match.index + tokenOffset)
     match = MARKER_AFTER_TZ.exec(description)
   }
 

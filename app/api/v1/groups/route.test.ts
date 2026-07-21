@@ -137,7 +137,7 @@ describe("POST /api/v1/groups", () => {
     // this stored error, and a stale-window retry replays it instead of
     // rerunning createGroup against whatever groups exist by then.
     expect(completions).toMatchObject([{ status: 409 }])
-    expect(completions[0].body).toMatchObject({
+    expect(completions[0]!.body).toMatchObject({
       kind: "Error",
       error: { code: "GROUP_EXISTS" },
     })

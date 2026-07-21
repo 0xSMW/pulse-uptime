@@ -32,7 +32,7 @@ describe("mapDependencyBucketsToTimeline", () => {
       [{ start: "2026-07-19T00:00:00.000Z", state: "OPERATIONAL" }],
       HOUR_MS
     )
-    expect(bucket.label).toBe(
+    expect(bucket!.label).toBe(
       "2026-07-19T00:00:00.000Z–2026-07-19T01:00:00.000Z"
     )
   })
@@ -59,7 +59,7 @@ describe("mapDependencyBucketsToTimeline", () => {
       [{ start: "2026-07-19T00:00:00.000Z", state: "OPERATIONAL" }],
       DAY_MS
     )
-    expect(bucket.label).toBe(
+    expect(bucket!.label).toBe(
       "2026-07-19T00:00:00.000Z–2026-07-20T00:00:00.000Z"
     )
   })

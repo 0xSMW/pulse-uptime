@@ -161,7 +161,7 @@ describe("incidentFeedAdapter.normalize", () => {
         incident.externalId === "status.openrouter.ai/incidents/aBc123XyZ"
     )!
     expect(active.updates).toHaveLength(1)
-    const [update] = active.updates
+    const update = active.updates[0]!
     expect(update.bodyText).toContain(
       "IDENTIFIED - We have identified the cause"
     )
@@ -184,8 +184,8 @@ describe("incidentFeedAdapter.normalize", () => {
       observedAt: OBSERVED_AT,
     })
     expect(snapshot.incidents).toHaveLength(1)
-    expect(snapshot.incidents[0].title).toBe("New text")
-    expect(snapshot.incidents[0].state).toBe("resolved")
+    expect(snapshot.incidents[0]!.title).toBe("New text")
+    expect(snapshot.incidents[0]!.state).toBe("resolved")
   })
 
   it("throws on a document that is not a feed rather than reading it as operational", () => {
@@ -286,7 +286,7 @@ describe("incidentFeedAdapter.normalize on the Azure feed", () => {
     const snapshot = normalizeAzure("active-incident.rss")
     expect(snapshot.incidents).toHaveLength(1)
     expect(snapshot.incidentsComplete).toBe(true)
-    const [incident] = snapshot.incidents
+    const incident = snapshot.incidents[0]!
     expect(incident.externalId).toBe("VLBP-1S8")
     expect(incident.title).toBe(
       "Azure Service Issue - Virtual Machines - West Europe"
@@ -302,7 +302,7 @@ describe("incidentFeedAdapter.normalize on the Azure feed", () => {
       "https://azure.status.microsoft/en-us/status"
     )
     expect(incident.updates).toHaveLength(1)
-    const [update] = incident.updates
+    const update = incident.updates[0]!
     expect(update.bodyText).toBe(
       "Starting at 08:45 UTC on 20 Jul 2026, a subset of customers using Virtual Machines in West Europe may experience connection failures or high latency. Engineers are actively investigating the underlying cause."
     )

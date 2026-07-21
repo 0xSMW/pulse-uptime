@@ -88,7 +88,7 @@ describe("committed OpenAPI v1 source", () => {
         const reference = rawPathItem.$ref
         const pathItem =
           typeof reference === "string"
-            ? document.components.pathItems[reference.split("/").at(-1)!]
+            ? document.components.pathItems[reference.split("/").at(-1)!]!
             : rawPathItem
         return Object.keys(pathItem)
           .filter((method) =>
@@ -103,7 +103,7 @@ describe("committed OpenAPI v1 source", () => {
 
   it("makes only compatibility and pre-auth device polling anonymous", () => {
     const operation = (path: string, method: string) =>
-      document.paths[path][method] as Operation
+      document.paths[path]![method] as Operation
     expect(operation("/api/v1/version", "get").security).toEqual([])
     expect(operation("/api/v1/cli-auth/device", "post").security).toEqual([])
     expect(operation("/api/v1/cli-auth/token", "post").security).toEqual([])
@@ -136,7 +136,7 @@ describe("committed OpenAPI v1 source", () => {
       const reference = rawPathItem.$ref
       const pathItem =
         typeof reference === "string"
-          ? document.components.pathItems[reference.split("/").at(-1)!]
+          ? document.components.pathItems[reference.split("/").at(-1)!]!
           : rawPathItem
       for (const method of ["get", "post", "put", "patch", "delete"]) {
         const operation = pathItem[method] as Operation & {
@@ -151,16 +151,19 @@ describe("committed OpenAPI v1 source", () => {
 
   it("matches the configuration domain constraints", () => {
     const schemas = document.components.schemas
-    const monitorFields = schemas.MonitorFields.properties as Record<
+    const monitorFields = schemas.MonitorFields!.properties as Record<
       string,
       Record<string, unknown>
     >
-    const plan = schemas.ConfigurationPlan.properties as Record<
+    const plan = schemas.ConfigurationPlan!.properties as Record<
       string,
       Record<string, unknown>
     >
-    const diff = plan.diff.properties as Record<string, Record<string, unknown>>
-    expect(monitorFields.intervalMinutes.enum).toEqual([1, 5, 10, 15])
+    const diff = plan.diff!.properties as Record<
+      string,
+      Record<string, unknown>
+    >
+    expect(monitorFields.intervalMinutes!.enum).toEqual([1, 5, 10, 15])
     expect(monitorFields.timeoutMs).toMatchObject({
       minimum: 1000,
       maximum: 15_000,
@@ -169,11 +172,11 @@ describe("committed OpenAPI v1 source", () => {
       minimum: 1,
       maximum: 5,
     })
-    expect(monitorFields.recipients.maxItems).toBe(20)
+    expect(monitorFields.recipients!.maxItems).toBe(20)
     expect(monitorFields.groupId).toMatchObject({ minLength: 3, maxLength: 64 })
-    expect(diff.settingsChanged.type).toBe("array")
-    expect(diff.groupCreates.type).toBe("array")
-    expect(schemas.Configuration.properties).toMatchObject({
+    expect(diff.settingsChanged!.type).toBe("array")
+    expect(diff.groupCreates!.type).toBe("array")
+    expect(schemas.Configuration!.properties).toMatchObject({
       version: { const: 2 },
       groups: { maxItems: 100 },
     })
@@ -187,20 +190,20 @@ describe("committed OpenAPI v1 source", () => {
     const monitorUpdate = schemas.MonitorUpdate as {
       allOf: Array<{ not?: { required: string[] } }>
     }
-    const groupDelete = document.paths["/api/v1/groups/{groupId}"]
+    const groupDelete = document.paths["/api/v1/groups/{groupId}"]!
       .delete as Operation & {
       responses: Record<
         string,
         { content: Record<string, { schema: { $ref: string } }> }
       >
     }
-    expect(monitorCreate.allOf[1].not?.required).toEqual(["group", "groupId"])
-    expect(monitorUpdate.allOf[1].not?.required).toEqual(["group", "groupId"])
+    expect(monitorCreate.allOf[1]!.not?.required).toEqual(["group", "groupId"])
+    expect(monitorUpdate.allOf[1]!.not?.required).toEqual(["group", "groupId"])
     expect(
-      groupDelete.responses["200"].content["application/json"].schema.$ref
+      groupDelete.responses["200"]!.content["application/json"]!.schema.$ref
     ).toBe("#/components/schemas/GroupDeletionEnvelope")
-    expect(schemas.MonitorConfig.unevaluatedProperties).toBe(false)
-    expect(schemas.MonitoringSettings.additionalProperties).toBe(false)
+    expect(schemas.MonitorConfig!.unevaluatedProperties).toBe(false)
+    expect(schemas.MonitoringSettings!.additionalProperties).toBe(false)
   })
 
   it("matches the implemented route filesystem", () => {
@@ -240,7 +243,7 @@ describe("committed OpenAPI v1 source", () => {
         }
       }
     }
-    const createdTokenData = createdToken.properties.data.allOf[1]
+    const createdTokenData = createdToken.properties.data.allOf[1]!
     expect(createdTokenData.required).toEqual(
       expect.arrayContaining(["token", "expiryClamped"])
     )
@@ -265,7 +268,7 @@ describe("committed OpenAPI v1 source", () => {
         components: { responses: Record<string, { headers?: unknown }> }
       }
     ).components.responses
-    expect(responses.AuthenticationRequired.headers).toBeDefined()
+    expect(responses.AuthenticationRequired!.headers).toBeDefined()
     for (const [path, method] of [
       ["/api/v1/monitors/{monitorId}", "delete"],
       ["/api/v1/tokens/{tokenId}", "delete"],
@@ -273,7 +276,7 @@ describe("committed OpenAPI v1 source", () => {
       ["/api/v1/status-reports/{reportId}", "delete"],
       ["/api/v1/status-reports/{reportId}/updates/{updateId}", "delete"],
     ] as const) {
-      const operation = document.paths[path][method] as Operation & {
+      const operation = document.paths[path]![method] as Operation & {
         responses: Record<string, unknown>
       }
       expect(operation.responses["200"]).toBeDefined()
@@ -289,25 +292,25 @@ describe("committed OpenAPI v1 source", () => {
     expect(configMeta.required).toEqual(["requestId", "configHash"])
     expect(configMeta.properties.configHash).toBeDefined()
     const response = (
-      document.paths["/api/v1/config"].get as Operation & {
+      document.paths["/api/v1/config"]!.get as Operation & {
         responses: Record<string, { headers?: Record<string, unknown> }>
       }
-    ).responses["200"]
+    ).responses["200"]!
     expect(response.headers?.ETag).toBeDefined()
   })
 
   it("documents the status page configuration concurrency contract", () => {
-    const get = document.paths["/api/v1/status-page-config"]
+    const get = document.paths["/api/v1/status-page-config"]!
       .get as Operation & {
       responses: Record<string, { headers?: Record<string, unknown> }>
     }
-    const put = document.paths["/api/v1/status-page-config"]
+    const put = document.paths["/api/v1/status-page-config"]!
       .put as Operation & {
       parameters: Array<{ name?: string; required?: boolean; $ref?: string }>
       responses: Record<string, unknown>
     }
     expect(get["x-required-scopes"]).toEqual(["config:read"])
-    expect(get.responses["200"].headers?.ETag).toBeDefined()
+    expect(get.responses["200"]!.headers?.ETag).toBeDefined()
     expect(put["x-required-scopes"]).toEqual(["config:write"])
     expect(
       put.parameters.some(
@@ -330,16 +333,16 @@ describe("committed OpenAPI v1 source", () => {
       properties: Record<string, Record<string, unknown>>
     }
     expect(config.properties.navLinks).toMatchObject({ maxItems: 8 })
-    expect(config.properties.historyDays.enum).toEqual([30, 60, 90])
+    expect(config.properties.historyDays!.enum).toEqual([30, 60, 90])
     expect(config.properties.updatedAt).toMatchObject({ readOnly: true })
-    const upload = document.paths["/api/v1/images"].post as Operation & {
+    const upload = document.paths["/api/v1/images"]!.post as Operation & {
       requestBody: {
         content: Record<string, { schema: { required: string[] } }>
       }
     }
     expect(upload["x-required-scopes"]).toEqual(["config:write"])
     expect(
-      upload.requestBody.content["multipart/form-data"].schema.required
+      upload.requestBody.content["multipart/form-data"]!.schema.required
     ).toEqual(["file", "kind"])
   })
 
@@ -350,7 +353,7 @@ describe("committed OpenAPI v1 source", () => {
     expect(scope.enum).toContain("reports:write")
 
     const operation = (path: string, method: string) =>
-      document.paths[path][method] as Operation & {
+      document.paths[path]![method] as Operation & {
         parameters?: Array<{ $ref?: string }>
         responses: Record<string, unknown>
       }
@@ -407,7 +410,7 @@ describe("committed OpenAPI v1 source", () => {
         "affected",
       ])
     )
-    expect(report.properties.publishedAt.type).toEqual(["string", "null"])
+    expect(report.properties.publishedAt!.type).toEqual(["string", "null"])
     expect(report.properties.title).toMatchObject({
       minLength: 1,
       maxLength: 160,
@@ -448,7 +451,7 @@ describe("committed OpenAPI v1 source", () => {
     }
     expect(health.required).toContain("freshness")
     expect(health.required).toContain("refresh")
-    expect(health.properties.health.enum).toContain("UNKNOWN")
+    expect(health.properties.health!.enum).toContain("UNKNOWN")
     expect(health.properties.freshness).toBeDefined()
     expect(health.properties.refresh).toBeDefined()
     const freshness = health.properties.freshness as unknown as {
@@ -461,7 +464,7 @@ describe("committed OpenAPI v1 source", () => {
     expect(freshness.required).toContain("providerCapturedAt")
     expect(refreshSchema.required).toContain("status")
     expect(refreshSchema.properties.status.enum).toContain("STALE_FALLBACK")
-    const refresh = document.paths["/api/v1/database-health/refresh"]
+    const refresh = document.paths["/api/v1/database-health/refresh"]!
       .post as Operation & {
       parameters: Array<{ $ref?: string }>
       responses: Record<string, unknown>

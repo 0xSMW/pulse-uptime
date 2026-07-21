@@ -35,7 +35,7 @@ describe("command palette helpers", () => {
       "Monitors",
       "Live Incidents",
     ])
-    expect(groups[1].items.map((item) => item.hint)).toEqual(["Down", "42 ms"])
+    expect(groups[1]!.items.map((item) => item.hint)).toEqual(["Down", "42 ms"])
     expect(groups[2]?.items).toEqual([
       expect.objectContaining({
         text: "Public API — HTTP 503",

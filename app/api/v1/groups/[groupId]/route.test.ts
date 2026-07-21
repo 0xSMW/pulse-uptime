@@ -121,7 +121,7 @@ describe("PATCH /api/v1/groups/{groupId}", () => {
     // this stored error, and a stale-window retry replays it instead of
     // rerunning updateGroup against whatever groups exist by then.
     expect(completions).toMatchObject([{ status: 404 }])
-    expect(completions[0].body).toMatchObject({
+    expect(completions[0]!.body).toMatchObject({
       kind: "Error",
       error: { code: "GROUP_NOT_FOUND" },
     })
@@ -220,7 +220,7 @@ describe("DELETE /api/v1/groups/{groupId}", () => {
     // this stored error, and a stale-window retry replays it instead of
     // rerunning deleteGroup against whatever monitors exist by then.
     expect(completions).toMatchObject([{ status: 409 }])
-    expect(completions[0].body).toMatchObject({
+    expect(completions[0]!.body).toMatchObject({
       kind: "Error",
       error: { code: "GROUP_NOT_EMPTY" },
     })

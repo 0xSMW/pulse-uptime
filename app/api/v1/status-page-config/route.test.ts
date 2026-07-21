@@ -155,7 +155,7 @@ describe("PUT /api/v1/status-page-config", () => {
   it("folds If-Match into the idempotency fingerprint, not just the document (finding: executeIdempotent hashes only the `body` value it's given, together with method/path/query — a key reused with the SAME document but a FRESH If-Match, e.g. re-read after a 412 and resubmitted under the same key, must hash differently so it surfaces IDEMPOTENCY_KEY_REUSED instead of replaying the first attempt's stored response)", async () => {
     await PUT(putRequest({ name: "Acme Status" }, { "If-Match": '"5"' }))
     const firstBody = (
-      vi.mocked(executeIdempotent).mock.calls[0][0] as { body: unknown }
+      vi.mocked(executeIdempotent).mock.calls[0]![0] as { body: unknown }
     ).body
     expect(firstBody).toEqual({
       ifMatch: '"5"',
@@ -165,7 +165,7 @@ describe("PUT /api/v1/status-page-config", () => {
     vi.mocked(executeIdempotent).mockClear()
     await PUT(putRequest({ name: "Acme Status" }, { "If-Match": '"6"' }))
     const secondBody = (
-      vi.mocked(executeIdempotent).mock.calls[0][0] as { body: unknown }
+      vi.mocked(executeIdempotent).mock.calls[0]![0] as { body: unknown }
     ).body
     expect(secondBody).toEqual({
       ifMatch: '"6"',
@@ -201,7 +201,7 @@ describe("PUT /api/v1/status-page-config", () => {
 
   it("wraps the write in context.transaction and threads the tx handle into putStatusPageConfig (finding: a fallback post-hoc completion write could commit after the guarded UPDATE crashed, leaving the two inconsistent)", async () => {
     await PUT(putRequest({ name: "Acme Status" }, { "If-Match": '"5"' }))
-    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+    const options = vi.mocked(executeIdempotent).mock.calls[0]![0] as {
       work: (context: {
         operationId: string
         transaction: <R>(run: (tx: unknown) => Promise<R>) => Promise<R>
@@ -301,7 +301,7 @@ describe("PUT /api/v1/status-page-config", () => {
       new StatusPageConfigError("PRECONDITION_FAILED", "changed since read")
     )
     await PUT(putRequest({}, { "If-Match": '"9"' }))
-    const options = vi.mocked(executeIdempotent).mock.calls[0][0] as {
+    const options = vi.mocked(executeIdempotent).mock.calls[0]![0] as {
       work: (context: {
         operationId: string
         transaction: <R>(run: (tx: unknown) => Promise<R>) => Promise<R>

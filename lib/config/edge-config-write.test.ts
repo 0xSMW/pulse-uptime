@@ -40,7 +40,7 @@ describe("writeMonitoringEdgeConfig", () => {
       })
     )
     await expect(writeMonitoringEdgeConfig(CONFIG)).resolves.toBe(42)
-    const [url, init] = fetchSpy.mock.calls[0]
+    const [url, init] = fetchSpy.mock.calls[0]!
     expect(String(url)).toContain("/edge-config/ecfg_test/items")
     expect(init?.method).toBe("PATCH")
     expect(JSON.parse(String(init?.body))).toEqual({

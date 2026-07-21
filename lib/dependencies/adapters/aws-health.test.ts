@@ -120,9 +120,9 @@ describe("awsHealthAdapter.normalize: status code mapping", () => {
     expect(snapshot.components["lambda-us-east-1"]).toMatchObject({
       state: "DEGRADED",
     })
-    const bodies = snapshot.incidents[0].updates
-      .map((update) => update.bodyText)
-      .join(" ")
+    const bodies = snapshot.incidents[0]!.updates.map(
+      (update) => update.bodyText
+    ).join(" ")
     expect(bodies).toContain("Lambda see degraded performance")
   })
 
@@ -132,7 +132,7 @@ describe("awsHealthAdapter.normalize: status code mapping", () => {
   })
 
   it("carries the ISO-converted change timestamp on the component, converting epoch millis", () => {
-    expect(snapshot.components["ec2-us-east-1"].updatedAt).toBe(
+    expect(snapshot.components["ec2-us-east-1"]!.updatedAt).toBe(
       "2026-03-03T01:06:40.000Z"
     )
   })
@@ -144,7 +144,7 @@ describe("awsHealthAdapter.normalize: incident shape", () => {
     documents: [currentDoc(degraded)],
     observedAt: "2026-07-20T12:00:00Z",
   })
-  const [incident] = snapshot.incidents
+  const incident = snapshot.incidents[0]!
 
   it("uses the event arn as the stable incident external id and the summary as the title", () => {
     expect(incident.externalId).toBe(
@@ -177,10 +177,10 @@ describe("awsHealthAdapter.normalize: incident shape", () => {
       observedAt: "2026-07-20T12:05:00Z",
     })
     expect(
-      snapshot.incidents[0].updates.map((update) => update.externalId)
-    ).toEqual(again.incidents[0].updates.map((update) => update.externalId))
+      snapshot.incidents[0]!.updates.map((update) => update.externalId)
+    ).toEqual(again.incidents[0]!.updates.map((update) => update.externalId))
     expect(
-      snapshot.incidents[0].updates.every(
+      snapshot.incidents[0]!.updates.every(
         (update) => update.state === "identified"
       )
     ).toBe(true)
@@ -247,7 +247,7 @@ describe("awsHealthAdapter.normalize: latest-per-service reduction", () => {
   })
 
   it("excludes the recovered service from the incident component scope while keeping the still-degraded one", () => {
-    const scope = snapshot.incidents[0].scope
+    const scope = snapshot.incidents[0]!.scope
     expect(scope.kind).toBe("components")
     if (scope.kind !== "components") {
       throw new Error("expected components scope")

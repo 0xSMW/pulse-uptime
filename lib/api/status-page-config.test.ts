@@ -502,7 +502,7 @@ describe("putStatusPageConfig + executeIdempotent (mirrors the route's work(): t
 
     expect(result.status).toBe(200)
     expect(persistence.completions).toHaveLength(1)
-    expect(persistence.completions[0].usedTx).toBe(true)
+    expect(persistence.completions[0]!.usedTx).toBe(true)
     expect(persistence.owner?.state).toBe("completed")
   })
 

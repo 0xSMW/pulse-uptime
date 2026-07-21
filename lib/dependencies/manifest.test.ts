@@ -243,7 +243,7 @@ describe("catalogManifestSchema source config", () => {
         {
           ...manifest.sources[0],
           config: {
-            ...manifest.sources[0].config,
+            ...manifest.sources[0]!.config,
             maxBodyBytes: 2 * 1024 * 1024,
           },
         },
@@ -261,7 +261,7 @@ describe("catalogManifestSchema source config", () => {
         {
           ...manifest.sources[0],
           config: {
-            ...manifest.sources[0].config,
+            ...manifest.sources[0]!.config,
             maxBodyBytes: 8 * 1024 * 1024,
           },
         },
@@ -287,7 +287,7 @@ describe("catalogManifestSchema source config", () => {
       ],
     }
     const parsed = catalogManifestSchema.parse(withExtra)
-    expect(parsed.sources[0].config).toMatchObject({
+    expect(parsed.sources[0]!.config).toMatchObject({
       productsUrl: "https://status.example.com/products.json",
       maxBodyBytes: 1024 * 1024,
     })
@@ -311,7 +311,7 @@ describe("catalogManifestSchema adapter names", () => {
               ...manifest.sources[0],
               adapter,
               config: {
-                ...manifest.sources[0].config,
+                ...manifest.sources[0]!.config,
                 incidentInventory: "active_only",
               },
             }

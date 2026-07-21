@@ -194,7 +194,8 @@ export async function createApiToken(
       expiresAt: input.expiresAt,
     })
     .returning(tokenSelection)
-  return { token: serializeToken(row), secret: credential.raw }
+  // A single-row insert with returning always yields the inserted row.
+  return { token: serializeToken(row!), secret: credential.raw }
 }
 
 export async function listApiTokens(input: {

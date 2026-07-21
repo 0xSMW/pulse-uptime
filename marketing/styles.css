@@ -509,7 +509,7 @@ h1 {
 }
 
 .hero-dashboard {
-  height: 520px;
+  height: 570px;
   margin-top: 96px;
   transform: perspective(1500px) rotateX(1.2deg);
   transform-origin: center top;
@@ -599,6 +599,10 @@ h1 {
   font-size: 18px;
   font-weight: 600;
   letter-spacing: -0.03em;
+}
+
+.table-shell + .app-heading-row {
+  margin-top: 32px;
 }
 
 .table-shell {

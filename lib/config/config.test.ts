@@ -113,7 +113,7 @@ describe("configuration schemas and normalization", () => {
       configVersion: 7,
       groups: [{ name: "Production" }],
     })
-    expect(adapted.monitors[0].groupId).toBe(adapted.groups[0].id)
+    expect(adapted.monitors[0]!.groupId).toBe(adapted.groups[0]!.id)
     expect(hashMonitoringConfig(legacy)).toBe(legacyHash)
   })
 
@@ -139,9 +139,9 @@ describe("configuration schemas and normalization", () => {
       monitors: legacyMonitors,
     })
     expect(adapted.groups).toHaveLength(1)
-    expect(adapted.groups[0].name).toBe("Production")
+    expect(adapted.groups[0]!.name).toBe("Production")
     expect(new Set(adapted.monitors.map(({ groupId }) => groupId))).toEqual(
-      new Set([adapted.groups[0].id])
+      new Set([adapted.groups[0]!.id])
     )
   })
 
@@ -179,9 +179,9 @@ describe("configuration schemas and normalization", () => {
       groupId: null,
       enabled: true,
     })
-    expect(validateDeclarativeConfig(document([created])).monitors[0].url).toBe(
-      "https://example.com/"
-    )
+    expect(
+      validateDeclarativeConfig(document([created])).monitors[0]!.url
+    ).toBe("https://example.com/")
     expect(resolveMonitorRecipients(created, settings)).toEqual([
       "ops@example.com",
     ])
@@ -236,7 +236,7 @@ describe("configuration schemas and normalization", () => {
       name: "Alpha",
       groupId: "ops",
     })
-    expect(normalized.monitors[1].recipients).toEqual([
+    expect(normalized.monitors[1]!.recipients).toEqual([
       "a@example.com",
       "b@example.com",
     ])
