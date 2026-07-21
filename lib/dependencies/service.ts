@@ -164,6 +164,16 @@ export interface DependenciesStore {
     notificationsEnabled: boolean,
     handle?: DatabaseHandle
   ) => Promise<boolean>
+  /**
+   * Re-runs install-time incident backfill for an existing dependency and
+   * clears its backfill-failed mark on success. The scan is anchored to the
+   * dependency's createdAt so it reproduces exactly the same [createdAt - 7d,
+   * createdAt) matches that the add-time scan would have made, rather than
+   * anchoring to the retry moment. Match inserts are ON CONFLICT DO NOTHING, so a repeat is a
+   * no-op. Returns false when no active dependency matches. A scan failure
+   * aborts the transaction and propagates, leaving the mark set.
+   */
+  retryBackfill: (id: string, handle?: DatabaseHandle) => Promise<boolean>
 }
 
 export interface DependencyServiceDeps {
@@ -402,6 +412,33 @@ export async function removeDependency(
   return { id, removed: true }
 }
 
+export async function retryDependencyBackfill(
+  id: string,
+  deps: DependencyServiceDeps = {},
+  handle: DatabaseHandle = db
+) {
+  const store = deps.store ?? databaseDependenciesStore
+  const retried = await store.retryBackfill(id, handle)
+  if (!retried) {
+    throw new DependencyApiError(
+      "DEPENDENCY_NOT_FOUND",
+      "Dependency was not found"
+    )
+  }
+  // Reads back on the same handle the retry ran on, so a retry inside a
+  // caller's transaction sees its own uncommitted match writes and cleared
+  // mark rather than a second pooled connection that has not observed them,
+  // mirroring addDependency's read-back.
+  const detail = await queryDependencyDetail(id, handle)
+  if (!detail) {
+    throw new DependencyApiError(
+      "DEPENDENCY_NOT_FOUND",
+      "Dependency was not found"
+    )
+  }
+  return detail
+}
+
 /** Sets the source's next_poll_at to now and returns immediately; the cron picks up the fetch, so this route never touches the network. */
 export async function scheduleDependencyPoll(
   id: string,
@@ -531,17 +568,34 @@ export const databaseDependenciesStore: DependenciesStore = {
         sourceObservedAt: state.observedAt,
       })
       // Link the source's recent resolved incidents so this install's timeline
-      // and incident list carry real history immediately. Runs on the same tx
-      // as the insert so the matches commit atomically with the dependency;
-      // the poll path never prunes matches, so the immediate first poll leaves
-      // them intact.
-      await backfillResolvedIncidentMatches(tx, {
-        dependencyId: dependency.id,
-        catalogId: dependency.catalogId,
-        sourceId,
-        scopeId: dependency.scopeId,
-        now,
-      })
+      // and incident list carry real history immediately. The scan runs in a
+      // savepoint so a transient failure rolls back only its own partial match
+      // writes, never the dependency insert, and the failure is marked durably
+      // on the dependency for a manual retry. On real Postgres a mid-statement
+      // error aborts the enclosing transaction, so the savepoint is what keeps
+      // the outer insert writable after the failure. A successful backfill's
+      // matches commit with the dependency, and the poll path never prunes
+      // matches, so the immediate first poll leaves them intact.
+      let backfillFailed = false
+      try {
+        await tx.transaction(async (savepoint) => {
+          await backfillResolvedIncidentMatches(savepoint, {
+            dependencyId: dependency.id,
+            catalogId: dependency.catalogId,
+            sourceId,
+            scopeId: dependency.scopeId,
+            now,
+          })
+        })
+      } catch {
+        backfillFailed = true
+      }
+      if (backfillFailed) {
+        await tx
+          .update(dependencies)
+          .set({ backfillFailedAt: now })
+          .where(eq(dependencies.id, dependency.id))
+      }
       // Clearing etag/lastModified alongside next_poll_at forces the next
       // poll to a 200 with a full body: a stale validator would otherwise
       // let the provider answer 304, leaving this freshly installed
@@ -656,5 +710,52 @@ export const databaseDependenciesStore: DependenciesStore = {
       .where(and(eq(dependencies.id, id), isNull(dependencies.removedAt)))
       .returning({ id: dependencies.id })
     return Boolean(updated[0])
+  },
+
+  async retryBackfill(id, handle) {
+    const run = async (tx: DatabaseHandle): Promise<boolean> => {
+      const [row] = await tx
+        .select({
+          catalogId: dependencies.catalogId,
+          scopeId: dependencies.scopeId,
+          createdAt: dependencies.createdAt,
+          sourceId: dependencyCatalog.sourceId,
+        })
+        .from(dependencies)
+        .innerJoin(
+          dependencyCatalog,
+          eq(dependencyCatalog.id, dependencies.catalogId)
+        )
+        .where(and(eq(dependencies.id, id), isNull(dependencies.removedAt)))
+        .limit(1)
+      if (!row) {
+        return false
+      }
+      // Anchored to createdAt, not now, so the retry reproduces exactly the
+      // [createdAt - 7d, createdAt) window the add-time scan would have used.
+      // Incidents that resolved after add time are already handled by polling.
+      // A failure here aborts and propagates, leaving the mark set for a later
+      // retry, so the mark only clears once the scan actually completes.
+      await backfillResolvedIncidentMatches(tx, {
+        dependencyId: id,
+        catalogId: row.catalogId,
+        sourceId: row.sourceId,
+        scopeId: row.scopeId,
+        now: row.createdAt,
+      })
+      await tx
+        .update(dependencies)
+        .set({ backfillFailedAt: null })
+        .where(eq(dependencies.id, id))
+      return true
+    }
+    // Runs on the caller's transaction when one is supplied (the idempotency
+    // path) so the match writes and the cleared mark commit with the
+    // idempotency record, or opens its own transaction otherwise. Mirrors
+    // insertDependency's handle choice.
+    if (handle && handle !== db) {
+      return run(handle)
+    }
+    return db.transaction(run)
   },
 }

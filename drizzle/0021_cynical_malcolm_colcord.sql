@@ -1,0 +1,1 @@
+ALTER TABLE "dependencies" ADD COLUMN "backfill_failed_at" timestamp with time zone;

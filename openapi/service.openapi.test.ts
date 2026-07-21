@@ -80,6 +80,7 @@ const expectedOperations = [
   "PATCH /api/v1/dependencies/{dependencyId}",
   "DELETE /api/v1/dependencies/{dependencyId}",
   "POST /api/v1/dependencies/{dependencyId}/refresh",
+  "POST /api/v1/dependencies/{dependencyId}/backfill",
 ]
 
 describe("committed OpenAPI v1 source", () => {
@@ -546,6 +547,32 @@ describe("committed OpenAPI v1 source", () => {
       )
     ).toBe(true)
     expect(refresh.responses["503"]).toBeDefined()
+  })
+
+  it("documents the dependency backfill-failed mark and its retry endpoint", () => {
+    const dependency = document.components.schemas.Dependency as {
+      required: string[]
+      properties: Record<string, Record<string, unknown>>
+    }
+    expect(dependency.required).toContain("backfillFailedAt")
+    expect(dependency.properties.backfillFailedAt!.type).toEqual([
+      "string",
+      "null",
+    ])
+    const backfill = document.paths[
+      "/api/v1/dependencies/{dependencyId}/backfill"
+    ]!.post as Operation & {
+      parameters: Array<{ $ref?: string }>
+      responses: Record<string, { content?: Record<string, unknown> }>
+    }
+    expect(backfill["x-required-scopes"]).toEqual(["dependencies:write"])
+    expect(
+      backfill.parameters.some((parameter) =>
+        parameter.$ref?.endsWith("/IdempotencyKey")
+      )
+    ).toBe(true)
+    expect(backfill.responses["200"]).toBeDefined()
+    expect(backfill.responses["404"]).toBeDefined()
   })
 
   it("defines the authoritative manual monitor-test outcome", () => {

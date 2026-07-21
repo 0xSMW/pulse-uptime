@@ -320,6 +320,9 @@ export interface DependencyDetail {
   sourceScopeNote: string | null
   notificationsEnabled: boolean
   createdAt: string
+  // Set when install-time incident backfill failed. The detail view offers a
+  // manual retry while this is non-null. Null once backfill succeeded.
+  backfillFailedAt: string | null
   state: DependencyState
   pendingFirstPoll: boolean
   stateStartedAt: string
@@ -346,6 +349,7 @@ export async function getDependencyDetail(
       scopeId: dependencies.scopeId,
       notificationsEnabled: dependencies.notificationsEnabled,
       createdAt: dependencies.createdAt,
+      backfillFailedAt: dependencies.backfillFailedAt,
       name: dependencyCatalog.displayName,
       description: dependencyCatalog.description,
       category: dependencyCatalog.category,
@@ -502,6 +506,7 @@ export async function getDependencyDetail(
     sourceScopeNote: row.sourceScopeNote,
     notificationsEnabled: row.notificationsEnabled,
     createdAt: row.createdAt.toISOString(),
+    backfillFailedAt: row.backfillFailedAt?.toISOString() ?? null,
     state: row.state as DependencyState,
     pendingFirstPoll: row.pendingFirstPoll,
     stateStartedAt: row.stateStartedAt.toISOString(),

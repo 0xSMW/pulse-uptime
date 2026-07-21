@@ -689,6 +689,38 @@
         }
       }
     },
+    "/api/v1/dependencies/{dependencyId}/backfill": {
+      "post": {
+        "operationId": "retryDependencyBackfill",
+        "tags": ["Dependencies"],
+        "summary": "Retry install-time incident backfill",
+        "description": "Re-runs the install-time incident backfill for a dependency whose add-time scan failed, anchored to its createdAt so it reproduces the same matches. On success the backfillFailedAt mark clears and the refreshed dependency is returned. Idempotent and safe to call regardless of the mark: on an unmarked dependency it re-runs the scan as a no-op.",
+        "x-required-scopes": ["dependencies:write"],
+        "security": [
+          {"bearerAuth": []},
+          {"humanSession": []}
+        ],
+        "parameters": [
+          {"$ref": "#/components/parameters/DependencyId"},
+          {"$ref": "#/components/parameters/RequestId"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "responses": {
+          "200": {
+            "description": "Backfilled dependency",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/DependencyEnvelope"}
+              }
+            }
+          },
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      }
+    },
     "/api/v1/version": {
       "get": {
         "operationId": "getVersion",
@@ -3639,7 +3671,7 @@
         "required": [
           "id", "presetId", "scopeId", "name", "description", "category", "provider",
           "fidelity", "componentLabel", "sourceScopeNote", "notificationsEnabled", "createdAt",
-          "state", "pendingFirstPoll", "stateStartedAt", "providerUpdatedAt", "observedAt",
+          "backfillFailedAt", "state", "pendingFirstPoll", "stateStartedAt", "providerUpdatedAt", "observedAt",
           "lastSuccessfulPollAt", "canonicalUrl", "incidents", "timeline24h", "timeline7d"
         ],
         "properties": {
@@ -3655,6 +3687,7 @@
           "sourceScopeNote": {"type": ["string", "null"]},
           "notificationsEnabled": {"type": "boolean"},
           "createdAt": {"type": "string", "format": "date-time"},
+          "backfillFailedAt": {"type": ["string", "null"], "format": "date-time", "description": "Set when install-time incident backfill failed. The dependency detail view offers a manual retry (POST .../backfill) while this is non-null. Null once backfill succeeded or was never attempted."},
           "state": {"$ref": "#/components/schemas/DependencyState"},
           "pendingFirstPoll": {"type": "boolean"},
           "stateStartedAt": {"type": "string", "format": "date-time"},

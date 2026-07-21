@@ -139,6 +139,8 @@ export function DependencyDetail({
   const [toggleBusy, setToggleBusy] = useState(false)
   const [toggleError, setToggleError] = useState("")
   const [removeOpen, setRemoveOpen] = useState(false)
+  const [backfillBusy, setBackfillBusy] = useState(false)
+  const [backfillError, setBackfillError] = useState("")
 
   const activeIncident =
     dependency.incidents.find((incident) => incident.resolvedAt === null) ??
@@ -163,6 +165,23 @@ export function DependencyDetail({
       setToggleError(messageForError(error))
     } finally {
       setToggleBusy(false)
+    }
+  }
+
+  async function runBackfill() {
+    setBackfillBusy(true)
+    setBackfillError("")
+    try {
+      await apiRequest(
+        `/api/v1/dependencies/${encodeURIComponent(dependency.id)}/backfill`,
+        { method: "POST" },
+        true
+      )
+      router.refresh()
+    } catch (error) {
+      setBackfillError(messageForError(error))
+    } finally {
+      setBackfillBusy(false)
     }
   }
 
@@ -200,13 +219,32 @@ export function DependencyDetail({
               </span>
             </div>
           </div>
-          <Button
-            onClick={() => setRemoveOpen(true)}
-            size="sm"
-            variant="error-outline"
-          >
-            Remove Dependency
-          </Button>
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex items-center gap-2">
+              {dependency.backfillFailedAt ? (
+                <Button
+                  disabled={backfillBusy}
+                  onClick={() => void runBackfill()}
+                  size="sm"
+                  variant="secondary"
+                >
+                  {backfillBusy ? "Backfilling…" : "Backfill History"}
+                </Button>
+              ) : null}
+              <Button
+                onClick={() => setRemoveOpen(true)}
+                size="sm"
+                variant="error-outline"
+              >
+                Remove Dependency
+              </Button>
+            </div>
+            {backfillError ? (
+              <p className="text-[var(--down-text)] text-xs" role="alert">
+                {backfillError}
+              </p>
+            ) : null}
+          </div>
         </div>
       </header>
 

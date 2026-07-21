@@ -1312,6 +1312,10 @@ export const dependencies = pgTable(
       .default(true),
     createdAt: timestamptz("created_at").notNull(),
     removedAt: timestamptz("removed_at"),
+    // Set when install-time incident backfill fails, so the add still commits
+    // and the detail view can offer a manual retry. Cleared when a retry
+    // succeeds. Null means backfill either succeeded or was never attempted.
+    backfillFailedAt: timestamptz("backfill_failed_at"),
   },
   (table) => [
     uniqueIndex("dependencies_active_catalog_scope")
