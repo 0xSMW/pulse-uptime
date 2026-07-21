@@ -18,11 +18,16 @@ export interface AcceptedSnapshot {
 
 type SnapshotReader = typeof db
 
-// The accepted snapshot orders by acceptedAt then seenAt so two rows accepted in
-// the same instant resolve deterministically, and it recomputes the config hash
-// so a persisted configHash that no longer matches its configJson is rejected
-// rather than trusted. Missing accepted row returns null. A present but invalid
-// or hash-mismatched row throws.
+// The accepted snapshot orders by acceptedAt then seenAt. Every writer stamps
+// acceptedAt from the lock-serialized database clock after acquiring the
+// configuration lock, and the lock releases only at commit, so the later
+// committed snapshot carries a strictly greater acceptedAt (a durable commit
+// spans more than the millisecond resolution of a Date) and this reader returns
+// the config the last committed registry sync wrote. seenAt is a stable
+// secondary sort. The reader recomputes the config hash so a persisted
+// configHash that no longer matches its configJson is rejected rather than
+// trusted. Missing accepted row returns null. A present but invalid or
+// hash-mismatched row throws.
 export async function findAcceptedSnapshot(
   executor: SnapshotReader = db
 ): Promise<AcceptedSnapshot | null> {

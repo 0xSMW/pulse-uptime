@@ -5,6 +5,7 @@ import {
   CONFIGURATION_LOCK_KEY,
   type ConfigurationLockExecutor,
   lockConfiguration,
+  lockedNow,
 } from "./configuration-lock"
 
 function sqlText(query: SQL): string {
@@ -50,5 +51,27 @@ describe("configuration advisory lock", () => {
     const execute = vi.fn(async (_query: SQL) => undefined)
     await lockConfiguration({ execute })
     expect(execute).toHaveBeenCalledOnce()
+  })
+})
+
+describe("lockedNow", () => {
+  it("parses the numeric epoch string the database returns", async () => {
+    // Row shape mirrors the raw postgres-js execute result for the numeric
+    // cast, a decimal string keyed epoch_ms.
+    const execute = vi.fn(async (_query: SQL) => [
+      { epoch_ms: "1753093138724.123000" },
+    ])
+    const stamped = await lockedNow({ execute } as ConfigurationLockExecutor)
+    expect(stamped.getTime()).toBe(1_753_093_138_724)
+    const text = sqlText(execute.mock.calls[0]?.[0] as SQL)
+    expect(text).toContain("clock_timestamp")
+    expect(text).toContain("epoch_ms")
+  })
+
+  it("throws when the clock query returns no row", async () => {
+    const execute = vi.fn(async (_query: SQL) => [])
+    await expect(
+      lockedNow({ execute } as ConfigurationLockExecutor)
+    ).rejects.toThrow("clock_timestamp query returned no row")
   })
 })

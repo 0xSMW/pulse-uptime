@@ -23,7 +23,7 @@ import {
 } from "@/lib/db/schema"
 import { synchronizeRegistry as syncRegistryRows } from "@/lib/scheduler/registry-sync"
 
-import { lockConfiguration } from "./configuration-lock"
+import { lockConfiguration, lockedNow } from "./configuration-lock"
 
 type DbTransaction = DatabaseTransaction
 
@@ -96,7 +96,10 @@ export async function mutateConfig(
     if (hash === current.hash) {
       return current.config
     }
-    const now = new Date()
+    // Stamp from the lock-serialized database clock so this snapshot's
+    // acceptedAt orders correctly against a concurrent cron acceptance under
+    // the same lock, immune to host clock skew.
+    const now = await lockedNow(tx)
     const destructive = evaluateDestructiveChange(
       exportDeclarativeConfig(current.config),
       exportDeclarativeConfig(target)

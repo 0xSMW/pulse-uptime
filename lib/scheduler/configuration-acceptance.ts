@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto"
 
 import { and, desc, eq, gt, isNull } from "drizzle-orm"
 
-import { lockConfiguration } from "@/lib/api/configuration-lock"
+import { lockConfiguration, lockedNow } from "@/lib/api/configuration-lock"
 import {
   type AcceptanceResult,
   evaluateConfigurationAcceptance,
@@ -116,13 +116,14 @@ export async function acceptDesiredConfiguration(
     async (tx): Promise<AcceptanceOutcome> => {
       await lockConfiguration(tx)
 
-      // Persisted rows are stamped with a timestamp taken after the lock is
-      // held so the accepted snapshot ordering respects lock serialization. The
-      // caller's now can predate a concurrent API mutation that acquired the
-      // lock and committed first, which would sort this snapshot as older while
-      // the registry sync reflects this config, so readers ordered by acceptedAt
-      // would return the other config than the one the registry runs.
-      const writtenAt = new Date()
+      // Persisted rows are stamped from the lock-serialized database clock, not
+      // the caller's now. The caller's now can predate a concurrent API mutation
+      // that acquired the lock and committed first, and on a skewed host the
+      // wall clock could even stamp this later writer with an earlier instant,
+      // either of which sorts this snapshot as older while the registry sync
+      // reflects this config, so readers ordered by acceptedAt would return a
+      // different config than the one the registry runs.
+      const writtenAt = await lockedNow(tx)
 
       const snapshot = await findAcceptedSnapshot(tx as unknown as typeof db)
       const previous = snapshot

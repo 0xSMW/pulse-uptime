@@ -16,7 +16,9 @@ function makeHandle(row: unknown) {
     values: vi.fn(async () => undefined),
   }
   const handle: Record<string, unknown> = {
-    execute: vi.fn(async () => undefined),
+    // Serves both the advisory lock (result ignored) and lockedNow, which reads
+    // the database clock as the row's epoch_ms.
+    execute: vi.fn(async () => [{ epoch_ms: String(Date.now()) }]),
     select: vi.fn(() => selectChain),
     insert: vi.fn(() => insertChain),
   }

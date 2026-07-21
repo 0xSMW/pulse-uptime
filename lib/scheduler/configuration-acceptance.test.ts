@@ -1,8 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+// WRITTEN_AT stands in for the lock-serialized database clock and is distinct
+// from the caller's NOW, so a snapshot stamped with the caller's now instead of
+// the post-lock instant fails the assertions below.
+const { defaultHandle, WRITTEN_AT } = vi.hoisted(() => ({
+  defaultHandle: { transaction: vi.fn() },
+  WRITTEN_AT: new Date("2026-07-18T04:00:00.500Z"),
+}))
+
 vi.mock("server-only", () => ({}))
 vi.mock("@/lib/api/configuration-lock", () => ({
   lockConfiguration: vi.fn(async () => undefined),
+  lockedNow: vi.fn(async () => WRITTEN_AT),
 }))
 vi.mock("@/lib/scheduler/registry-sync", () => ({
   synchronizeRegistry: vi.fn(async () => undefined),
@@ -10,13 +19,9 @@ vi.mock("@/lib/scheduler/registry-sync", () => ({
 vi.mock("@/lib/config/accepted-config", () => ({
   findAcceptedSnapshot: vi.fn(),
 }))
-
-const { defaultHandle } = vi.hoisted(() => ({
-  defaultHandle: { transaction: vi.fn() },
-}))
 vi.mock("@/lib/db/client", () => ({ db: defaultHandle }))
 
-import { lockConfiguration } from "@/lib/api/configuration-lock"
+import { lockConfiguration, lockedNow } from "@/lib/api/configuration-lock"
 import {
   createMonitorWithDefaults,
   DEFAULT_MONITOR_SETTINGS,
@@ -147,6 +152,7 @@ describe("acceptDesiredConfiguration", () => {
     vi.mocked(lockConfiguration).mockReset()
     vi.mocked(synchronizeRegistry).mockReset()
     vi.mocked(findAcceptedSnapshot).mockReset()
+    vi.mocked(lockedNow).mockResolvedValue(WRITTEN_AT)
   })
 
   it("locks, re-reads the accepted snapshot, writes, and syncs registry in one transaction", async () => {
@@ -167,22 +173,27 @@ describe("acceptDesiredConfiguration", () => {
       "update",
       "registry-sync",
     ])
+    // The registry sync and the snapshot both stamp from the post-lock database
+    // clock, strictly after the caller's now, so acceptedAt ordering respects
+    // lock serialization instead of a stale pre-lock instant.
+    const stamped = vi.mocked(synchronizeRegistry).mock.calls[0]?.[3] as Date
+    expect(stamped.getTime()).toBeGreaterThan(NOW.getTime())
+    expect(synchronizeRegistry).toHaveBeenCalledWith(
+      expect.anything(),
+      config,
+      hash,
+      stamped,
+      "runtime"
+    )
     expect(inserts).toHaveLength(1)
     expect(inserts[0]).toEqual(
       expect.objectContaining({
         status: "accepted",
         configHash: hash,
         source: "edge-config",
+        acceptedAt: stamped,
+        seenAt: stamped,
       })
-    )
-    // Registry sync uses the post-lock write time, not the caller's now, so
-    // the accepted snapshot ordering respects lock serialization.
-    expect(synchronizeRegistry).toHaveBeenCalledWith(
-      expect.anything(),
-      config,
-      hash,
-      expect.any(Date),
-      "runtime"
     )
   })
 
@@ -244,20 +255,26 @@ describe("acceptDesiredConfiguration", () => {
     const result = await acceptDesiredConfiguration(desired, NOW, handle)
 
     expect(result).toEqual(previous)
+    // A rejected fallback records seenAt from the post-lock database clock and
+    // leaves acceptedAt null, so it never competes for the accepted ordering.
+    const stamped = vi.mocked(synchronizeRegistry).mock.calls[0]?.[3] as Date
+    expect(stamped.getTime()).toBeGreaterThan(NOW.getTime())
     expect(inserts[0]).toEqual(
       expect.objectContaining({
         status: "rejected",
         rejectionReason: "DESTRUCTIVE_APPROVAL_REQUIRED",
         configHash: desiredHash,
+        acceptedAt: null,
+        seenAt: stamped,
       })
     )
-    // Fallback still re-syncs the accepted previous hash so registry agrees.
-    // Registry sync uses the post-lock write time, not the caller's now.
+    // Fallback still re-syncs the accepted previous hash so registry agrees,
+    // stamped from the same post-lock instant.
     expect(synchronizeRegistry).toHaveBeenCalledWith(
       expect.anything(),
       previous,
       previousHash,
-      expect.any(Date),
+      stamped,
       "runtime"
     )
   })
