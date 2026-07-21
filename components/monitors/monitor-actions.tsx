@@ -21,10 +21,8 @@ import {
 } from "react"
 
 import { GroupDialog } from "@/components/settings/group-dialog"
-import {
-  type SettingsGroup,
-  sortSettingsGroups,
-} from "@/components/settings/settings-api"
+import { MonitorGroupField } from "@/components/settings/monitor-group-field"
+import type { SettingsGroup } from "@/components/settings/settings-api"
 import { Button } from "@/components/ui/button"
 import {
   Collapsible,
@@ -731,52 +729,13 @@ function MonitorEditSheet({
               onChange={(value) => update("url", value)}
               value={values.url}
             />
-            <div>
-              {/* biome-ignore lint/a11y/noLabelWithoutControl: linked to the Select via aria-labelledby on its trigger */}
-              <label
-                className="mb-1.5 block font-medium text-sm"
-                id="monitor-group-label"
-              >
-                Group
-              </label>
-              {availableGroups.length === 0 ? (
-                <Button
-                  className="w-full"
-                  onClick={() => setCreateGroupOpen(true)}
-                  type="button"
-                  variant="secondary"
-                >
-                  Create Group
-                </Button>
-              ) : (
-                <Select
-                  onValueChange={(value) => {
-                    if (value === "__create__") {
-                      setCreateGroupOpen(true)
-                    } else {
-                      update(
-                        "groupId",
-                        value === "__ungrouped__" ? null : value
-                      )
-                    }
-                  }}
-                  value={values.groupId ?? "__ungrouped__"}
-                >
-                  <SelectTrigger aria-labelledby="monitor-group-label">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__ungrouped__">Ungrouped</SelectItem>
-                    {sortSettingsGroups(availableGroups).map((group) => (
-                      <SelectItem key={group.id} value={group.id}>
-                        {group.name}
-                      </SelectItem>
-                    ))}
-                    <SelectItem value="__create__">Create group</SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
+            <MonitorGroupField
+              groups={availableGroups}
+              labelClassName="text-sm"
+              onChange={(groupId) => update("groupId", groupId)}
+              onCreateGroup={() => setCreateGroupOpen(true)}
+              value={values.groupId}
+            />
             <SelectField
               id="monitor-method"
               label="Method"
