@@ -33,29 +33,6 @@ set +a
 pnpm db:migrate
 ```
 
-### Test database
-
-The PostgreSQL integration suites (`*.postgres.test.ts`) run only when `TEST_DATABASE_URL` is set. They apply every migration in `drizzle/` themselves, so each test file needs an empty `public` schema. Never point `TEST_DATABASE_URL` at the production project.
-
-Two options:
-
-```sh
-# Local Docker (fastest, fine to discard)
-docker run -d --name pulse-test-db -p 55434:5432 \
-  -e POSTGRES_PASSWORD=pulse -e POSTGRES_DB=pulse_test postgres:15
-export TEST_DATABASE_URL='postgres://postgres:pulse@127.0.0.1:55434/pulse_test'
-
-# Shared Neon project, named pulse-uptime-tests (aws-ap-southeast-1)
-neonctl connection-string --project-id <pulse-uptime-tests-project-id>
-```
-
-Run one file per invocation and reset the schema between files. The suites are latency sensitive, so a remote test database must be in a region near the machine running them:
-
-```sh
-psql "$TEST_DATABASE_URL" -c 'drop schema public cascade; create schema public;'
-pnpm vitest run lib/storage/atomic-minute.postgres.test.ts
-```
-
 ## 3. Create Edge Config
 
 Create an Edge Config named `pulse-uptime` in the same Vercel team. Seed the single `monitoring` key with a valid complete configuration:
