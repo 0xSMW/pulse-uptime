@@ -118,6 +118,7 @@ export function createNotificationMessage(
             canonicalUrl={payload.canonicalUrl}
             dependencyName={payload.dependencyName}
             incidentTitle={payload.incidentTitle}
+            latestUpdate={payload.latestUpdate}
             provider={payload.provider}
             providerTimestamp={payload.providerTimestamp}
             state={payload.state}
@@ -138,6 +139,7 @@ export function createNotificationMessage(
             canonicalUrl={payload.canonicalUrl}
             dependencyName={payload.dependencyName}
             incidentTitle={payload.incidentTitle}
+            latestUpdate={payload.latestUpdate}
             provider={payload.provider}
             providerTimestamp={payload.providerTimestamp}
             state={payload.state}

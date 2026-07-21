@@ -140,7 +140,39 @@ describe("notification messages", () => {
     const html = renderToStaticMarkup(message.react)
     expect(html).toContain("Vercel reports Elevated function errors")
     expect(html).toContain("https://www.vercel-status.com/incidents/inc-1")
+    // No latestUpdate in the payload: the generic note is the fallback.
     expect(html).toContain("not an independent Pulse check")
+  })
+
+  it("quotes the incident's latest provider update with its timestamp in place of the generic note", () => {
+    const message = createNotificationMessage(
+      claimed({
+        eventType: "dependency.incident",
+        incidentId: null,
+        monitorId: null,
+        dependencyId: "dep-1",
+        payload: {
+          type: "dependency.incident",
+          dependencyName: "Vercel Runtime",
+          provider: "Vercel",
+          incidentTitle: "Elevated function errors",
+          state: "OUTAGE",
+          canonicalUrl: "https://www.vercel-status.com/incidents/inc-1",
+          providerTimestamp: "Jul 19 at 12:00 UTC",
+          latestUpdate: {
+            body: "We are currently investigating elevated function errors.",
+            timestamp: "Jul 19 at 12:05 UTC",
+          },
+        },
+      }),
+      "https://pulse.example.com"
+    )
+    const html = renderToStaticMarkup(message.react)
+    expect(html).toContain(
+      "We are currently investigating elevated function errors."
+    )
+    expect(html).toContain("Update posted Jul 19 at 12:05 UTC")
+    expect(html).not.toContain("not an independent Pulse check")
   })
 
   it("renders a dependency recovery notification", () => {
@@ -158,14 +190,20 @@ describe("notification messages", () => {
           state: "OPERATIONAL",
           canonicalUrl: null,
           providerTimestamp: "Jul 19 at 12:30 UTC",
+          latestUpdate: {
+            body: "This incident has been resolved.",
+            timestamp: "Jul 19 at 12:28 UTC",
+          },
         },
       }),
       "https://pulse.example.com"
     )
     expect(message.subject).toBe("Vercel Runtime: provider incident resolved")
-    expect(renderToStaticMarkup(message.react)).toContain(
-      "Elevated function errors resolved"
-    )
+    const html = renderToStaticMarkup(message.react)
+    expect(html).toContain("Elevated function errors resolved")
+    expect(html).toContain("This incident has been resolved.")
+    expect(html).toContain("Update posted Jul 19 at 12:28 UTC")
+    expect(html).not.toContain("not an independent Pulse check")
   })
 
   it("rejects a payload whose type does not match its event", () => {

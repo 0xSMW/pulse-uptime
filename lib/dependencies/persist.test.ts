@@ -14,7 +14,9 @@ import {
   failureDelayMs,
   type InstalledDependencyRow,
   isSourceStale,
+  latestUpdateQuote,
   MAX_RETRY_AFTER_MS,
+  MAX_UPDATE_QUOTE_LENGTH,
   matchingIdsForSelector,
   notificationKeyExternalId,
   type PersistExecutor,
@@ -779,6 +781,68 @@ describe("notificationKeyExternalId", () => {
   })
 })
 
+describe("latestUpdateQuote", () => {
+  function update(
+    overrides: Partial<
+      NormalizedProviderSnapshot["incidents"][number]["updates"][number]
+    > = {}
+  ): NormalizedProviderSnapshot["incidents"][number]["updates"][number] {
+    return {
+      externalId: "u1",
+      state: "investigating",
+      bodyText: "Investigating elevated errors",
+      createdAt: NOW.toISOString(),
+      updatedAt: NOW.toISOString(),
+      ...overrides,
+    }
+  }
+
+  it("picks the update with the greatest provider created timestamp and carries that timestamp", () => {
+    const later = new Date(NOW.getTime() + 300_000).toISOString()
+    expect(
+      latestUpdateQuote([
+        update({ externalId: "u1", bodyText: "First update" }),
+        update({
+          externalId: "u2",
+          bodyText: "Second update",
+          createdAt: later,
+        }),
+      ])
+    ).toEqual({ body: "Second update", timestamp: later })
+  })
+
+  it("skips blank bodies and trims the winning body", () => {
+    expect(
+      latestUpdateQuote([
+        update({ externalId: "u1", bodyText: "  Real update  " }),
+        update({
+          externalId: "u2",
+          bodyText: "   ",
+          createdAt: new Date(NOW.getTime() + 300_000).toISOString(),
+        }),
+      ])
+    ).toEqual({ body: "Real update", timestamp: NOW.toISOString() })
+  })
+
+  it("caps a long body at MAX_UPDATE_QUOTE_LENGTH with an ellipsis", () => {
+    const body = "x".repeat(MAX_UPDATE_QUOTE_LENGTH + 50)
+    const quote = latestUpdateQuote([update({ bodyText: body })])
+    expect(quote?.body).toBe(`${"x".repeat(MAX_UPDATE_QUOTE_LENGTH)}…`)
+    expect(quote?.body).toHaveLength(MAX_UPDATE_QUOTE_LENGTH + 1)
+  })
+
+  it("never cuts through a surrogate pair at the cap", () => {
+    const body = `${"x".repeat(MAX_UPDATE_QUOTE_LENGTH - 1)}\u{1F525}end`
+    const quote = latestUpdateQuote([update({ bodyText: body })])
+    expect(quote?.body).toBe(`${"x".repeat(MAX_UPDATE_QUOTE_LENGTH - 1)}…`)
+  })
+
+  it("returns null for no updates or only blank bodies", () => {
+    expect(latestUpdateQuote([])).toBeNull()
+    expect(latestUpdateQuote([update({ bodyText: "   " })])).toBeNull()
+  })
+})
+
 // -- persistSnapshot orchestration, against a stateful in-memory fake ------
 
 interface FakeDb {
@@ -1308,6 +1372,7 @@ describe("persistSnapshot: snapshot state transitions", () => {
       event: "incident",
       dependencyName: "Vercel Runtime",
       provider: "Vercel",
+      latestUpdate: { body: "Investigating", timestamp: NOW.toISOString() },
     })
   })
 
@@ -2789,6 +2854,9 @@ describe("persistSnapshot: FIX F-A3 completeness-gated closure of disappeared in
       "incident",
       "recovery",
     ])
+    // A disappeared incident carries no update text, so the recovery email
+    // falls back to the generic status-feed note.
+    expect(db.notifications[1]?.latestUpdate).toBeNull()
     // The incident is now stored resolved: closure set its resolved_at.
     expect(db.incidentResolvedAt.get("vercel:inc-1")).toBeInstanceOf(Date)
     expect(db.installed[0]?.currentState).toBe("OPERATIONAL")

@@ -534,6 +534,51 @@ export function notificationKeyExternalId(
     : incidentExternalId
 }
 
+/** Character cap on a provider update body quoted in a notification payload. */
+export const MAX_UPDATE_QUOTE_LENGTH = 300
+
+/**
+ * The provider update quoted in the notification email in place of the
+ * generic status-feed note. Picks the update with the greatest provider
+ * created timestamp, the same update the dependency detail view renders
+ * last, and carries that timestamp so the email dates the quote the way the
+ * detail view does. Blank bodies never win, bodies are trimmed and capped at
+ * MAX_UPDATE_QUOTE_LENGTH with an ellipsis, and an incident with no usable
+ * update yields null so the email falls back to the generic note.
+ */
+export function latestUpdateQuote(
+  updates: NormalizedIncident["updates"]
+): { body: string; timestamp: string } | null {
+  let latest: NormalizedIncident["updates"][number] | null = null
+  for (const update of updates) {
+    if (update.bodyText.trim().length === 0) {
+      continue
+    }
+    if (
+      latest === null ||
+      new Date(update.createdAt).getTime() >=
+        new Date(latest.createdAt).getTime()
+    ) {
+      latest = update
+    }
+  }
+  if (latest === null) {
+    return null
+  }
+  const body = latest.bodyText.trim()
+  return {
+    // The cut must not split a surrogate pair, a lone surrogate is rejected
+    // by the jsonb payload column and would abort the snapshot transaction.
+    body:
+      body.length > MAX_UPDATE_QUOTE_LENGTH
+        ? `${body
+            .slice(0, MAX_UPDATE_QUOTE_LENGTH)
+            .replace(/[\uD800-\uDBFF]$/, "")}…`
+        : body,
+    timestamp: latest.createdAt,
+  }
+}
+
 /** Upper bound on provider Retry-After delays used for next_poll_at. */
 export const MAX_RETRY_AFTER_MS = 24 * 60 * 60 * 1000
 
@@ -658,6 +703,8 @@ export interface DependencyNotificationInput {
   state: string
   canonicalUrl: string | null
   providerTimestamp: string
+  /** Latest provider update quoted in the email (see latestUpdateQuote), null when none exists. */
+  latestUpdate: { body: string; timestamp: string } | null
   recipients: readonly string[]
 }
 
@@ -1135,6 +1182,7 @@ export async function persistSnapshot(
             state: nextState,
             canonicalUrl: incident.canonicalUrl,
             providerTimestamp: incident.updatedAt,
+            latestUpdate: latestUpdateQuote(incident.updates),
             recipients: context.defaultRecipients,
           },
           context.now
@@ -1209,6 +1257,9 @@ export async function persistSnapshot(
                 state: resolvedState,
                 canonicalUrl: open.canonicalUrl,
                 providerTimestamp: context.now.toISOString(),
+                // A disappeared incident is absent from the snapshot, so no
+                // update text exists to quote.
+                latestUpdate: null,
                 recipients: context.defaultRecipients,
               },
               context.now
@@ -1583,6 +1634,7 @@ export function createSqlPersistStore(db: Database): PersistStore {
                 state: input.state,
                 canonicalUrl: input.canonicalUrl,
                 providerTimestamp: input.providerTimestamp,
+                latestUpdate: input.latestUpdate,
                 recipients: input.recipients,
               },
               { now }

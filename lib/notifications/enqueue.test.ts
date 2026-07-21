@@ -17,6 +17,7 @@ const baseDependencyInput = {
   state: "OUTAGE",
   canonicalUrl: "https://www.vercel-status.com/incidents/inc-1",
   providerTimestamp: "2026-07-19T12:00:00.000Z",
+  latestUpdate: null as { body: string; timestamp: string } | null,
 }
 
 // Fakes the Drizzle chain enqueueDependencyNotifications now runs on
@@ -88,6 +89,7 @@ describe("dependency notification enqueue", () => {
       createdAt: new Date("2026-07-19T12:00:00Z"),
       updatedAt: new Date("2026-07-19T12:00:00Z"),
     })
+    // A null latestUpdate is omitted from the payload, not stored as null.
     expect(row.payload).toStrictEqual({
       type: "dependency.incident",
       dependencyName: "Vercel Runtime",
@@ -96,6 +98,31 @@ describe("dependency notification enqueue", () => {
       state: "OUTAGE",
       canonicalUrl: "https://www.vercel-status.com/incidents/inc-1",
       providerTimestamp: "2026-07-19T12:00:00.000Z",
+    })
+  })
+
+  it("carries the latest provider update quote into the payload when present", async () => {
+    const { db, calls } = fakeDependencyDb()
+    await enqueueDependencyNotifications(
+      db,
+      {
+        ...baseDependencyInput,
+        latestUpdate: {
+          body: "We are currently investigating elevated function errors.",
+          timestamp: "2026-07-19T12:05:00.000Z",
+        },
+        recipients: ["ops@example.com"],
+      },
+      {
+        now: new Date("2026-07-19T12:00:00Z"),
+        createId: () => "notification-1",
+      }
+    )
+    expect(calls.rows![0]!.payload).toMatchObject({
+      latestUpdate: {
+        body: "We are currently investigating elevated function errors.",
+        timestamp: "2026-07-19T12:05:00.000Z",
+      },
     })
   })
 
