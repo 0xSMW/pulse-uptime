@@ -258,8 +258,8 @@ function HeaderIconAction({
       aria-label={disabled && disabledDescription ? `${label}. ${disabledDescription}` : undefined}
     >
       <Button
-        variant="secondary"
-        size="icon"
+        variant="tertiary"
+        size="icon-sm"
         disabled={disabled}
         aria-label={label}
         aria-describedby={tooltipId}

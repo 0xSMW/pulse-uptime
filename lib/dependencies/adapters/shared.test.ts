@@ -1,8 +1,63 @@
 import { describe, expect, it } from "vitest";
 
-import { toBoundedPlainText } from "./shared";
+import { isTerminalIncidentState, terminalResolvedAt, toBoundedPlainText } from "./shared";
 
 const MAX_BODY_BYTES = 4096;
+
+describe("isTerminalIncidentState", () => {
+  it("treats resolved, completed, and false_alarm as terminal", () => {
+    expect(isTerminalIncidentState("resolved")).toBe(true);
+    expect(isTerminalIncidentState("completed")).toBe(true);
+    expect(isTerminalIncidentState("false_alarm")).toBe(true);
+  });
+
+  it("treats active lifecycle values as non-terminal", () => {
+    for (const state of ["investigating", "identified", "monitoring", "scheduled", "in_progress", "recovering"]) {
+      expect(isTerminalIncidentState(state)).toBe(false);
+    }
+  });
+});
+
+describe("terminalResolvedAt", () => {
+  const startedAt = "2026-07-20T08:00:00.000Z";
+  const updatedAt = "2026-07-20T10:00:00.000Z";
+
+  it("returns null for active states even when an explicit end time is present", () => {
+    expect(terminalResolvedAt({
+      state: "investigating",
+      startedAt,
+      explicitResolvedAt: updatedAt,
+      providerUpdatedAt: updatedAt,
+    })).toBeNull();
+  });
+
+  it("prefers the explicit resolution timestamp for terminal states", () => {
+    expect(terminalResolvedAt({
+      state: "resolved",
+      startedAt,
+      explicitResolvedAt: "2026-07-20T09:30:00.000Z",
+      providerUpdatedAt: updatedAt,
+    })).toBe("2026-07-20T09:30:00.000Z");
+  });
+
+  it("falls back to the provider update timestamp when no explicit end is set", () => {
+    expect(terminalResolvedAt({
+      state: "completed",
+      startedAt,
+      explicitResolvedAt: null,
+      providerUpdatedAt: updatedAt,
+    })).toBe(updatedAt);
+  });
+
+  it("orders resolution at or after startedAt", () => {
+    expect(terminalResolvedAt({
+      state: "false_alarm",
+      startedAt,
+      explicitResolvedAt: "2026-07-20T07:00:00.000Z",
+      providerUpdatedAt: "2026-07-20T07:30:00.000Z",
+    })).toBe(startedAt);
+  });
+});
 
 function utf8Length(text: string): number {
   return new TextEncoder().encode(text).length;

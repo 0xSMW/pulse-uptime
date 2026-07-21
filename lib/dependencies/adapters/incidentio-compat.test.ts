@@ -60,21 +60,23 @@ describe("incidentioCompatAdapter.normalize: single active incident inference", 
     const snapshot = incidentioCompatAdapter.normalize({ source: openaiSource, documents: [currentDoc(singleIncidentInferred)], observedAt: "2026-07-19T15:05:00Z" });
     expect(snapshot.incidents).toHaveLength(1);
     const [incident] = snapshot.incidents;
-    expect(incident.componentIds.sort()).toEqual(["01K6TVGGGDCP0PPGCHXAG3AQX8", "01JMXBNJXGV1T5GT2M9XA83XNG", "01KX45G1SH21AX5DT93D4HMF0P"].sort());
+    expect(incident.scope.kind).toBe("components");
+    if (incident.scope.kind !== "components") throw new Error("expected components scope");
+    expect([...incident.scope.componentIds].sort()).toEqual(["01K6TVGGGDCP0PPGCHXAG3AQX8", "01JMXBNJXGV1T5GT2M9XA83XNG", "01KX45G1SH21AX5DT93D4HMF0P"].sort());
   });
 
-  it("normalizing the same fixture twice yields identical inferred componentIds and update ids", () => {
+  it("normalizing the same fixture twice yields identical inferred component scope and update ids", () => {
     const first = incidentioCompatAdapter.normalize({ source: openaiSource, documents: [currentDoc(singleIncidentInferred)], observedAt: "2026-07-19T15:05:00Z" });
     const second = incidentioCompatAdapter.normalize({ source: openaiSource, documents: [currentDoc(singleIncidentInferred)], observedAt: "2026-07-19T15:06:00Z" });
-    expect(first.incidents[0].componentIds.sort()).toEqual(second.incidents[0].componentIds.sort());
+    expect(first.incidents[0].scope).toEqual(second.incidents[0].scope);
     expect(first.incidents[0].updates.map((update) => update.externalId)).toEqual(second.incidents[0].updates.map((update) => update.externalId));
   });
 
-  it("leaves every incident at provider level, with no component guess, when several incidents are active at once", () => {
+  it("marks every incident unmapped, with no component guess, when several incidents are active at once", () => {
     const snapshot = incidentioCompatAdapter.normalize({ source: openaiSource, documents: [currentDoc(multiIncidentNoInference)], observedAt: "2026-07-19T16:05:00Z" });
     expect(snapshot.incidents).toHaveLength(2);
     for (const incident of snapshot.incidents) {
-      expect(incident.componentIds).toEqual([]);
+      expect(incident.scope).toEqual({ kind: "unmapped" });
     }
   });
 });
@@ -88,7 +90,7 @@ describe("incidentioCompatAdapter.normalize: incident history", () => {
     });
     const incident = snapshot.incidents.find((entry) => entry.externalId === "01KXT44TAQQ2R0AZDDVSJGAC4H");
     expect(incident?.state).toBe("resolved");
-    expect(incident?.componentIds).toEqual([]);
+    expect(incident?.scope).toEqual({ kind: "unmapped" });
   });
 });
 

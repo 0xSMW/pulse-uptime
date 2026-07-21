@@ -1,9 +1,9 @@
 import type { MaintenanceStore } from "./coordinator";
 import type { Database } from "@/lib/db/client";
 import { createSqlCatalogReconcileStore, reconcileCatalog } from "@/lib/dependencies/catalog-sync";
-import { createLiveFetchSourceComponents } from "@/lib/dependencies/catalog-revalidation";
+import { createLiveCatalogDirectoryFetcher } from "@/lib/dependencies/catalog-revalidation";
 import { reconcileStaleClaims } from "@/lib/notifications/sql";
-import { retentionFor, STORAGE_BUDGET_BYTES } from "@/lib/storage/governor";
+import { retentionFor, STORAGE_BUDGET_BYTES, type GovernorMode } from "@/lib/storage/governor";
 import {
   COMPACT_15_MINUTE_SQL,
   FILL_SCHEDULER_GAPS_SQL,
@@ -12,8 +12,16 @@ import {
   type UsageModeRow,
 } from "@/lib/storage/sql";
 
+export type QueryFn = <T>(text: string, values: readonly unknown[]) => Promise<readonly T[]>;
+
 export interface QueryExecutor {
   query<T>(text: string, values: readonly unknown[]): Promise<readonly T[]>;
+  /**
+   * Optional: run work on one connection with transaction-local
+   * statement_timeout so a long SQL step cannot outlive its maintenance
+   * budget. When absent, callers fall back to plain query.
+   */
+  withStatementTimeout?<T>(timeoutMs: number, work: (query: QueryFn) => Promise<T>): Promise<T>;
 }
 
 interface AffectedRow {
@@ -22,6 +30,31 @@ interface AffectedRow {
 
 const affected = (rows: readonly AffectedRow[]) => rows[0]?.affected ?? 0;
 const count = (rows: readonly unknown[]) => rows.length;
+
+/**
+ * Runs a query, applying transaction-local statement_timeout when the executor
+ * supports it and a positive remaining budget is provided.
+ */
+async function queryWithBudget<T>(
+  db: QueryExecutor,
+  remainingMs: number | undefined,
+  text: string,
+  values: readonly unknown[],
+): Promise<readonly T[]> {
+  if (
+    remainingMs === undefined
+    || !Number.isFinite(remainingMs)
+    || remainingMs <= 0
+    || typeof db.withStatementTimeout !== "function"
+  ) {
+    return db.query<T>(text, values);
+  }
+  const timeoutMs = Math.max(1, Math.floor(remainingMs));
+  return db.withStatementTimeout(timeoutMs, (query) => query<T>(text, values));
+}
+
+const LATEST_GOVERNOR_MODE_SQL = `select governor_mode from database_usage_snapshots
+order by captured_at desc limit 1`;
 
 const SCHEDULER_COVERAGE_START_SQL = `select coalesce(
   (select max(bucket_start + case resolution when '15m' then interval '15 minutes'
@@ -205,100 +238,133 @@ select (select count(*)::int from deleted) as affected`;
 
 export function createSqlMaintenanceStore(db: QueryExecutor, drizzle?: Database): MaintenanceStore {
   return {
-    async reconcileStaleOutbox(now) {
+    async reconcileStaleOutbox(now, remainingMs) {
+      // Apply the same remaining-budget statement_timeout as other SQL steps
+      // when the executor supports it. Falls back to an untimed path otherwise.
+      if (
+        remainingMs !== undefined
+        && Number.isFinite(remainingMs)
+        && remainingMs > 0
+        && typeof db.withStatementTimeout === "function"
+      ) {
+        const timeoutMs = Math.max(1, Math.floor(remainingMs));
+        return db.withStatementTimeout(timeoutMs, (query) =>
+          reconcileStaleClaims({ query }, now),
+        );
+      }
       return reconcileStaleClaims(db, now);
     },
-    async reconcileStaleCronRuns(now) {
-      return affected(await db.query<AffectedRow>(RECONCILE_CRON_SQL, [now, new Date(now.getTime() - 5 * 60_000)]));
+    async reconcileStaleCronRuns(now, remainingMs) {
+      return affected(await queryWithBudget<AffectedRow>(
+        db, remainingMs, RECONCILE_CRON_SQL, [now, new Date(now.getTime() - 5 * 60_000)],
+      ));
     },
-    async deleteRawChecks(cutoff, limit) {
-      return affected(await db.query<AffectedRow>(DELETE_CHECKS_SQL, [cutoff, limit]));
+    async deleteRawChecks(cutoff, limit, remainingMs) {
+      return affected(await queryWithBudget<AffectedRow>(db, remainingMs, DELETE_CHECKS_SQL, [cutoff, limit]));
     },
-    async deleteSentNotifications(cutoff, limit) {
-      return affected(await db.query<AffectedRow>(DELETE_SENT_SQL, [cutoff, limit]));
+    async deleteSentNotifications(cutoff, limit, remainingMs) {
+      return affected(await queryWithBudget<AffectedRow>(db, remainingMs, DELETE_SENT_SQL, [cutoff, limit]));
     },
-    async expireConfigApprovals(now, consumedCutoff, limit) {
-      return affected(await db.query<AffectedRow>(EXPIRE_APPROVALS_SQL, [now, consumedCutoff, limit]));
+    async expireConfigApprovals(now, consumedCutoff, limit, remainingMs) {
+      return affected(await queryWithBudget<AffectedRow>(
+        db, remainingMs, EXPIRE_APPROVALS_SQL, [now, consumedCutoff, limit],
+      ));
     },
-    async expireApiIdempotency(now, limit) {
-      return affected(await db.query<AffectedRow>(EXPIRE_IDEMPOTENCY_SQL, [now, limit]));
+    async expireApiIdempotency(now, limit, remainingMs) {
+      return affected(await queryWithBudget<AffectedRow>(db, remainingMs, EXPIRE_IDEMPOTENCY_SQL, [now, limit]));
     },
-    async markDeviceAuthorizationsExpired(now, limit) {
-      return affected(await db.query<AffectedRow>(MARK_DEVICE_EXPIRED_SQL, [now, limit]));
+    async markDeviceAuthorizationsExpired(now, limit, remainingMs) {
+      return affected(await queryWithBudget<AffectedRow>(db, remainingMs, MARK_DEVICE_EXPIRED_SQL, [now, limit]));
     },
-    async deleteExpiredDeviceAuthorizations(retentionCutoff, limit) {
-      return affected(await db.query<AffectedRow>(DELETE_DEVICE_SQL, [retentionCutoff, limit]));
+    async deleteExpiredDeviceAuthorizations(retentionCutoff, limit, remainingMs) {
+      return affected(await queryWithBudget<AffectedRow>(
+        db, remainingMs, DELETE_DEVICE_SQL, [retentionCutoff, limit],
+      ));
     },
-    async expireRateLimitBuckets(now, limit) {
-      return affected(await db.query<AffectedRow>(EXPIRE_RATE_SQL, [now, limit]));
+    async expireRateLimitBuckets(now, limit, remainingMs) {
+      return affected(await queryWithBudget<AffectedRow>(db, remainingMs, EXPIRE_RATE_SQL, [now, limit]));
     },
-    async retainConfigSnapshots(cutoff, acceptedLimit, limit) {
-      return affected(await db.query<AffectedRow>(RETAIN_SNAPSHOTS_SQL, [cutoff, acceptedLimit, limit]));
+    async retainConfigSnapshots(cutoff, acceptedLimit, limit, remainingMs) {
+      return affected(await queryWithBudget<AffectedRow>(
+        db, remainingMs, RETAIN_SNAPSHOTS_SQL, [cutoff, acceptedLimit, limit],
+      ));
     },
-    async deleteOldCronRuns(cutoff, limit) {
-      return affected(await db.query<AffectedRow>(DELETE_CRON_SQL, [cutoff, limit]));
+    async deleteOldCronRuns(cutoff, limit, remainingMs) {
+      return affected(await queryWithBudget<AffectedRow>(db, remainingMs, DELETE_CRON_SQL, [cutoff, limit]));
     },
     async deleteOldRollups() {
       // daily_rollups is dropped. metric_rollups day retention runs through
       // enforceTelemetryRetention, so this ladder has nothing to delete.
       return 0;
     },
-    async compact15Minute(start, end, now) {
-      return count(await db.query(COMPACT_15_MINUTE_SQL, [start, end, now]));
+    async compact15Minute(start, end, now, remainingMs) {
+      return count(await queryWithBudget(db, remainingMs, COMPACT_15_MINUTE_SQL, [start, end, now]));
     },
-    async fillSchedulerGaps(start, end, now) {
-      return count(await db.query(FILL_SCHEDULER_GAPS_SQL, [start, end, now]));
+    async fillSchedulerGaps(start, end, now, remainingMs) {
+      return count(await queryWithBudget(db, remainingMs, FILL_SCHEDULER_GAPS_SQL, [start, end, now]));
     },
-    async schedulerCoverageStart(now) {
-      const rows = await db.query<{ coverage_start: Date }>(SCHEDULER_COVERAGE_START_SQL, [now]);
+    async schedulerCoverageStart(now, remainingMs) {
+      const rows = await queryWithBudget<{ coverage_start: Date }>(
+        db, remainingMs, SCHEDULER_COVERAGE_START_SQL, [now],
+      );
       return rows[0]?.coverage_start ?? new Date(now.getTime() - 48 * 3_600_000);
     },
-    async promoteRollups(source, target, start, end) {
-      return count(await db.query(PROMOTE_ROLLUP_SQL, [source, target, start, end]));
+    async promoteRollups(source, target, start, end, remainingMs) {
+      return count(await queryWithBudget(db, remainingMs, PROMOTE_ROLLUP_SQL, [source, target, start, end]));
     },
-    async measureAndSnapshotUsage(now) {
-      const rows = await db.query<UsageModeRow>(MEASURE_USAGE_SQL, [now, STORAGE_BUDGET_BYTES, null, null, null]);
+    async measureAndSnapshotUsage(now, remainingMs) {
+      const rows = await queryWithBudget<UsageModeRow>(
+        db, remainingMs, MEASURE_USAGE_SQL, [now, STORAGE_BUDGET_BYTES, null, null, null],
+      );
       return rows[0]?.governor_mode ?? "essential";
     },
-    async enforceTelemetryRetention(now, mode, limit) {
+    async readLatestGovernorMode() {
+      const rows = await db.query<{ governor_mode: GovernorMode }>(LATEST_GOVERNOR_MODE_SQL, []);
+      return rows[0]?.governor_mode ?? null;
+    },
+    async enforceTelemetryRetention(now, mode, limit, remainingMs) {
       const policy = retentionFor(mode);
       const minuteCutoff = new Date(now.getTime() - policy.minuteHours * 3_600_000);
       const quarterCutoff = new Date(now.getTime() - policy.quarterHourDays * 86_400_000);
       const hourCutoff = new Date(now.getTime() - policy.hourlyDays * 86_400_000);
       const dayCutoff = new Date(now.getTime() - 730 * 86_400_000);
-      return affected(await db.query<AffectedRow>(RETAIN_TELEMETRY_SQL, [
+      return affected(await queryWithBudget<AffectedRow>(db, remainingMs, RETAIN_TELEMETRY_SQL, [
         minuteCutoff, mode === "shortened" || mode === "incident_only", limit, quarterCutoff, hourCutoff,
         mode === "essential", dayCutoff, new Date(now.getTime() - 7 * 86_400_000),
         mode === "shortened" || mode === "incident_only", new Date(now.getTime() - 90 * 86_400_000),
       ]));
     },
-    async retainUsageSnapshots(now, limit) {
-      return affected(await db.query<AffectedRow>(RETAIN_USAGE_SQL, [now, limit]));
+    async retainUsageSnapshots(now, limit, remainingMs) {
+      return affected(await queryWithBudget<AffectedRow>(db, remainingMs, RETAIN_USAGE_SQL, [now, limit]));
     },
-    async retainExceptions(now, limit) {
-      return affected(await db.query<AffectedRow>(RETAIN_EXCEPTIONS_SQL, [now, limit]));
+    async retainExceptions(now, limit, remainingMs) {
+      return affected(await queryWithBudget<AffectedRow>(db, remainingMs, RETAIN_EXCEPTIONS_SQL, [now, limit]));
     },
-    async retainExceptionPayloads(now, limit) {
-      return affected(await db.query<AffectedRow>(RETAIN_PAYLOADS_SQL, [now, limit]));
+    async retainExceptionPayloads(now, limit, remainingMs) {
+      return affected(await queryWithBudget<AffectedRow>(db, remainingMs, RETAIN_PAYLOADS_SQL, [now, limit]));
     },
-    async deleteOrphanImages(cutoff, keepNewest, limit) {
-      return count(await db.query(DELETE_ORPHAN_IMAGES_SQL, [cutoff, keepNewest, limit]));
+    async deleteOrphanImages(cutoff, keepNewest, limit, remainingMs) {
+      return count(await queryWithBudget(db, remainingMs, DELETE_ORPHAN_IMAGES_SQL, [cutoff, keepNewest, limit]));
     },
     async reconcileDependencyCatalog(now, deadlineAtMs) {
       if (!drizzle) return { checkedSources: 0, disabledPresets: 0 };
       const summary = await reconcileCatalog({
         store: createSqlCatalogReconcileStore(drizzle),
-        fetchSourceComponents: createLiveFetchSourceComponents(),
+        fetchCatalogDirectory: createLiveCatalogDirectoryFetcher(),
         now: () => now,
         deadlineAtMs,
       });
       return { checkedSources: summary.checkedSources, disabledPresets: summary.disabledPresets.length };
     },
-    async retainDependencyIncidentUpdates(cutoff, limit) {
-      return affected(await db.query<AffectedRow>(RETAIN_DEPENDENCY_INCIDENT_UPDATES_SQL, [cutoff, limit]));
+    async retainDependencyIncidentUpdates(cutoff, limit, remainingMs) {
+      return affected(await queryWithBudget<AffectedRow>(
+        db, remainingMs, RETAIN_DEPENDENCY_INCIDENT_UPDATES_SQL, [cutoff, limit],
+      ));
     },
-    async compactDependencyStateIntervals(cutoff, limit) {
-      return affected(await db.query<AffectedRow>(COMPACT_DEPENDENCY_STATE_INTERVALS_SQL, [cutoff, limit]));
+    async compactDependencyStateIntervals(cutoff, limit, remainingMs) {
+      return affected(await queryWithBudget<AffectedRow>(
+        db, remainingMs, COMPACT_DEPENDENCY_STATE_INTERVALS_SQL, [cutoff, limit],
+      ));
     },
   };
 }

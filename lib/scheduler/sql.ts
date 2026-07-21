@@ -27,25 +27,27 @@ export function createSqlCronRunStore(db: QueryExecutor): CronRunStore {
   return {
     async start(input) {
       const rows = await db.query(`insert into cron_runs
-(id, job_name, scheduled_minute, status, started_at, monitor_count, success_count, failure_count, skipped_count)
-values ($1, $2, $3, 'running', $4, 0, 0, 0, 0)
+(id, job_name, scheduled_minute, status, started_at, monitor_count, success_count, failure_count, skipped_count, release_id)
+values ($1, $2, $3, 'running', $4, 0, 0, 0, 0, $5)
 on conflict (job_name, scheduled_minute) do nothing returning id`, [
-        input.id, input.jobName, input.scheduledMinute, input.startedAt,
+        input.id, input.jobName, input.scheduledMinute, input.startedAt, input.releaseId,
       ]);
       return rows.length === 1;
     },
     async complete(id, completedAt, counts) {
       await db.query(`update cron_runs set status = 'completed', completed_at = $2,
-monitor_count = $3, success_count = $4, failure_count = $5, skipped_count = $6, error_message = null
+monitor_count = $3, success_count = $4, failure_count = $5, skipped_count = $6, error_message = null, error_detail = null
 where id = $1 and status = 'running' returning id`, [
         id, completedAt, counts.monitorCount, counts.successCount, counts.failureCount, counts.skippedCount,
       ]);
     },
-    async fail(id, completedAt, errorMessage, counts = { monitorCount: 0, successCount: 0, failureCount: 0, skippedCount: 0 }) {
+    async fail(id, completedAt, failure, counts = { monitorCount: 0, successCount: 0, failureCount: 0, skippedCount: 0 }) {
       await db.query(`update cron_runs set status = 'failed', completed_at = $2, error_message = $3,
+error_detail = $8::jsonb,
 monitor_count = $4, success_count = $5, failure_count = $6, skipped_count = $7
 where id = $1 and status = 'running' returning id`, [
-        id, completedAt, errorMessage, counts.monitorCount, counts.successCount, counts.failureCount, counts.skippedCount,
+        id, completedAt, failure.message, counts.monitorCount, counts.successCount, counts.failureCount, counts.skippedCount,
+        JSON.stringify(failure.capture),
       ]);
     },
   };

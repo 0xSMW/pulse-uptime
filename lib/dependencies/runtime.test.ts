@@ -16,6 +16,7 @@ function fakeDeps(overrides: Partial<DependencyCronCoordinatorDeps> = {}): Depen
   return {
     leases: { acquire: vi.fn().mockResolvedValue(true), release: vi.fn().mockResolvedValue(undefined) },
     runs: { start: vi.fn().mockResolvedValue(true), complete: vi.fn().mockResolvedValue(undefined), fail: vi.fn().mockResolvedValue(undefined) },
+    releaseId: "dpl_test",
     syncCatalog: vi.fn().mockResolvedValue({ synced: false }),
     loadDefaultRecipients: vi.fn().mockResolvedValue(["ops@example.com"]),
     poll: vi.fn().mockResolvedValue({ sourcesDue: 1, polled: 1, notModified: 0, failed: 0 }),
@@ -69,6 +70,7 @@ describe("runDependencyCronCoordinator", () => {
       failed: 0,
       staleClaims: 2,
     });
+    expect(deps.runs.start).toHaveBeenCalledWith(expect.objectContaining({ releaseId: "dpl_test" }));
     expect(deps.runs.complete).toHaveBeenCalledWith("id-1", NOW, { sourcesDue: 3, polled: 2, notModified: 1, failed: 0 });
     expect(deps.leases.release).toHaveBeenCalledTimes(1);
   });
@@ -175,6 +177,7 @@ describe("createDueSourceStore", () => {
 describe("runDependencyCron wiring", () => {
   it("passes the loaded manifest into catalog sync, gating on the stored version inside syncCatalog", async () => {
     vi.resetModules();
+    vi.stubEnv("PULSE_RELEASE_ID", "dpl_test");
     const syncCatalog = vi.fn().mockResolvedValue({ synced: false, catalogVersion: "2026-07-19.2" });
     const pollDueSources = vi.fn().mockResolvedValue({ sourcesDue: 0, polled: 0, notModified: 0, failed: 0 });
     const deliverPendingNotifications = vi.fn().mockResolvedValue({ claimed: 0, sent: 0, failed: 0, dead: 0, lostClaims: 0 });
@@ -205,6 +208,7 @@ describe("runDependencyCron wiring", () => {
     vi.doUnmock("./catalog-sync");
     vi.doUnmock("./poller");
     vi.doUnmock("./persist");
+    vi.unstubAllEnvs();
     vi.resetModules();
   });
 });

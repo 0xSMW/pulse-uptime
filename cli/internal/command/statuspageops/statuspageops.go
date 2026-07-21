@@ -149,20 +149,39 @@ func getCommand(d Dependencies) *cobra.Command {
 
 func setCommand(d Dependencies) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "set <field>=<value> ...",
+		Use:   "set [field=value ...]",
 		Short: "Update status page fields",
 		Long: "Update one or more configuration fields and save the document in a single\n" +
-			"write. Booleans take true/false; give an empty value (field=) to clear an\n" +
-			"optional field. navLinks cannot be edited here. Use status-page export,\n" +
-			"edit the file, and status-page apply.",
-		Args: cobra.MinimumNArgs(1),
+			"write. Give fields as long flags (--name, --history-days, and so on) or as\n" +
+			"field=value arguments; run with --help to see every field and its allowed\n" +
+			"values. Booleans take true/false. For a nullable field an empty value\n" +
+			"(--timezone \"\" or timezone=) clears it. navLinks cannot be edited here; use\n" +
+			"status-page export, edit the file, and status-page apply.",
+		Args: cobra.ArbitraryArgs,
 		// set reads the current document (fetchConfig, GET, config:read) to
 		// obtain the ETag before writing (putConfig, PUT, config:write).
 		// Advertising only config:write would fail the GET for a
 		// least-privilege token minted from this manifest.
 		Annotations: map[string]string{"supportsOutput": "table,json,yaml,tsv", "requiredScope": "config:read,config:write"},
-		Example:     "pulsectl status-page set name=\"Acme Status\" historyDays=60 announcementEnabled=true",
+		Example: "  pulsectl status-page set --name \"Acme Status\" --history-days 60 --announcement-enabled\n" +
+			"  pulsectl status-page set name=\"Acme Status\" historyDays=60 announcementEnabled=true",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Collect flag-provided fields in presentation order. Each changed
+			// flag becomes a field/value pair fed through the same applyField
+			// validation as the positional form, so the two input styles can
+			// never diverge in what they accept.
+			type update struct{ field, value string }
+			flagUpdates := make([]update, 0, len(fields))
+			for _, field := range settableFields() {
+				name := setFlagName(field)
+				if !cmd.Flags().Changed(name) {
+					continue
+				}
+				flagUpdates = append(flagUpdates, update{field, cmd.Flags().Lookup(name).Value.String()})
+			}
+			if len(args) == 0 && len(flagUpdates) == 0 {
+				return invalid("no fields given; pass fields as flags (for example --name \"Acme Status\") or as field=value arguments. Run pulsectl status-page set --help for the full list")
+			}
 			doc, etag, err := fetchConfig(cmd.Context(), d)
 			if err != nil {
 				return err
@@ -180,6 +199,11 @@ func setCommand(d Dependencies) *cobra.Command {
 					return err
 				}
 			}
+			for _, u := range flagUpdates {
+				if err := applyField(config, u.field, u.value); err != nil {
+					return err
+				}
+			}
 			result, err := putConfig(cmd.Context(), d, config, etag, "the status page configuration changed while updating; re-run the command")
 			if err != nil {
 				return err
@@ -187,7 +211,61 @@ func setCommand(d Dependencies) *cobra.Command {
 			return renderConfig(d.Out, d.Output("table"), result)
 		},
 	}
+	// A long flag per settable field, kebab-cased to match the sibling update
+	// commands (monitor update --failure-threshold, report update --starts-at).
+	// The bound targets are storage only; RunE reads the values back through
+	// Lookup so every field flows through applyField uniformly.
+	for _, field := range settableFields() {
+		spec := fields[field]
+		name := setFlagName(field)
+		usage := setFlagUsage(field, spec)
+		switch spec.kind {
+		case boolean:
+			cmd.Flags().Bool(name, false, usage)
+		case integer:
+			cmd.Flags().Int(name, 0, usage)
+		default:
+			cmd.Flags().String(name, "", usage)
+		}
+	}
 	return cmd
+}
+
+// setFlagName maps a config field to its long flag name, kebab-cased so
+// historyDays becomes --history-days, matching the sibling update commands.
+func setFlagName(field string) string {
+	var b strings.Builder
+	for _, r := range field {
+		if r >= 'A' && r <= 'Z' {
+			b.WriteByte('-')
+			b.WriteRune(r + ('a' - 'A'))
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// setFlagUsage renders a field's flag help, naming its allowed values so the
+// --help listing alone is enough to use the command without reading source.
+func setFlagUsage(field string, spec fieldSpec) string {
+	switch spec.kind {
+	case requiredString:
+		if len(spec.enum) > 0 {
+			return "Set " + field + " (" + strings.Join(spec.enum, ", ") + ")"
+		}
+		return "Set " + field
+	case nullableString:
+		return "Set " + field + " (empty value clears it)"
+	case boolean:
+		return "Set " + field + " (true or false)"
+	case integer:
+		if len(spec.ints) > 0 {
+			return "Set " + field + " (" + joinInts(spec.ints) + ")"
+		}
+		return fmt.Sprintf("Set %s (%d to %d)", field, spec.min, spec.max)
+	}
+	return "Set " + field
 }
 
 func exportCommand(d Dependencies) *cobra.Command {

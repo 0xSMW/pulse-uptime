@@ -11,7 +11,8 @@ import { z } from "zod";
 import type { DependencySourceManifest } from "../manifest";
 import type { NormalizedProviderSnapshot } from "../types";
 
-import type { AdapterRequestDescriptor, DependencyAdapter, NormalizeInput } from "./index";
+import type { AdapterRequestDescriptor, CatalogDirectoryInput, DependencyAdapter, NormalizeInput } from "./index";
+import { catalogDirectoryFromNormalize } from "./shared";
 import { AdapterParseError, requireIsoTimestamp, requireJson } from "./shared";
 
 const containerSchema = z.object({
@@ -59,6 +60,10 @@ function mapStatusioStatus(status: string, sourceId: string): ComponentState {
 export const statusioPublicAdapter: DependencyAdapter = {
   requests(source: DependencySourceManifest): AdapterRequestDescriptor[] {
     return [{ kind: "current", url: source.currentUrl, optional: false }];
+  },
+
+  catalogDirectory(input: CatalogDirectoryInput) {
+    return catalogDirectoryFromNormalize(statusioPublicAdapter, input);
   },
 
   normalize(input: NormalizeInput): NormalizedProviderSnapshot {

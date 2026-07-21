@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -214,14 +215,20 @@ func tokenCreate(d Dependencies) *cobra.Command {
 			seen[scope] = true
 		}
 		sort.Strings(scopes)
-		duration, err := ParseExpiry(expires)
-		if err != nil {
-			return err
-		}
 		if d.Client == nil {
 			return unavailable()
 		}
-		request := map[string]any{"name": name, "scopes": scopes, "expiresAt": d.Now().UTC().Add(duration).Format(time.RFC3339)}
+		request := map[string]any{"name": name, "scopes": scopes}
+		// Only pin an absolute expiry when the operator asked for one. Omitting it
+		// lets the server apply and, for time-bounded creators such as CLI
+		// sessions, clamp the default lifetime instead of rejecting the request.
+		if cmd.Flags().Changed("expires-in") {
+			duration, err := ParseExpiry(expires)
+			if err != nil {
+				return err
+			}
+			request["expiresAt"] = d.Now().UTC().Add(duration).Format(time.RFC3339)
+		}
 		var result map[string]any
 		if _, err := d.Client.Do(cmd.Context(), http.MethodPost, "/api/v1/tokens", request, nil, &result); err != nil {
 			return err
@@ -230,7 +237,7 @@ func tokenCreate(d Dependencies) *cobra.Command {
 	}}
 	cmd.Flags().StringVar(&name, "name", "", "Token name")
 	cmd.Flags().StringSliceVar(&scopes, "scope", nil, "Granted scope; repeat for multiple scopes")
-	cmd.Flags().StringVar(&expires, "expires-in", "90d", "Token lifetime, up to 365d")
+	cmd.Flags().StringVar(&expires, "expires-in", "90d", "Token lifetime, up to 365d. Omit to use the server default, clamped to the creating credential's remaining lifetime")
 	_ = cmd.MarkFlagRequired("name")
 	_ = cmd.MarkFlagRequired("scope")
 	cmd.Example = "pulsectl token create --name deployment-agent --scope monitors:read --expires-in 90d"
@@ -317,9 +324,28 @@ func tokenList(d Dependencies) *cobra.Command {
 	return cmd
 }
 
+// uuidPattern mirrors the server token id shape (RFC 4122 versions 1 to 5).
+// Validating client-side keeps a malformed or empty id from ever reaching the
+// wire, where a trailing-slash path would otherwise be redirected and surface
+// as an opaque error.
+var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$`)
+
+func validateTokenID(id string) error {
+	if strings.TrimSpace(id) == "" {
+		return invalid("token id is required")
+	}
+	if !uuidPattern.MatchString(id) {
+		return invalid("token id must be a UUID")
+	}
+	return nil
+}
+
 func tokenRevoke(d Dependencies) *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{Use: "revoke <token-id>", Short: "Revoke a scoped token", Args: cobra.ExactArgs(1), Annotations: annotations("tokens:manage"), RunE: func(cmd *cobra.Command, args []string) error {
+		if err := validateTokenID(args[0]); err != nil {
+			return err
+		}
 		if !yes {
 			if !d.StdinTTY {
 				return invalid("noninteractive token revocation requires --yes")

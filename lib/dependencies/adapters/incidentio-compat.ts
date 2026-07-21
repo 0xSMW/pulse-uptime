@@ -9,8 +9,10 @@ import { z } from "zod";
 
 import type { DependencySourceManifest } from "../manifest";
 import type { NormalizedProviderSnapshot } from "../types";
+import { scopeFromComponentIds } from "../types";
 
-import type { AdapterDocument, AdapterRequestDescriptor, DependencyAdapter, NormalizeInput } from "./index";
+import type { AdapterDocument, AdapterRequestDescriptor, CatalogDirectoryInput, DependencyAdapter, NormalizeInput } from "./index";
+import { catalogDirectoryFromNormalize } from "./shared";
 import { AdapterParseError, documentsOfKind, latestTimestamp, requireIsoTimestamp, requireJson, requireProviderIncidentState, toBoundedPlainText } from "./shared";
 import { mapComponentStatus } from "./statuspage-v2";
 
@@ -78,8 +80,9 @@ function mapIncident(incident: Incident, componentIds: string[], sourceId: strin
     resolvedAt: incident.resolved_at ? requireIsoTimestamp(incident.resolved_at, sourceId, "incident.resolved_at") : null,
     updatedAt: requireIsoTimestamp(incident.updated_at, sourceId, "incident.updated_at"),
     canonicalUrl: null,
-    // Always inferred, never explicit: this adapter's incidents never carry a component list of their own.
-    componentIds,
+    // Inference succeeds with ids (components scope). No result is unmapped,
+    // never source-wide: empty inference is not a page-level claim.
+    scope: scopeFromComponentIds(componentIds),
     updates: incident.incident_updates.map((update) => ({
       externalId: update.id,
       state: requireProviderIncidentState(update.status, sourceId),
@@ -98,6 +101,10 @@ export const incidentioCompatAdapter: DependencyAdapter = {
     }
     // No maintenance descriptor: the Statuspage-only maintenance routes 404 for incident.io compat sources.
     return requests;
+  },
+
+  catalogDirectory(input: CatalogDirectoryInput) {
+    return catalogDirectoryFromNormalize(incidentioCompatAdapter, input);
   },
 
   normalize(input: NormalizeInput): NormalizedProviderSnapshot {

@@ -18,9 +18,15 @@ const LAUNCH_PROVIDERS = [
   "Postmark",
   "Twilio",
   "GitHub",
+  "DigitalOcean",
+  "Auth0",
+  "AWS",
+  "Hetzner",
+  "OpenRouter",
+  "Azure",
 ];
 
-const HELD_PROVIDER_NAMES = ["openrouter", "auth0", "aws"];
+const HELD_PROVIDER_NAMES: string[] = [];
 
 describe("loadCatalogManifest", () => {
   it("parses the shipped catalog.json without throwing", () => {
@@ -30,7 +36,18 @@ describe("loadCatalogManifest", () => {
   it("ships schemaVersion 1 and the expected catalog version", () => {
     const manifest = loadCatalogManifest();
     expect(manifest.schemaVersion).toBe(1);
-    expect(manifest.catalogVersion).toBe("2026-07-20.1");
+    expect(manifest.catalogVersion).toBe("2026-07-20.3");
+  });
+
+  it("declares incidentInventory for every incident_feed source", () => {
+    const manifest = loadCatalogManifest();
+    const feeds = manifest.sources.filter((source) => source.adapter === "incident_feed");
+    expect(feeds.length).toBeGreaterThanOrEqual(2);
+    for (const source of feeds) {
+      expect(["active_only", "rolling_history"]).toContain(source.config.incidentInventory);
+    }
+    expect(manifest.sources.find((source) => source.id === "azure")?.config.incidentInventory).toBe("active_only");
+    expect(manifest.sources.find((source) => source.id === "openrouter")?.config.incidentInventory).toBe("rolling_history");
   });
 
   it("includes every launch-ready provider from the registry", () => {
@@ -126,5 +143,130 @@ describe("catalogManifestSchema invariants", () => {
       sources: [{ ...manifest.sources[0], allowedHosts: ["not-the-right-host.example"] }, ...manifest.sources.slice(1)],
     };
     expect(() => catalogManifestSchema.parse(broken)).toThrow();
+  });
+});
+
+describe("catalogManifestSchema fidelity", () => {
+  const base = () => loadCatalogManifest();
+
+  it("accepts an incident_only fidelity on a source and a preset", () => {
+    const manifest = base();
+    const withFidelity = {
+      ...manifest,
+      sources: [{ ...manifest.sources[0], fidelity: "incident_only" }, ...manifest.sources.slice(1)],
+      presets: [{ ...manifest.presets[0], fidelity: "incident_only" }, ...manifest.presets.slice(1)],
+    };
+    expect(() => catalogManifestSchema.parse(withFidelity)).not.toThrow();
+  });
+
+  it("treats a missing fidelity as valid, defaulting resolution to component at sync time", () => {
+    const manifest = base();
+    expect(manifest.sources.every((source) => source.fidelity === undefined || source.fidelity === "component" || source.fidelity === "incident_only")).toBe(true);
+    expect(() => catalogManifestSchema.parse(manifest)).not.toThrow();
+  });
+
+  it("rejects an unknown fidelity value", () => {
+    const manifest = base();
+    const broken = {
+      ...manifest,
+      presets: [{ ...manifest.presets[0], fidelity: "guessed" }, ...manifest.presets.slice(1)],
+    };
+    expect(() => catalogManifestSchema.parse(broken)).toThrow();
+  });
+});
+
+describe("catalogManifestSchema source config", () => {
+  const base = () => loadCatalogManifest();
+
+  it("accepts a per-source maxBodyBytes within the 4MB ceiling", () => {
+    const manifest = base();
+    const raised = {
+      ...manifest,
+      sources: [{ ...manifest.sources[0], config: { ...manifest.sources[0].config, maxBodyBytes: 2 * 1024 * 1024 } }, ...manifest.sources.slice(1)],
+    };
+    expect(() => catalogManifestSchema.parse(raised)).not.toThrow();
+  });
+
+  it("rejects a maxBodyBytes above the 4MB ceiling", () => {
+    const manifest = base();
+    const overCeiling = {
+      ...manifest,
+      sources: [{ ...manifest.sources[0], config: { ...manifest.sources[0].config, maxBodyBytes: 8 * 1024 * 1024 } }, ...manifest.sources.slice(1)],
+    };
+    expect(() => catalogManifestSchema.parse(overCeiling)).toThrow();
+  });
+
+  it("still passes through adapter-specific config keys alongside maxBodyBytes", () => {
+    const manifest = base();
+    const withExtra = {
+      ...manifest,
+      sources: [{ ...manifest.sources[0], config: { productsUrl: "https://status.example.com/products.json", maxBodyBytes: 1024 * 1024 } }, ...manifest.sources.slice(1)],
+    };
+    const parsed = catalogManifestSchema.parse(withExtra);
+    expect(parsed.sources[0].config).toMatchObject({ productsUrl: "https://status.example.com/products.json", maxBodyBytes: 1024 * 1024 });
+  });
+});
+
+describe("catalogManifestSchema adapter names", () => {
+  const base = () => loadCatalogManifest();
+
+  it("accepts the four provider-agent adapter names ahead of their modules", () => {
+    const manifest = base();
+    for (const adapter of ["aws_health", "nextdata_embedded", "incident_feed", "auth0_status"]) {
+      const source = adapter === "incident_feed"
+        ? { ...manifest.sources[0], adapter, config: { ...manifest.sources[0].config, incidentInventory: "active_only" } }
+        : { ...manifest.sources[0], adapter };
+      const withAdapter = {
+        ...manifest,
+        sources: [source, ...manifest.sources.slice(1)],
+      };
+      expect(() => catalogManifestSchema.parse(withAdapter)).not.toThrow();
+    }
+  });
+
+  it("rejects an adapter name outside the union", () => {
+    const manifest = base();
+    const broken = {
+      ...manifest,
+      sources: [{ ...manifest.sources[0], adapter: "made_up_adapter" }, ...manifest.sources.slice(1)],
+    };
+    expect(() => catalogManifestSchema.parse(broken)).toThrow();
+  });
+});
+
+describe("catalogManifestSchema incident_feed inventory", () => {
+  const base = () => loadCatalogManifest();
+
+  it("rejects an incident_feed source that omits incidentInventory", () => {
+    const manifest = base();
+    const azure = manifest.sources.find((source) => source.id === "azure")!;
+    const { incidentInventory: _dropped, ...configWithout } = azure.config as { incidentInventory?: string } & Record<string, unknown>;
+    void _dropped;
+    const broken = {
+      ...manifest,
+      sources: manifest.sources.map((source) =>
+        source.id === "azure" ? { ...source, config: configWithout } : source,
+      ),
+    };
+    expect(() => catalogManifestSchema.parse(broken)).toThrow(/incidentInventory/);
+  });
+
+  it("rejects an unknown incidentInventory value", () => {
+    const manifest = base();
+    const broken = {
+      ...manifest,
+      sources: manifest.sources.map((source) =>
+        source.id === "azure" ? { ...source, config: { ...source.config, incidentInventory: "guessed" } } : source,
+      ),
+    };
+    expect(() => catalogManifestSchema.parse(broken)).toThrow(/incidentInventory/);
+  });
+
+  it("does not require incidentInventory on non-incident_feed adapters", () => {
+    const manifest = base();
+    const vercel = manifest.sources.find((source) => source.id === "vercel")!;
+    expect(vercel.adapter).not.toBe("incident_feed");
+    expect(vercel.config.incidentInventory).toBeUndefined();
+    expect(() => catalogManifestSchema.parse(manifest)).not.toThrow();
   });
 });

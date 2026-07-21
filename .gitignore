@@ -13,21 +13,8 @@ test-results/
 # Local operator and deployment context
 AGENTS.md
 
-# Internal product and deployment documentation
-/Docs/PERF.md
-/Docs/INIT.md
-/Docs/design.md
-/Docs/prototype.html
-/Docs/onboarding-prototype.html
-/Docs/MARKETING_SPEC.md
-/Docs/geist-design-dark.md
-/Docs/geist-design-light.md
-/Docs/ADAPTIVE-DATA-STORAGE-STRATEGY.md
-/Docs/DEPENDENCY-MONITORING.md
-/Docs/USER-MENU-HELP-PLAN.md
-/Docs/SECURITY-REMEDIATION-PLAN.md
-/Docs/SETTINGS-IA-REDESIGN.md
-/Docs/SETTINGS-AND-STATUS-REPORTS-PLAN.md
+# Internal plans and specs, local working context only
+/Docs/Specs/
 
 # Query hillclimb: local temp-project state and generated benchmark artifacts
 /.query-performance/

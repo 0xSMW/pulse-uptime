@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE rss [
+  <!ENTITY lol "lol">
+  <!ENTITY lol2 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">
+  <!ENTITY lol3 "&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;">
+]>
+<rss version="2.0">
+  <channel>
+    <title>OpenRouter Status - Incident History</title>
+    <item>
+      <title>&lol3;</title>
+      <guid>status.openrouter.ai/incidents/bomb</guid>
+    </item>
+  </channel>
+</rss>

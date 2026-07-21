@@ -9,6 +9,7 @@ import { getStatusPageConfig } from "@/lib/api/status-page-config";
 import { parseUserAgent } from "@/lib/auth/user-agent";
 import { db } from "@/lib/db/client";
 import { getDatabaseHealth } from "@/lib/database-health";
+import { getHealthWarnings } from "@/lib/monitoring/health";
 import {
   apiTokens,
   cliInstallations,
@@ -150,12 +151,21 @@ export async function getStatusPageSettings() {
 }
 
 export async function getSystemSettings() {
-  const databaseHealthResult = await getDatabaseHealth()
-    .then((data) => ({ data, error: false }))
-    .catch(() => ({ data: null, error: true }));
+  const [databaseHealthResult, monitoringWarnings] = await Promise.all([
+    getDatabaseHealth()
+      .then((data) => ({ data, error: false }))
+      .catch(() => ({ data: null, error: true })),
+    // The scheduler-loop warnings (stale, failing) are the same signals the
+    // dashboard banner shows. Surfacing them on the system screen means the
+    // monitoring loop being broken is visible the moment an operator opens it.
+    getHealthWarnings()
+      .then((warnings) => warnings.filter((warning) => warning.code.startsWith("MONITORING_")))
+      .catch(() => []),
+  ]);
   return {
     databaseHealth: databaseHealthResult.data,
     databaseHealthError: databaseHealthResult.error,
+    monitoringWarnings,
   };
 }
 

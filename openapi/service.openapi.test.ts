@@ -147,15 +147,28 @@ describe("committed OpenAPI v1 source", () => {
   it("documents credential responses, bearer challenges, and envelope revocations", () => {
     const schemas = document.components.schemas as Record<string, Record<string, unknown>>;
     const createdToken = schemas.CreatedTokenEnvelope as {
-      properties: { data: { allOf: Array<{ properties?: { token?: { writeOnly?: boolean } } }> } };
+      properties: {
+        data: {
+          allOf: Array<{
+            required?: string[];
+            properties?: {
+              token?: { writeOnly?: boolean; type?: string };
+              expiryClamped?: { type?: string };
+            };
+          }>;
+        };
+      };
     };
+    const createdTokenData = createdToken.properties.data.allOf[1];
+    expect(createdTokenData.required).toEqual(expect.arrayContaining(["token", "expiryClamped"]));
+    expect(createdTokenData.properties?.expiryClamped?.type).toBe("boolean");
+    expect(createdTokenData.properties?.token?.writeOnly).not.toBe(true);
     const deviceAuthorization = schemas.DeviceAuthorizationEnvelope as {
       properties: { data: { properties: { deviceCode: { writeOnly?: boolean } } } };
     };
     const deviceToken = schemas.DeviceTokenEnvelope as {
       properties: { data: { properties: { token: { writeOnly?: boolean } } } };
     };
-    expect(createdToken.properties.data.allOf[1].properties?.token?.writeOnly).not.toBe(true);
     expect(deviceAuthorization.properties.data.properties.deviceCode.writeOnly).not.toBe(true);
     expect(deviceToken.properties.data.properties.token.writeOnly).not.toBe(true);
     const responses = (document as unknown as { components: { responses: Record<string, { headers?: unknown }> } }).components.responses;

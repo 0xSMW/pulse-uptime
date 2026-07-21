@@ -37,9 +37,14 @@ export function NewMonitorAction() {
 
   return (
     <>
-      {/* One border-shared control: the primary button loses its right
-          corners, the chevron trigger loses its left corners and picks up a
-          hairline divider, so the pair reads as a single split button. */}
+      {/* One unified split control: the primary button loses its right
+          corners, the chevron trigger loses its left corners and carries a
+          full-height hairline divider so the pair reads as a single button
+          with a segment hint, not two adjacent buttons. The divider is a
+          low-opacity blend of the button foreground token (--bg is the
+          primary button's text color) toward transparent, so it stays quiet
+          in both themes and does not pop when either segment's hover
+          background changes. */}
       <div className="inline-flex" role="group" aria-label="New monitor">
         <Button
           onClick={() => void openSheet()}
@@ -54,7 +59,7 @@ export function NewMonitorAction() {
             aria-label="More monitor actions"
             className={cn(
               buttonVariants({ variant: "primary", size: "icon" }),
-              "w-9 rounded-l-none border-l border-l-[color-mix(in_srgb,var(--bg)_25%,transparent)] px-0",
+              "w-9 rounded-l-none border-l border-l-[color-mix(in_srgb,var(--bg)_15%,transparent)] px-0",
             )}
           >
             <ChevronDown className="size-4" aria-hidden />

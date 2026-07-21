@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const push = vi.fn();
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+  useRouter: () => ({ push, refresh: vi.fn(), prefetch: vi.fn() }),
 }));
 
 import { TimezoneProvider } from "@/components/dashboard/timezone-provider";
@@ -35,16 +36,21 @@ function renderTable() {
 }
 
 describe("IncidentHistoryTable", () => {
-  it("scopes the monitor link overlay to its cell (finding: relative on tr is not a containing block in WebKit, so the after:inset-0 overlay covered the page and the Reports tab clicked through to the incident detail)", () => {
+  it("navigates the whole row to the incident on a plain left click", () => {
     renderTable();
     const link = screen.getByRole("link", { name: "API Production" });
-    expect(link.className).toContain("after:absolute");
-    expect(link.className).toContain("after:inset-0");
     expect(link.getAttribute("href")).toBe("/incidents/inc-1");
-    const cell = link.closest("td")!;
-    expect(cell.className).toContain("relative");
     const row = link.closest("tr")!;
-    expect(row.className).not.toContain("relative");
+    expect(row.className).toContain("cursor-pointer");
+    fireEvent.click(row, { button: 0 });
+    expect(push).toHaveBeenCalledWith("/incidents/inc-1");
+  });
+
+  it("leaves clicks on the row's Write Report button to the button (finding: a naive row click would hijack inner controls)", () => {
+    renderTable();
+    const button = screen.getByRole("button", { name: "Write Report" });
+    fireEvent.click(button, { button: 0 });
+    expect(push).not.toHaveBeenCalledWith("/incidents/inc-1");
   });
 
   it("does not render a Status column (finding: it duplicated the HTTP code already shown by Opening Failure)", () => {

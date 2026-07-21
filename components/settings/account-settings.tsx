@@ -1,10 +1,11 @@
 "use client";
 
-import { CircleUser } from "lucide-react";
+import { User } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 
 import { AppearancePicker } from "@/components/settings/appearance-picker";
+import { initialsFor } from "@/lib/account/initials";
 import { useDirtyGuard } from "@/components/settings/settings-dirty";
 import { CardHeading, SettingsRow } from "@/components/settings/settings-row";
 import { StatusMessage, type Message } from "@/components/settings/status-message";
@@ -46,16 +47,7 @@ export function avatarValidationError(file: File): string {
   return "";
 }
 
-export function initialsFor(name: string | null, email: string): string {
-  const source = name?.trim() || "";
-  if (source) {
-    const parts = source.split(/\s+/).filter(Boolean);
-    const first = parts[0]?.[0] ?? "";
-    const last = parts.length > 1 ? parts.at(-1)?.[0] ?? "" : "";
-    return `${first}${last}`.toUpperCase();
-  }
-  return email[0]?.toUpperCase() ?? "";
-}
+export { initialsFor };
 
 export function AccountSettings({ data }: { data: AccountSettingsData }) {
   const router = useRouter();
@@ -168,7 +160,9 @@ export function AccountSettings({ data }: { data: AccountSettingsData }) {
     }
   }
 
-  const initials = initialsFor(data.name, data.email);
+  // Initials stand in for the avatar only when a name is set, matching the user
+  // menu. Without one the frame keeps the neutral User glyph.
+  const initials = data.name?.trim() ? initialsFor(data.name, data.email) : "";
 
   return (
     <div className="space-y-6">
@@ -185,7 +179,7 @@ export function AccountSettings({ data }: { data: AccountSettingsData }) {
                   // eslint-disable-next-line @next/next/no-img-element -- authenticated dynamic bytes, not an optimizable static asset
                   <img src={`/api/v1/images/${data.avatarImageId}`} alt="" className="size-full object-cover" />
                 ) : (
-                  initials || <CircleUser className="size-5" aria-hidden />
+                  initials || <User className="size-5" aria-hidden />
                 )}
               </span>
               <div>
@@ -241,8 +235,10 @@ export function AccountSettings({ data }: { data: AccountSettingsData }) {
                 </div>
               </Field>
             </form>
+          </div>
 
-            <div className="-mx-6 border-t border-[var(--border)] px-6 pt-4">
+          <div className="-mx-6 mt-5 border-t border-[var(--border)] px-6 pt-4">
+            <div className="max-w-[640px]">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-[13px] font-medium">Email</p>
@@ -314,7 +310,9 @@ export function AccountSettings({ data }: { data: AccountSettingsData }) {
                 </form>
               ) : null}
             </div>
+          </div>
 
+          <div className="mt-5 max-w-[640px]">
             <StatusMessage message={profileMessage} />
           </div>
         </CardContent>

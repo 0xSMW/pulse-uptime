@@ -217,7 +217,7 @@ describe("sorryV1Adapter.normalize: notices", () => {
     const [incident] = snapshot.incidents;
     expect(incident.externalId).toBe("503440");
     expect(incident.state).toBe("resolved");
-    expect(incident.componentIds).toEqual(["93625"]);
+    expect(incident.scope).toEqual({ kind: "components", componentIds: ["93625"] });
     expect(incident.updates.map((update) => update.state)).toEqual(["investigating", "investigating", "recovering", "resolved"]);
   });
 

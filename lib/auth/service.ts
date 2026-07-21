@@ -52,6 +52,7 @@ export interface AdminCreationStore {
   insertAdmin(input: {
     id: string;
     email: string;
+    name: string | null;
     passwordDigest: string;
     sessionId: string;
     sessionDigest: Buffer;
@@ -66,6 +67,7 @@ export async function createOnlyAdmin(
     email: string;
     password: string;
     passwordConfirmation: string;
+    name?: string | null;
     acknowledgeEmailWarning?: boolean;
     bootstrapToken?: string;
   },
@@ -77,6 +79,7 @@ export async function createOnlyAdmin(
   },
 ) {
   const email = normalizeEmail(input.email);
+  const name = normalizeName(input.name);
   const passwordError = validatePassword(input.password);
   if (!isEmail(email)) throw new AuthServiceError("INVALID_INPUT", "Enter a valid email address");
   if (passwordError) throw new AuthServiceError("INVALID_INPUT", passwordError);
@@ -125,6 +128,7 @@ export async function createOnlyAdmin(
     await lockedStore.insertAdmin({
       id: userId,
       email,
+      name,
       passwordDigest,
       sessionId,
       sessionDigest: session.digest,
@@ -150,6 +154,7 @@ const databaseAdminCreationStore: AdminCreationStore = {
           await tx.insert(adminUsers).values({
             id: input.id,
             email: input.email,
+            name: input.name,
             passwordDigest: input.passwordDigest,
             createdAt: input.now,
             updatedAt: input.now,
@@ -372,4 +377,16 @@ export async function findSessionByDigest(digest: Buffer, now = new Date()): Pro
 
 function isEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+// The name is optional at first run. An empty or whitespace-only value stays
+// null, and anything over the settings cap is rejected so both entry points
+// agree on the 1 to 120 character bound.
+function normalizeName(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string") throw new AuthServiceError("INVALID_INPUT", "Name must contain 1 to 120 characters");
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.length > 120) throw new AuthServiceError("INVALID_INPUT", "Name must contain 1 to 120 characters");
+  return trimmed;
 }

@@ -36,12 +36,14 @@ export function DependencyTimeline({
   label,
   height = 24,
   className,
+  timeZone,
 }: {
   buckets: readonly DependencyStateBucket[];
   bucketMs: number;
   label: string;
   height?: 24 | 32;
   className?: string;
+  timeZone?: string;
 }) {
   return (
     <TimelineBar
@@ -49,6 +51,7 @@ export function DependencyTimeline({
       height={height}
       label={label}
       className={className}
+      timeZone={timeZone}
     />
   );
 }

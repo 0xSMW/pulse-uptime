@@ -1,4 +1,8 @@
+"use client";
+
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef } from "react";
 
 import { formatIncidentDuration } from "@/components/incidents/incident-format";
 import { IncidentTime } from "@/components/incidents/incident-time";
@@ -6,8 +10,37 @@ import { IncidentStatus } from "@/components/incidents/incident-status";
 import { NotificationSummary } from "@/components/incidents/notification-summary";
 import type { IncidentSummary } from "@/components/incidents/types";
 import { WriteReportButton } from "@/components/incidents/write-report-button";
+import {
+  HOVER_PREFETCH_DELAY_MS,
+  isPlainLeftClick,
+  navigateRow,
+  resolveFullPrefetchOptions,
+  shouldPrefetchOnce,
+} from "@/components/ui/row-navigation";
+import { cn } from "@/lib/utils";
+
+function incidentHref(id: string): string {
+  return `/incidents/${encodeURIComponent(id)}`;
+}
 
 export function IncidentHistoryTable({ incidents }: { incidents: IncidentSummary[] }) {
+  const router = useRouter();
+  const hoverIntentRef = useRef<number | undefined>(undefined);
+  const prefetchedIdsRef = useRef<Set<string>>(new Set());
+
+  const prefetchIncident = (id: string) => {
+    if (!shouldPrefetchOnce(id, prefetchedIdsRef.current)) return;
+    router.prefetch(incidentHref(id), resolveFullPrefetchOptions());
+  };
+
+  // Prefetch keyboard focus immediately. Delay pointer hover for intent.
+  const handleRowMouseEnter = (id: string) => {
+    window.clearTimeout(hoverIntentRef.current);
+    hoverIntentRef.current = window.setTimeout(() => prefetchIncident(id), HOVER_PREFETCH_DELAY_MS);
+  };
+  const handleRowMouseLeave = () => window.clearTimeout(hoverIntentRef.current);
+  useEffect(() => () => window.clearTimeout(hoverIntentRef.current), []);
+
   return (
     <section aria-labelledby="incident-history-title">
       <h2 id="incident-history-title" className="mb-3 text-sm font-semibold tracking-[-0.28px]">
@@ -32,17 +65,25 @@ export function IncidentHistoryTable({ incidents }: { incidents: IncidentSummary
           </thead>
           <tbody>
             {incidents.map((incident) => (
-              <tr key={incident.id} className="h-12 border-b border-[var(--border)] last:border-0 hover:bg-[var(--hover)]">
-                {/* relative on this cell contains the link's after:inset-0
-                    overlay. Table rows are not reliable containing blocks
-                    (WebKit ignores position relative on tr), so a row scoped
-                    overlay escapes to the page and swallows clicks on the
-                    tabs above. */}
-                <td className="relative px-6 font-medium">
-                  <Link
-                    href={`/incidents/${encodeURIComponent(incident.id)}`}
-                    className="after:absolute after:inset-0"
-                  >
+              // The whole row navigates to the incident. navigateRow leaves
+              // the Monitor link and the Write Report button to their own
+              // clicks (the interactive-element guard). The Monitor link
+              // stays a real anchor for middle-click and assistive tech.
+              <tr
+                key={incident.id}
+                onClick={(event) => {
+                  if (!isPlainLeftClick(event)) return;
+                  navigateRow(event.target, incidentHref(incident.id), router.push);
+                }}
+                onMouseEnter={() => handleRowMouseEnter(incident.id)}
+                onMouseLeave={handleRowMouseLeave}
+                onFocus={() => prefetchIncident(incident.id)}
+                className={cn(
+                  "h-12 cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--hover)]",
+                )}
+              >
+                <td className="px-6 font-medium">
+                  <Link href={incidentHref(incident.id)} prefetch={false}>
                     {incident.monitorName}
                   </Link>
                 </td>

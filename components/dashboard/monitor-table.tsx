@@ -2,18 +2,27 @@
 
 import { Search } from "lucide-react";
 import Link from "next/link";
-// FULL prefetch relies on a private Next.js enum. Review this import after
-// Next.js upgrades. If FULL is unavailable at runtime, use standard prefetch.
-import { PrefetchKind } from "next/dist/client/components/router-reducer/router-reducer-types";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useTimezone } from "@/components/dashboard/timezone-provider";
 import { StatusDot, type MonitorState } from "@/components/monitors/status-dot";
+import { TimelineBar, type TimelineBucket } from "@/components/monitors/timeline-bar";
 import { Input } from "@/components/ui/input";
+import {
+  HOVER_PREFETCH_DELAY_MS,
+  isPlainLeftClick,
+  navigateRow,
+  resolveFullPrefetchOptions,
+  shouldPrefetchOnce,
+} from "@/components/ui/row-navigation";
 import { formatLatency, formatRelativeTime, formatUptimeTable } from "@/lib/reporting/format";
 import { firstRunPhase } from "@/lib/reporting/queries/first-run";
 import { cn } from "@/lib/utils";
+
+// Re-exported so existing importers keep one surface. The row-click helpers
+// live in components/ui/row-navigation.
+export { HOVER_PREFETCH_DELAY_MS, isPlainLeftClick };
 
 export type DashboardMonitor = {
   id: string;
@@ -26,6 +35,7 @@ export type DashboardMonitor = {
   activatedAt: string | null;
   activeIncidentOpenedAt: string | null;
   uptime24hUnlocked: boolean;
+  timeline: TimelineBucket[];
 };
 
 // The 24h column is a full-window claim, so it stays a placeholder until a
@@ -42,51 +52,9 @@ function uptime24hLabel(monitor: DashboardMonitor, now: Date): string {
   return formatUptimeTable(monitor.uptime24h);
 }
 
-const rowInteractiveSelector = "a, button, input, select, textarea, summary, [role='button'], [role='link'], [contenteditable='true']";
-
-// Wait for hover intent before prefetching a monitor.
-export const HOVER_PREFETCH_DELAY_MS = 120;
-
-// Cache the FULL prefetch option. If FULL is unavailable at runtime, callers
-// use standard prefetch.
-let cachedFullPrefetchOptions: { kind: PrefetchKind } | undefined;
-let resolvedFullPrefetchOptions = false;
-function resolveFullPrefetchOptions(): { kind: PrefetchKind } | undefined {
-  if (!resolvedFullPrefetchOptions) {
-    resolvedFullPrefetchOptions = true;
-    try {
-      cachedFullPrefetchOptions = PrefetchKind.FULL ? { kind: PrefetchKind.FULL } : undefined;
-    } catch {
-      cachedFullPrefetchOptions = undefined;
-    }
-  }
-  return cachedFullPrefetchOptions;
-}
-
 // Prefetch each monitor once.
 export function shouldPrefetchMonitor(monitorId: string, prefetchedIds: Set<string>): boolean {
-  if (prefetchedIds.has(monitorId)) return false;
-  prefetchedIds.add(monitorId);
-  return true;
-}
-
-// Modified and auxiliary clicks do not start navigation in this tab.
-export function isPlainLeftClick(event: {
-  button: number;
-  metaKey: boolean;
-  ctrlKey: boolean;
-  shiftKey: boolean;
-  altKey: boolean;
-  defaultPrevented: boolean;
-}): boolean {
-  return (
-    event.button === 0 &&
-    !event.metaKey &&
-    !event.ctrlKey &&
-    !event.shiftKey &&
-    !event.altKey &&
-    !event.defaultPrevented
-  );
+  return shouldPrefetchOnce(monitorId, prefetchedIds);
 }
 
 export function navigateFromMonitorRow(
@@ -94,10 +62,7 @@ export function navigateFromMonitorRow(
   monitorId: string,
   navigate: (href: string) => void,
 ): boolean {
-  const closest = (target as { closest?: (selector: string) => Element | null } | null)?.closest;
-  if (typeof closest === "function" && closest.call(target, rowInteractiveSelector)) return false;
-  navigate(`/monitors/${encodeURIComponent(monitorId)}`);
-  return true;
+  return navigateRow(target, `/monitors/${encodeURIComponent(monitorId)}`, navigate);
 }
 
 function stateLabel(state: MonitorState): string {
@@ -188,12 +153,13 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
         )}
       </div>
       <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
-        <table className="w-full min-w-[760px] border-collapse text-left text-[13px]">
+        <table className="w-full min-w-[960px] border-collapse text-left text-[13px]">
           <thead className="text-xs text-[var(--fg-muted)]">
             <tr className="h-10 border-b border-[var(--border)]">
               <th className="px-6 font-medium">Status</th>
               <th className="px-4 font-medium">Monitor</th>
               <th className="px-4 text-right font-medium">Uptime 24h</th>
+              <th className="px-4 font-medium">Timeline</th>
               <th className="px-4 text-right font-medium">Latency</th>
               <th className="px-6 text-right font-medium">Last Checked</th>
             </tr>
@@ -231,7 +197,7 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
                     onClick={(event) => {
                       if (isPlainLeftClick(event)) markPending(monitor.id);
                     }}
-                    className="font-medium hover:underline"
+                    className="font-medium"
                   >
                     {monitor.name}
                   </Link>
@@ -240,6 +206,9 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
                   </div>
                 </td>
                 <td className="px-4 text-right font-data">{uptime24hLabel(monitor, new Date())}</td>
+                <td className="w-[280px] min-w-[220px] px-4">
+                  <TimelineBar buckets={monitor.timeline} height={24} label="Last 24 hours" timeZone={resolvedTimeZone} />
+                </td>
                 <td className="px-4 text-right font-data">{formatLatency(monitor.latestLatencyMs)}</td>
                 <td className="px-6 text-right font-data text-[var(--fg-muted)]">
                   {monitor.lastCheckedAt ? formatRelativeTime(new Date(monitor.lastCheckedAt), new Date(), resolvedTimeZone) : "Never"}

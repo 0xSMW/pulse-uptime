@@ -17,6 +17,12 @@ export type TimelineBucket = {
   checks: number;
   failures: number;
   downtimeSeconds?: number;
+  // Epoch millis of the bucket's covered range. Carried so the timeline
+  // tooltip can render a human date and time range in the viewer's zone
+  // without reparsing the ISO label. Optional because label-only call sites
+  // (the dependency timeline) still build buckets without them.
+  startMs?: number;
+  endMs?: number;
 };
 
 export type HealthWarning = {

@@ -5,12 +5,14 @@ import type { DeliverySummary } from "@/lib/notifications/delivery";
 
 import { dispatchDueMonitors, type MonitorRunOutcome } from "./dispatch";
 import { MONITORING_LEASE, withLease, type LeaseStore } from "./lease";
-import { emptyRunCounts, safeCronError, type CronRunCounts, type CronRunStore } from "./run-record";
+import { emptyRunCounts, toCronRunFailure, type CronRunCounts, type CronRunStore } from "./run-record";
 import { scheduledMinuteAt } from "./time";
 
 export type MonitoringCoordinatorDependencies = {
   leases: LeaseStore;
   runs: CronRunStore;
+  // Deployment identity recorded on the cron_runs row for release-bound proof.
+  releaseId: string;
   loadConfig(now: Date): Promise<MonitoringConfig>;
   reconcileOutbox(now: Date): Promise<number>;
   deliverOutbox(): Promise<DeliverySummary>;
@@ -50,6 +52,7 @@ export async function runMonitoringCoordinator(
       jobName: "monitor-check",
       scheduledMinute,
       startedAt,
+      releaseId: dependencies.releaseId,
     })) return { status: "duplicate", runId } as const;
 
     try {
@@ -71,9 +74,9 @@ export async function runMonitoringCoordinator(
       await dependencies.runs.complete(runId, now(), counts);
       return { status: "completed", runId, counts, staleClaims } as const;
     } catch (error) {
-      const safeError = safeCronError(error);
-      await dependencies.runs.fail(runId, now(), safeError, emptyRunCounts());
-      return { status: "failed", runId, error: safeError } as const;
+      const failure = toCronRunFailure(error);
+      await dependencies.runs.fail(runId, now(), failure, emptyRunCounts());
+      return { status: "failed", runId, error: failure.message } as const;
     }
   });
   return leased.acquired ? leased.value : { status: "lease-held" };

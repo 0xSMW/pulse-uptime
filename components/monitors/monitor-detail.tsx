@@ -407,7 +407,7 @@ export function MonitorDetail({ monitor: snapshot }: { monitor: MonitorDetailDat
                 href={monitor.url}
                 target="_blank"
                 rel="noreferrer"
-                className="min-w-0 truncate hover:text-[var(--fg)] hover:underline"
+                className="min-w-0 truncate transition-colors duration-150 hover:text-[var(--fg)]"
                 title={monitor.url}
               >
                 {monitor.url}
@@ -537,6 +537,7 @@ export function MonitorDetail({ monitor: snapshot }: { monitor: MonitorDetailDat
                 buckets={availability.buckets}
                 height={32}
                 label={`${availabilityRanges.find((range) => range.key === availabilityRange)?.label} availability`}
+                timeZone={resolvedTimeZone}
               />
               <div className="mt-2 flex justify-between font-data text-[11px] text-[var(--fg-faint)]">
                 <span>{formatTimestamp(availability.start, resolvedTimeZone)}</span>
@@ -594,7 +595,7 @@ export function MonitorDetail({ monitor: snapshot }: { monitor: MonitorDetailDat
                     {monitor.recentIncidents.map((incident) => (
                       <tr key={incident.id} className="h-12 border-b border-[var(--border)] last:border-0 hover:bg-[var(--hover)]">
                         <td className="px-6 font-data whitespace-nowrap">
-                          <Link href={`/incidents/${encodeURIComponent(incident.id)}`} className="hover:underline">
+                          <Link href={`/incidents/${encodeURIComponent(incident.id)}`} className="transition-opacity duration-150 hover:opacity-70">
                             {formatTimestamp(incident.openedAt, resolvedTimeZone)}
                           </Link>
                         </td>

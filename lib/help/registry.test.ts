@@ -143,4 +143,9 @@ describe("activeHelpSectionId", () => {
     expect(activeHelpSectionId(positions, 0, 0)).toBe("a");
     expect(activeHelpSectionId([], 100, 120)).toBeNull();
   });
+
+  it("forces the last section at page bottom, a short final section never crosses the reading line", () => {
+    expect(activeHelpSectionId(positions, 500, 120, true)).toBe("c");
+    expect(activeHelpSectionId([], 100, 120, true)).toBeNull();
+  });
 });

@@ -36,7 +36,8 @@ import {
   type RawTailBounds,
   type RawTailCounts,
 } from "./live-summary";
-import { buildRollupTimeline } from "./timeline";
+import { fetchRawAvailabilityBucketsForMonitor } from "./raw-availability";
+import { blendRawAvailability, buildRollupTimeline } from "./timeline";
 
 const LATENCY_BUCKET_MAX_MS = [100, 250, 500, 1_000, 2_500, 5_000, 10_000] as const;
 
@@ -239,7 +240,7 @@ export async function getMonitorDetail(id: string) {
   const end15m = completedRangeEnd(now, "15m");
   const endHour = completedRangeEnd(now, "hour");
   const endDay = completedRangeEnd(now, "day");
-  const [rollups7d, rollups30d, rollups90d, recentIncidents, accepted, recentRawChecks] = await Promise.all([
+  const [rollups7d, rollups30d, rollups90d, recentIncidents, accepted, recentRawChecks, rawAvailability24h] = await Promise.all([
     fetchRollups(id, "15m", end15m, 7 * 86_400_000),
     fetchRollups(id, "hour", endHour, 30 * 86_400_000),
     fetchRollups(id, "day", endDay, 90 * 86_400_000),
@@ -258,6 +259,7 @@ export async function getMonitorDetail(id: string) {
       .orderBy(desc(monitoringConfigSnapshots.acceptedAt))
       .limit(1),
     getRecentRawChecks(id, now),
+    fetchRawAvailabilityBucketsForMonitor(id, new Date(end15m.getTime() - 86_400_000), end15m),
   ]);
 
   // Derive the last 24 hours from the fetched seven days of rollups.
@@ -295,7 +297,7 @@ export async function getMonitorDetail(id: string) {
     }));
 
   // Neutral timing context only, for the active or recently resolved
-  // incident: never a causal claim. See Docs/DEPENDENCY-MONITORING.md
+  // incident: never a causal claim. See Docs/Specs/DEPENDENCY-MONITORING.md
   // "Incident correlation".
   const latestIncidentRow = recentIncidents[0] && (
     recentIncidents[0].resolvedAt === null ||
@@ -370,11 +372,19 @@ export async function getMonitorDetail(id: string) {
     windowVersion: end15m.toISOString(),
     // Timeline bars read the same activation-filtered rollups the uptime
     // figures do, so pre-activation buckets render as no-data rather than red
-    // down bars while the header still reads as collecting or setup.
+    // down bars while the header still reads as collecting or setup. The h24 bar
+    // additionally folds scheduler-derived raw buckets onto any quarter-hour a
+    // rollup has not closed yet, so its newest cells read up, down, or verifying
+    // during compaction lag instead of no-data, matching the raw-blended uptime
+    // figure. Incomplete coverage keeps expected above completed so the bar does
+    // not read as fully operational. Longer ranges read hour and day rollups.
     availability: {
       h24: {
         start: new Date(end15m.getTime() - 86_400_000).toISOString(),
-        buckets: buildRollupTimeline(rollupsSinceActivation(rollups24h, activatedAt), 60, 86_400_000, end15m),
+        buckets: buildRollupTimeline(
+          rollupsSinceActivation(blendRawAvailability(rollups24h, rawAvailability24h), activatedAt),
+          60, 86_400_000, end15m,
+        ),
       },
       d7: {
         start: new Date(end15m.getTime() - 7 * 86_400_000).toISOString(),

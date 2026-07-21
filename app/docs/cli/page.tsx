@@ -185,7 +185,7 @@ export default function CliDocsPage() {
         <span>Data on stdout · diagnostics on stderr</span>
         <Link
           href="/settings/access"
-          className="w-fit rounded-[6px] font-medium text-[var(--fg)] hover:underline"
+          className="w-fit rounded-[6px] font-medium text-[var(--fg)] transition-opacity duration-150 hover:opacity-70"
         >
           Create an API token →
         </Link>

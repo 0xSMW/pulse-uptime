@@ -18,6 +18,7 @@ import {
   monitorRegistry,
   monitorState,
 } from "@/lib/db/schema";
+import { uptime24hByMonitorId } from "@/lib/monitoring/queries";
 
 import { ConfigMutationError, requireAcceptedConfig as loadConfigSnapshot, mutateConfig as mutateConfiguration, nextConfig } from "./config-mutation";
 import { decodeCursor, encodeCursor } from "./pagination";
@@ -152,11 +153,24 @@ export async function setMonitorEnabled(id: string, enabled: boolean, principalK
   return monitorResponse(result.monitors.find((item) => item.id === id)!, result.groups);
 }
 
-export async function requireMonitor(id: string) {
+export async function requireMonitor(id: string, handle: DatabaseHandle = db) {
   const accepted = await requireAcceptedConfig();
   const monitor = accepted.config.monitors.find((item) => item.id === id);
   if (!monitor) throw new MonitorApiError("MONITOR_NOT_FOUND", "Monitor was not found");
-  return monitorResponse(monitor, accepted.config.groups);
+  // The single get carries the same runtime fields list items had before uptime:
+  // state from the state table plus createdAt and updatedAt from the registry and
+  // state rows. uptime stays list only. A monitor with no registry row yet reads
+  // the config shape alone.
+  const [runtime] = await handle.select({
+    state: monitorState.state,
+    createdAt: monitorRegistry.firstSeenAt,
+    updatedAt: monitorState.updatedAt,
+  }).from(monitorState).innerJoin(monitorRegistry, eq(monitorRegistry.id, monitorState.monitorId))
+    .where(eq(monitorState.monitorId, id));
+  const base = monitorResponse(monitor, accepted.config.groups);
+  return runtime
+    ? { ...base, state: runtime.state, createdAt: runtime.createdAt.toISOString(), updatedAt: runtime.updatedAt.toISOString() }
+    : base;
 }
 
 const STATE_ORDER = ["DOWN", "VERIFYING_DOWN", "VERIFYING_UP", "PENDING", "UP", "PAUSED", "ARCHIVED"] as const;
@@ -218,7 +232,10 @@ export async function listMonitors(options: {
   const page = after.slice(0, options.limit);
   const last = page.at(-1);
   const next = after.length > page.length && last ? encodeCursor({ sort: `${fingerprint}\0${keyFor(last)}`, id: last.id }) : null;
-  return { monitors: page, nextCursor: next };
+  // uptime is the one reporting-owned field on the list payload, computed for
+  // the returned page only. A locked window or missing registry row reads null.
+  const uptime = await uptime24hByMonitorId(page.map((monitor) => monitor.id));
+  return { monitors: page.map((monitor) => ({ ...monitor, uptime: uptime.get(monitor.id) ?? null })), nextCursor: next };
 }
 
 export async function testMonitor(id: string) {

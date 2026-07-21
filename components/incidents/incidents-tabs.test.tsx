@@ -24,6 +24,12 @@ describe("IncidentsTabs", () => {
     expect(html).toContain("Outage history");
   });
 
+  it("orders Outage history before Reports", () => {
+    navigation.pathname = "/incidents";
+    const html = renderToStaticMarkup(<IncidentsTabs />);
+    expect(html.indexOf("Outage history")).toBeLessThan(html.indexOf("Reports"));
+  });
+
   it("marks Outage history active on /incidents and detail pages", () => {
     navigation.pathname = "/incidents";
     expect(activeTab(renderToStaticMarkup(<IncidentsTabs />))).toBe("Outage history");

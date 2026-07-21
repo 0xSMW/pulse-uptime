@@ -7,6 +7,7 @@ import {
   dependencies,
   dependencyCatalog,
   dependencyCategories,
+  dependencyDiscoveredScopeOptions,
   dependencyIncidentMatches,
   dependencySources,
   dependencyState,
@@ -15,7 +16,13 @@ import {
   providerIncidentUpdates,
 } from "@/lib/db/schema";
 
-import type { DependencyScope, DependencyState } from "./types";
+import type {
+  DependencyFidelity,
+  DependencyScope,
+  DependencyState,
+  ScopeSelection,
+} from "./types";
+import { resolveScopeSelection } from "./types";
 
 // Reads for the Overview panel, the dependency detail view, and the add
 // sheet's catalog listing. Kept db-direct (no injected store), matching
@@ -61,6 +68,7 @@ export type DependencyDashboardRow = {
   name: string;
   provider: string;
   category: string;
+  fidelity: DependencyFidelity;
   state: DependencyState;
   pendingFirstPoll: boolean;
   providerUpdatedAt: string | null;
@@ -75,6 +83,7 @@ export async function listDependenciesForDashboard(): Promise<DependencyDashboar
     scopeId: dependencies.scopeId,
     name: dependencyCatalog.displayName,
     category: dependencyCatalog.category,
+    fidelity: dependencyCatalog.fidelity,
     provider: dependencySources.providerName,
     state: dependencyState.state,
     pendingFirstPoll: dependencyState.pendingFirstPoll,
@@ -134,6 +143,7 @@ export async function listDependenciesForDashboard(): Promise<DependencyDashboar
       name: row.name,
       provider: row.provider,
       category: row.category,
+      fidelity: row.fidelity as DependencyFidelity,
       state: row.state as DependencyState,
       pendingFirstPoll: row.pendingFirstPoll,
       providerUpdatedAt: (active?.providerUpdatedAt ?? row.providerUpdatedAt)?.toISOString() ?? null,
@@ -170,6 +180,7 @@ export type DependencyDetail = {
   description: string;
   category: string;
   provider: string;
+  fidelity: DependencyFidelity;
   componentLabel: string | null;
   sourceScopeNote: string | null;
   notificationsEnabled: boolean;
@@ -201,6 +212,7 @@ export async function getDependencyDetail(id: string, handle: DatabaseHandle = d
     category: dependencyCatalog.category,
     scopeOptions: dependencyCatalog.scopeOptions,
     sourceScopeNote: dependencyCatalog.sourceScopeNote,
+    fidelity: dependencyCatalog.fidelity,
     provider: dependencySources.providerName,
     statusPageUrl: dependencySources.statusPageUrl,
     state: dependencyState.state,
@@ -264,9 +276,20 @@ export async function getDependencyDetail(id: string, handle: DatabaseHandle = d
   }
 
   const scope = (row.scopeOptions as DependencyScope | null) ?? null;
-  const componentLabel = scope?.kind === "required_options"
-    ? scope.options.find((option) => option.id === row.scopeId)?.label ?? row.scopeId
-    : row.scopeId;
+  let componentLabel: string | null = row.scopeId;
+  if (scope?.kind === "required_options") {
+    componentLabel = scope.options.find((option) => option.id === row.scopeId)?.label ?? row.scopeId;
+  } else if (row.scopeId && (scope?.kind === "discovered_children" || scope?.kind === "discovered_locations")) {
+    const [discovered] = await handle.select({
+      label: dependencyDiscoveredScopeOptions.label,
+    }).from(dependencyDiscoveredScopeOptions)
+      .where(and(
+        eq(dependencyDiscoveredScopeOptions.catalogId, row.presetId),
+        eq(dependencyDiscoveredScopeOptions.scopeId, row.scopeId),
+      ))
+      .limit(1);
+    componentLabel = discovered?.label ?? row.scopeId;
+  }
 
   const activeIncident = incidentRows.find((incident) => incident.resolvedAt === null) ?? null;
 
@@ -278,6 +301,7 @@ export async function getDependencyDetail(id: string, handle: DatabaseHandle = d
     description: row.description,
     category: row.category,
     provider: row.provider,
+    fidelity: row.fidelity as DependencyFidelity,
     componentLabel: componentLabel ?? null,
     sourceScopeNote: row.sourceScopeNote,
     notificationsEnabled: row.notificationsEnabled,
@@ -315,8 +339,13 @@ export type DependencyCatalogPreset = {
   name: string;
   provider: string;
   description: string;
-  scope: DependencyScope | null;
+  /**
+   * Resolved selection model for install UI. Manifest-level scope unions stay
+   * internal; clients consume scopeSelection only.
+   */
+  scopeSelection: ScopeSelection | null;
   sourceScopeNote: string | null;
+  fidelity: DependencyFidelity;
   enabled: boolean;
   validated: boolean;
   // Mirrors the server install gate. addDependency rejects a preset with a
@@ -341,6 +370,7 @@ export async function listCatalog(): Promise<DependencyCatalogCategory[]> {
     description: dependencyCatalog.description,
     scope: dependencyCatalog.scopeOptions,
     sourceScopeNote: dependencyCatalog.sourceScopeNote,
+    fidelity: dependencyCatalog.fidelity,
     enabled: dependencyCatalog.enabled,
     validatedAt: dependencyCatalog.validatedAt,
     validationError: dependencyCatalog.validationError,
@@ -349,10 +379,19 @@ export async function listCatalog(): Promise<DependencyCatalogCategory[]> {
     .innerJoin(dependencySources, eq(dependencySources.id, dependencyCatalog.sourceId))
     .orderBy(asc(dependencyCatalog.category), asc(dependencyCatalog.displayName));
 
-  const installedRows = await db.select({
-    catalogId: dependencies.catalogId,
-    scopeId: dependencies.scopeId,
-  }).from(dependencies).where(isNull(dependencies.removedAt));
+  const [installedRows, discoveredRows] = await Promise.all([
+    db.select({
+      catalogId: dependencies.catalogId,
+      scopeId: dependencies.scopeId,
+    }).from(dependencies).where(isNull(dependencies.removedAt)),
+    db.select({
+      catalogId: dependencyDiscoveredScopeOptions.catalogId,
+      scopeId: dependencyDiscoveredScopeOptions.scopeId,
+      label: dependencyDiscoveredScopeOptions.label,
+      available: dependencyDiscoveredScopeOptions.available,
+    }).from(dependencyDiscoveredScopeOptions)
+      .orderBy(asc(dependencyDiscoveredScopeOptions.label)),
+  ]);
 
   const NO_SCOPE = "";
   const installedScopesByCatalog = new Map<string, string[]>();
@@ -362,17 +401,26 @@ export async function listCatalog(): Promise<DependencyCatalogCategory[]> {
     installedScopesByCatalog.set(row.catalogId, list);
   }
 
+  const discoveredByCatalog = new Map<string, Array<{ id: string; label: string; available: boolean }>>();
+  for (const row of discoveredRows) {
+    const list = discoveredByCatalog.get(row.catalogId) ?? [];
+    list.push({ id: row.scopeId, label: row.label, available: row.available });
+    discoveredByCatalog.set(row.catalogId, list);
+  }
+
   const grouped = new Map<string, DependencyCatalogPreset[]>();
   for (const preset of presetRows) {
     const installedScopes = installedScopesByCatalog.get(preset.id) ?? [];
+    const scope = (preset.scope as DependencyScope | null) ?? null;
     const list = grouped.get(preset.category) ?? [];
     list.push({
       id: preset.id,
       name: preset.name,
       provider: preset.provider,
       description: preset.description,
-      scope: (preset.scope as DependencyScope | null) ?? null,
+      scopeSelection: resolveScopeSelection(scope, discoveredByCatalog.get(preset.id) ?? null),
       sourceScopeNote: preset.sourceScopeNote,
+      fidelity: preset.fidelity as DependencyFidelity,
       enabled: preset.enabled,
       validated: preset.validatedAt !== null,
       hasValidationError: preset.validationError !== null,

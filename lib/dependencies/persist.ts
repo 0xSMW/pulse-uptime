@@ -19,7 +19,15 @@ import {
 import { enqueueDependencyNotifications } from "@/lib/notifications/enqueue";
 
 import type { PollOutcome } from "./poller";
-import type { DependencyAdapterName, DependencySelector, DependencyState, NormalizedProviderSnapshot } from "./types";
+import type {
+  DependencyAdapterName,
+  DependencyFidelity,
+  DependencySelector,
+  DependencyState,
+  IncidentMatchScope,
+  NormalizedProviderSnapshot,
+} from "./types";
+import { componentIdsFromScope } from "./types";
 
 // One transaction per source: upsert provider incidents and their updates
 // and components, recompute every installed dependency's state from its
@@ -69,8 +77,9 @@ export function combinedComponentStates(snapshot: NormalizedProviderSnapshot): M
  * incident-component intersection. All three scoped selectors fold in an
  * extra id here purely for matching, not for the scoped state lookup.
  * Google's location-scoped composite (productId@locationId) only ever
- * appears in incident.componentIds, never in the components state map (see
- * google-cloud-status.ts). A scoped statusio container's parent componentId
+ * appears in the incident's components scope, never in the components state
+ * map (see google-cloud-status.ts). A scoped statusio container's parent
+ * componentId
  * aggregates the worst state across every sibling region container, so an
  * incident naming the parent still associates, but the scoped install's own
  * severity comes from the container alone (see resolveDependencyState). A
@@ -135,7 +144,7 @@ export function resolveDependencyState(
   if (selector.kind === "google_product" && scopeId) {
     const compositeKey = `${selector.productId}@${scopeId}`;
     const touchedByActiveIncident = snapshot.incidents.some(
-      (incident) => incident.resolvedAt === null && incident.componentIds.includes(compositeKey),
+      (incident) => incident.resolvedAt === null && componentIdsFromScope(incident.scope).includes(compositeKey),
     );
     if (!touchedByActiveIncident) return "OPERATIONAL";
     return combined.get(selector.productId) ?? fallback();
@@ -171,6 +180,36 @@ export function associationKindForAdapter(adapter: DependencyAdapterName): "expl
 export function selectorIntersectsIncident(selector: DependencySelector, scopeId: string | null, incidentComponentIds: readonly string[]): boolean {
   const ids = new Set(matchingIdsForSelector(selector, scopeId));
   return incidentComponentIds.some((id) => ids.has(id));
+}
+
+/**
+ * Opening-notification eligibility. Scope controls whether a new open alert
+ * is allowed. Match rows may still be written for correlation when the gate
+ * declines the notification.
+ *
+ * - source: eligible at any dependency state
+ * - components: eligible only when this dependency is non-operational
+ * - unmapped: never opens a new match or notification
+ */
+export function shouldNotifyDependencyIncident(scope: IncidentMatchScope, nextState: DependencyState): boolean {
+  if (scope.kind === "source") return true;
+  if (scope.kind === "unmapped") return false;
+  return nextState === "DEGRADED" || nextState === "OUTAGE" || nextState === "MAINTENANCE";
+}
+
+/**
+ * Recovery-notification eligibility. Fidelity plus the dependency's final
+ * resolved state control recovery. Scope does not: it only governs matching
+ * and opening. Both terminal-state and disappearance closure paths use this.
+ *
+ * - component fidelity: eligible only at OPERATIONAL
+ * - incident_only fidelity: eligible at UNKNOWN or OPERATIONAL
+ * - DEGRADED / OUTAGE / MAINTENANCE always defers recovery
+ */
+export function shouldNotifyDependencyRecovery(fidelity: DependencyFidelity, resolvedState: DependencyState): boolean {
+  if (resolvedState === "DEGRADED" || resolvedState === "OUTAGE" || resolvedState === "MAINTENANCE") return false;
+  if (fidelity === "incident_only") return resolvedState === "UNKNOWN" || resolvedState === "OPERATIONAL";
+  return resolvedState === "OPERATIONAL";
 }
 
 /**
@@ -306,6 +345,8 @@ export interface InstalledDependencyRow {
   presetName: string;
   scopeId: string | null;
   selector: DependencySelector;
+  /** Catalog fidelity for this install. Drives recovery eligibility. */
+  fidelity: DependencyFidelity;
   notificationsEnabled: boolean;
   currentState: DependencyState;
 }
@@ -340,11 +381,9 @@ export interface PersistExecutor {
   /**
    * Existing (dependencyId, incidentId) pairs already recorded in
    * dependency_incident_matches for these incident internal ids, as a
-   * `${dependencyId}:${incidentId}` key set. This is the fallback for an
-   * incident with no componentIds of its own (incidentio_compat's resolved
-   * incidents, see incidentio-compat.ts): with nothing to intersect a
-   * selector against, a dependency is only still considered matched if it
-   * already has a match row from while the incident carried components.
+   * `${dependencyId}:${incidentId}` key set. Used for unmapped and resolved
+   * source scopes (no new broad match), and for component-scoped incidents
+   * whose provider no longer lists a previously matched id.
    */
   loadExistingMatches(incidentIds: readonly string[]): Promise<Set<string>>;
   /**
@@ -360,7 +399,14 @@ export interface PersistExecutor {
   upsertIncident(sourceId: string, candidateId: string, incident: NormalizedIncident): Promise<string>;
   /** New (incidentId, externalComponentId) pairs only; existing pairs are left untouched. */
   upsertIncidentComponents(incidentId: string, componentIds: readonly string[], associationKind: "explicit" | "inferred"): Promise<void>;
-  /** New (incidentId, externalUpdateId) pairs only; provider updates are immutable once posted. */
+  /**
+   * Monotonic upsert of provider update rows, keyed by provider identity
+   * (incident_id, external_update_id). Rows are snapshots of the provider's
+   * current view of that update, not append-only events: a newer
+   * provider_updated_at overwrites state and body, a same-timestamp correction
+   * applies when a material field differs, and older snapshots are ignored.
+   * Earliest provider_created_at is preserved. Identical replay is a no-op.
+   */
   upsertIncidentUpdates(incidentId: string, updates: NormalizedIncident["updates"]): Promise<void>;
   /**
    * New (dependencyId, incidentId) pairs only; a match, once recorded, is
@@ -489,22 +535,18 @@ export async function persistSnapshot(
     for (const incident of incidents) {
       const internalId = await tx.upsertIncident(source.id, randomUUID(), incident);
       incidentInternalIds.set(incident.externalId, internalId);
-      await tx.upsertIncidentComponents(internalId, incident.componentIds, associationKind);
+      // Component association rows only for components-scoped incidents.
+      // Source and unmapped scopes persist no component rows.
+      await tx.upsertIncidentComponents(internalId, componentIdsFromScope(incident.scope), associationKind);
       await tx.upsertIncidentUpdates(internalId, incident.updates);
       incidentsUpserted += 1;
     }
 
-    // A dependency selector has nothing to intersect against an incident
-    // whose componentIds are empty (incidentio_compat's resolved incidents
-    // never carry any, see incidentio-compat.ts), so those incidents fall
-    // back to whatever match rows already exist from while they still had
-    // components. One batched read up front covers every such incident in
-    // this snapshot.
-    const emptyComponentIncidentIds = incidents
-      .filter((incident) => incident.componentIds.length === 0)
-      .map((incident) => incidentInternalIds.get(incident.externalId))
-      .filter((id): id is string => id !== undefined);
-    const existingMatchesForEmptyIncidents = await tx.loadExistingMatches(emptyComponentIncidentIds);
+    // Load durable match rows for every incident in this snapshot. Unmapped
+    // and resolved source scopes, plus components whose provider dropped a
+    // former id, fall back to these rows for correlation and recovery.
+    const allIncidentInternalIds = [...incidentInternalIds.values()];
+    const existingMatches = await tx.loadExistingMatches(allIncidentInternalIds);
 
     const installed = await tx.loadInstalledDependencies(source.id);
     const finalStates = new Map<string, DependencyState>();
@@ -524,33 +566,47 @@ export async function persistSnapshot(
         const incidentInternalId = incidentInternalIds.get(incident.externalId);
         if (!incidentInternalId) continue;
 
+        const isActive = incident.resolvedAt === null;
+        const matchKey = `${dependency.id}:${incidentInternalId}`;
+        const hasExistingMatch = existingMatches.has(matchKey);
+
+        // Match by explicit scope. Empty component arrays never stand alone.
         let isNewMatch: boolean;
-        // A page-level match is an active explicit incident that names no
-        // component, so its scope is the whole source rather than any single
-        // component. The F1 gate below exempts it, since its dependencies
-        // resolve OPERATIONAL from their own components yet the incident still
-        // affects them.
-        let isPageLevelMatch = false;
-        if (incident.componentIds.length > 0) {
-          if (!selectorIntersectsIncident(dependency.selector, dependency.scopeId, incident.componentIds)) continue;
-          const matchKind = associationKind === "inferred" ? "inferred" : "component_match";
-          isNewMatch = await tx.upsertDependencyIncidentMatch(dependency.id, incidentInternalId, matchKind, context.now);
-        } else if (associationKind === "explicit" && incident.resolvedAt === null) {
-          isPageLevelMatch = true;
-          // An explicit provider (statuspage, sorry) can post an active
-          // page-level incident that names no component (components: []). It
-          // affects the whole source, so it associates with every installed
-          // dependency as an inferred match rather than being silently
-          // dropped for want of a component to intersect. A resolved
-          // empty-component incident stays on the existing-match fallback
-          // below, so a historical page-level incident found on install never
-          // back-matches every dependency. An inferred provider
-          // (incidentio_compat) keeps the fallback too: its empty componentIds
-          // mean inference was declined, not a real page-level scope.
-          isNewMatch = await tx.upsertDependencyIncidentMatch(dependency.id, incidentInternalId, "inferred", context.now);
-        } else {
-          if (!existingMatchesForEmptyIncidents.has(`${dependency.id}:${incidentInternalId}`)) continue;
-          isNewMatch = false;
+        switch (incident.scope.kind) {
+          case "components": {
+            // Active and resolved: intersect current ids. When the provider
+            // no longer lists a former id, keep the durable match row.
+            if (selectorIntersectsIncident(dependency.selector, dependency.scopeId, incident.scope.componentIds)) {
+              const matchKind = associationKind === "inferred" ? "inferred" : "component_match";
+              isNewMatch = await tx.upsertDependencyIncidentMatch(dependency.id, incidentInternalId, matchKind, context.now);
+              if (isNewMatch) existingMatches.add(matchKey);
+            } else if (hasExistingMatch) {
+              isNewMatch = false;
+            } else {
+              continue;
+            }
+            break;
+          }
+          case "source": {
+            if (isActive) {
+              // Active source-wide: every installed dependency matches.
+              isNewMatch = await tx.upsertDependencyIncidentMatch(dependency.id, incidentInternalId, "inferred", context.now);
+              if (isNewMatch) existingMatches.add(matchKey);
+            } else if (hasExistingMatch) {
+              // Resolved source-wide: existing matches only (no install-time broaden).
+              isNewMatch = false;
+            } else {
+              continue;
+            }
+            break;
+          }
+          case "unmapped": {
+            // Preserve existing matches only. Never create a new match or
+            // open notification from unavailable scope.
+            if (!hasExistingMatch) continue;
+            isNewMatch = false;
+            break;
+          }
         }
 
         // The event is derived from the incident's observed state transition
@@ -558,28 +614,15 @@ export async function persistSnapshot(
         // before this poll's own upserts. This makes the event fire exactly
         // once at transition time and holds even across an outbox purge,
         // since nothing here depends on a previously enqueued outbox row.
-        const isActive = incident.resolvedAt === null;
         const priorResolvedAt = priorIncidentResolution.get(incident.externalId);
         const event = deriveNotificationEvent(isNewMatch, isActive, priorResolvedAt);
         if (event === null) continue;
 
-        // F1: an "incident" event only notifies when the incident actually
-        // degraded this dependency's resolved scope. A scoped install
-        // (google_product, statusio_component_container, or component_ids with
-        // a scopeId) matches through its parent aggregate id in
-        // matchingIdsForSelector, so an incident naming only a sibling scope
-        // still intersects it, yet its scoped nextState stays OPERATIONAL.
-        // Suppress the alert in that case. The match row is already written
-        // above, so correlation is preserved. A page-level match is exempt,
-        // since its scope is the whole source rather than one component.
-        if (event === "incident" && nextState === "OPERATIONAL" && !isPageLevelMatch) continue;
+        // Opening: scope + dependency state. Correlation may already be written.
+        if (event === "incident" && !shouldNotifyDependencyIncident(incident.scope, nextState)) continue;
 
-        // F2: a "recovery" event only notifies when the dependency is fully
-        // back to OPERATIONAL. A dependency matched to two concurrent
-        // incidents that is still degraded by the other one when this one
-        // resolves keeps a non-OPERATIONAL nextState, so its premature
-        // recovery is suppressed until it truly recovers.
-        if (event === "recovery" && nextState !== "OPERATIONAL") continue;
+        // Recovery: fidelity + final dependency state. Scope no longer exempts.
+        if (event === "recovery" && !shouldNotifyDependencyRecovery(dependency.fidelity, nextState)) continue;
 
         if (!dependency.notificationsEnabled || context.defaultRecipients.length === 0) continue;
 
@@ -616,8 +659,8 @@ export async function persistSnapshot(
     // enumerates every open incident (incidentsComplete). Without that gate a
     // possibly-incomplete fetch could read a still-open incident's temporary
     // absence as resolution. A closed incident fires recovery for every
-    // dependency it still matched, through the same event derivation the main
-    // loop uses: prior resolved_at null, now resolved.
+    // dependency it still matched, through the same fidelity helper the main
+    // loop uses for terminal-state recovery.
     if (snapshot.incidentsComplete) {
       const snapshotExternalIds = new Set(incidents.map((incident) => incident.externalId));
       const openStored = await tx.loadOpenIncidents(source.id);
@@ -629,12 +672,10 @@ export async function persistSnapshot(
           for (const dependency of installed) {
             if (!matchesForDisappeared.has(`${dependency.id}:${open.internalId}`)) continue;
             if (!dependency.notificationsEnabled || context.defaultRecipients.length === 0) continue;
-            // F2: only fire recovery when the dependency is fully back to
-            // OPERATIONAL, so a dependency still degraded by another active
-            // matching incident does not send a premature recovery when this
-            // disappeared one closes.
+            // Same recovery policy as the terminal-state path: fidelity +
+            // the dependency's final state after this poll's evaluation.
             const resolvedState = finalStates.get(dependency.id) ?? dependency.currentState;
-            if (resolvedState !== "OPERATIONAL") continue;
+            if (!shouldNotifyDependencyRecovery(dependency.fidelity, resolvedState)) continue;
             const keyExternalId = notificationKeyExternalId("recovery", open.externalId, false, null, context.now.toISOString());
             const enqueued = await tx.enqueueNotification({
               event: "recovery",
@@ -680,6 +721,7 @@ export function createSqlPersistStore(db: Database): PersistStore {
           presetName: dependencyCatalog.displayName,
           scopeId: dependencies.scopeId,
           selector: dependencyCatalog.selector,
+          fidelity: dependencyCatalog.fidelity,
           notificationsEnabled: dependencies.notificationsEnabled,
           currentState: dependencyState.state,
         }).from(dependencies)
@@ -693,7 +735,12 @@ export function createSqlPersistStore(db: Database): PersistStore {
             eq(dependencyCatalog.enabled, true),
             isNull(dependencies.removedAt),
           ));
-        return rows.map((row) => ({ ...row, selector: row.selector as DependencySelector, currentState: row.currentState as DependencyState }));
+        return rows.map((row) => ({
+          ...row,
+          selector: row.selector as DependencySelector,
+          fidelity: row.fidelity as DependencyFidelity,
+          currentState: row.currentState as DependencyState,
+        }));
       },
 
       async loadPriorIncidentResolution(sourceId, externalIds) {
@@ -792,6 +839,10 @@ export function createSqlPersistStore(db: Database): PersistStore {
 
       async upsertIncidentUpdates(incidentId, updates) {
         if (updates.length === 0) return;
+        // Provider update rows are snapshots keyed by provider identity, not
+        // append-only inserts. Advance state/body when the provider timestamp
+        // is newer, accept same-timestamp material corrections, keep the
+        // earliest created_at, and ignore older or identical snapshots.
         await tx.insert(providerIncidentUpdates)
           .values(updates.map((update) => ({
             incidentId,
@@ -801,7 +852,25 @@ export function createSqlPersistStore(db: Database): PersistStore {
             providerCreatedAt: new Date(update.createdAt),
             providerUpdatedAt: new Date(update.updatedAt),
           })))
-          .onConflictDoNothing();
+          .onConflictDoUpdate({
+            target: [providerIncidentUpdates.incidentId, providerIncidentUpdates.externalUpdateId],
+            set: {
+              state: sql`excluded.state`,
+              bodyText: sql`excluded.body_text`,
+              providerUpdatedAt: sql`excluded.provider_updated_at`,
+              providerCreatedAt: sql`least(${providerIncidentUpdates.providerCreatedAt}, excluded.provider_created_at)`,
+            },
+            setWhere: sql`
+              excluded.provider_updated_at > ${providerIncidentUpdates.providerUpdatedAt}
+              OR (
+                excluded.provider_updated_at = ${providerIncidentUpdates.providerUpdatedAt}
+                AND (
+                  excluded.state IS DISTINCT FROM ${providerIncidentUpdates.state}
+                  OR excluded.body_text IS DISTINCT FROM ${providerIncidentUpdates.bodyText}
+                )
+              )
+            `,
+          });
       },
 
       async upsertDependencyIncidentMatch(dependencyId, incidentId, matchKind, now) {

@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  blendRawAvailability,
   buildCheckTimeline,
   buildRollupTimeline,
   buildDailyTimeline,
   statusGroupSlug,
   summarizeRollupCoverage,
   type CheckAvailability,
+  type RawBucketAvailability,
   type RollupAvailability,
 } from "./timeline";
 
@@ -50,6 +52,8 @@ function referenceCheckTimeline(
       label: `${new Date(bucketStart).toISOString()}–${new Date(bucketEnd).toISOString()}`,
       checks: checks.length,
       failures,
+      startMs: bucketStart,
+      endMs: bucketEnd,
     };
   });
 }
@@ -88,6 +92,8 @@ function referenceRollupTimeline(
       checks,
       failures,
       downtimeSeconds,
+      startMs: bucketStart,
+      endMs: bucketEnd,
     };
   });
 }
@@ -138,6 +144,14 @@ describe("buildDailyTimeline", () => {
 
     expect(timeline.map(({ state }) => state)).toEqual(["up", "no-data", "verifying"]);
     expect(timeline[2]?.downtimeSeconds).toBe(80);
+  });
+
+  it("carries each day's UTC midnight range as structured start and end times", () => {
+    const timeline = buildDailyTimeline([], 2, new Date("2026-07-18T12:00:00Z"));
+    expect(timeline[0]?.startMs).toBe(Date.parse("2026-07-17T00:00:00Z"));
+    expect(timeline[0]?.endMs).toBe(Date.parse("2026-07-18T00:00:00Z"));
+    expect(timeline[1]?.startMs).toBe(Date.parse("2026-07-18T00:00:00Z"));
+    expect(timeline[1]?.endMs).toBe(Date.parse("2026-07-19T00:00:00Z"));
   });
 });
 
@@ -272,6 +286,7 @@ describe("buildRollupTimeline call-site bucket widths", () => {
     ["monitors 7d", 84, 7 * 86_400_000],
     ["monitors 30d", 90, 30 * 86_400_000],
     ["monitors/status 90d", 90, 90 * 86_400_000],
+    ["dashboard table 24h", 32, 86_400_000],
   ])("%s: durationMs divides evenly into bucketCount buckets", (_label, bucketCount, durationMs) => {
     expect(durationMs % bucketCount).toBe(0);
   });
@@ -426,6 +441,59 @@ describe("buildCheckTimeline/buildRollupTimeline equivalence with the reference 
       .toEqual(referenceCheckTimeline([], bucketCount, durationMs, now));
     expect(buildRollupTimeline([], bucketCount, durationMs, now))
       .toEqual(referenceRollupTimeline([], bucketCount, durationMs, now));
+  });
+});
+
+describe("blendRawAvailability", () => {
+  const rollupAt = (iso: string, overrides: Partial<RollupAvailability> = {}): RollupAvailability => ({
+    bucketStart: new Date(iso),
+    expectedChecks: 4,
+    completedChecks: 4,
+    successfulChecks: 4,
+    failedChecks: 0,
+    unknownChecks: 0,
+    downtimeSeconds: 0,
+    ...overrides,
+  });
+  const rawAt = (iso: string, overrides: Partial<RawBucketAvailability> = {}): RawBucketAvailability =>
+    rollupAt(iso, { completedChecks: 1, expectedChecks: 1, successfulChecks: 1, ...overrides });
+
+  it("returns the rollups unchanged when there are no raw buckets", () => {
+    const rollups = [rollupAt("2026-07-20T00:00:00Z")];
+    expect(blendRawAvailability(rollups, [])).toBe(rollups);
+  });
+
+  it("drops a raw bucket whose quarter-hour already has a rollup, so it is never counted twice", () => {
+    const rollups = [rollupAt("2026-07-20T00:00:00Z")];
+    const raw = [rawAt("2026-07-20T00:00:00Z", { successfulChecks: 0, failedChecks: 1 })];
+    const merged = blendRawAvailability(rollups, raw);
+    expect(merged).toBe(rollups);
+    const timeline = buildRollupTimeline(merged, 1, 15 * 60 * 1_000, new Date("2026-07-20T00:15:00Z"));
+    expect(timeline[0]).toMatchObject({ state: "up", checks: 4, failures: 0 });
+  });
+
+  it("keeps a raw bucket for a quarter-hour with no rollup, so compaction lag renders instead of no-data", () => {
+    const rollups = [rollupAt("2026-07-20T00:00:00Z")];
+    const raw = [rawAt("2026-07-20T00:15:00Z")];
+    const merged = blendRawAvailability(rollups, raw);
+    expect(merged).toHaveLength(2);
+    const now = new Date("2026-07-20T00:30:00Z");
+    const timeline = buildRollupTimeline(merged, 2, 30 * 60 * 1_000, now);
+    expect(timeline.map(({ state }) => state)).toEqual(["up", "up"]);
+  });
+
+  it("renders a failing raw-only bucket as down, matching the raw checks it holds", () => {
+    const raw = [rawAt("2026-07-20T00:00:00Z", { successfulChecks: 0, failedChecks: 1 })];
+    const timeline = buildRollupTimeline(
+      blendRawAvailability([], raw), 1, 15 * 60 * 1_000, new Date("2026-07-20T00:15:00Z"),
+    );
+    expect(timeline[0]).toMatchObject({ state: "down", checks: 1, failures: 1 });
+  });
+
+  it("leaves a quarter-hour with neither a rollup nor a raw bucket as no-data", () => {
+    const merged = blendRawAvailability([rollupAt("2026-07-20T00:00:00Z")], [rawAt("2026-07-20T00:30:00Z")]);
+    const timeline = buildRollupTimeline(merged, 3, 45 * 60 * 1_000, new Date("2026-07-20T00:45:00Z"));
+    expect(timeline.map(({ state }) => state)).toEqual(["up", "no-data", "up"]);
   });
 });
 

@@ -6,7 +6,7 @@ import { db } from "@/lib/db/client";
 import { dependencies, dependencyCatalog, dependencyIncidentMatches, dependencySources, providerIncidents } from "@/lib/db/schema";
 
 // Neutral timing context for a Pulse monitor incident, per
-// Docs/DEPENDENCY-MONITORING.md "Incident overlap query": installed
+// Docs/Specs/DEPENDENCY-MONITORING.md "Incident overlap query": installed
 // dependency incidents whose window overlaps the monitor incident's window,
 // ordered by how close the provider's start sits to the monitor's start.
 // This never ranks by severity and never claims causation, only timing.

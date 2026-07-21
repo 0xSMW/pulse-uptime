@@ -71,6 +71,7 @@ const requiredIndexes = [
   "cli_sessions_installation",
   "config_operations_principal_idempotency",
   "config_operations_target_hash",
+  "cron_runs_job_release_completed",
   "cron_runs_job_schedule",
   "device_authorizations_active_user_code",
   "exception_payloads_retention",
@@ -124,6 +125,7 @@ describe("database schema", () => {
     expect(indexes.get("incidents_one_active_per_monitor")?.unique).toBe(true);
     expect(indexes.get("incidents_one_active_per_monitor")?.where).toBeDefined();
     expect(indexes.get("cron_runs_job_schedule")?.unique).toBe(true);
+    expect(indexes.get("cron_runs_job_release_completed")?.where).toBeDefined();
     expect(indexes.get("api_idempotency_principal_key")?.unique).toBe(true);
     expect(indexes.get("device_authorizations_active_user_code")?.unique).toBe(true);
     expect(indexes.get("device_authorizations_active_user_code")?.where).toBeDefined();
@@ -144,6 +146,7 @@ describe("database schema", () => {
       "api_idempotency_state",
       "config_change_approvals_action",
       "config_operations_state",
+      "cron_runs_release_id",
       "cron_runs_status",
       "device_authorizations_state",
       "monitor_state_state",

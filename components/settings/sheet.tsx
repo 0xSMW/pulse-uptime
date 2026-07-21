@@ -31,8 +31,9 @@ export function SheetIconButton({
     >
       <Button
         type="button"
-        variant={destructive ? "error-outline" : "tertiary"}
+        variant="tertiary"
         size="icon-sm"
+        className={destructive ? "text-[var(--down-text)] hover:bg-[var(--down-bg)] hover:text-[var(--down-text)]" : undefined}
         disabled={disabled}
         aria-label={label}
         aria-describedby={tooltipId}

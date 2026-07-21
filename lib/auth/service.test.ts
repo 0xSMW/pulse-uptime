@@ -45,6 +45,34 @@ describe("administrator creation service", () => {
     expect(result.email).toBe("admin@example.com");
     expect(fake.inserts).toHaveLength(1);
     expect(fake.inserts[0].sessionDigest).toHaveLength(32);
+    expect(fake.inserts[0].name).toBeNull();
+  });
+
+  it("trims and persists an optional name", async () => {
+    const fake = fakeStore();
+    await createOnlyAdmin(
+      { name: "  Ada Lovelace  ", email: "admin@example.com", password: "correct-horse", passwordConfirmation: "correct-horse", bootstrapToken: "setup-token" },
+      { store: fake.store, checkReadiness: async () => readiness(), verifyBootstrap: allowBootstrap },
+    );
+    expect(fake.inserts[0].name).toBe("Ada Lovelace");
+  });
+
+  it("stores a blank name as null", async () => {
+    const fake = fakeStore();
+    await createOnlyAdmin(
+      { name: "   ", email: "admin@example.com", password: "correct-horse", passwordConfirmation: "correct-horse", bootstrapToken: "setup-token" },
+      { store: fake.store, checkReadiness: async () => readiness(), verifyBootstrap: allowBootstrap },
+    );
+    expect(fake.inserts[0].name).toBeNull();
+  });
+
+  it("rejects a name longer than 120 characters", async () => {
+    const fake = fakeStore();
+    await expect(createOnlyAdmin(
+      { name: "a".repeat(121), email: "admin@example.com", password: "correct-horse", passwordConfirmation: "correct-horse", bootstrapToken: "setup-token" },
+      { store: fake.store, checkReadiness: async () => readiness(), verifyBootstrap: allowBootstrap },
+    )).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(fake.inserts).toHaveLength(0);
   });
 
   it("rejects the account when core readiness is blocked", async () => {

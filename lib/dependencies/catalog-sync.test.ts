@@ -8,6 +8,8 @@ import type { CatalogManifest } from "./manifest";
 import type { DependencyPresetManifest, DependencySourceManifest } from "./manifest";
 import {
   flipDependenciesToUnknownSql,
+  observedScopeOptionsForPreset,
+  planDiscoveredScopeSync,
   presetUpsertPlan,
   sourceUpsertPlan,
   syncCatalog,
@@ -17,8 +19,14 @@ import {
   type CatalogSyncStore,
   type CatalogReconcileExecutor,
   type CatalogReconcileStore,
+  type ObservedScopeOption,
   type StoredPresetDefinition,
 } from "./catalog-sync";
+import { catalogDirectoryFromComponentIds, type CatalogComponentDirectory } from "./types";
+
+function directoryOf(...ids: string[]): CatalogComponentDirectory {
+  return catalogDirectoryFromComponentIds(ids);
+}
 
 function manifestWith(catalogVersion: string): CatalogManifest {
   return {
@@ -106,7 +114,7 @@ describe("syncCatalog", () => {
     expect(executor.upsertSource).toHaveBeenCalledTimes(1);
     expect(executor.upsertSource).toHaveBeenCalledWith(manifest.sources[0], "2026-07-19.2");
     expect(executor.upsertPreset).toHaveBeenCalledTimes(1);
-    expect(executor.upsertPreset).toHaveBeenCalledWith(manifest.presets[0], "2026-07-19.2");
+    expect(executor.upsertPreset).toHaveBeenCalledWith(manifest.presets[0], "2026-07-19.2", "component");
     expect(executor.disableSource).not.toHaveBeenCalled();
   });
 
@@ -244,6 +252,7 @@ function fakeReconcile(state: FakeReconcileState) {
   const reEnablePreset = vi.fn(async () => undefined);
   const disablePreset = vi.fn(async () => undefined);
   const flipDependenciesToUnknown = vi.fn(async (catalogId: string) => state.installedBySource[catalogId] ?? 0);
+  const syncDiscoveredScopeOptions = vi.fn(async () => undefined);
   const events: string[] = [];
 
   const executor: CatalogReconcileExecutor = {
@@ -254,6 +263,7 @@ function fakeReconcile(state: FakeReconcileState) {
     reEnablePreset,
     disablePreset,
     flipDependenciesToUnknown,
+    syncDiscoveredScopeOptions,
   };
   const store: CatalogReconcileStore = {
     loadEnabledSources: async () => state.sources,
@@ -262,7 +272,17 @@ function fakeReconcile(state: FakeReconcileState) {
       return work(executor);
     },
   };
-  return { store, executor, events, recordSourceValidation, recordPresetValidationOk, reEnablePreset, disablePreset, flipDependenciesToUnknown };
+  return {
+    store,
+    executor,
+    events,
+    recordSourceValidation,
+    recordPresetValidationOk,
+    reEnablePreset,
+    disablePreset,
+    flipDependenciesToUnknown,
+    syncDiscoveredScopeOptions,
+  };
 }
 
 describe("reconcileCatalog", () => {
@@ -278,11 +298,11 @@ describe("reconcileCatalog", () => {
       installedBySource: { vercel_deployments: 2 },
     };
     const { store, disablePreset, recordPresetValidationOk, flipDependenciesToUnknown } = fakeReconcile(state);
-    const fetchSourceComponents = vi.fn(async () => ({ componentIds: new Set(["kgcsn9c73xzf"]) }));
+    const fetchCatalogDirectory = vi.fn(async () => directoryOf("kgcsn9c73xzf"));
 
     const summary = await reconcileCatalog({
       store,
-      fetchSourceComponents,
+      fetchCatalogDirectory,
       now: () => new Date("2026-07-19T00:00:00.000Z"),
     });
 
@@ -293,6 +313,38 @@ describe("reconcileCatalog", () => {
     expect(recordPresetValidationOk).toHaveBeenCalledWith("vercel_runtime", new Date("2026-07-19T00:00:00.000Z"));
     expect(flipDependenciesToUnknown).toHaveBeenCalledTimes(1);
     expect(flipDependenciesToUnknown).toHaveBeenCalledWith("vercel_deployments", new Date("2026-07-19T00:00:00.000Z"));
+  });
+
+  it("keeps incident-only presets enabled when the directory tracks no components", async () => {
+    const state: FakeReconcileState = {
+      sources: [{ id: "openrouter", adapter: "incident_feed", currentUrl: "https://status.openrouter.ai/incidents.rss" }],
+      presetsBySource: {
+        openrouter: [
+          { id: "openrouter_api", selector: { kind: "component_ids", aggregation: "worst_of", ids: ["incident-feed"] }, scope: null },
+        ],
+      },
+      installedBySource: { openrouter_api: 3 },
+    };
+    const { store, disablePreset, recordPresetValidationOk, flipDependenciesToUnknown } = fakeReconcile(state);
+    const incidentOnlyDirectory: CatalogComponentDirectory = {
+      componentIds: new Set(),
+      childrenByParent: new Map(),
+      locationsByProduct: new Map(),
+      complete: true,
+      tracksComponents: false,
+    };
+
+    const summary = await reconcileCatalog({
+      store,
+      fetchCatalogDirectory: vi.fn(async () => incidentOnlyDirectory),
+      now: () => new Date("2026-07-19T00:00:00.000Z"),
+    });
+
+    expect(summary.disabledPresets).toEqual([]);
+    expect(summary.validatedPresets).toBe(1);
+    expect(disablePreset).not.toHaveBeenCalled();
+    expect(flipDependenciesToUnknown).not.toHaveBeenCalled();
+    expect(recordPresetValidationOk).toHaveBeenCalledWith("openrouter_api", new Date("2026-07-19T00:00:00.000Z"));
   });
 
   it("flips a disabled preset's installed dependencies to UNKNOWN and reports the count", async () => {
@@ -306,7 +358,7 @@ describe("reconcileCatalog", () => {
     const { store } = fakeReconcile(state);
     const summary = await reconcileCatalog({
       store,
-      fetchSourceComponents: vi.fn(async () => ({ componentIds: new Set<string>() })),
+      fetchCatalogDirectory: vi.fn(async () => directoryOf()),
     });
 
     expect(summary.unknownDependencies).toBe(3);
@@ -325,7 +377,7 @@ describe("reconcileCatalog", () => {
 
     const summary = await reconcileCatalog({
       store,
-      fetchSourceComponents: vi.fn(async () => null),
+      fetchCatalogDirectory: vi.fn(async () => null),
     });
 
     expect(recordSourceValidation).toHaveBeenCalledWith("vercel", expect.any(Date), "FEED_UNREACHABLE");
@@ -352,7 +404,7 @@ describe("reconcileCatalog", () => {
     // region dropped. The preset must not be disabled and no install flips.
     const summary = await reconcileCatalog({
       store,
-      fetchSourceComponents: vi.fn(async () => ({ componentIds: new Set(["neon-core", "us-east"]) })),
+      fetchCatalogDirectory: vi.fn(async () => directoryOf("neon-core", "us-east")),
     });
 
     expect(disablePreset).not.toHaveBeenCalled();
@@ -378,7 +430,7 @@ describe("reconcileCatalog", () => {
 
     const summary = await reconcileCatalog({
       store,
-      fetchSourceComponents: vi.fn(async () => ({ componentIds: new Set(["us-east"]) })),
+      fetchCatalogDirectory: vi.fn(async () => directoryOf("us-east")),
     });
 
     expect(disablePreset).toHaveBeenCalledWith("neon_db", expect.any(Date), expect.stringContaining("neon-core"));
@@ -403,7 +455,7 @@ describe("reconcileCatalog", () => {
 
     const summary = await reconcileCatalog({
       store,
-      fetchSourceComponents: vi.fn(async () => ({ componentIds: new Set(["kgcsn9c73xzf"]) })),
+      fetchCatalogDirectory: vi.fn(async () => directoryOf("kgcsn9c73xzf")),
     });
 
     expect(reEnablePreset).toHaveBeenCalledWith("vercel_runtime", expect.any(Date));
@@ -430,7 +482,7 @@ describe("reconcileCatalog", () => {
 
     const summary = await reconcileCatalog({
       store,
-      fetchSourceComponents: vi.fn(async () => ({ componentIds: new Set<string>() })),
+      fetchCatalogDirectory: vi.fn(async () => directoryOf()),
     });
 
     expect(reEnablePreset).not.toHaveBeenCalled();
@@ -450,12 +502,12 @@ describe("reconcileCatalog", () => {
       installedBySource: {},
     };
     const { store, events } = fakeReconcile(state);
-    const fetchSourceComponents = vi.fn(async (source: { id: string }) => {
+    const fetchCatalogDirectory = vi.fn(async ({ source }: { source: { id: string } }) => {
       events.push(`fetch:${source.id}`);
-      return { componentIds: new Set<string>() };
+      return directoryOf();
     });
 
-    await reconcileCatalog({ store, fetchSourceComponents });
+    await reconcileCatalog({ store, fetchCatalogDirectory });
 
     expect(events).toEqual(["fetch:vercel", "fetch:neon", "transaction", "transaction"]);
   });
@@ -477,21 +529,21 @@ describe("reconcileCatalog", () => {
     // before the third fetch.
     let clock = 0;
     const fetched: string[] = [];
-    const fetchSourceComponents = vi.fn(async (source: { id: string }) => {
+    const fetchCatalogDirectory = vi.fn(async ({ source }: { source: { id: string } }) => {
       fetched.push(source.id);
       clock += 100;
-      return { componentIds: new Set<string>() };
+      return directoryOf();
     });
 
     const summary = await reconcileCatalog({
       store,
-      fetchSourceComponents,
+      fetchCatalogDirectory,
       nowMs: () => clock,
       deadlineAtMs: 200,
     });
 
     expect(fetched).toEqual(["source-0", "source-1"]);
-    expect(fetchSourceComponents).toHaveBeenCalledTimes(2);
+    expect(fetchCatalogDirectory).toHaveBeenCalledTimes(2);
     // checkedSources reports only the sources actually processed, so the summary
     // never claims to have validated the sources left for the next pass.
     expect(summary.checkedSources).toBe(2);
@@ -589,5 +641,243 @@ describe("flipDependenciesToUnknownSql (F-B1)", () => {
     expect(updates.find((u) => "stateStartedAt" in u.set)).toBeUndefined();
     expect(updates.find((u) => u.table === dependencyStateIntervals)).toBeUndefined();
     expect(inserts).toHaveLength(0);
+  });
+});
+
+describe("planDiscoveredScopeSync", () => {
+  const at = new Date("2026-07-20T12:00:00.000Z");
+
+  it("upserts every observed option as available and marks unobserved prior options unavailable", () => {
+    const observed: ObservedScopeOption[] = [
+      { scopeId: "fra1", label: "FRA1", scopeKind: "discovered_child", parentExternalId: "group-1" },
+      { scopeId: "nyc1", label: "NYC1", scopeKind: "discovered_child", parentExternalId: "group-1" },
+    ];
+    const plan = planDiscoveredScopeSync(
+      [{ scopeId: "fra1" }, { scopeId: "ams3" }],
+      observed,
+      at,
+    );
+    expect(plan.upserts).toEqual([
+      expect.objectContaining({ scopeId: "fra1", available: true, lastSeenAt: at, label: "FRA1" }),
+      expect.objectContaining({ scopeId: "nyc1", available: true, lastSeenAt: at }),
+    ]);
+    expect(plan.unavailableScopeIds).toEqual(["ams3"]);
+  });
+
+  it("marks every prior option unavailable when a complete refresh observes none", () => {
+    const plan = planDiscoveredScopeSync(
+      [{ scopeId: "fra1" }, { scopeId: "nyc1" }],
+      [],
+      at,
+    );
+    expect(plan.upserts).toEqual([]);
+    expect(plan.unavailableScopeIds).toEqual(["fra1", "nyc1"]);
+  });
+});
+
+describe("observedScopeOptionsForPreset", () => {
+  it("resolves discovered_children against childrenByParent[groupId]", () => {
+    const directory: CatalogComponentDirectory = {
+      componentIds: new Set(["group-1", "fra1", "nyc1"]),
+      childrenByParent: new Map([
+        ["group-1", [
+          { id: "fra1", label: "FRA1" },
+          { id: "nyc1", label: "NYC1" },
+        ]],
+      ]),
+      locationsByProduct: new Map(),
+      complete: true,
+      tracksComponents: true,
+    };
+    const observed = observedScopeOptionsForPreset(
+      {
+        selector: { kind: "component_ids", aggregation: "worst_of", ids: ["group-1"] },
+        scope: { kind: "discovered_children", groupId: "group-1", required: true },
+      },
+      directory,
+    );
+    expect(observed).toEqual([
+      expect.objectContaining({ scopeId: "fra1", label: "FRA1", scopeKind: "discovered_child", parentExternalId: "group-1" }),
+      expect.objectContaining({ scopeId: "nyc1", label: "NYC1", scopeKind: "discovered_child", parentExternalId: "group-1" }),
+    ]);
+  });
+
+  it("resolves discovered_locations against locationsByProduct[productId]", () => {
+    const directory: CatalogComponentDirectory = {
+      componentIds: new Set(["prod-1"]),
+      childrenByParent: new Map(),
+      locationsByProduct: new Map([
+        ["prod-1", [{ id: "us-central1", label: "us-central1" }]],
+      ]),
+      complete: true,
+      tracksComponents: true,
+    };
+    const observed = observedScopeOptionsForPreset(
+      {
+        selector: { kind: "google_product", productId: "prod-1", location: { required: false } },
+        scope: { kind: "discovered_locations", required: false },
+      },
+      directory,
+    );
+    expect(observed).toEqual([
+      expect.objectContaining({
+        scopeId: "us-central1",
+        scopeKind: "discovered_location",
+        parentExternalId: "prod-1",
+      }),
+    ]);
+  });
+
+  it("returns null for required_options and null scopes", () => {
+    const directory = directoryOf("x");
+    expect(observedScopeOptionsForPreset({
+      selector: { kind: "component_ids", aggregation: "worst_of", ids: ["x"] },
+      scope: null,
+    }, directory)).toBeNull();
+    expect(observedScopeOptionsForPreset({
+      selector: { kind: "statusio_component_container", componentId: "x", container: { required: true } },
+      scope: { kind: "required_options", options: [{ id: "r1", label: "R1" }] },
+    }, directory)).toBeNull();
+  });
+});
+
+describe("reconcileCatalog discovered scope materialisation", () => {
+  it("syncs discovered children when a complete directory validates the preset", async () => {
+    const state: FakeReconcileState = {
+      sources: [{ id: "digitalocean", adapter: "statuspage_v2", currentUrl: "https://status.digitalocean.com/api/v2/summary.json" }],
+      presetsBySource: {
+        digitalocean: [{
+          id: "digitalocean_droplets",
+          selector: { kind: "component_ids", aggregation: "worst_of", ids: ["4rgs7bbljl8d"] },
+          scope: { kind: "discovered_children", groupId: "4rgs7bbljl8d", required: true },
+        }],
+      },
+      installedBySource: {},
+    };
+    const { store, syncDiscoveredScopeOptions } = fakeReconcile(state);
+    const directory: CatalogComponentDirectory = {
+      componentIds: new Set(["4rgs7bbljl8d", "kkg2cfkqkwj1"]),
+      childrenByParent: new Map([
+        ["4rgs7bbljl8d", [{ id: "kkg2cfkqkwj1", label: "FRA1" }]],
+      ]),
+      locationsByProduct: new Map(),
+      complete: true,
+      tracksComponents: true,
+    };
+
+    await reconcileCatalog({
+      store,
+      fetchCatalogDirectory: vi.fn(async () => directory),
+      now: () => new Date("2026-07-20T12:00:00.000Z"),
+    });
+
+    expect(syncDiscoveredScopeOptions).toHaveBeenCalledWith(
+      "digitalocean_droplets",
+      [expect.objectContaining({ scopeId: "kkg2cfkqkwj1", label: "FRA1", scopeKind: "discovered_child" })],
+      new Date("2026-07-20T12:00:00.000Z"),
+    );
+  });
+
+  it("does not touch discovered scope options when the directory fetch fails", async () => {
+    const state: FakeReconcileState = {
+      sources: [{ id: "digitalocean", adapter: "statuspage_v2", currentUrl: "https://status.digitalocean.com/api/v2/summary.json" }],
+      presetsBySource: {
+        digitalocean: [{
+          id: "digitalocean_droplets",
+          selector: { kind: "component_ids", aggregation: "worst_of", ids: ["4rgs7bbljl8d"] },
+          scope: { kind: "discovered_children", groupId: "4rgs7bbljl8d", required: true },
+        }],
+      },
+      installedBySource: {},
+    };
+    const { store, syncDiscoveredScopeOptions, recordSourceValidation } = fakeReconcile(state);
+
+    await reconcileCatalog({
+      store,
+      fetchCatalogDirectory: vi.fn(async () => null),
+    });
+
+    expect(recordSourceValidation).toHaveBeenCalledWith("digitalocean", expect.any(Date), "FEED_UNREACHABLE");
+    expect(syncDiscoveredScopeOptions).not.toHaveBeenCalled();
+  });
+
+  it("does not materialise options from an incomplete directory", async () => {
+    const state: FakeReconcileState = {
+      sources: [{ id: "digitalocean", adapter: "statuspage_v2", currentUrl: "https://status.digitalocean.com/api/v2/summary.json" }],
+      presetsBySource: {
+        digitalocean: [{
+          id: "digitalocean_droplets",
+          selector: { kind: "component_ids", aggregation: "worst_of", ids: ["4rgs7bbljl8d"] },
+          scope: { kind: "discovered_children", groupId: "4rgs7bbljl8d", required: true },
+        }],
+      },
+      installedBySource: {},
+    };
+    const { store, syncDiscoveredScopeOptions } = fakeReconcile(state);
+    const incomplete: CatalogComponentDirectory = {
+      componentIds: new Set(["4rgs7bbljl8d"]),
+      childrenByParent: new Map([["4rgs7bbljl8d", [{ id: "partial", label: "Partial" }]]]),
+      locationsByProduct: new Map(),
+      complete: false,
+      tracksComponents: true,
+    };
+
+    await reconcileCatalog({
+      store,
+      fetchCatalogDirectory: vi.fn(async () => incomplete),
+    });
+
+    expect(syncDiscoveredScopeOptions).not.toHaveBeenCalled();
+  });
+});
+
+describe("resolveScopeSelection", () => {
+  it("maps required_options to a static selection with every option available", async () => {
+    const { resolveScopeSelection } = await import("./types");
+    expect(resolveScopeSelection(
+      { kind: "required_options", options: [{ id: "us-east-1", label: "US East" }] },
+      null,
+    )).toEqual({
+      required: true,
+      allowsUnscoped: false,
+      status: "static",
+      options: [{ id: "us-east-1", label: "US East", available: true }],
+    });
+  });
+
+  it("reports pending when discovered options have never been materialised", async () => {
+    const { resolveScopeSelection } = await import("./types");
+    expect(resolveScopeSelection(
+      { kind: "discovered_children", groupId: "g1", required: true },
+      null,
+    )).toEqual({
+      required: true,
+      allowsUnscoped: false,
+      status: "pending",
+      options: [],
+    });
+  });
+
+  it("reports ready when any discovered option is available", async () => {
+    const { resolveScopeSelection } = await import("./types");
+    expect(resolveScopeSelection(
+      { kind: "discovered_children", groupId: "g1", required: true },
+      [
+        { id: "a", label: "A", available: false },
+        { id: "b", label: "B", available: true },
+      ],
+    )?.status).toBe("ready");
+  });
+
+  it("reports unavailable when every discovered option is unavailable", async () => {
+    const { resolveScopeSelection } = await import("./types");
+    expect(resolveScopeSelection(
+      { kind: "discovered_locations", required: false },
+      [{ id: "loc", label: "Loc", available: false }],
+    )).toMatchObject({
+      required: false,
+      allowsUnscoped: true,
+      status: "unavailable",
+    });
   });
 });

@@ -52,6 +52,60 @@ func TestTokenCreateSortsScopesAndUsesAbsoluteExpiry(t *testing.T) {
 	}
 }
 
+func TestTokenCreateOmitsExpiryWhenNotRequested(t *testing.T) {
+	client := &fakeClient{}
+	var out bytes.Buffer
+	now := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+	cmd := NewTokenCommand(Dependencies{Client: client, Out: &out, Output: func(string) string { return "json" }, Now: func() time.Time { return now }})
+	cmd.SetArgs([]string{"create", "--name", "agent", "--scope", "monitors:read"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	body := client.requests[0].body.(map[string]any)
+	if _, ok := body["expiresAt"]; ok {
+		t.Fatalf("expiresAt should be omitted so the server applies and clamps the default, body = %v", body)
+	}
+	if body["name"] != "agent" {
+		t.Fatalf("name = %v", body["name"])
+	}
+}
+
+func TestTokenRevokeSendsUUIDPath(t *testing.T) {
+	client := &fakeClient{}
+	var out bytes.Buffer
+	id := "9f1c0b2e-3d4a-4b5c-8d6e-7f8091a2b3c4"
+	cmd := NewTokenCommand(Dependencies{Client: client, Out: &out, Output: func(string) string { return "json" }})
+	cmd.SetArgs([]string{"revoke", id, "--yes"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.requests) != 1 {
+		t.Fatalf("requests = %d, want 1", len(client.requests))
+	}
+	req := client.requests[0]
+	if req.method != http.MethodDelete || req.path != "/api/v1/tokens/"+id {
+		t.Fatalf("request = %s %s", req.method, req.path)
+	}
+}
+
+func TestTokenRevokeRejectsBadIDsBeforeRequest(t *testing.T) {
+	for _, id := range []string{"", "   ", "not-a-uuid", "9f1c0b2e-3d4a-4b5c-8d6e"} {
+		client := &fakeClient{}
+		cmd := NewTokenCommand(Dependencies{Client: client, Output: func(string) string { return "json" }})
+		cmd.SetArgs([]string{"revoke", id, "--yes"})
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatalf("id %q was accepted", id)
+		}
+		if ce, ok := err.(*Error); !ok || ce.Code != "INVALID_ARGUMENT" {
+			t.Fatalf("id %q error = %#v", id, err)
+		}
+		if len(client.requests) != 0 {
+			t.Fatalf("id %q issued %d requests", id, len(client.requests))
+		}
+	}
+}
+
 func TestSupportedScopesIncludeDependencies(t *testing.T) {
 	allowed := scopeSet()
 	for _, scope := range []string{"dependencies:read", "dependencies:write"} {

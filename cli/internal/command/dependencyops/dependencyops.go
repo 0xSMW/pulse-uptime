@@ -219,6 +219,9 @@ func newListCommand(d Dependencies) *cobra.Command {
 
 func newGetCommand(d Dependencies) *cobra.Command {
 	return &cobra.Command{Use: "get <id>", Short: "Get dependency detail", Args: cobra.ExactArgs(1), Annotations: annotations("dependencies:read"), RunE: func(cmd *cobra.Command, args []string) error {
+		if strings.TrimSpace(args[0]) == "" {
+			return invalid("dependency id is required")
+		}
 		var doc Envelope
 		if err := d.Client.Do(cmd.Context(), Request{Method: http.MethodGet, Path: dependencyPath(args[0]), Result: &doc}); err != nil {
 			return d.MapError(err)
@@ -256,6 +259,9 @@ func newAddCommand(d Dependencies) *cobra.Command {
 func newRemoveCommand(d Dependencies) *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{Use: "remove <id>", Short: "Remove a dependency", Args: cobra.ExactArgs(1), Annotations: annotations("dependencies:write"), RunE: func(cmd *cobra.Command, args []string) error {
+		if strings.TrimSpace(args[0]) == "" {
+			return invalid("dependency id is required")
+		}
 		id := args[0]
 		if !yes {
 			if !d.StdinTTY {

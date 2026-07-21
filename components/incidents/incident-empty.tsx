@@ -14,7 +14,7 @@ export function IncidentEmpty({ filtered = false, hasMonitors = false }: { filte
         ) : (
           <span>
             No incidents yet. Add monitors in{" "}
-            <Link href="/settings/monitors" className="text-[var(--fg)] hover:underline">
+            <Link href="/settings/monitors" className="text-[var(--fg)] transition-opacity duration-150 hover:opacity-70">
               Settings
             </Link>{" "}
             to start checking.

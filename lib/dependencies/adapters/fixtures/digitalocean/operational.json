@@ -1,0 +1,341 @@
+{
+  "page": {
+    "id": "w4cz49tckxhp",
+    "name": "DigitalOcean",
+    "url": "https://status.digitalocean.com",
+    "time_zone": "Etc/UTC",
+    "updated_at": "2026-07-19T15:32:39.596Z"
+  },
+  "status": {
+    "indicator": "none",
+    "description": "All Systems Operational"
+  },
+  "components": [
+    {
+      "id": "p1x9rv4137gx",
+      "name": "API",
+      "status": "operational",
+      "created_at": "2023-03-06T18:42:45.160Z",
+      "updated_at": "2026-05-08T19:59:48.833Z"
+    },
+    {
+      "id": "4rgs7bbljl8d",
+      "name": "Droplets",
+      "status": "operational",
+      "created_at": "2023-02-22T17:27:05.451Z",
+      "updated_at": "2025-08-06T12:30:25.518Z",
+      "group": true,
+      "components": [
+        "dkbfnt2ghbw4",
+        "y8xkcw7m31k5",
+        "9q2dq7jc5bk9",
+        "9ysykpzcncd8",
+        "5wjrpc0lf1qc",
+        "kkg2cfkqkwj1",
+        "btv040v4xbdn",
+        "nfkfrqyj9yk4",
+        "fb63qt9f69m0",
+        "9czvz44l7dp3",
+        "mrdxgk8b9l9m",
+        "ww3gp3141n6j",
+        "86hpqb7crkzg",
+        "d28g0q5tjlnf",
+        "2zv8zdysz98p",
+        "kvrtqsmcph72",
+        "fp3yv6vdqkxt",
+        "h4ktbyxsxssg"
+      ]
+    },
+    {
+      "id": "dkbfnt2ghbw4",
+      "name": "Global",
+      "status": "operational",
+      "created_at": "2024-08-16T11:18:00.871Z",
+      "updated_at": "2026-05-07T21:00:07.378Z",
+      "group_id": "4rgs7bbljl8d"
+    },
+    {
+      "id": "y8xkcw7m31k5",
+      "name": "AMS2",
+      "status": "operational",
+      "created_at": "2023-03-28T21:01:00.028Z",
+      "updated_at": "2025-10-02T14:21:33.639Z",
+      "group_id": "4rgs7bbljl8d"
+    },
+    {
+      "id": "9q2dq7jc5bk9",
+      "name": "AMS3",
+      "status": "operational",
+      "created_at": "2023-02-21T17:28:20.576Z",
+      "updated_at": "2025-12-04T19:34:37.383Z",
+      "group_id": "4rgs7bbljl8d"
+    },
+    {
+      "id": "9ysykpzcncd8",
+      "name": "ATL1",
+      "status": "operational",
+      "created_at": "2025-06-11T14:17:38.560Z",
+      "updated_at": "2025-10-02T14:21:33.916Z",
+      "group_id": "4rgs7bbljl8d"
+    },
+    {
+      "id": "5wjrpc0lf1qc",
+      "name": "BLR1",
+      "status": "operational",
+      "created_at": "2023-02-21T16:23:53.124Z",
+      "updated_at": "2025-10-02T14:21:34.011Z",
+      "group_id": "4rgs7bbljl8d"
+    },
+    {
+      "id": "kkg2cfkqkwj1",
+      "name": "FRA1",
+      "status": "operational",
+      "created_at": "2023-02-21T17:29:21.380Z",
+      "updated_at": "2026-01-28T17:37:47.843Z",
+      "group_id": "4rgs7bbljl8d"
+    },
+    {
+      "id": "btv040v4xbdn",
+      "name": "LON1",
+      "status": "operational",
+      "created_at": "2023-02-21T16:23:02.409Z",
+      "updated_at": "2025-12-02T21:05:41.576Z",
+      "group_id": "4rgs7bbljl8d"
+    },
+    {
+      "id": "nfkfrqyj9yk4",
+      "name": "MKC1",
+      "status": "operational",
+      "created_at": "2026-07-15T19:35:01.558Z",
+      "updated_at": "2026-07-15T20:06:20.911Z",
+      "group_id": "4rgs7bbljl8d"
+    },
+    {
+      "id": "fb63qt9f69m0",
+      "name": "NYC1",
+      "status": "operational",
+      "created_at": "2023-02-21T16:23:53.127Z",
+      "updated_at": "2026-07-15T20:06:20.921Z",
+      "group_id": "4rgs7bbljl8d"
+    },
+    {
+      "id": "9czvz44l7dp3",
+      "name": "NYC2",
+      "status": "operational",
+      "created_at": "2023-02-21T16:24:05.118Z",
+      "updated_at": "2026-07-15T20:06:20.931Z",
+      "group_id": "4rgs7bbljl8d"
+    },
+    {
+      "id": "mrdxgk8b9l9m",
+      "name": "NYC3",
+      "status": "operational",
+      "created_at": "2023-02-21T17:29:21.855Z",
+      "updated_at": "2026-07-15T20:06:20.940Z",
+      "group_id": "4rgs7bbljl8d"
+    },
+    {
+      "id": "ww3gp3141n6j",
+      "name": "RIC1",
+      "status": "operational",
+      "created_at": "2026-07-15T19:35:24.257Z",
+      "updated_at": "2026-07-15T20:06:24.847Z",
+      "group_id": "4rgs7bbljl8d"
+    },
+    {
+      "id": "86hpqb7crkzg",
+      "name": "SFO1",
+      "status": "operational",
+      "created_at": "2023-03-28T21:00:36.486Z",
+      "updated_at": "2026-07-15T20:06:24.860Z",
+      "group_id": "4rgs7bbljl8d"
+    },
+    {
+      "id": "d28g0q5tjlnf",
+      "name": "SFO2",
+      "status": "operational",
+      "created_at": "2023-03-28T20:58:25.795Z",
+      "updated_at": "2026-07-15T20:06:24.873Z",
+      "group_id": "4rgs7bbljl8d"
+    },
+    {
+      "id": "2zv8zdysz98p",
+      "name": "SFO3",
+      "status": "operational",
+      "created_at": "2023-02-21T17:28:20.574Z",
+      "updated_at": "2026-07-15T20:06:24.885Z",
+      "group_id": "4rgs7bbljl8d"
+    },
+    {
+      "id": "kvrtqsmcph72",
+      "name": "SGP1",
+      "status": "operational",
+      "created_at": "2023-02-21T17:29:21.635Z",
+      "updated_at": "2026-07-15T20:06:24.896Z",
+      "group_id": "4rgs7bbljl8d"
+    },
+    {
+      "id": "fp3yv6vdqkxt",
+      "name": "SYD1",
+      "status": "operational",
+      "created_at": "2023-02-21T17:29:21.568Z",
+      "updated_at": "2026-07-15T20:06:24.908Z",
+      "group_id": "4rgs7bbljl8d"
+    },
+    {
+      "id": "h4ktbyxsxssg",
+      "name": "TOR1",
+      "status": "operational",
+      "created_at": "2023-02-21T16:23:02.409Z",
+      "updated_at": "2026-07-15T20:06:24.919Z",
+      "group_id": "4rgs7bbljl8d"
+    },
+    {
+      "id": "kl8qv98c9brp",
+      "name": "Managed Databases",
+      "status": "operational",
+      "created_at": "2023-02-22T19:29:09.360Z",
+      "updated_at": "2025-08-06T12:30:25.569Z",
+      "group": true,
+      "components": [
+        "mzkgffp35tq4",
+        "msbt8b9p1p0q",
+        "kdx5m5498vxc",
+        "ttltt91ldz3g",
+        "l8lxzfpgpc39",
+        "79j9sw2l27cv",
+        "mxp9kv359bb0",
+        "d2m7jh32j7z1",
+        "vzxxv27h45m4",
+        "gt78t0v1dx9k",
+        "qkrqphz8r8d0",
+        "2cvhn89gxfk8",
+        "29xvj6jck5fm",
+        "y24751gr0df8",
+        "5v01jvb2gwjz"
+      ]
+    },
+    {
+      "id": "mzkgffp35tq4",
+      "name": "Global",
+      "status": "operational",
+      "created_at": "2024-08-16T11:21:56.097Z",
+      "updated_at": "2026-07-03T06:08:12.004Z",
+      "group_id": "kl8qv98c9brp"
+    },
+    {
+      "id": "msbt8b9p1p0q",
+      "name": "AMS3",
+      "status": "operational",
+      "created_at": "2023-02-22T19:29:08.637Z",
+      "updated_at": "2026-04-07T22:25:06.126Z",
+      "group_id": "kl8qv98c9brp"
+    },
+    {
+      "id": "kdx5m5498vxc",
+      "name": "ATL1",
+      "status": "operational",
+      "created_at": "2025-06-11T14:18:43.513Z",
+      "updated_at": "2026-04-07T22:25:06.146Z",
+      "group_id": "kl8qv98c9brp"
+    },
+    {
+      "id": "ttltt91ldz3g",
+      "name": "BLR1",
+      "status": "operational",
+      "created_at": "2023-02-22T19:29:07.272Z",
+      "updated_at": "2026-04-09T22:51:22.680Z",
+      "group_id": "kl8qv98c9brp"
+    },
+    {
+      "id": "l8lxzfpgpc39",
+      "name": "FRA1",
+      "status": "operational",
+      "created_at": "2023-02-22T19:27:03.547Z",
+      "updated_at": "2026-07-01T16:28:25.877Z",
+      "group_id": "kl8qv98c9brp"
+    },
+    {
+      "id": "79j9sw2l27cv",
+      "name": "LON1",
+      "status": "operational",
+      "created_at": "2023-02-22T19:27:03.326Z",
+      "updated_at": "2026-04-07T22:25:06.165Z",
+      "group_id": "kl8qv98c9brp"
+    },
+    {
+      "id": "mxp9kv359bb0",
+      "name": "MKC1",
+      "status": "operational",
+      "created_at": "2026-07-15T19:45:05.885Z",
+      "updated_at": "2026-07-15T20:03:43.207Z",
+      "group_id": "kl8qv98c9brp"
+    },
+    {
+      "id": "d2m7jh32j7z1",
+      "name": "NYC1",
+      "status": "operational",
+      "created_at": "2023-02-22T19:29:08.931Z",
+      "updated_at": "2026-07-15T20:03:43.218Z",
+      "group_id": "kl8qv98c9brp"
+    },
+    {
+      "id": "vzxxv27h45m4",
+      "name": "NYC2",
+      "status": "operational",
+      "created_at": "2023-02-22T19:25:59.482Z",
+      "updated_at": "2026-07-15T20:03:43.229Z",
+      "group_id": "kl8qv98c9brp"
+    },
+    {
+      "id": "gt78t0v1dx9k",
+      "name": "NYC3",
+      "status": "operational",
+      "created_at": "2023-02-22T19:25:59.282Z",
+      "updated_at": "2026-07-15T20:03:43.239Z",
+      "group_id": "kl8qv98c9brp"
+    },
+    {
+      "id": "qkrqphz8r8d0",
+      "name": "SFO2",
+      "status": "operational",
+      "created_at": "2023-03-28T20:58:28.494Z",
+      "updated_at": "2026-07-15T20:03:43.248Z",
+      "group_id": "kl8qv98c9brp"
+    },
+    {
+      "id": "2cvhn89gxfk8",
+      "name": "SFO3",
+      "status": "operational",
+      "created_at": "2023-02-22T19:28:05.682Z",
+      "updated_at": "2026-07-15T20:03:43.258Z",
+      "group_id": "kl8qv98c9brp"
+    },
+    {
+      "id": "29xvj6jck5fm",
+      "name": "SGP1",
+      "status": "operational",
+      "created_at": "2023-02-22T19:25:59.996Z",
+      "updated_at": "2026-07-15T20:03:43.268Z",
+      "group_id": "kl8qv98c9brp"
+    },
+    {
+      "id": "y24751gr0df8",
+      "name": "SYD1",
+      "status": "operational",
+      "created_at": "2023-02-22T19:29:08.057Z",
+      "updated_at": "2026-07-15T20:03:43.278Z",
+      "group_id": "kl8qv98c9brp"
+    },
+    {
+      "id": "5v01jvb2gwjz",
+      "name": "TOR1",
+      "status": "operational",
+      "created_at": "2023-02-22T19:27:02.972Z",
+      "updated_at": "2026-07-15T20:03:43.289Z",
+      "group_id": "kl8qv98c9brp"
+    }
+  ],
+  "incidents": [],
+  "scheduled_maintenances": []
+}

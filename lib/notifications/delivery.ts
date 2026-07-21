@@ -7,7 +7,7 @@ import {
   markNotificationSent,
   type SqlExecutor,
 } from "./sql";
-import type { ClaimedNotification, NotificationLogger } from "./types";
+import type { ClaimedNotification, NotificationEventType, NotificationLogger } from "./types";
 
 export const MAX_DELIVERY_ATTEMPTS = 5;
 export const MAX_CLAIM_BATCH_SIZE = 100;
@@ -64,7 +64,12 @@ function safeFailure(error: unknown): { code: string; retryable: boolean } {
 
 export async function deliverPendingNotifications(
   dependencies: DeliveryDependencies,
-  options: { limit?: number; concurrency?: number } = {},
+  options: {
+    limit?: number;
+    concurrency?: number;
+    /** When set, only claim and deliver rows of these event types. */
+    eventTypes?: readonly NotificationEventType[];
+  } = {},
 ): Promise<DeliverySummary> {
   const limit = options.limit ?? 50;
   const concurrency = options.concurrency ?? 5;
@@ -80,6 +85,9 @@ export async function deliverPendingNotifications(
     now,
     limit,
     claimToken: (dependencies.createClaimToken ?? randomUUID)(),
+    ...(options.eventTypes && options.eventTypes.length > 0
+      ? { eventTypes: options.eventTypes }
+      : {}),
   });
   const summary: DeliverySummary = {
     claimed: rows.length,

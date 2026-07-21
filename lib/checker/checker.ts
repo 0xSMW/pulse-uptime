@@ -1,7 +1,9 @@
-import { Agent, request as undiciRequest } from "undici";
+import { Agent, buildConnector, request as undiciRequest } from "undici";
+import type { Socket } from "node:net";
+import type { TLSSocket } from "node:tls";
 
 import { classifyCheckError, ERROR_MESSAGES } from "./classify-error";
-import { assertPublicAddress, isIpLiteral, normalizeIpLiteral } from "./ip-policy";
+import { assertPublicAddress, BlockedTargetError, isIpLiteral, normalizeIpLiteral } from "./ip-policy";
 import { createSecureLookup, systemResolveAll, type ResolveAll, type SecureLookup } from "./secure-lookup";
 import type {
   CheckErrorCode,
@@ -22,6 +24,8 @@ export type DispatcherFactory = (options: {
   origin: string;
   lookup: SecureLookup;
   connectTimeoutMs: number;
+  /** Fires once per newly established peer for this dispatcher. */
+  onConnectedAddress: (address: string) => void;
 }) => ManagedDispatcher;
 
 export type CheckerDependencies = {
@@ -32,12 +36,72 @@ export type CheckerDependencies = {
   userAgent?: string;
 };
 
+type ConnectorCallback = (...args: [null, Socket | TLSSocket] | [Error, null]) => void;
+type ConnectorOptions = {
+  hostname: string;
+  host?: string;
+  protocol: string;
+  port: string;
+  servername?: string;
+  localAddress?: string | null;
+  socketPath?: string | null;
+  httpSocket?: Socket;
+};
+export type BaseConnector = (options: ConnectorOptions, callback: ConnectorCallback) => void;
+
 const defaultRequest: RequestExecutor = async (url, options) =>
   undiciRequest(url, options) as Promise<CheckerResponse>;
 
-const defaultDispatcherFactory: DispatcherFactory = ({ lookup, connectTimeoutMs }) =>
+/**
+ * Wraps Undici's connector so the check records the peer Undici actually
+ * connected to after family failover, and rejects a private remoteAddress even
+ * if DNS already filtered candidates.
+ */
+export function createSecureConnect(options: {
+  lookup: SecureLookup;
+  connectTimeoutMs: number;
+  onConnectedAddress: (address: string) => void;
+  /** Test seam: inject a fake base connector instead of buildConnector. */
+  baseConnect?: BaseConnector;
+}): BaseConnector {
+  const connect: BaseConnector = options.baseConnect
+    ?? (buildConnector({
+      lookup: options.lookup,
+      timeout: options.connectTimeoutMs,
+    }) as BaseConnector);
+
+  return function secureConnect(opts, callback) {
+    connect(opts, (error, socket) => {
+      if (error || !socket) {
+        callback(error ?? new Error("Connection failed"), null);
+        return;
+      }
+      try {
+        const remote = socket.remoteAddress;
+        if (!remote) {
+          socket.destroy();
+          callback(new BlockedTargetError("Connected peer address is unavailable"), null);
+          return;
+        }
+        const address = normalizeIpLiteral(remote);
+        assertPublicAddress(address);
+        options.onConnectedAddress(address);
+        callback(null, socket);
+      } catch (peerError) {
+        socket.destroy();
+        callback(peerError as Error, null);
+      }
+    });
+  };
+}
+
+const defaultDispatcherFactory: DispatcherFactory = ({
+  lookup,
+  connectTimeoutMs,
+  onConnectedAddress,
+}) =>
   new Agent({
-    connect: { lookup, timeout: connectTimeoutMs },
+    connect: createSecureConnect({ lookup, connectTimeoutMs, onConnectedAddress }),
     connections: 1,
     pipelining: 0,
   });
@@ -73,7 +137,9 @@ export function createHttpChecker(dependencies: CheckerDependencies = {}) {
     let statusCode: number | null = null;
     let resolvedAddress: string | null = null;
     const dispatchers = new Map<string, ManagedDispatcher>();
-    const selectedAddresses = new Map<string, string>();
+    // Peer recorded for each origin after a successful connect. Reused for
+    // keep-alive on the same dispatcher so a second hop does not invent a peer.
+    const connectedAddresses = new Map<string, string>();
 
     const metadata = () => ({
       mode,
@@ -101,22 +167,22 @@ export function createHttpChecker(dependencies: CheckerDependencies = {}) {
         let dispatcher = dispatchers.get(origin);
         if (!dispatcher) {
           if (isIpLiteral(currentUrl.hostname)) {
-            const literal = normalizeIpLiteral(currentUrl.hostname);
-            assertPublicAddress(literal);
-            resolvedAddress = literal;
-            selectedAddresses.set(origin, literal);
+            // Reject private literals before a connector is built.
+            assertPublicAddress(normalizeIpLiteral(currentUrl.hostname));
           }
-          const lookup = createSecureLookup({
-            resolveAll,
-            onAddressSelected: ({ address }) => {
-              selectedAddresses.set(origin, address);
+          const lookup = createSecureLookup({ resolveAll });
+          dispatcher = createDispatcher({
+            origin,
+            lookup,
+            connectTimeoutMs: remaining,
+            onConnectedAddress: (address) => {
+              connectedAddresses.set(origin, address);
               resolvedAddress = address;
             },
           });
-          dispatcher = createDispatcher({ origin, lookup, connectTimeoutMs: remaining });
           dispatchers.set(origin, dispatcher);
         } else {
-          resolvedAddress = selectedAddresses.get(origin) ?? null;
+          resolvedAddress = connectedAddresses.get(origin) ?? null;
         }
 
         let response: CheckerResponse;
@@ -131,8 +197,12 @@ export function createHttpChecker(dependencies: CheckerDependencies = {}) {
             headers: { "user-agent": userAgent },
           });
         } catch (error) {
+          // No confirmed peer for this origin means null, even after a failed connect.
+          resolvedAddress = connectedAddresses.get(origin) ?? null;
           return failure(metadata(), classifyCheckError(error));
         }
+
+        resolvedAddress = connectedAddresses.get(origin) ?? null;
 
         statusCode = response.statusCode;
         response.body.destroy();

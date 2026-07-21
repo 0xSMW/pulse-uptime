@@ -1,0 +1,4 @@
+ALTER TABLE "dependency_sources" DROP CONSTRAINT "dependency_sources_adapter";--> statement-breakpoint
+ALTER TABLE "dependency_catalog" ADD COLUMN "fidelity" text DEFAULT 'component' NOT NULL;--> statement-breakpoint
+ALTER TABLE "dependency_catalog" ADD CONSTRAINT "dependency_catalog_fidelity" CHECK ("dependency_catalog"."fidelity" in ('component', 'incident_only'));--> statement-breakpoint
+ALTER TABLE "dependency_sources" ADD CONSTRAINT "dependency_sources_adapter" CHECK ("dependency_sources"."adapter" in ('statuspage_v2', 'incidentio_compat', 'google_cloud_status', 'statusio_public', 'sorry_v1', 'aws_health', 'nextdata_embedded', 'incident_feed', 'auth0_status'));

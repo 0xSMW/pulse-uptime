@@ -175,6 +175,78 @@ func TestGroupSelectorsAreMutuallyExclusive(t *testing.T) {
 	}
 }
 
+func TestUpdateClearsGroup(t *testing.T) {
+	// Both the discoverable --clear-group flag and an empty --group-id send an
+	// explicit null groupId, which the API reads as clear rather than unchanged.
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{"clear-group flag", []string{"update", "api", "--clear-group"}},
+		{"empty group-id", []string{"update", "api", "--group-id", ""}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var body map[string]any
+			client := clientFunc(func(_ context.Context, r Request) error {
+				body, _ = r.Body.(map[string]any)
+				doc := r.Result.(*Envelope)
+				doc.APIVersion, doc.Kind, doc.Data = "v1", "Monitor", json.RawMessage(`{"id":"api"}`)
+				return nil
+			})
+			d := Dependencies{Client: client, Format: func() string { return "json" }, NewID: func() (string, error) { return "key", nil }}
+			cmd := NewGroup(d)
+			cmd.SetArgs(tc.args)
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			value, ok := body["groupId"]
+			if !ok {
+				t.Fatalf("groupId absent from body %#v", body)
+			}
+			if value != nil {
+				t.Fatalf("groupId = %#v, want nil", value)
+			}
+		})
+	}
+}
+
+func TestGetRendersRuntimeState(t *testing.T) {
+	data := json.RawMessage(`{"id":"api","name":"API","url":"https://example.com","state":"UP","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-02T00:00:00Z"}`)
+	client := clientFunc(func(_ context.Context, r Request) error {
+		doc := r.Result.(*Envelope)
+		doc.APIVersion, doc.Kind, doc.Data = "v1", "Monitor", data
+		return nil
+	})
+
+	var table bytes.Buffer
+	tableCmd := NewGroup(Dependencies{Client: client, Out: &table, Format: func() string { return "table" }})
+	tableCmd.SetArgs([]string{"get", "api"})
+	if err := tableCmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(table.Bytes(), []byte("State    UP")) {
+		t.Fatalf("table missing state: %s", table.String())
+	}
+
+	var out bytes.Buffer
+	jsonCmd := NewGroup(Dependencies{Client: client, Out: &out, Format: func() string { return "json" }})
+	jsonCmd.SetArgs([]string{"get", "api"})
+	if err := jsonCmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var env Envelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	var m Monitor
+	if err := json.Unmarshal(env.Data, &m); err != nil {
+		t.Fatal(err)
+	}
+	if m.State != "UP" || m.CreatedAt != "2026-01-01T00:00:00Z" || m.UpdatedAt != "2026-01-02T00:00:00Z" {
+		t.Fatalf("monitor runtime fields = %#v", m)
+	}
+}
+
 func TestDeleteRequiresYesWhenNoninteractive(t *testing.T) {
 	called := false
 	d := Dependencies{Client: clientFunc(func(context.Context, Request) error { called = true; return nil }), Format: func() string { return "json" }, NewID: func() (string, error) { return "key", nil }}
@@ -247,5 +319,137 @@ func TestWatchSortsTransitionsAndStopsOnCancel(t *testing.T) {
 	json.Unmarshal(lines[3], &second)
 	if first.MonitorID != "a" || second.MonitorID != "b" {
 		t.Fatalf("transition order=%s,%s", first.MonitorID, second.MonitorID)
+	}
+}
+
+func TestExactMonitorIDWhitespaceOnlyPositionalIsLocalInvalid(t *testing.T) {
+	called := false
+	d := Dependencies{
+		Client: clientFunc(func(context.Context, Request) error {
+			called = true
+			return nil
+		}),
+		Format: func() string { return "json" },
+	}
+	cmd := NewGroup(d)
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	cmd.SetArgs([]string{"get", "   "})
+	err := cmd.Execute()
+	var ce *Error
+	if !errors.As(err, &ce) || ce.Exit != ExitInvalidInput || ce.Code != "INVALID_ARGUMENT" {
+		t.Fatalf("error = %#v", err)
+	}
+	if called {
+		t.Fatal("API called for whitespace-only positional id")
+	}
+}
+
+func TestExactMonitorIDWhitespaceOnlyFlagIsLocalInvalid(t *testing.T) {
+	called := false
+	d := Dependencies{
+		Client: clientFunc(func(context.Context, Request) error {
+			called = true
+			return nil
+		}),
+		Format: func() string { return "json" },
+	}
+	cmd := NewGroup(d)
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	cmd.SetArgs([]string{"get", "--id", "\t  "})
+	err := cmd.Execute()
+	var ce *Error
+	if !errors.As(err, &ce) || ce.Exit != ExitInvalidInput || ce.Code != "INVALID_ARGUMENT" {
+		t.Fatalf("error = %#v", err)
+	}
+	if called {
+		t.Fatal("API called for whitespace-only --id")
+	}
+}
+
+func TestExactMonitorIDTrimsPaddedValidIDInPath(t *testing.T) {
+	var path string
+	client := clientFunc(func(_ context.Context, r Request) error {
+		path = r.Path
+		doc := r.Result.(*Envelope)
+		doc.APIVersion, doc.Kind, doc.Data = "v1", "Monitor", json.RawMessage(`{"id":"api"}`)
+		return nil
+	})
+	d := Dependencies{Client: client, Format: func() string { return "json" }}
+	cmd := NewGroup(d)
+	cmd.SetArgs([]string{"get", "  api  "})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/api/v1/monitors/api" {
+		t.Fatalf("path = %q, want trimmed id", path)
+	}
+}
+
+func TestExactMonitorIDPositionalAndFlagConflict(t *testing.T) {
+	called := false
+	d := Dependencies{
+		Client: clientFunc(func(context.Context, Request) error {
+			called = true
+			return nil
+		}),
+		Format: func() string { return "json" },
+	}
+	cmd := NewGroup(d)
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	cmd.SetArgs([]string{"get", "api", "--id", "other"})
+	err := cmd.Execute()
+	var ce *Error
+	if !errors.As(err, &ce) || ce.Exit != ExitInvalidInput || ce.Code != "INVALID_ARGUMENT" {
+		t.Fatalf("error = %#v", err)
+	}
+	if called {
+		t.Fatal("API called when both positional and --id were set")
+	}
+}
+
+func TestExactMonitorIDValidExactIDKeepsExistingBehavior(t *testing.T) {
+	var path string
+	client := clientFunc(func(_ context.Context, r Request) error {
+		path = r.Path
+		doc := r.Result.(*Envelope)
+		doc.APIVersion, doc.Kind, doc.Data = "v1", "Monitor", json.RawMessage(`{"id":"api"}`)
+		return nil
+	})
+	d := Dependencies{Client: client, Format: func() string { return "json" }}
+
+	for _, args := range [][]string{
+		{"get", "api"},
+		{"get", "--id", "api"},
+	} {
+		path = ""
+		cmd := NewGroup(d)
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("args=%v err=%v", args, err)
+		}
+		if path != "/api/v1/monitors/api" {
+			t.Fatalf("args=%v path=%q", args, path)
+		}
+	}
+}
+
+func TestExactMonitorIDUnitHelper(t *testing.T) {
+	if id, err := exactMonitorID([]string{"  api  "}, ""); err != nil || id != "api" {
+		t.Fatalf("positional trim: id=%q err=%v", id, err)
+	}
+	if id, err := exactMonitorID(nil, "  api  "); err != nil || id != "api" {
+		t.Fatalf("flag trim: id=%q err=%v", id, err)
+	}
+	if _, err := exactMonitorID([]string{" "}, ""); err == nil {
+		t.Fatal("expected whitespace positional to fail")
+	}
+	if _, err := exactMonitorID(nil, "\t"); err == nil {
+		t.Fatal("expected whitespace flag to fail")
+	}
+	if _, err := exactMonitorID([]string{"a"}, "b"); err == nil {
+		t.Fatal("expected conflict to fail")
+	}
+	if _, err := exactMonitorID(nil, ""); err == nil {
+		t.Fatal("expected missing id to fail")
 	}
 }

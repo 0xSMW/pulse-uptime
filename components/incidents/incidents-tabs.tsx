@@ -7,14 +7,14 @@ import { cn } from "@/lib/utils";
 
 const tabs = [
   {
-    label: "Reports",
-    href: "/incidents/reports",
-    isActive: (pathname: string) => pathname.startsWith("/incidents/reports"),
-  },
-  {
     label: "Outage history",
     href: "/incidents",
     isActive: (pathname: string) => !pathname.startsWith("/incidents/reports"),
+  },
+  {
+    label: "Reports",
+    href: "/incidents/reports",
+    isActive: (pathname: string) => pathname.startsWith("/incidents/reports"),
   },
 ] as const;
 

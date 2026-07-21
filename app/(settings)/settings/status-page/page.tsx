@@ -10,10 +10,10 @@ export default async function StatusPageSettingsPage() {
       <div className="mb-8 flex flex-wrap items-end justify-between gap-3">
         <h1 className="text-xl font-semibold tracking-[-0.02em]">Status page</h1>
         <div className="flex items-center gap-4 text-[13px]">
-          <GuardedLink href="/incidents/reports" className="text-[var(--fg-muted)] hover:text-[var(--fg)] hover:underline">
+          <GuardedLink href="/incidents/reports" className="text-[var(--fg-muted)] transition-colors duration-150 hover:text-[var(--fg)]">
             Manage status reports →
           </GuardedLink>
-          <GuardedLink href="/status" className="text-[var(--fg-muted)] hover:text-[var(--fg)] hover:underline">
+          <GuardedLink href="/status" className="text-[var(--fg-muted)] transition-colors duration-150 hover:text-[var(--fg)]">
             View status page ↗
           </GuardedLink>
         </div>

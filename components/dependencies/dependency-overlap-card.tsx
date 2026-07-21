@@ -36,7 +36,7 @@ export function DependencyOverlapCard({ overlaps }: { overlaps: readonly Depende
                 href={overlap.canonicalUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="mt-1 inline-flex items-center gap-1 text-[13px] text-[var(--fg)] hover:underline"
+                className="mt-1 inline-flex items-center gap-1 text-[13px] text-[var(--fg)] transition-opacity duration-150 hover:opacity-70"
               >
                 View Provider Incident
                 <ExternalLink className="size-3.5" aria-hidden />

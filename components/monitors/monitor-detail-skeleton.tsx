@@ -42,7 +42,7 @@ export function MonitorDetailSkeleton({ identity }: { identity?: MonitorIdentity
                     href={identity.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="min-w-0 truncate hover:text-[var(--fg)] hover:underline"
+                    className="min-w-0 truncate transition-colors duration-150 hover:text-[var(--fg)]"
                     title={identity.url}
                   >
                     {identity.url}

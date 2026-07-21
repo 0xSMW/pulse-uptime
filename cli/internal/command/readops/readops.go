@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/0xSMW/pulse-uptime/cli/internal/output"
 	"github.com/spf13/cobra"
@@ -115,6 +116,9 @@ func newList(d Dependencies) *cobra.Command {
 }
 func newGet(d Dependencies) *cobra.Command {
 	return &cobra.Command{Use: "get <id>", Short: "Get an incident", Args: cobra.ExactArgs(1), Annotations: annotations("incidents:read"), RunE: func(c *cobra.Command, args []string) error {
+		if strings.TrimSpace(args[0]) == "" {
+			return invalid("incident id is required")
+		}
 		var doc Envelope
 		if err := d.Client.Do(c.Context(), Request{Method: http.MethodGet, Path: "/api/v1/incidents/" + url.PathEscape(args[0]), Result: &doc}); err != nil {
 			return d.MapError(err)
@@ -211,6 +215,9 @@ func annotations(scope string) map[string]string {
 	return map[string]string{"supportsOutput": "table,json,jsonl,yaml,tsv", "requiredScope": scope}
 }
 func machine(f string) bool { return f == "json" || f == "jsonl" || f == "yaml" || f == "tsv" }
+func invalid(message string) error {
+	return &Error{Exit: 2, Code: "INVALID_ARGUMENT", Message: message}
+}
 func clone(q url.Values) url.Values {
 	out := url.Values{}
 	for k, v := range q {

@@ -3091,7 +3091,8 @@
             "type": ["string", "null"],
             "minLength": 3,
             "maxLength": 64,
-            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "description": "Monitor group id. On update, an explicit null clears the group while an absent field leaves it unchanged."
           },
           "method": {
             "type": "string",
@@ -3194,6 +3195,37 @@
           }
         ]
       },
+      "MonitorItemBase": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "url",
+          "enabled",
+          "group",
+          "groupId",
+          "method",
+          "intervalMinutes",
+          "timeoutMs",
+          "expectedStatus",
+          "failureThreshold",
+          "recoveryThreshold",
+          "recipients"
+        ],
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "Monitor": {
         "type": "object",
         "unevaluatedProperties": false,
@@ -3202,33 +3234,31 @@
             "$ref": "#/components/schemas/MonitorFields"
           },
           {
+            "$ref": "#/components/schemas/MonitorItemBase"
+          }
+        ]
+      },
+      "MonitorListItem": {
+        "type": "object",
+        "unevaluatedProperties": false,
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MonitorFields"
+          },
+          {
+            "$ref": "#/components/schemas/MonitorItemBase"
+          },
+          {
             "type": "object",
             "required": [
-              "id",
-              "name",
-              "url",
-              "enabled",
-              "group",
-              "groupId",
-              "method",
-              "intervalMinutes",
-              "timeoutMs",
-              "expectedStatus",
-              "failureThreshold",
-              "recoveryThreshold",
-              "recipients"
+              "uptime"
             ],
             "properties": {
-              "state": {
-                "type": "string"
-              },
-              "createdAt": {
-                "type": "string",
-                "format": "date-time"
-              },
-              "updatedAt": {
-                "type": "string",
-                "format": "date-time"
+              "uptime": {
+                "type": ["number", "null"],
+                "minimum": 0,
+                "maximum": 100,
+                "description": "Uptime percent over the most recent completed 24 hour window, matching the dashboard's Uptime 24h. Null until a full day has been observed since activation."
               }
             }
           }
@@ -3308,7 +3338,7 @@
           "data": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/Monitor"
+              "$ref": "#/components/schemas/MonitorListItem"
             }
           },
           "meta": {
@@ -3493,6 +3523,11 @@
         "enum": ["OPERATIONAL", "DEGRADED", "OUTAGE", "MAINTENANCE", "UNKNOWN"],
         "description": "Provider-reported state normalized by Pulse. Reflects the upstream status feed, not an independent Pulse check."
       },
+      "DependencyFidelity": {
+        "type": "string",
+        "enum": ["component", "incident_only"],
+        "description": "Fidelity tier. component: the source carries normalized per-component state. incident_only: the source publishes incident prose without structured component health, so Pulse displays the provider text verbatim and never infers a component state."
+      },
       "DependencyTimelineBucket": {
         "type": "object",
         "required": ["start", "state"],
@@ -3543,8 +3578,8 @@
         "description": "Full dependency detail returned by get, install, and update. State and incidents are provider reported: they reflect the upstream status feed, not an independent Pulse check.",
         "required": [
           "id", "presetId", "scopeId", "name", "description", "category", "provider",
-          "componentLabel", "sourceScopeNote", "notificationsEnabled", "createdAt",
-          "state", "checking", "stateStartedAt", "providerUpdatedAt", "observedAt",
+          "fidelity", "componentLabel", "sourceScopeNote", "notificationsEnabled", "createdAt",
+          "state", "pendingFirstPoll", "stateStartedAt", "providerUpdatedAt", "observedAt",
           "lastSuccessfulPollAt", "canonicalUrl", "incidents", "timeline24h", "timeline7d"
         ],
         "properties": {
@@ -3555,12 +3590,13 @@
           "description": {"type": "string"},
           "category": {"type": "string"},
           "provider": {"type": "string"},
+          "fidelity": {"$ref": "#/components/schemas/DependencyFidelity"},
           "componentLabel": {"type": ["string", "null"]},
           "sourceScopeNote": {"type": ["string", "null"]},
           "notificationsEnabled": {"type": "boolean"},
           "createdAt": {"type": "string", "format": "date-time"},
           "state": {"$ref": "#/components/schemas/DependencyState"},
-          "checking": {"type": "boolean"},
+          "pendingFirstPoll": {"type": "boolean"},
           "stateStartedAt": {"type": "string", "format": "date-time"},
           "providerUpdatedAt": {"type": ["string", "null"], "format": "date-time"},
           "observedAt": {"type": "string", "format": "date-time"},
@@ -3595,8 +3631,8 @@
         "additionalProperties": true,
         "description": "Dashboard row for the installed-dependency list. State is provider reported: it reflects the upstream status feed, not an independent Pulse check.",
         "required": [
-          "id", "presetId", "scopeId", "name", "provider", "category", "state",
-          "checking", "providerUpdatedAt", "activeIncidentTitle", "timeline24h"
+          "id", "presetId", "scopeId", "name", "provider", "category", "fidelity", "state",
+          "pendingFirstPoll", "providerUpdatedAt", "activeIncidentTitle", "timeline24h"
         ],
         "properties": {
           "id": {"type": "string", "format": "uuid"},
@@ -3605,8 +3641,9 @@
           "name": {"type": "string"},
           "provider": {"type": "string"},
           "category": {"type": "string"},
+          "fidelity": {"$ref": "#/components/schemas/DependencyFidelity"},
           "state": {"$ref": "#/components/schemas/DependencyState"},
-          "checking": {"type": "boolean"},
+          "pendingFirstPoll": {"type": "boolean"},
           "providerUpdatedAt": {"type": ["string", "null"], "format": "date-time"},
           "activeIncidentTitle": {"type": ["string", "null"]},
           "timeline24h": {
@@ -3646,66 +3683,50 @@
           "meta": {"$ref": "#/components/schemas/Meta"}
         }
       },
-      "DependencyScope": {
-        "description": "A preset's scope requirement. required_options ships a fixed validated list; discovered_children and discovered_locations carry their own required flag.",
-        "oneOf": [
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["kind", "options"],
-            "properties": {
-              "kind": {"const": "required_options"},
-              "options": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": ["id", "label"],
-                  "properties": {
-                    "id": {"type": "string"},
-                    "label": {"type": "string"}
-                  }
-                }
+      "DependencyScopeSelection": {
+        "description": "Resolved scope selection for install. Static options come from the manifest. Discovered options come from dependency_discovered_scope_options after a complete directory sync. Manifest-level scope unions stay internal.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["required", "allowsUnscoped", "status", "options"],
+        "properties": {
+          "required": {"type": "boolean"},
+          "allowsUnscoped": {"type": "boolean"},
+          "status": {
+            "type": "string",
+            "enum": ["static", "ready", "pending", "unavailable"]
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "label", "available"],
+              "properties": {
+                "id": {"type": "string"},
+                "label": {"type": "string"},
+                "available": {"type": "boolean"}
               }
             }
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["kind", "groupId", "required"],
-            "properties": {
-              "kind": {"const": "discovered_children"},
-              "groupId": {"type": "string"},
-              "required": {"type": "boolean"}
-            }
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["kind", "required"],
-            "properties": {
-              "kind": {"const": "discovered_locations"},
-              "required": {"type": "boolean"}
-            }
           }
-        ]
+        }
       },
       "DependencyCatalogPreset": {
         "type": "object",
         "additionalProperties": true,
-        "required": ["id", "name", "provider", "description", "scope", "sourceScopeNote", "enabled", "validated", "installed"],
+        "required": ["id", "name", "provider", "description", "scopeSelection", "sourceScopeNote", "fidelity", "enabled", "validated", "installed"],
         "properties": {
           "id": {"type": "string"},
           "name": {"type": "string"},
           "provider": {"type": "string"},
           "description": {"type": "string"},
-          "scope": {
+          "scopeSelection": {
             "oneOf": [
-              {"$ref": "#/components/schemas/DependencyScope"},
+              {"$ref": "#/components/schemas/DependencyScopeSelection"},
               {"type": "null"}
             ]
           },
           "sourceScopeNote": {"type": ["string", "null"]},
+          "fidelity": {"$ref": "#/components/schemas/DependencyFidelity"},
           "enabled": {"type": "boolean"},
           "validated": {"type": "boolean"},
           "installed": {"type": "boolean"},
@@ -4250,8 +4271,7 @@
         "additionalProperties": false,
         "required": [
           "name",
-          "scopes",
-          "expiresAt"
+          "scopes"
         ],
         "properties": {
           "name": {
@@ -4267,7 +4287,8 @@
           },
           "expiresAt": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Optional. When omitted, the server applies a default lifetime clamped to the creating credential's remaining lifetime minus a safety margin, so a time-bounded creator such as a CLI session always succeeds. When provided, an expiry beyond the creating credential's lifetime is rejected."
           }
         }
       },
@@ -4343,11 +4364,16 @@
               {
                 "type": "object",
                 "required": [
-                  "token"
+                  "token",
+                  "expiryClamped"
                 ],
                 "properties": {
                   "token": {
                     "type": "string"
+                  },
+                  "expiryClamped": {
+                    "type": "boolean",
+                    "description": "True when the requested or default expiry was clamped down to the creating credential's remaining lifetime. The effective expiry is reported in expiresAt."
                   }
                 }
               }

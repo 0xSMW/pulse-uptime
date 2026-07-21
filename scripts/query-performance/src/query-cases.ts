@@ -38,7 +38,7 @@ export const queryCases: QueryCase[] = [
   {
     name: "dashboard-monitors-uptime24h",
     description: "Dashboard monitor list with the rollup+raw-check blended 24h uptime subquery, the activation cutoff both sides apply, and the active-incident left join production performs alongside it.",
-    source: "lib/monitoring/queries.ts:35-132 (listDashboardMonitors)",
+    source: "lib/monitoring/queries.ts:listDashboardMonitors",
     mutating: false,
     build: (conn, ctx) => {
       // Use fixture time so plans read seeded rollups.
@@ -95,7 +95,7 @@ export const queryCases: QueryCase[] = [
   {
     name: "command-palette-monitors",
     description: "Slim monitor projection for the command palette (no rollup join).",
-    source: "lib/monitoring/queries.ts:16-33 (listCommandPaletteMonitors)",
+    source: "lib/monitoring/queries.ts:listCommandPaletteMonitors",
     mutating: false,
     build: (conn) => toSQL(conn.db.select({
       id: schema.monitorRegistry.id,

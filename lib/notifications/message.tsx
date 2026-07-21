@@ -3,6 +3,7 @@ import { DependencyIncidentEmail } from "@/emails/dependency-incident";
 import { DependencyRecoveryEmail } from "@/emails/dependency-recovery";
 import { OutageEmail } from "@/emails/outage";
 import { RecoveryEmail } from "@/emails/recovery";
+import { SystemAlertEmail } from "@/emails/system-alert";
 import { TestEmail } from "@/emails/test";
 import { notificationPayloadSchema, type ClaimedNotification, type NotificationPayload } from "./types";
 
@@ -119,6 +120,22 @@ export function createNotificationMessage(
             state={payload.state}
             canonicalUrl={payload.canonicalUrl}
             providerTimestamp={payload.providerTimestamp}
+          />
+        ),
+      };
+    }
+    case "system.alert": {
+      assertPayloadType(row, "system.alert");
+      if (payload.type !== "system.alert") throw new InvalidNotificationPayloadError();
+      return {
+        to: row.recipient,
+        subject: payload.title,
+        react: (
+          <SystemAlertEmail
+            title={payload.title}
+            detail={payload.detail}
+            reason={payload.reason}
+            detectedAt={payload.detectedAt}
           />
         ),
       };

@@ -232,6 +232,61 @@ func TestSetSendsFullDocumentWithIfMatch(t *testing.T) {
 	}
 }
 
+func TestSetAcceptsLongFlags(t *testing.T) {
+	var putBody map[string]any
+	var putHeaders http.Header
+	client := serveConfig(t, `W/"abc"`, func(body any, headers http.Header) {
+		putBody = body.(map[string]any)
+		putHeaders = headers
+	})
+	var out bytes.Buffer
+	d := Dependencies{Client: client, Out: &out, Output: func(string) string { return "table" }}
+	if err := run(t, d, "set", "--name", "Acme Status", "--history-days", "60", "--announcement-enabled", "--layout", "horizontal", "--timezone", ""); err != nil {
+		t.Fatal(err)
+	}
+	if putHeaders.Get("If-Match") != `W/"abc"` {
+		t.Fatalf("If-Match=%q", putHeaders.Get("If-Match"))
+	}
+	if putBody["name"] != "Acme Status" || putBody["layout"] != "horizontal" {
+		t.Fatalf("body=%v", putBody)
+	}
+	if value, ok := putBody["historyDays"].(int); !ok || value != 60 {
+		t.Fatalf("historyDays=%v", putBody["historyDays"])
+	}
+	if putBody["announcementEnabled"] != true {
+		t.Fatalf("announcementEnabled=%v", putBody["announcementEnabled"])
+	}
+	if value, present := putBody["timezone"]; !present || value != nil {
+		t.Fatalf("timezone=%v present=%v", value, present)
+	}
+}
+
+func TestSetLongFlagsShareValidation(t *testing.T) {
+	client := serveConfig(t, `W/"abc"`, func(any, http.Header) { t.Fatal("PUT sent for invalid input") })
+	cases := [][]string{
+		{"set", "--layout", "diagonal"},
+		{"set", "--history-days", "45"},
+		{"set", "--uptime-decimals", "9"},
+		{"set", "--name", ""},
+	}
+	for _, args := range cases {
+		err := run(t, Dependencies{Client: client}, args...)
+		var typed *Error
+		if !errors.As(err, &typed) || typed.Exit != exitInvalidInput {
+			t.Fatalf("args=%v err=%v", args, err)
+		}
+	}
+}
+
+func TestSetWithoutFieldsFails(t *testing.T) {
+	client := serveConfig(t, `W/"abc"`, func(any, http.Header) { t.Fatal("PUT sent with no fields") })
+	err := run(t, Dependencies{Client: client}, "set")
+	var typed *Error
+	if !errors.As(err, &typed) || typed.Exit != exitInvalidInput || !strings.Contains(typed.Message, "no fields given") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func TestSetValidatesFields(t *testing.T) {
 	client := serveConfig(t, `W/"abc"`, func(any, http.Header) { t.Fatal("PUT sent for invalid input") })
 	cases := [][]string{
@@ -290,6 +345,37 @@ func TestExportWritesETagFirstAndRoundTrips(t *testing.T) {
 	first := strings.Index(out.String(), `"_etag"`)
 	if first < 0 || first > strings.Index(out.String(), `"name"`) {
 		t.Fatalf("_etag is not the first field:\n%s", out.String())
+	}
+}
+
+// TestExportApplyRoundTripPreservesWeakEtag proves the export-then-apply flow
+// against a server whose ETag is weakened in transit (W/ prefix), the shape a
+// compression or CDN layer produces. An untouched exported file must apply with
+// the received ETag sent back byte-for-byte in If-Match, so the server's weak
+// comparison can match it. The CLI must not strip or rewrite the W/ prefix.
+func TestExportApplyRoundTripPreservesWeakEtag(t *testing.T) {
+	const weakEtag = `W/"7"`
+	var exported bytes.Buffer
+	exportDeps := Dependencies{Client: serveConfig(t, weakEtag, nil), Out: &exported, Output: func(string) string { return "json" }}
+	if err := run(t, exportDeps, "export"); err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	if !strings.Contains(exported.String(), `"_etag": "W/\"7\""`) {
+		t.Fatalf("export did not record the weak ETag verbatim:\n%s", exported.String())
+	}
+
+	var putHeaders http.Header
+	applyDeps := Dependencies{
+		Client:   serveConfig(t, weakEtag, func(_ any, headers http.Header) { putHeaders = headers }),
+		ReadFile: func(string) ([]byte, error) { return exported.Bytes(), nil },
+		Output:   func(string) string { return "json" },
+		Out:      io.Discard,
+	}
+	if err := run(t, applyDeps, "apply", "--file", "status-page.json"); err != nil {
+		t.Fatalf("apply of an untouched export failed: %v", err)
+	}
+	if got := putHeaders.Get("If-Match"); got != weakEtag {
+		t.Fatalf("If-Match=%q, want the received %q sent back unchanged", got, weakEtag)
 	}
 }
 

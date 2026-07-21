@@ -52,7 +52,11 @@ const MONITOR_ROW = {
 };
 
 // The allowed reporting surface after daily_rollups was dropped. Reporting reads
-// the rolled-up telemetry and monitor/incident identity, never raw check rows.
+// the rolled-up telemetry and monitor/incident identity through drizzle. Raw
+// availability and recent-minute checks decode check_batches only through
+// sql.unsafe (never the drizzle surface). check_results stays out of reporting
+// reads: it remains the per-execution log for latency and error detail, not the
+// availability blend.
 const ALLOWED_REPORTING_TABLES = new Set([
   "monitor_registry",
   "monitor_state",
@@ -104,6 +108,9 @@ async function referencedTables(run: () => Promise<unknown>): Promise<Set<string
 
 function assertBoundary(tables: Set<string>) {
   expect(tables.has("metric_rollups")).toBe(true);
+  // The dropped daily_rollups, check_results, and packed check_batches never
+  // enter the drizzle reporting surface. check_batches is read only via raw SQL.
+  expect(tables.has("check_batches")).toBe(false);
   expect(tables.has("check_results")).toBe(false);
   expect(tables.has("daily_rollups")).toBe(false);
   for (const table of tables) expect(ALLOWED_REPORTING_TABLES.has(table)).toBe(true);

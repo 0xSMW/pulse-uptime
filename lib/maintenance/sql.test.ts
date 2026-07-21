@@ -159,4 +159,48 @@ describe("maintenance SQL store", () => {
       expect(query).not.toHaveBeenCalled();
     });
   });
+
+  it("reads the latest stored governor mode without measuring", async () => {
+    const query = vi.fn().mockResolvedValue([{ governor_mode: "shortened" }]);
+    const result = await createSqlMaintenanceStore({ query }).readLatestGovernorMode();
+    expect(result).toBe("shortened");
+    expect(query.mock.calls[0]?.[0]).toContain("database_usage_snapshots");
+    expect(query.mock.calls[0]?.[0]).toContain("order by captured_at desc");
+  });
+
+  it("returns null when no usage snapshot exists yet", async () => {
+    const query = vi.fn().mockResolvedValue([]);
+    await expect(createSqlMaintenanceStore({ query }).readLatestGovernorMode()).resolves.toBeNull();
+  });
+
+  it("applies statement_timeout when remaining budget and withStatementTimeout are present", async () => {
+    const innerQuery = vi.fn().mockResolvedValue([{ affected: 3 }]);
+    const withStatementTimeout = async <T>(
+      timeoutMs: number,
+      work: (q: typeof innerQuery) => Promise<T>,
+    ): Promise<T> => {
+      expect(timeoutMs).toBe(1_500);
+      return work(innerQuery);
+    };
+    const query = vi.fn();
+    const result = await createSqlMaintenanceStore({ query, withStatementTimeout }).deleteRawChecks(
+      new Date("2026-06-18T00:00:00Z"),
+      10_000,
+      1_500,
+    );
+    expect(result).toBe(3);
+    expect(query).not.toHaveBeenCalled();
+    expect(innerQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to plain query when withStatementTimeout is absent", async () => {
+    const query = vi.fn().mockResolvedValue([{ affected: 2 }]);
+    const result = await createSqlMaintenanceStore({ query }).deleteRawChecks(
+      new Date("2026-06-18T00:00:00Z"),
+      10_000,
+      1_500,
+    );
+    expect(result).toBe(2);
+    expect(query).toHaveBeenCalledTimes(1);
+  });
 });

@@ -1,8 +1,37 @@
-import type { DependencyState } from "@/lib/dependencies/types";
+import type { DependencyFidelity, DependencyState } from "@/lib/dependencies/types";
 import { cn } from "@/lib/utils";
+
+// Shown on an incident_only dependency: its source publishes provider incident
+// prose but no structured component state, so this muted chip tells the reader
+// the row carries incident context, not a normalized component reading. The
+// chip style matches the neutral chips already used across the dependency
+// surfaces (Provider reported, the UNKNOWN badge): --chip-bg on --fg-muted,
+// color communicates no state.
+export const INCIDENT_FEED_ONLY_LABEL = "Incident feed only";
+
+export function DependencyFidelityBadge({
+  fidelity,
+  className,
+}: {
+  fidelity: DependencyFidelity;
+  className?: string;
+}) {
+  if (fidelity !== "incident_only") return null;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap text-[var(--fg-muted)]",
+        className,
+      )}
+    >
+      {INCIDENT_FEED_ONLY_LABEL}
+    </span>
+  );
+}
 
 export interface DependencyStatusDotProps {
   state: DependencyState;
+  pending?: boolean;
   size?: "sm" | "md";
   className?: string;
   "aria-label"?: string;
@@ -29,8 +58,23 @@ export const dependencyStateLabels: Record<DependencyState, string> = {
   UNKNOWN: "Unknown",
 };
 
+// Shown while pendingFirstPoll is true, before the first successful poll lands.
+// A fresh dependency has no reading yet, so it reads as an in-progress check
+// rather than Unknown, which is reserved for a poll that succeeded but could
+// not resolve the component. The dot reuses the neutral in-progress treatment,
+// matching the monitor PENDING dot, so no new color is introduced.
+export const dependencyPendingLabel = "Checking";
+const pendingDotStyle = "bg-[var(--neutral-state)] text-[var(--neutral-state)]";
+const pendingBadgeStyle = "bg-[var(--chip-bg)] text-[var(--fg-muted)]";
+
+/** Status text for a dependency, showing the checking state before the first poll lands. */
+export function dependencyStatusLabel(state: DependencyState, pending: boolean): string {
+  return pending ? dependencyPendingLabel : dependencyStateLabels[state];
+}
+
 export function DependencyStatusDot({
   state,
+  pending = false,
   size = "sm",
   className,
   "aria-label": ariaLabel,
@@ -40,11 +84,11 @@ export function DependencyStatusDot({
     <span
       role={ariaHidden ? undefined : "img"}
       aria-hidden={ariaHidden}
-      aria-label={ariaHidden ? undefined : (ariaLabel ?? dependencyStateLabels[state])}
+      aria-label={ariaHidden ? undefined : (ariaLabel ?? dependencyStatusLabel(state, pending))}
       className={cn(
         "relative inline-block shrink-0 rounded-full",
         size === "sm" ? "size-2" : "size-2.5",
-        dotStyles[state],
+        pending ? pendingDotStyle : dotStyles[state],
         className,
       )}
     />
@@ -59,17 +103,25 @@ const badgeStyles: Record<DependencyState, string> = {
   UNKNOWN: "bg-[var(--chip-bg)] text-[var(--fg-muted)]",
 };
 
-export function DependencyStatusBadge({ state, className }: { state: DependencyState; className?: string }) {
+export function DependencyStatusBadge({
+  state,
+  pending = false,
+  className,
+}: {
+  state: DependencyState;
+  pending?: boolean;
+  className?: string;
+}) {
   return (
     <span
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs leading-4 font-medium whitespace-nowrap",
-        badgeStyles[state],
+        pending ? pendingBadgeStyle : badgeStyles[state],
         className,
       )}
     >
-      <DependencyStatusDot state={state} size="sm" aria-hidden />
-      {dependencyStateLabels[state]}
+      <DependencyStatusDot state={state} pending={pending} size="sm" aria-hidden />
+      {dependencyStatusLabel(state, pending)}
     </span>
   );
 }

@@ -152,14 +152,16 @@ export function DatabaseHealthCard({ initialData, initialError = false }: { init
         <section className="space-y-3" aria-labelledby="database-network-heading">
           <SectionTitle><span id="database-network-heading">Network</span></SectionTitle>
           <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2"><Metric label="This month" value={`${formatDatabaseBytes(data.transfer.usedBytes)} of ${formatDatabaseBytes(data.transfer.budgetBytes)}`} /><Metric label="Projected this month" value={formatDatabaseBytes(data.transfer.projectedBytes)} /></dl>
-          {!data.freshness.providerMetricsAvailable ? <p className="text-[13px] text-[var(--fg-muted)]">Provider metrics unavailable, relation usage remains current</p> : data.freshness.providerCapturedAt ? <p className="font-data text-xs text-[var(--fg-faint)]">Provider updated {formatDate(data.freshness.providerCapturedAt, resolvedTimeZone)}</p> : null}
+          {!data.freshness.providerMetricsAvailable ? <p className="text-[13px] text-[var(--fg-muted)]">Provider transfer metrics are not collected on this deployment, relation usage remains current</p> : data.freshness.providerCapturedAt ? <p className="font-data text-xs text-[var(--fg-faint)]">Provider updated {formatDate(data.freshness.providerCapturedAt, resolvedTimeZone)}</p> : null}
         </section>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
-          <div><p className="font-data text-xs text-[var(--fg-muted)]">{freshness}</p>{data.freshness.stale ? <p className="mt-1 text-xs text-[var(--fg-muted)]">Metrics are stale</p> : null}</div>
-          <Button variant="secondary" size="sm" onClick={refresh} disabled={busy}>{busy ? "Refreshing…" : "Refresh"}</Button>
+        <div className="-mx-6 space-y-3 border-t border-[var(--border)] px-6 pt-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div><p className="font-data text-xs text-[var(--fg-muted)]">{freshness}</p>{data.freshness.stale ? <p className="mt-1 text-xs text-[var(--fg-muted)]">Metrics are stale</p> : null}</div>
+            <Button variant="secondary" size="sm" onClick={refresh} disabled={busy}>{busy ? "Refreshing…" : "Refresh"}</Button>
+          </div>
+          <p aria-live="polite" className="min-h-5 text-[13px] text-[var(--fg-muted)]">{status}</p>
         </div>
-        <p aria-live="polite" className="min-h-5 text-[13px] text-[var(--fg-muted)]">{status}</p>
       </CardContent>
     </Card>
   );

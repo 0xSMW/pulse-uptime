@@ -5,8 +5,10 @@ import { randomUUID } from "node:crypto";
 import { requireAcceptedConfig } from "@/lib/api/config-mutation";
 import { db } from "@/lib/db/client";
 import { deliverPendingNotifications, type DeliverySummary } from "@/lib/notifications/delivery";
+import { ORDINARY_NOTIFICATION_EVENT_TYPES } from "@/lib/notifications/types";
 import { createResendSender } from "@/lib/notifications/provider";
 import { reconcileStaleClaims, type SqlExecutor } from "@/lib/notifications/sql";
+import { requirePulseReleaseId } from "@/lib/release/id";
 import { queryExecutor } from "@/lib/scheduler/runtime";
 import { createSqlLeaseStore } from "@/lib/scheduler/sql";
 import { scheduledMinuteAt } from "@/lib/scheduler/time";
@@ -66,12 +68,17 @@ interface DependencyCronRunCounts {
 
 function createDependencyCronRunStore(executor: SqlExecutor) {
   return {
-    async start(input: { id: string; scheduledMinute: Date; startedAt: Date }): Promise<boolean> {
+    async start(input: {
+      id: string;
+      scheduledMinute: Date;
+      startedAt: Date;
+      releaseId: string;
+    }): Promise<boolean> {
       const rows = await executor.query<{ id: string }>(
-        `insert into cron_runs (id, job_name, scheduled_minute, status, started_at, monitor_count, success_count, failure_count, skipped_count)
-         values ($1, $2, $3, 'running', $4, 0, 0, 0, 0)
+        `insert into cron_runs (id, job_name, scheduled_minute, status, started_at, monitor_count, success_count, failure_count, skipped_count, release_id)
+         values ($1, $2, $3, 'running', $4, 0, 0, 0, 0, $5)
          on conflict (job_name, scheduled_minute) do nothing returning id`,
-        [input.id, DEPENDENCY_CRON_JOB_NAME, input.scheduledMinute, input.startedAt],
+        [input.id, DEPENDENCY_CRON_JOB_NAME, input.scheduledMinute, input.startedAt, input.releaseId],
       );
       return rows.length === 1;
     },
@@ -216,7 +223,12 @@ function safeCronError(error: unknown): string {
 }
 
 interface DependencyCronRunStore {
-  start(input: { id: string; scheduledMinute: Date; startedAt: Date }): Promise<boolean>;
+  start(input: {
+    id: string;
+    scheduledMinute: Date;
+    startedAt: Date;
+    releaseId: string;
+  }): Promise<boolean>;
   complete(id: string, completedAt: Date, counts: DependencyCronRunCounts): Promise<void>;
   fail(id: string, completedAt: Date, errorMessage: string): Promise<void>;
 }
@@ -224,6 +236,8 @@ interface DependencyCronRunStore {
 export interface DependencyCronCoordinatorDeps {
   leases: DependencyLeaseStore;
   runs: DependencyCronRunStore;
+  // Deployment identity recorded on the cron_runs row for release-bound proof.
+  releaseId: string;
   syncCatalog(): Promise<{ synced: boolean }>;
   loadDefaultRecipients(): Promise<string[]>;
   poll(defaultRecipients: string[]): Promise<{ sourcesDue: number; polled: number; notModified: number; failed: number }>;
@@ -247,7 +261,12 @@ export async function runDependencyCronCoordinator(deps: DependencyCronCoordinat
   const scheduledMinute = scheduledMinuteAt(startedAt);
 
   const leased = await withDependencyLease(deps.leases, ownerId, async () => {
-    if (!(await deps.runs.start({ id: runId, scheduledMinute, startedAt }))) {
+    if (!(await deps.runs.start({
+      id: runId,
+      scheduledMinute,
+      startedAt,
+      releaseId: deps.releaseId,
+    }))) {
       return { status: "duplicate", runId } as const;
     }
 
@@ -299,6 +318,7 @@ export async function runDependencyCron(): Promise<DependencyCronRunResult> {
   return runDependencyCronCoordinator({
     leases: createSqlLeaseStore(queryExecutor),
     runs: createDependencyCronRunStore(queryExecutor),
+    releaseId: requirePulseReleaseId(),
     syncCatalog: () => syncCatalog(createSqlCatalogSyncStore(db), manifest),
     loadDefaultRecipients: async () => (await requireAcceptedConfig()).config.settings.defaultRecipients,
     poll: (defaultRecipients) => pollDueSources({
@@ -307,12 +327,14 @@ export async function runDependencyCron(): Promise<DependencyCronRunResult> {
         await persistSnapshot(persistStore, outcome, source, { now, defaultRecipients });
       },
     }),
-    reconcileOutbox: (now) => reconcileStaleClaims(queryExecutor, now),
+    reconcileOutbox: (now) => reconcileStaleClaims(queryExecutor, now, undefined, {
+      eventTypes: ORDINARY_NOTIFICATION_EVENT_TYPES,
+    }),
     deliverOutbox: () => deliverPendingNotifications({
       db: queryExecutor,
       sender: createResendSender({ apiKey: process.env.RESEND_API_KEY ?? "", from: process.env.RESEND_FROM_EMAIL ?? "" }),
       appUrl: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
       log: (event) => console.info(JSON.stringify(event)),
-    }),
+    }, { eventTypes: ORDINARY_NOTIFICATION_EVENT_TYPES }),
   });
 }

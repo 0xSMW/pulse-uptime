@@ -124,7 +124,7 @@ function HeaderNav({ config }: { config: StatusPageDisplayConfig }) {
         <a
           key={`${link.url}-${index}`}
           href={link.url}
-          className="text-[13px] text-[var(--fg-muted)] hover:text-[var(--fg)] hover:underline"
+          className="text-[13px] text-[var(--fg-muted)] transition-colors duration-150 hover:text-[var(--fg)]"
         >
           {link.label}
         </a>
@@ -187,7 +187,7 @@ function OngoingReports({ data, zone }: { data: PublicStatusData; zone: Timezone
               <div className="flex min-w-0 items-center gap-2">
                 <StatusDot state={reportTierDots[tier]} aria-hidden />
                 <h3 className="text-sm font-semibold">
-                  <Link href={statusReportUrl(report.id)} className="hover:underline">
+                  <Link href={statusReportUrl(report.id)} className="transition-opacity duration-150 hover:opacity-70">
                     {report.title}
                   </Link>
                 </h3>
@@ -213,7 +213,7 @@ function OngoingReports({ data, zone }: { data: PublicStatusData; zone: Timezone
                   {" · "}
                 </>
               ) : null}
-              <Link href={statusReportUrl(report.id)} className="hover:text-[var(--fg)] hover:underline">
+              <Link href={statusReportUrl(report.id)} className="transition-colors duration-150 hover:text-[var(--fg)]">
                 View report →
               </Link>
             </p>
@@ -260,7 +260,7 @@ function MaintenanceSchedule({ data, zone }: { data: PublicStatusData; zone: Tim
           <li key={report.id} className="grid gap-1 px-6 py-4 text-[13px] sm:grid-cols-[1fr_auto] sm:items-center sm:gap-6">
             <span className="flex min-w-0 items-center gap-2 font-medium">
               <StatusDot state="PENDING" aria-hidden />
-              <Link href={statusReportUrl(report.id)} className="truncate hover:underline">
+              <Link href={statusReportUrl(report.id)} className="truncate transition-opacity duration-150 hover:opacity-70">
                 {report.title}
               </Link>
               <span className="sr-only">{report.type === "maintenance" ? "Upcoming maintenance" : "Upcoming report"}</span>
@@ -275,7 +275,7 @@ function MaintenanceSchedule({ data, zone }: { data: PublicStatusData; zone: Tim
           >
             <span className="flex min-w-0 items-center gap-2 font-medium">
               <StatusDot state="PENDING" aria-hidden />
-              <Link href={statusReportUrl(report.id)} className="truncate hover:underline">
+              <Link href={statusReportUrl(report.id)} className="truncate transition-opacity duration-150 hover:opacity-70">
                 {report.title}
               </Link>
             </span>
@@ -335,6 +335,9 @@ function StatusCard({ data, groupView }: { data: PublicStatusData; groupView: bo
   // The "see report" annotation supplements the machine state dot while a
   // report is ongoing. The dot itself always shows the machine state.
   const annotations = monitorReportAnnotations(data.reports.ongoing);
+  // Timeline tooltips read the same configured zone the rest of the page
+  // renders its timestamps in, defaulting to UTC.
+  const statusTimeZone = timezoneDisplay(data.config.timezone).timeZone;
 
   return (
     <div className="space-y-6" aria-label="System availability">
@@ -351,7 +354,7 @@ function StatusCard({ data, groupView }: { data: PublicStatusData; groupView: bo
             {!groupView ? (
               <Link
                 href={`/status/${group.slug}`}
-                className="text-xs text-[var(--fg-muted)] hover:text-[var(--fg)] hover:underline"
+                className="text-xs text-[var(--fg-muted)] transition-colors duration-150 hover:text-[var(--fg)]"
                 aria-label={`View ${group.name} status`}
               >
                 View Group
@@ -383,6 +386,7 @@ function StatusCard({ data, groupView }: { data: PublicStatusData; groupView: bo
                   buckets={monitor.timeline}
                   label={`${monitor.name}, ${data.config.historyDays}-day availability`}
                   className="order-3 sm:order-none"
+                  timeZone={statusTimeZone}
                 />
                 <span className="font-data text-right text-[13px]">
                   {formatUptimePercent(monitor.uptime, data.config.uptimeDecimals)}
@@ -425,7 +429,7 @@ export function StatusPageContent({
         {groupView ? (
           <Link
             href="/status"
-            className="mb-5 inline-flex text-[13px] text-[var(--fg-muted)] hover:text-[var(--fg)] hover:underline"
+            className="mb-5 inline-flex text-[13px] text-[var(--fg-muted)] transition-colors duration-150 hover:text-[var(--fg)]"
           >
             ← All Systems
           </Link>
@@ -444,7 +448,7 @@ export function StatusPageContent({
       {groupView ? (
         <Link
           href="/status"
-          className="mb-5 inline-flex text-[13px] text-[var(--fg-muted)] hover:text-[var(--fg)] hover:underline"
+          className="mb-5 inline-flex text-[13px] text-[var(--fg-muted)] transition-colors duration-150 hover:text-[var(--fg)]"
         >
           ← All Systems
         </Link>
@@ -546,7 +550,7 @@ export function StatusPageContent({
                 >
                   <span className="flex min-w-0 items-center gap-2 font-medium">
                     <StatusDot state="PENDING" aria-hidden />
-                    <Link href={statusReportUrl(entry.report.id)} className="truncate hover:underline">
+                    <Link href={statusReportUrl(entry.report.id)} className="truncate transition-opacity duration-150 hover:opacity-70">
                       {entry.report.title}
                     </Link>
                     <span className="sr-only">Resolved report</span>

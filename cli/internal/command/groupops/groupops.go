@@ -165,6 +165,9 @@ func newRenameCommand(d Dependencies) *cobra.Command {
 func newDeleteCommand(d Dependencies) *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{Use: "delete <groupId>", Short: "Delete an empty monitor group", Args: cobra.ExactArgs(1), Annotations: annotations("monitors:write"), RunE: func(cmd *cobra.Command, args []string) error {
+		if strings.TrimSpace(args[0]) == "" {
+			return invalid("group id is required")
+		}
 		id := args[0]
 		if strings.TrimSpace(id) == "" {
 			return invalid("exact group ID is required")

@@ -14,7 +14,15 @@ const links = [
   { href: "/status", label: "Status Page", match: () => false, external: true },
 ] as const;
 
-export function TopNav({ email }: { email: string }) {
+export function TopNav({
+  email,
+  name = null,
+  avatarImageId = null,
+}: {
+  email: string;
+  name?: string | null;
+  avatarImageId?: string | null;
+}) {
   const pathname = usePathname();
 
   return (
@@ -51,7 +59,7 @@ export function TopNav({ email }: { email: string }) {
           })}
         </div>
         <div className="ml-auto flex items-center">
-          <UserMenu email={email} />
+          <UserMenu email={email} name={name} avatarImageId={avatarImageId} />
         </div>
       </nav>
     </header>

@@ -237,10 +237,16 @@ func TestClientRefusesRedirects(t *testing.T) {
 	defer redirector.Close()
 
 	client := NewClient(redirector.URL, "secret", "pulsectl/test", time.Second, redirector.Client())
-	err := client.Get(context.Background(), "/api/v1/me", nil)
+	err := client.Get(context.Background(), "/api/v1/tokens/", nil)
 	apiErr, ok := AsError(err)
 	if !ok || apiErr.Status != http.StatusFound {
 		t.Fatalf("error = %#v", err)
+	}
+	if apiErr.Code != "UNEXPECTED_REDIRECT" {
+		t.Fatalf("code = %q, want UNEXPECTED_REDIRECT", apiErr.Code)
+	}
+	if !strings.Contains(apiErr.Message, "/api/v1/tokens/") {
+		t.Fatalf("message %q does not name the requested path", apiErr.Message)
 	}
 	if destinationCalled {
 		t.Fatal("redirect destination was called")
