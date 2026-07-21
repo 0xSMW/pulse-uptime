@@ -150,7 +150,7 @@ function limited(requestId: string, retryAfter: number) {
 
 class InvalidDeviceRequest extends Error {}
 
-type DeviceAuthorizationData = {
+interface DeviceAuthorizationData {
   deviceCode: string
   userCode: string
   expiresIn: number

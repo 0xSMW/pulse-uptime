@@ -49,8 +49,12 @@ const DEPENDENCY_LEASE_DURATION_MS = 90_000
 const DEPENDENCY_CRON_JOB_NAME = "check-dependencies"
 
 interface DependencyLeaseStore {
-  acquire(name: string, ownerId: string, durationMs: number): Promise<boolean>
-  release(name: string, ownerId: string): Promise<void>
+  acquire: (
+    name: string,
+    ownerId: string,
+    durationMs: number
+  ) => Promise<boolean>
+  release: (name: string, ownerId: string) => Promise<void>
 }
 
 async function withDependencyLease<T>(
@@ -267,18 +271,18 @@ function safeCronError(error: unknown): string {
 }
 
 interface DependencyCronRunStore {
-  start(input: {
+  start: (input: {
     id: string
     scheduledMinute: Date
     startedAt: Date
     releaseId: string
-  }): Promise<boolean>
-  complete(
+  }) => Promise<boolean>
+  complete: (
     id: string,
     completedAt: Date,
     counts: DependencyCronRunCounts
-  ): Promise<void>
-  fail(id: string, completedAt: Date, errorMessage: string): Promise<void>
+  ) => Promise<void>
+  fail: (id: string, completedAt: Date, errorMessage: string) => Promise<void>
 }
 
 export interface DependencyCronCoordinatorDeps {
@@ -286,16 +290,16 @@ export interface DependencyCronCoordinatorDeps {
   runs: DependencyCronRunStore
   // Deployment identity recorded on the cron_runs row for release-bound proof.
   releaseId: string
-  syncCatalog(): Promise<{ synced: boolean }>
-  loadDefaultRecipients(): Promise<string[]>
-  poll(defaultRecipients: string[]): Promise<{
+  syncCatalog: () => Promise<{ synced: boolean }>
+  loadDefaultRecipients: () => Promise<string[]>
+  poll: (defaultRecipients: string[]) => Promise<{
     sourcesDue: number
     polled: number
     notModified: number
     failed: number
   }>
-  reconcileOutbox(now: Date): Promise<number>
-  deliverOutbox(): Promise<DeliverySummary>
+  reconcileOutbox: (now: Date) => Promise<number>
+  deliverOutbox: () => Promise<DeliverySummary>
   now?: () => Date
   createId?: () => string
 }

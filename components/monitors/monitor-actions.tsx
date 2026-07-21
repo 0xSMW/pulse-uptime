@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/select"
 import { isPublicHttpUrl } from "@/lib/net/public-url"
 
-export type EditableMonitor = {
+export interface EditableMonitor {
   id: string
   name: string
   url: string
@@ -59,7 +59,7 @@ type MutationState =
   | { status: "success"; message: string }
   | { status: "error"; message: string }
 
-export type MonitorEditValues = {
+export interface MonitorEditValues {
   name: string
   url: string
   group: string
@@ -282,6 +282,7 @@ function ModalFrame({
       return
     }
     const first = focusable[0]
+    // biome-ignore lint/style/useAtIndex: NodeListOf has no .at in the DOM lib
     const last = focusable[focusable.length - 1]
     if (event.shiftKey && document.activeElement === first) {
       event.preventDefault()

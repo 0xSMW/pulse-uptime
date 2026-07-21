@@ -34,7 +34,7 @@ export const GOVERNOR_ACTIONS: Record<DatabaseGovernorMode, string> = {
   UNKNOWN: "Waiting for current retention metrics",
 }
 
-export type RetentionPolicy = {
+export interface RetentionPolicy {
   minuteHours: number
   quarterHourDays: number
   hourlyDays: number

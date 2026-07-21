@@ -4,7 +4,7 @@ import { isUuid } from "@/lib/ids/uuid"
 
 export const API_VERSION = "v1" as const
 
-export type ApiMeta = {
+export interface ApiMeta {
   requestId: string
   nextCursor?: string | null
 }

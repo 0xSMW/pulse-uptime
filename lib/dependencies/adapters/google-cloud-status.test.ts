@@ -48,7 +48,7 @@ describe("googleCloudStatusAdapter.normalize: status_impact mapping", () => {
         ? geminiPreset.selector.productId
         : null
     ).toBe("Z0FZJAMvEB4j3NbCJs6B")
-    expect(snapshot.components["Z0FZJAMvEB4j3NbCJs6B"]).toBeUndefined()
+    expect(snapshot.components.Z0FZJAMvEB4j3NbCJs6B).toBeUndefined()
   })
 
   it("maps SERVICE_DISRUPTION to DEGRADED for the vertex gemini preset's product id", () => {
@@ -57,7 +57,7 @@ describe("googleCloudStatusAdapter.normalize: status_impact mapping", () => {
       documents: [currentDoc(degraded)],
       observedAt: "2026-07-19T10:30:00Z",
     })
-    expect(snapshot.components["Z0FZJAMvEB4j3NbCJs6B"]).toMatchObject({
+    expect(snapshot.components.Z0FZJAMvEB4j3NbCJs6B).toMatchObject({
       state: "DEGRADED",
     })
   })
@@ -83,7 +83,7 @@ describe("googleCloudStatusAdapter.normalize: status_impact mapping", () => {
       documents: [currentDoc(resolved)],
       observedAt: "2026-07-17T10:00:00Z",
     })
-    expect(snapshot.components["Z0FZJAMvEB4j3NbCJs6B"]).toBeUndefined()
+    expect(snapshot.components.Z0FZJAMvEB4j3NbCJs6B).toBeUndefined()
     expect(snapshot.incidents[0].state).toBe("resolved")
     expect(snapshot.incidents[0].resolvedAt).toBe("2026-07-17T09:30:00+00:00")
   })
@@ -195,7 +195,7 @@ describe("googleCloudStatusAdapter.normalize: failure handling", () => {
       documents: [currentDoc(missingComponent)],
       observedAt: "2026-07-19T07:30:00Z",
     })
-    expect(snapshot.components["Z0FZJAMvEB4j3NbCJs6B"]).toBeUndefined()
+    expect(snapshot.components.Z0FZJAMvEB4j3NbCJs6B).toBeUndefined()
     expect(snapshot.components["9D7d2iNBQWN24zc1VamE"]).toBeUndefined()
     // componentsComplete false (FIX B): this feed only ever lists products
     // with an active incident, so an absent product legitimately means

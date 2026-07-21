@@ -28,7 +28,7 @@ import { type CursorValue, decodeCursor, encodeCursor } from "./pagination"
 
 const recipientSchema = z.string().trim().email()
 
-type NotificationRow = {
+interface NotificationRow {
   incidentId: string | null
   status: NotificationDeliveryStatus
 }

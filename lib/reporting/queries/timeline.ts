@@ -1,18 +1,18 @@
 import type { TimelineBucket } from "@/lib/monitoring/types"
 
-export type DailyAvailability = {
+export interface DailyAvailability {
   day: string
   totalChecks: number
   failedChecks: number
   incidentSeconds: number
 }
 
-export type CheckAvailability = {
+export interface CheckAvailability {
   checkedAt: Date
   successful: boolean
 }
 
-export type RollupAvailability = {
+export interface RollupAvailability {
   bucketStart: Date
   expectedChecks: number
   completedChecks: number
@@ -52,12 +52,10 @@ export function blendRawAvailability(
 }
 
 export function summarizeRollupCoverage(
-  rows: Array<
-    Pick<
-      RollupAvailability,
-      "expectedChecks" | "completedChecks" | "successfulChecks"
-    >
-  >
+  rows: Pick<
+    RollupAvailability,
+    "expectedChecks" | "completedChecks" | "successfulChecks"
+  >[]
 ): {
   uptime: number | null
   coverage: number | null

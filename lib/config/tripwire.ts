@@ -116,8 +116,7 @@ export function isValidDestructiveApproval(
   now: Date = new Date()
 ): boolean {
   if (
-    !approval ||
-    approval.action !== "bulk_archive" ||
+    approval?.action !== "bulk_archive" ||
     approval.targetConfigHash !== targetConfigHash ||
     approval.consumedAt !== null
   ) {

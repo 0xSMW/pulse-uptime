@@ -42,7 +42,7 @@ export interface PollerSourceRow {
 
 export interface PollerStore {
   /** Enabled sources with at least one installed dependency and next_poll_at <= now. */
-  listDueSources(now: Date): Promise<PollerSourceRow[]>
+  listDueSources: (now: Date) => Promise<PollerSourceRow[]>
 }
 
 export type PollOutcome =
@@ -68,11 +68,11 @@ export type PollOutcome =
 
 export interface PollDueSourcesDeps {
   store: PollerStore
-  persist(
+  persist: (
     outcome: PollOutcome,
     source: PollerSourceRow,
     now: Date
-  ): Promise<void>
+  ) => Promise<void>
   fetchDocument?: (
     source: PollerSourceRow,
     request: {

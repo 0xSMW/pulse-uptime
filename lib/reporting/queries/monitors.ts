@@ -166,7 +166,7 @@ export type MonitorIdentity = NonNullable<
   Awaited<ReturnType<typeof getMonitorIdentity>>
 >
 
-type RecentMinuteCheckRow = {
+interface RecentMinuteCheckRow {
   checked_at: Date
   completed: boolean
   failed: boolean
@@ -222,7 +222,7 @@ const EMPTY_TAIL_COUNTS: RawTailCounts = {
   failed: 0,
 }
 
-type RawTailCountsDbRow = {
+interface RawTailCountsDbRow {
   expected: number | string
   completed: number | string
   successful: number | string

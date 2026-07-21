@@ -140,7 +140,7 @@
       ["string", /"(?:[^"\\\n]|\\.)*"|'[^'\n]*'/y],
       ["var", /\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/y],
       ["flag", /--?[A-Za-z][\w-]*/y, true],
-      ["cmd", new RegExp(BASH_COMMANDS.source + "(?=\\s|$)", "y"), true],
+      ["cmd", new RegExp(`${BASH_COMMANDS.source}(?=\\s|$)`, "y"), true],
       ["keyword", /\b(?:GET|POST|PATCH|DELETE|HEAD|PUT)(?=\s|$)/y, true],
       ["number", /\d+(?:\.\d+)?/y, true],
       ["punct", /[|&;<>(){}[\]=\\]/y],
@@ -182,7 +182,7 @@
         }
         regex.lastIndex = index
         const match = regex.exec(source)
-        if (match && match[0]) {
+        if (match?.[0]) {
           matched = [cls, match[0]]
           break
         }
@@ -286,7 +286,7 @@
     const atBottom =
       window.innerHeight + window.scrollY >= document.body.offsetHeight - 4
     if (atBottom) {
-      current = spyTargets[spyTargets.length - 1]
+      current = spyTargets.at(-1)
     }
     const id = current ? current.id : ""
     for (const link of sidebarLinks) {

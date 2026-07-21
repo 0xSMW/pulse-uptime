@@ -7,7 +7,7 @@ import { useNavigationGuard } from "@/components/navigation/use-navigation-guard
 
 export const DISCARD_PROMPT = "Discard unsaved changes?"
 
-type SettingsDirtyContextValue = {
+interface SettingsDirtyContextValue {
   dirty: boolean
   markDirty: (key: string, dirty: boolean) => void
 }

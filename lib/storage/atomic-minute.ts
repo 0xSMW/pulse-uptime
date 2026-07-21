@@ -13,7 +13,7 @@ import { encodeTelemetry } from "./codec"
 
 export type CompletedMinuteCheck = Omit<ScheduledCheck, "runId" | "scheduledAt">
 
-export type AtomicMinuteInput = {
+export interface AtomicMinuteInput {
   scheduledMinute: Date
   configVersion: number
   monitorIds: readonly string[]

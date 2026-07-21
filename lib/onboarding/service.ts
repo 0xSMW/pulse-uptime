@@ -28,7 +28,11 @@ import {
 import { checkOnboardingReadiness } from "./readiness"
 
 export type OnboardingStep = "monitor" | "verify" | "getting_started"
-export type MonitorDraft = { url: string; name: string; alertEmail?: string }
+export interface MonitorDraft {
+  url: string
+  name: string
+  alertEmail?: string
+}
 
 export class OnboardingError extends Error {
   constructor(

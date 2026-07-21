@@ -27,7 +27,7 @@ import {
 // cadence as /status, plus the revalidatePath calls on every report mutation.
 export const revalidate = 30
 
-type ReportPageProps = {
+interface ReportPageProps {
   params: Promise<{ reportId: string }>
 }
 

@@ -23,7 +23,7 @@ import type { CatalogComponentDirectory } from "./types"
 // so body caps, request mode, host allowlists, document caps, and deadline
 // budgets match the poller. Incomplete collection never yields a directory.
 
-export type LiveCatalogDirectoryArgs = {
+export interface LiveCatalogDirectoryArgs {
   source: {
     id: string
     adapter: string

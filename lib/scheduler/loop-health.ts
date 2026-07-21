@@ -50,7 +50,7 @@ export function isLoopStale(
 
 export type LoopHealthReason = "stale" | "consecutive-failures"
 
-export type LoopHealthInput = {
+export interface LoopHealthInput {
   lastCompletedAt: Date | null
   recentStatuses: readonly CronRunStatus[]
   now: Date

@@ -29,7 +29,10 @@ const CATEGORY_LABELS: Record<DatabaseHealthCategoryKey, string> = {
   other: "Other",
 }
 
-type CacheEntry = { measurement: DatabaseHealthMeasurement; eligibleAt: number }
+interface CacheEntry {
+  measurement: DatabaseHealthMeasurement
+  eligibleAt: number
+}
 const cache = new WeakMap<DatabaseHealthRepository, CacheEntry>()
 const refreshes = new WeakMap<
   DatabaseHealthRepository,

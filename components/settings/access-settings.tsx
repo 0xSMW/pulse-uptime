@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { formatRelativeTime } from "@/lib/reporting/format"
 
-export type AccessSettingsData = {
+export interface AccessSettingsData {
   tokens: Array<{
     id: string
     name: string
@@ -161,39 +161,37 @@ export function AccessSettings({ data }: { data: AccessSettingsData }) {
                   </td>
                   <td className="px-6 text-right">
                     {token.kind === "agent" ? (
-                      <>
-                        {revokeId === token.id ? (
-                          <span className="inline-flex items-center gap-2">
-                            <span className="text-[var(--down-text)] text-xs">
-                              Revoke?
-                            </span>
-                            <Button
-                              disabled={tokenBusy}
-                              onClick={() => setRevokeId(null)}
-                              size="sm"
-                              variant="secondary"
-                            >
-                              Cancel
-                            </Button>
-                            <Button
-                              disabled={tokenBusy}
-                              onClick={() => revokeToken(token.id)}
-                              size="sm"
-                              variant="secondary"
-                            >
-                              {tokenBusy ? "Revoking…" : "Confirm"}
-                            </Button>
+                      revokeId === token.id ? (
+                        <span className="inline-flex items-center gap-2">
+                          <span className="text-[var(--down-text)] text-xs">
+                            Revoke?
                           </span>
-                        ) : (
                           <Button
-                            onClick={() => setRevokeId(token.id)}
+                            disabled={tokenBusy}
+                            onClick={() => setRevokeId(null)}
                             size="sm"
                             variant="secondary"
                           >
-                            Revoke
+                            Cancel
                           </Button>
-                        )}
-                      </>
+                          <Button
+                            disabled={tokenBusy}
+                            onClick={() => revokeToken(token.id)}
+                            size="sm"
+                            variant="secondary"
+                          >
+                            {tokenBusy ? "Revoking…" : "Confirm"}
+                          </Button>
+                        </span>
+                      ) : (
+                        <Button
+                          onClick={() => setRevokeId(token.id)}
+                          size="sm"
+                          variant="secondary"
+                        >
+                          Revoke
+                        </Button>
+                      )
                     ) : (
                       <span className="text-[var(--fg-faint)] text-xs">
                         Linked session

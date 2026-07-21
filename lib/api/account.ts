@@ -26,7 +26,7 @@ import {
 import { isUuid } from "@/lib/ids/uuid"
 import { isValidIanaTimeZone } from "@/lib/time/iana"
 
-export type AccountProfile = {
+export interface AccountProfile {
   name: string | null
   email: string
   timezone: string | null
@@ -54,7 +54,7 @@ export class AccountServiceError extends Error {
   }
 }
 
-export type ProfilePatch = {
+export interface ProfilePatch {
   name?: string
   timezone?: string | null
   avatarImageId?: string | null
@@ -148,18 +148,18 @@ export async function findAccountProfile(
 }
 
 export interface ProfileUpdateStore {
-  findAvatarImage(imageId: string): Promise<{ kind: string } | null>
-  applyProfileUpdate(input: {
+  findAvatarImage: (imageId: string) => Promise<{ kind: string } | null>
+  applyProfileUpdate: (input: {
     userId: string
     patch: ProfilePatch
     now: Date
-  }): Promise<
+  }) => Promise<
     (AccountProfile & { previousAvatarImageId: string | null }) | null
   >
-  deleteAvatarImage(imageId: string): Promise<void>
+  deleteAvatarImage: (imageId: string) => Promise<void>
 }
 
-export type ProfileUpdateDependencies = {
+export interface ProfileUpdateDependencies {
   store?: ProfileUpdateStore
   now?: () => Date
 }
@@ -177,7 +177,7 @@ export async function updateAccountProfile(
   const store = dependencies.store ?? databaseProfileUpdateStore
   if (patch.avatarImageId) {
     const image = await store.findAvatarImage(patch.avatarImageId)
-    if (!image || image.kind !== "avatar") {
+    if (image?.kind !== "avatar") {
       throw new AccountServiceError(
         "IMAGE_NOT_FOUND",
         "Upload the avatar image first, then attach it"
@@ -242,7 +242,7 @@ const databaseProfileUpdateStore: ProfileUpdateStore = {
   },
 }
 
-export type EmailChangeInput = {
+export interface EmailChangeInput {
   email: string
   emailConfirm: string
   currentPassword: string
@@ -281,19 +281,19 @@ export function validateEmailChangeInput(input: unknown): EmailChangeInput {
 }
 
 export interface EmailChangeStore {
-  findUser(
+  findUser: (
     userId: string
-  ): Promise<{ email: string; passwordDigest: string } | null>
-  applyEmailChange(input: {
+  ) => Promise<{ email: string; passwordDigest: string } | null>
+  applyEmailChange: (input: {
     userId: string
     currentSessionId: string
     previousEmail: string
     email: string
     now: Date
-  }): Promise<void>
+  }) => Promise<void>
 }
 
-export type EmailChangeDependencies = {
+export interface EmailChangeDependencies {
   store?: EmailChangeStore
   verify?: typeof verifyPassword
   enforceLimit?: (
@@ -382,7 +382,7 @@ export async function changeAccountEmail(
   return { email }
 }
 
-export type PasswordChangeInput = {
+export interface PasswordChangeInput {
   currentPassword: string
   newPassword: string
 }
@@ -420,18 +420,18 @@ export function validatePasswordChangeInput(
 }
 
 export interface PasswordChangeStore {
-  findUser(
+  findUser: (
     userId: string
-  ): Promise<{ email: string; passwordDigest: string } | null>
-  applyPasswordChange(input: {
+  ) => Promise<{ email: string; passwordDigest: string } | null>
+  applyPasswordChange: (input: {
     userId: string
     currentSessionId: string
     passwordDigest: string
     now: Date
-  }): Promise<void>
+  }) => Promise<void>
 }
 
-export type PasswordChangeDependencies = {
+export interface PasswordChangeDependencies {
   store?: PasswordChangeStore
   verify?: typeof verifyPassword
   hash?: typeof hashPassword
@@ -543,19 +543,19 @@ const databasePasswordChangeStore: PasswordChangeStore = {
 }
 
 export interface SessionRevocationStore {
-  revokeSession(input: {
+  revokeSession: (input: {
     userId: string
     sessionId: string
     now: Date
-  }): Promise<boolean>
-  revokeOtherSessions(input: {
+  }) => Promise<boolean>
+  revokeOtherSessions: (input: {
     userId: string
     currentSessionId: string
     now: Date
-  }): Promise<number>
+  }) => Promise<number>
 }
 
-export type SessionRevocationDependencies = {
+export interface SessionRevocationDependencies {
   store?: SessionRevocationStore
   now?: () => Date
 }

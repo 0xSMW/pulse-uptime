@@ -8,7 +8,7 @@ import {
 import { getCurrentSession } from "@/lib/auth/session"
 import { parseUserCodeInput } from "@/lib/cli-authorization/user-code"
 
-export type AuthorizationRequestView = {
+export interface AuthorizationRequestView {
   userCode: string
   clientName: string
   installationName: string

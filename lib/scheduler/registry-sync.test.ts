@@ -42,7 +42,7 @@ import type { MonitorStateSnapshot } from "@/lib/monitoring/types"
 import type { DbTransaction } from "./registry-sync"
 import { synchronizeRegistry } from "./registry-sync"
 
-type Cond = {
+interface Cond {
   __op: string
   column?: unknown
   value?: unknown
@@ -67,7 +67,7 @@ function findOp(cond: Cond | undefined, op: string): Cond | undefined {
   }
 }
 
-type RegistryRow = {
+interface RegistryRow {
   id: string
   name: string
   url: string
@@ -79,7 +79,7 @@ type RegistryRow = {
   archivedAt: Date | null
 }
 
-type IncidentRow = {
+interface IncidentRow {
   id: string
   resolvedAt: Date | null
   firstSuccessAt: Date | null
@@ -87,7 +87,7 @@ type IncidentRow = {
   updatedAt: Date
 }
 
-type ExceptionRow = {
+interface ExceptionRow {
   id: string
   monitorId: string
   eventType: "pause" | "resume" | "configuration"

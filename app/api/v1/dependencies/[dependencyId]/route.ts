@@ -9,7 +9,9 @@ import {
   requireDependencyDetail,
 } from "@/lib/dependencies/service"
 
-type Params = { params: Promise<{ dependencyId: string }> }
+interface Params {
+  params: Promise<{ dependencyId: string }>
+}
 
 // A 204 response must never carry a body. The idempotency store still keeps
 // a small JSON body internally for replay bookkeeping; only the outgoing

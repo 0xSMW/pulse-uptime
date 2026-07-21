@@ -13,7 +13,7 @@ export function firstForwardedIp(forwardedFor: string | null): string | null {
  * The first x-forwarded-for hop is the fallback.
  */
 export function clientIpFromHeaders(headers: {
-  get(name: string): string | null
+  get: (name: string) => string | null
 }): string | null {
   return (
     headers.get("x-real-ip")?.trim() ||
@@ -26,7 +26,7 @@ export function clientIpFromHeaders(headers: {
  * valid IPv4 or IPv6 literal, so callers persist a clean address or nothing.
  */
 export function validClientIpFromHeaders(headers: {
-  get(name: string): string | null
+  get: (name: string) => string | null
 }): string | null {
   const ip = clientIpFromHeaders(headers)
   return ip && isIP(ip) ? ip : null

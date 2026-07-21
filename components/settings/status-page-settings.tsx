@@ -28,7 +28,7 @@ import {
 } from "@/lib/status-page/schema"
 import { cn } from "@/lib/utils"
 
-export type StatusPageSettingsData = {
+export interface StatusPageSettingsData {
   config: StatusPageConfigDocument
   etag: string
 }
@@ -101,7 +101,9 @@ export function mergeStatusPageDrafts(
   return merged as StatusPageConfigDocument
 }
 
-type ApiErrorEnvelope = { error?: { message?: string } }
+interface ApiErrorEnvelope {
+  error?: { message?: string }
+}
 
 async function errorMessage(response: Response): Promise<string> {
   const payload = (await response.json().catch(() => ({}))) as ApiErrorEnvelope

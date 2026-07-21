@@ -38,7 +38,7 @@ export type DispatcherFactory = (options: {
   onConnectedAddress: (address: string) => void
 }) => ManagedDispatcher
 
-export type CheckerDependencies = {
+export interface CheckerDependencies {
   resolveAll?: ResolveAll
   request?: RequestExecutor
   createDispatcher?: DispatcherFactory
@@ -49,7 +49,7 @@ export type CheckerDependencies = {
 type ConnectorCallback = (
   ...args: [null, Socket | TLSSocket] | [Error, null]
 ) => void
-type ConnectorOptions = {
+interface ConnectorOptions {
   hostname: string
   host?: string
   protocol: string

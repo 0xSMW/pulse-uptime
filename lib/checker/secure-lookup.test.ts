@@ -4,7 +4,10 @@ import { describe, expect, it } from "vitest"
 import { BlockedTargetError } from "./ip-policy"
 import { createSecureLookup } from "./secure-lookup"
 
-type LookupOptions = { all?: boolean; family?: number }
+interface LookupOptions {
+  all?: boolean
+  family?: number
+}
 
 function runLookup(
   addresses: readonly LookupAddress[],

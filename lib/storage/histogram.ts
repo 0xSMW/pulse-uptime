@@ -15,7 +15,7 @@ export function latencyBucket(latencyMs: number): number {
 }
 
 export function histogramFor(values: readonly number[]): number[] {
-  const histogram = Array<number>(HISTOGRAM_BUCKET_COUNT).fill(0)
+  const histogram = new Array(HISTOGRAM_BUCKET_COUNT).fill(0)
   for (const value of values) {
     histogram[latencyBucket(value)] += 1
   }
@@ -25,7 +25,7 @@ export function histogramFor(values: readonly number[]): number[] {
 export function mergeHistograms(
   histograms: readonly (readonly number[])[]
 ): number[] {
-  const merged = Array<number>(HISTOGRAM_BUCKET_COUNT).fill(0)
+  const merged = new Array(HISTOGRAM_BUCKET_COUNT).fill(0)
   for (const histogram of histograms) {
     if (histogram.length !== HISTOGRAM_BUCKET_COUNT) {
       throw new Error("Histogram version mismatch")

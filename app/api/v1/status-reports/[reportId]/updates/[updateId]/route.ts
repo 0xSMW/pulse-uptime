@@ -10,7 +10,9 @@ import {
   editReportUpdate,
 } from "@/lib/api/status-reports"
 
-type Params = { params: Promise<{ reportId: string; updateId: string }> }
+interface Params {
+  params: Promise<{ reportId: string; updateId: string }>
+}
 
 export async function PATCH(request: Request, { params }: Params) {
   const context = await authorize(request, { scope: "reports:write" })

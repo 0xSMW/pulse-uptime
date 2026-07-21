@@ -19,7 +19,7 @@ export type CheckErrorCode = (typeof CHECK_ERROR_CODES)[number]
 export type CheckMethod = "GET" | "HEAD"
 export type CheckMode = "scheduled" | "manual"
 
-export type CheckTarget = {
+export interface CheckTarget {
   url: string
   method: CheckMethod
   timeoutMs: number
@@ -37,7 +37,7 @@ export type MonitorConfig = CheckTarget & {
   recipients: string[]
 }
 
-export type CheckMetadata = {
+export interface CheckMetadata {
   mode: CheckMode
   method: CheckMethod
   requestedUrl: string
@@ -57,8 +57,10 @@ export type CheckResult =
       errorMessage: string
     })
 
-export type ResponseBody = { destroy(error?: Error): void }
-export type CheckerResponse = {
+export interface ResponseBody {
+  destroy: (error?: Error) => void
+}
+export interface CheckerResponse {
   statusCode: number
   headers: Record<string, string | string[] | undefined>
   body: ResponseBody
@@ -78,5 +80,5 @@ export type RequestExecutor = (
 ) => Promise<CheckerResponse>
 
 export type ManagedDispatcher = Dispatcher & {
-  close(): Promise<void>
+  close: () => Promise<void>
 }

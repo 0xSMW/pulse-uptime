@@ -10,10 +10,16 @@ import { cn } from "@/lib/utils"
 const Select = SelectPrimitive.Root
 const SelectValue = SelectPrimitive.Value
 
-const SelectTrigger = React.forwardRef<
-  React.ComponentRef<typeof SelectPrimitive.Trigger>,
-  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>
->(({ className, children, ...props }, ref) => (
+const SelectTrigger = ({
+  className,
+  children,
+  ref,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger> & {
+  ref?: React.RefObject<React.ComponentRef<
+    typeof SelectPrimitive.Trigger
+  > | null>
+}) => (
   <SelectPrimitive.Trigger
     className={cn(
       "flex h-10 w-full items-center justify-between rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-3 text-sm outline-none hover:border-[var(--border-hover)] focus-visible:border-[var(--focus)] focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] disabled:cursor-not-allowed disabled:opacity-50 data-[placeholder]:text-[var(--fg-muted)]",
@@ -30,13 +36,20 @@ const SelectTrigger = React.forwardRef<
       />
     </SelectPrimitive.Icon>
   </SelectPrimitive.Trigger>
-))
+)
 SelectTrigger.displayName = SelectPrimitive.Trigger.displayName
 
-const SelectContent = React.forwardRef<
-  React.ComponentRef<typeof SelectPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
->(({ className, children, position = "popper", ...props }, ref) => {
+const SelectContent = ({
+  className,
+  children,
+  position = "popper",
+  ref,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content> & {
+  ref?: React.RefObject<React.ComponentRef<
+    typeof SelectPrimitive.Content
+  > | null>
+}) => {
   // Portal into the nearest overlay host. A select inside a top-layer
   // dialog must render within that dialog or its menu is inert.
   const container = usePortalContainer()
@@ -71,13 +84,17 @@ const SelectContent = React.forwardRef<
       </SelectPrimitive.Content>
     </SelectPrimitive.Portal>
   )
-})
+}
 SelectContent.displayName = SelectPrimitive.Content.displayName
 
-const SelectItem = React.forwardRef<
-  React.ComponentRef<typeof SelectPrimitive.Item>,
-  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item>
->(({ className, children, ...props }, ref) => (
+const SelectItem = ({
+  className,
+  children,
+  ref,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item> & {
+  ref?: React.RefObject<React.ComponentRef<typeof SelectPrimitive.Item> | null>
+}) => (
   <SelectPrimitive.Item
     className={cn(
       "relative flex h-9 w-full cursor-default select-none items-center rounded-[6px] py-2 pr-8 pl-8 text-[13px] outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-[var(--fg)] data-[disabled]:opacity-50",
@@ -93,7 +110,7 @@ const SelectItem = React.forwardRef<
     </span>
     <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
   </SelectPrimitive.Item>
-))
+)
 SelectItem.displayName = SelectPrimitive.Item.displayName
 
 export { Select, SelectContent, SelectItem, SelectTrigger, SelectValue }

@@ -12,7 +12,9 @@ import {
   updateStatusReport,
 } from "@/lib/api/status-reports"
 
-type Params = { params: Promise<{ reportId: string }> }
+interface Params {
+  params: Promise<{ reportId: string }>
+}
 
 export async function GET(request: Request, { params }: Params) {
   const context = await authorize(request, { scope: "reports:read" })

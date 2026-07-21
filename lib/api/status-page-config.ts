@@ -86,23 +86,23 @@ export type StatusPageConfigRow = StatusPageConfigDocument & {
 }
 
 export interface StatusPageConfigStore {
-  read(): Promise<
+  read: () => Promise<
     (Omit<StatusPageConfigRow, "name"> & { name: string | null }) | null
   >
   /** Conditional single-row update, false when version no longer matches expectedVersion. */
-  write(input: {
+  write: (input: {
     document: StatusPageConfigDocument
     expectedVersion: number
     now: Date
-  }): Promise<boolean>
-  findImageKinds(
+  }) => Promise<boolean>
+  findImageKinds: (
     ids: readonly string[]
-  ): Promise<Array<{ id: string; kind: string }>>
+  ) => Promise<Array<{ id: string; kind: string }>>
   /** Deletes the given image rows unless something still references them. */
-  deleteUnreferencedImages(ids: readonly string[]): Promise<number>
+  deleteUnreferencedImages: (ids: readonly string[]) => Promise<number>
 }
 
-export type StatusPageConfigDependencies = {
+export interface StatusPageConfigDependencies {
   store?: StatusPageConfigStore
   env?: Record<string, string | undefined>
   now?: () => Date

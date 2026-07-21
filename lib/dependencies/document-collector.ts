@@ -43,7 +43,7 @@ export type CollectDocumentsFetch = (
   }
 ) => Promise<FetchDocumentResult>
 
-export type CollectDocumentsInput = {
+export interface CollectDocumentsInput {
   adapter: DocumentCollectorAdapter
   source: DependencySourceManifest
   /** Documents already in hand (resume a multi-pass adapter). */

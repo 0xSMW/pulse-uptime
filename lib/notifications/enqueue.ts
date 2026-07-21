@@ -26,7 +26,7 @@ import type {
 // the same poll, so the row inserted here commits or rolls back with them
 // instead of autocommitting on a separate connection.
 
-type DependencyNotificationInput = {
+interface DependencyNotificationInput {
   event: DependencyNotificationEvent
   sourceId: string
   incidentExternalId: string

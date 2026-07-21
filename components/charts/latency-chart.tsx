@@ -12,7 +12,7 @@ import {
 
 import { useTimezone } from "@/components/dashboard/timezone-provider"
 
-export type LatencyPoint = {
+export interface LatencyPoint {
   timestamp: string
   latencyMs: number | null
   successful: boolean

@@ -1,8 +1,15 @@
-export type ApiEnvelope<T> = { data: T; meta?: Record<string, unknown> }
+export interface ApiEnvelope<T> {
+  data: T
+  meta?: Record<string, unknown>
+}
 
-export type SettingsGroup = { id: string; name: string; monitorCount: number }
+export interface SettingsGroup {
+  id: string
+  name: string
+  monitorCount: number
+}
 
-type ErrorEnvelope = {
+interface ErrorEnvelope {
   error?: { code?: string; message?: string; details?: Record<string, unknown> }
 }
 

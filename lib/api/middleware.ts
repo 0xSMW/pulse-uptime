@@ -12,7 +12,7 @@ import {
 } from "./rate-limit"
 import { type ApiScope, hasScope } from "./scopes"
 
-export type ApiContext = {
+export interface ApiContext {
   principal: Principal
   principalKey: string
   requestId: string

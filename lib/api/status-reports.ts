@@ -74,7 +74,7 @@ export type StatusReportUpdateStatus =
   (typeof statusReportUpdateStatuses)[number]
 export type StatusReportImpact = (typeof statusReportImpacts)[number]
 
-export type StatusReportRow = {
+export interface StatusReportRow {
   id: string
   type: StatusReportType
   title: string
@@ -87,7 +87,7 @@ export type StatusReportRow = {
   updatedAt: Date
 }
 
-export type StatusReportUpdateRow = {
+export interface StatusReportUpdateRow {
   id: string
   reportId: string
   status: StatusReportUpdateStatus
@@ -97,7 +97,7 @@ export type StatusReportUpdateRow = {
   updatedAt: Date
 }
 
-export type StatusReportAffectedRow = {
+export interface StatusReportAffectedRow {
   reportId: string
   monitorId: string
   monitorName: string
@@ -105,7 +105,7 @@ export type StatusReportAffectedRow = {
   impact: StatusReportImpact
 }
 
-export type StatusReportUpdateData = {
+export interface StatusReportUpdateData {
   id: string
   status: StatusReportUpdateStatus
   markdown: string
@@ -117,14 +117,14 @@ export type StatusReportUpdateData = {
   createdAt: string
 }
 
-export type AffectedServiceData = {
+export interface AffectedServiceData {
   monitorId: string
   monitorName: string
   groupName: string | null
   impact: StatusReportImpact
 }
 
-export type StatusReportData = {
+export interface StatusReportData {
   id: string
   type: StatusReportType
   title: string
@@ -145,7 +145,7 @@ export type StatusReportData = {
  * markdown bodies or the full update timeline. `requireStatusReport` keeps the
  * detailed shape.
  */
-export type StatusReportListItemData = {
+export interface StatusReportListItemData {
   id: string
   type: StatusReportType
   title: string
@@ -184,28 +184,28 @@ export class StatusReportError extends Error {
 }
 
 export interface StatusReportsStore {
-  findMonitors(
+  findMonitors: (
     ids: readonly string[]
-  ): Promise<Array<{ id: string; name: string; groupName: string | null }>>
-  insertReport(input: {
+  ) => Promise<Array<{ id: string; name: string; groupName: string | null }>>
+  insertReport: (input: {
     report: StatusReportRow
     update: StatusReportUpdateRow
     affected: StatusReportAffectedRow[]
-  }): Promise<void>
+  }) => Promise<void>
   /** Insert honoring the partial unique index on originIncidentId. */
-  insertPromotedReport(input: {
+  insertPromotedReport: (input: {
     report: StatusReportRow
     update: StatusReportUpdateRow
     affected: StatusReportAffectedRow[]
-  }): Promise<{ id: string; created: boolean }>
-  getReport(id: string): Promise<StatusReportRow | null>
-  listReports(input: {
+  }) => Promise<{ id: string; created: boolean }>
+  getReport: (id: string) => Promise<StatusReportRow | null>
+  listReports: (input: {
     state: StatusReportListState
     type: StatusReportListType
     cursor: { createdAt: Date; id: string } | null
     limit: number
-  }): Promise<StatusReportRow[]>
-  getReportDetails(ids: readonly string[]): Promise<{
+  }) => Promise<StatusReportRow[]>
+  getReportDetails: (ids: readonly string[]) => Promise<{
     updates: StatusReportUpdateRow[]
     affected: StatusReportAffectedRow[]
   }>
@@ -213,7 +213,7 @@ export interface StatusReportsStore {
    * List-path details: per-report update counts + the latest update's status
    * and publishedAt (via the contract total order), never markdown bodies.
    */
-  getListDetails(ids: readonly string[]): Promise<{
+  getListDetails: (ids: readonly string[]) => Promise<{
     counts: Array<{ reportId: string; count: number }>
     latest: Array<{
       reportId: string
@@ -222,14 +222,14 @@ export interface StatusReportsStore {
     }>
     affected: StatusReportAffectedRow[]
   }>
-  updateReport(input: {
+  updateReport: (input: {
     id: string
     patch: { title?: string; startsAt?: Date; endsAt?: Date | null }
     affected: StatusReportAffectedRow[] | undefined
     now: Date
-  }): Promise<StatusReportRow | null>
-  deleteReport(id: string): Promise<boolean>
-  insertUpdate(row: StatusReportUpdateRow): Promise<void>
+  }) => Promise<StatusReportRow | null>
+  deleteReport: (id: string) => Promise<boolean>
+  insertUpdate: (row: StatusReportUpdateRow) => Promise<void>
   /**
    * Row-locked insert for addReportUpdate: locks the report (`FOR UPDATE`,
    * mirroring deleteUpdate/recomputeResolution) and re-verifies it still
@@ -239,11 +239,11 @@ export interface StatusReportsStore {
    * report_id foreign-key violation. Returns the locked report row, or null
    * if it no longer exists, in which case nothing is inserted.
    */
-  insertReportUpdate(input: {
+  insertReportUpdate: (input: {
     reportId: string
     update: StatusReportUpdateRow
-  }): Promise<StatusReportRow | null>
-  editUpdate(input: {
+  }) => Promise<StatusReportRow | null>
+  editUpdate: (input: {
     reportId: string
     updateId: string
     patch: {
@@ -252,7 +252,7 @@ export interface StatusReportsStore {
       publishedAt?: Date
     }
     now: Date
-  }): Promise<StatusReportUpdateRow | null>
+  }) => Promise<StatusReportUpdateRow | null>
   /**
    * Transactional guarded delete: the report row is locked (`FOR UPDATE`) so
    * concurrent deletes on the same report serialize before the surviving
@@ -260,10 +260,10 @@ export interface StatusReportsStore {
    * update for the report exists. "last_update" = the row exists but is the
    * report's final update, "missing" = no such row.
    */
-  deleteUpdate(input: {
+  deleteUpdate: (input: {
     reportId: string
     updateId: string
-  }): Promise<"deleted" | "last_update" | "missing">
+  }) => Promise<"deleted" | "last_update" | "missing">
   /**
    * Recomputes and persists the report's resolvedAt from the FULL current
    * update set, inside a `SELECT ... FOR UPDATE`-locked transaction on the
@@ -275,15 +275,15 @@ export interface StatusReportsStore {
    * the same consistent snapshot) and the resolvedAt persisted, or null if the
    * report no longer exists.
    */
-  recomputeResolution(input: { reportId: string; now: Date }): Promise<{
+  recomputeResolution: (input: { reportId: string; now: Date }) => Promise<{
     updates: StatusReportUpdateRow[]
     resolvedAt: Date | null
   } | null>
-  publishReport(input: {
+  publishReport: (input: {
     id: string
     now: Date
-  }): Promise<"published" | "already_published" | "missing">
-  findIncident(incidentId: string): Promise<{
+  }) => Promise<"published" | "already_published" | "missing">
+  findIncident: (incidentId: string) => Promise<{
     id: string
     monitorId: string
     monitorName: string
@@ -292,11 +292,11 @@ export interface StatusReportsStore {
     openingStatusCode: number | null
   } | null>
   /** Query 1 of getPublicReports: published ongoing/upcoming + recent resolved. */
-  getPublicReportRows(input: {
+  getPublicReportRows: (input: {
     resolvedLimit: number
     now: Date
     filter?: PublicReportRowsFilter
-  }): Promise<StatusReportRow[]>
+  }) => Promise<StatusReportRow[]>
   /**
    * Distinct group names ever snapshotted into affected rows, null included.
    * Backs slug scoping in getPublicReports: statusGroupSlug cannot be
@@ -304,16 +304,18 @@ export interface StatusReportsStore {
    * service enumerates the snapshot names, slugs them in JS, and hands the
    * exact matching names to getPublicReportRows for raw-string comparison.
    */
-  getAffectedGroupNames(): Promise<Array<string | null>>
+  getAffectedGroupNames: () => Promise<Array<string | null>>
   /** Query 2: latest update per report via DISTINCT ON, total-order aligned. */
-  getLatestUpdates(
+  getLatestUpdates: (
     reportIds: readonly string[]
-  ): Promise<StatusReportUpdateRow[]>
+  ) => Promise<StatusReportUpdateRow[]>
   /** Query 3: affected rows for the page of reports. */
-  getAffected(reportIds: readonly string[]): Promise<StatusReportAffectedRow[]>
+  getAffected: (
+    reportIds: readonly string[]
+  ) => Promise<StatusReportAffectedRow[]>
 }
 
-export type StatusReportsDependencies = {
+export interface StatusReportsDependencies {
   store?: StatusReportsStore
   now?: () => Date
   newId?: () => string
@@ -402,7 +404,7 @@ const affectedEntrySchema = z
 /**
  * Per-report cap on affected monitors, enforced both at the input schema and
  * as the multiplier the affected-row read caps derive from (reportIds.length
- * * MAX_AFFECTED_PER_REPORT) so a global cap can never truncate a page of
+ * MAX_AFFECTED_PER_REPORT) so a global cap can never truncate a page of
  * reports that are each individually within bounds.
  */
 export const MAX_AFFECTED_PER_REPORT = 100
@@ -1178,7 +1180,7 @@ export type PublicReportPhase =
   | "window_ended"
   | "resolved"
 
-export type PublicStatusReport = {
+export interface PublicStatusReport {
   id: string
   type: StatusReportType
   title: string
@@ -1193,7 +1195,7 @@ export type PublicStatusReport = {
   affected: AffectedServiceData[]
 }
 
-export type PublicReports = {
+export interface PublicReports {
   ongoing: PublicStatusReport[]
   upcoming: PublicStatusReport[]
   windowEnded: PublicStatusReport[]
@@ -1215,7 +1217,7 @@ export const PUBLIC_RESOLVED_LIMIT = 10
  * though both collapse to the same slug, and an archived-only group has no
  * live names to compare at all.
  */
-export type PublicReportsFilter = {
+export interface PublicReportsFilter {
   monitorIds: readonly string[]
   groupSlug: string
 }
@@ -1224,7 +1226,7 @@ export type PublicReportsFilter = {
  * Store-level prefilter with the slug already resolved to the exact
  * snapshotted group names it matches, so the store can compare raw strings.
  */
-export type PublicReportRowsFilter = {
+export interface PublicReportRowsFilter {
   monitorIds: readonly string[]
   groupNames: readonly string[]
 }

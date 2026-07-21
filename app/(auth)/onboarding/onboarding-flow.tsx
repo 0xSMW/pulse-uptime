@@ -24,7 +24,7 @@ import type { ReadinessReport } from "@/lib/readiness/types"
 import styles from "../auth.module.css"
 
 type Step = "readiness" | "account" | OnboardingStep
-type Props = {
+interface Props {
   initialStep: Step
   initialDraft?: MonitorDraft
   email?: string

@@ -22,7 +22,7 @@ export async function generateMetadata(): Promise<Metadata> {
   }
 }
 
-type GroupPageProps = {
+interface GroupPageProps {
   params: Promise<{ group: string }>
 }
 

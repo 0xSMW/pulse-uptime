@@ -27,7 +27,7 @@ const CLI_SESSION_TTL_MS = 30 * 24 * 60 * 60_000
 const INITIAL_POLL_SECONDS = 5
 const USER_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 
-export type PendingDeviceAuthorization = {
+export interface PendingDeviceAuthorization {
   id: string
   userCode: string
   clientName: string

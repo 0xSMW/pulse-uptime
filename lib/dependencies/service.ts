@@ -47,7 +47,7 @@ export class DependencyApiError extends Error {
   }
 }
 
-export type DiscoveredScopeOptionRow = {
+export interface DiscoveredScopeOptionRow {
   scopeId: string
   label: string
   available: boolean
@@ -68,7 +68,7 @@ export class DependencyInstallConflictError extends DependencyApiError {
   }
 }
 
-export type DependencyPresetRow = {
+export interface DependencyPresetRow {
   id: string
   sourceId: string
   enabled: boolean
@@ -77,7 +77,7 @@ export type DependencyPresetRow = {
   scope: DependencyScope | null
 }
 
-export type DependencyRow = {
+export interface DependencyRow {
   id: string
   catalogId: string
   scopeId: string | null
@@ -86,7 +86,7 @@ export type DependencyRow = {
   removedAt: Date | null
 }
 
-export type DependencyStateSnapshot = {
+export interface DependencyStateSnapshot {
   state: DependencyState
   pendingFirstPoll: boolean
   observedAt: Date
@@ -94,15 +94,15 @@ export type DependencyStateSnapshot = {
 }
 
 export interface DependenciesStore {
-  loadPreset(presetId: string): Promise<DependencyPresetRow | null>
+  loadPreset: (presetId: string) => Promise<DependencyPresetRow | null>
   /**
    * Discovered scope options for a preset, including unavailable ones kept
    * after a complete directory refresh. Empty when discovery has not yet
    * materialised any row for this catalog id.
    */
-  loadDiscoveredScopeOptions(
+  loadDiscoveredScopeOptions: (
     catalogId: string
-  ): Promise<DiscoveredScopeOptionRow[]>
+  ) => Promise<DiscoveredScopeOptionRow[]>
   /**
    * Seeds a fresh install from the most recent observation of the SAME
    * (catalogId, scopeId) pair, when one is fresh. Only a previously removed
@@ -112,11 +112,11 @@ export interface DependenciesStore {
    * a needless UNKNOWN bounce, while a stale or first-ever install still
    * falls through to UNKNOWN with pendingFirstPoll set.
    */
-  loadRecentStateForCatalogScope(
+  loadRecentStateForCatalogScope: (
     catalogId: string,
     scopeId: string | null,
     freshAfter: Date
-  ): Promise<DependencyStateSnapshot | null>
+  ) => Promise<DependencyStateSnapshot | null>
   /**
    * Inserts the dependency, its opening state, and its opening interval, and
    * schedules the source for immediate polling. With no handle given, this
@@ -127,16 +127,16 @@ export interface DependenciesStore {
    * statement, it throws DependencyInstallConflictError instead, since the
    * caller has no live handle left to act on a plain false with.
    */
-  insertDependency(input: {
+  insertDependency: (input: {
     dependency: DependencyRow
     state: DependencyStateSnapshot
     intervalId: string
     sourceId: string
     now: Date
     handle?: DatabaseHandle
-  }): Promise<boolean>
-  touchSourceNextPoll(sourceId: string, now: Date): Promise<void>
-  loadSourceIdForDependency(id: string): Promise<string | null>
+  }) => Promise<boolean>
+  touchSourceNextPoll: (sourceId: string, now: Date) => Promise<void>
+  loadSourceIdForDependency: (id: string) => Promise<string | null>
   /**
    * Soft removal: sets removedAt and closes the open interval. With no handle
    * given this runs in its own transaction; with a caller-supplied handle
@@ -144,19 +144,19 @@ export interface DependenciesStore {
    * the idempotency record commit together, mirroring insertDependency.
    * Returns false when no active dependency matches.
    */
-  removeDependency(
+  removeDependency: (
     id: string,
     now: Date,
     handle?: DatabaseHandle
-  ): Promise<boolean>
-  patchNotifications(
+  ) => Promise<boolean>
+  patchNotifications: (
     id: string,
     notificationsEnabled: boolean,
     handle?: DatabaseHandle
-  ): Promise<boolean>
+  ) => Promise<boolean>
 }
 
-export type DependencyServiceDeps = {
+export interface DependencyServiceDeps {
   store?: DependenciesStore
   now?: () => Date
   newId?: () => string
@@ -164,7 +164,7 @@ export type DependencyServiceDeps = {
   dependencyId?: string
 }
 
-export type AddDependencyInput = {
+export interface AddDependencyInput {
   presetId: string
   scopeId?: string | null
   notificationsEnabled?: boolean

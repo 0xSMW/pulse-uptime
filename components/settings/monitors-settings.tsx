@@ -20,7 +20,7 @@ import { CardHeading, SettingsRow } from "@/components/settings/settings-row"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 
-export type MonitorSettingsData = {
+export interface MonitorSettingsData {
   monitors: Array<EditableMonitor & { state: MonitorState }>
   groups: SettingsGroup[]
   userAgent: string

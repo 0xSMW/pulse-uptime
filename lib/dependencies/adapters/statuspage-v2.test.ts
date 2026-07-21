@@ -52,7 +52,7 @@ describe("statuspageV2Adapter.normalize: component status mapping", () => {
       documents: [currentDoc(operational)],
       observedAt: "2026-07-19T15:00:00Z",
     })
-    expect(snapshot.components["k8w3r06qmzrp"]).toMatchObject({
+    expect(snapshot.components.k8w3r06qmzrp).toMatchObject({
       state: "OPERATIONAL",
     })
   })
@@ -63,7 +63,7 @@ describe("statuspageV2Adapter.normalize: component status mapping", () => {
       documents: [currentDoc(degraded)],
       observedAt: "2026-07-19T15:10:00Z",
     })
-    expect(snapshot.components["k8w3r06qmzrp"]).toMatchObject({
+    expect(snapshot.components.k8w3r06qmzrp).toMatchObject({
       state: "DEGRADED",
     })
   })
@@ -74,10 +74,10 @@ describe("statuspageV2Adapter.normalize: component status mapping", () => {
       documents: [currentDoc(outage)],
       observedAt: "2026-07-19T16:00:00Z",
     })
-    expect(snapshot.components["k8w3r06qmzrp"]).toMatchObject({
+    expect(snapshot.components.k8w3r06qmzrp).toMatchObject({
       state: "OUTAGE",
     })
-    expect(snapshot.components["rwppv331jlwc"]).toMatchObject({
+    expect(snapshot.components.rwppv331jlwc).toMatchObject({
       state: "OUTAGE",
     })
   })
@@ -88,7 +88,7 @@ describe("statuspageV2Adapter.normalize: component status mapping", () => {
       documents: [currentDoc(maintenance)],
       observedAt: "2026-07-19T02:30:00Z",
     })
-    expect(snapshot.components["k8w3r06qmzrp"]).toMatchObject({
+    expect(snapshot.components.k8w3r06qmzrp).toMatchObject({
       state: "MAINTENANCE",
     })
   })
@@ -281,7 +281,7 @@ describe("statuspageV2Adapter.normalize: failure handling", () => {
       documents: [currentDoc(missingComponent)],
       observedAt: "2026-07-19T15:00:00Z",
     })
-    expect(snapshot.components["k8w3r06qmzrp"]).toBeUndefined()
+    expect(snapshot.components.k8w3r06qmzrp).toBeUndefined()
     // componentsComplete true (FIX B): a successful summary.json enumerates
     // every component, so this absence resolves the dependency to UNKNOWN,
     // not OPERATIONAL.

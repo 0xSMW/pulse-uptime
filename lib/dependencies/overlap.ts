@@ -26,9 +26,12 @@ import {
 // per-render mapping.
 const OVERLAP_RESULT_LIMIT = 50
 
-export type MonitorIncidentWindow = { openedAt: Date; resolvedAt: Date | null }
+export interface MonitorIncidentWindow {
+  openedAt: Date
+  resolvedAt: Date | null
+}
 
-export type DependencyIncidentOverlap = {
+export interface DependencyIncidentOverlap {
   dependencyId: string
   dependencyName: string
   provider: string

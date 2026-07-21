@@ -244,7 +244,7 @@ describe("restricted markdown rendering", () => {
 
   it("never processes payloads hidden past the truncation boundary", () => {
     const html = renderRestrictedMarkdown(
-      "a".repeat(16_384) + "<script>alert(1)</script>"
+      `${"a".repeat(16_384)}<script>alert(1)</script>`
     )
     expect(html).toBe(`<p>${"a".repeat(16_384)}</p>`)
   })

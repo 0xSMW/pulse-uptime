@@ -6,7 +6,7 @@ import type {
 
 export type LifecycleTarget = "ACTIVE" | "PAUSED" | "ARCHIVED"
 
-export type LifecycleMutation = {
+export interface LifecycleMutation {
   changed: boolean
   state: MonitorStateSnapshot
   resolution: null | {

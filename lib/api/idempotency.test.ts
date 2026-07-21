@@ -30,8 +30,8 @@ class MemoryPersistence implements IdempotencyPersistence {
   // Models the row lock lockOwner takes for the life of a transaction. An
   // entry is a promise a concurrent claimStale awaits, released when the
   // holder's transaction settles.
-  private locks = new Map<string, Promise<void>>()
-  private releasers: Array<() => void> = []
+  private readonly locks = new Map<string, Promise<void>>()
+  private readonly releasers: Array<() => void> = []
 
   constructor(owner?: IdempotencyRecord) {
     this.owner = owner
@@ -431,7 +431,11 @@ describe("idempotency retention reclamation", () => {
 
   it("retries insertion when maintenance deletes an expired row before reclaim", async () => {
     const now = new Date("2026-07-18T12:00:00.000Z")
-    type Record = { id: string; state: "running"; expiresAt: Date }
+    interface Record {
+      id: string
+      state: "running"
+      expiresAt: Date
+    }
     let owner: Record | undefined = {
       id: "expired-owner",
       state: "running",

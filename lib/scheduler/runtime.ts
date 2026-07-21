@@ -44,13 +44,13 @@ import { synchronizeRegistry as syncRegistryRows } from "./registry-sync"
 import { createSqlCronRunStore, createSqlLeaseStore } from "./sql"
 import { isDueAt } from "./time"
 
-type AcceptedRow = {
+interface AcceptedRow {
   configJson: unknown
   configHash: string
 }
 
 export const queryExecutor: SqlExecutor & {
-  withStatementTimeout<T>(
+  withStatementTimeout: <T>(
     timeoutMs: number,
     work: (
       query: <R>(
@@ -58,7 +58,7 @@ export const queryExecutor: SqlExecutor & {
         values: readonly unknown[]
       ) => Promise<readonly R[]>
     ) => Promise<T>
-  ): Promise<T>
+  ) => Promise<T>
 } = {
   async query<T>(
     text: string,

@@ -140,14 +140,14 @@ export interface FetchProviderRequest {
 }
 
 export type ManagedDispatcher = Dispatcher & {
-  close(): Promise<void>
+  close: () => Promise<void>
 }
 
 export type FetchResponseBody = AsyncIterable<Uint8Array> & {
-  destroy(error?: Error): void
+  destroy: (error?: Error) => void
 }
 
-export type FetchResponse = {
+export interface FetchResponse {
   statusCode: number
   headers: Record<string, string | string[] | undefined>
   body: FetchResponseBody

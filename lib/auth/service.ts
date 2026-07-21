@@ -23,7 +23,7 @@ import {
   verifyPassword,
 } from "./credentials"
 
-export type HumanSession = {
+export interface HumanSession {
   sessionId: string
   userId: string
   email: string
@@ -50,9 +50,11 @@ export class AuthServiceError extends Error {
 }
 
 export interface AdminCreationStore {
-  withAdminLock<T>(work: (store: AdminCreationStore) => Promise<T>): Promise<T>
-  hasAdmin(): Promise<boolean>
-  insertAdmin(input: {
+  withAdminLock: <T>(
+    work: (store: AdminCreationStore) => Promise<T>
+  ) => Promise<T>
+  hasAdmin: () => Promise<boolean>
+  insertAdmin: (input: {
     id: string
     email: string
     name: string | null
@@ -62,7 +64,7 @@ export interface AdminCreationStore {
     sessionExpiresAt: Date
     emailWarningAcknowledged: boolean
     now: Date
-  }): Promise<void>
+  }) => Promise<void>
 }
 
 export async function createOnlyAdmin(
@@ -232,15 +234,15 @@ export const LOGIN_RATE_LIMIT_POLICY: RateLimitPolicy = {
   windowSeconds: LOGIN_WINDOW_SECONDS,
 }
 
-type LoginUser = {
+interface LoginUser {
   id: string
   passwordDigest: string
   onboardingCompletedAt: Date | null
 }
 
 export interface LoginStore {
-  findUser(email: string): Promise<LoginUser | null>
-  insertSession(input: {
+  findUser: (email: string) => Promise<LoginUser | null>
+  insertSession: (input: {
     userId: string
     currentSessionId?: string | null
     sessionDigest: Buffer
@@ -248,10 +250,10 @@ export interface LoginStore {
     ipAddress: string | null
     now: Date
     expiresAt: Date
-  }): Promise<void>
+  }) => Promise<void>
 }
 
-export type LoginDependencies = {
+export interface LoginDependencies {
   store?: LoginStore
   enforceLimit?: (
     principalKey: string,

@@ -32,7 +32,7 @@ export function openingFailure(
   return errorCode ?? "Unknown failure"
 }
 
-export type LiveIncidentRow = {
+export interface LiveIncidentRow {
   id: string
   openedAt: Date
   resolvedAt: Date | null
@@ -40,7 +40,7 @@ export type LiveIncidentRow = {
   openingStatusCode: number | null
 }
 
-export type LiveRollupRow = {
+export interface LiveRollupRow {
   bucketStart: Date
   expectedChecks: number
   completedChecks: number
@@ -50,7 +50,7 @@ export type LiveRollupRow = {
   latencySumMs: bigint
 }
 
-export type LiveLatestIncident = {
+export interface LiveLatestIncident {
   id: string
   state: "ONGOING" | "RESOLVED"
   openedAt: string
@@ -59,14 +59,14 @@ export type LiveLatestIncident = {
   openingFailure: string
 }
 
-export type LiveRecentIncident = {
+export interface LiveRecentIncident {
   id: string
   openedAt: string
   durationSeconds: number
   openingFailure: string
 }
 
-export type LiveRecentCheck = {
+export interface LiveRecentCheck {
   id: string
   checkedAt: string
   successful: boolean
@@ -75,7 +75,7 @@ export type LiveRecentCheck = {
   latencyMs: number | null
 }
 
-export type MonitorFirstRun = {
+export interface MonitorFirstRun {
   phase: MonitorPhase
   activatedAt: string | null
   observedSeconds: number
@@ -91,7 +91,7 @@ export type LiveRange = "h24" | "d7"
 
 // The changing subset of a monitor page. The live poll returns exactly these
 // fields so the client can merge them over the server snapshot in place.
-export type MonitorLiveData = {
+export interface MonitorLiveData {
   // The monitor this payload describes. SWR keepPreviousData holds one monitor's
   // payload under the next monitor's key across a direct navigation, so the merge
   // applies the live fields only when this id matches the page's monitor.
@@ -177,7 +177,7 @@ export function buildRecentIncidents(
   }))
 }
 
-export type RawMinuteCheck = {
+export interface RawMinuteCheck {
   checked_at: Date
   completed: boolean
   failed: boolean
@@ -252,7 +252,7 @@ export function buildRecentChecks(
 // Aggregated counts for the post-activation raw minutes no rollup counts, summed
 // over the check source across rawTailBounds. Each minute is one expected check,
 // so completed, successful, and failed read the per-minute flags.
-export type RawTailCounts = {
+export interface RawTailCounts {
   expected: number
   completed: number
   successful: number
@@ -280,7 +280,7 @@ export type RawTailCounts = {
 // it. With no counted bucket yet both boundaries are null and the raw
 // contribution collapses to the single interval [activationFloor, now), the
 // pre-compaction behavior. An unactivated monitor has no raw contribution.
-export type RawTailBounds = {
+export interface RawTailBounds {
   activationFloor: Date
   firstCountedBucketStart: Date | null
   lastCompletedBucketEnd: Date | null
@@ -348,7 +348,7 @@ export function observedWithRawTail(
   }
 }
 
-export type LiveMonitorIdentity = {
+export interface LiveMonitorIdentity {
   activatedAt: Date | null
   consecutiveFailures: number | null
   lastErrorCode: string | null

@@ -5,10 +5,10 @@ import { deterministicUuid } from "@/lib/ids/deterministic-uuid"
 import { encodeTelemetry } from "./codec"
 
 export interface PackedMinuteExecutor {
-  query<T>(text: string, values: readonly unknown[]): Promise<readonly T[]>
+  query: <T>(text: string, values: readonly unknown[]) => Promise<readonly T[]>
 }
 
-export type MinuteCheckResult = {
+export interface MinuteCheckResult {
   monitorId: string
   completed: boolean
   failed: boolean
@@ -18,7 +18,7 @@ export type MinuteCheckResult = {
   recovered?: boolean
 }
 
-export type PackedMinuteInput = {
+export interface PackedMinuteInput {
   scheduledMinute: Date
   configVersion: number
   monitorIds: readonly string[]
@@ -28,7 +28,7 @@ export type PackedMinuteInput = {
   schedulerCompletedAt: Date
 }
 
-type ExceptionRow = {
+interface ExceptionRow {
   id: string
   monitorId: string | null
   eventType: "failure" | "recovery" | "scheduler_gap"

@@ -40,7 +40,7 @@ export function defaultStatusPageDocument(
   }
 }
 
-export type TimezoneDisplay = {
+export interface TimezoneDisplay {
   /** IANA zone safe to hand to Intl (falls back to UTC on bad input). */
   timeZone: string
   /** Per-timestamp suffix, e.g. "UTC" or "GMT+7". */

@@ -103,10 +103,10 @@ describe("status page config document schema", () => {
     const link = { label: "Docs", url: "https://example.com" }
     expect(
       statusPageConfigDocumentSchema.safeParse(
-        baseDocument({ navLinks: Array(8).fill(link) })
+        baseDocument({ navLinks: new Array(8).fill(link) })
       ).success
     ).toBe(true)
-    expectRejected({ navLinks: Array(9).fill(link) })
+    expectRejected({ navLinks: new Array(9).fill(link) })
     expectRejected({ navLinks: [{ label: "", url: "https://example.com" }] })
     expectRejected({
       navLinks: [{ label: "a".repeat(41), url: "https://example.com" }],

@@ -124,7 +124,7 @@ export async function runBenchmark(
 
   mkdirSync(ARTIFACTS_DIR, { recursive: true })
   const artifactPath = resolveArtifactPath(options.label, artifact.createdAt)
-  writeFileSync(artifactPath, JSON.stringify(artifact, null, 2) + "\n", {
+  writeFileSync(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`, {
     mode: 0o600,
   })
   return { artifact, artifactPath }

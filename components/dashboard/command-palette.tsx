@@ -24,14 +24,14 @@ import {
 import { formatDuration, formatLatency } from "@/lib/reporting/format"
 import { cn } from "@/lib/utils"
 
-export type PaletteMonitor = {
+export interface PaletteMonitor {
   id: string
   name: string
   state: MonitorState
   latestLatencyMs: number | null
 }
 
-export type PaletteIncident = {
+export interface PaletteIncident {
   id: string
   monitorId: string
   monitorName: string
@@ -39,7 +39,7 @@ export type PaletteIncident = {
   cause: string
 }
 
-export type PaletteItem = {
+export interface PaletteItem {
   id: string
   text: string
   searchText: string
@@ -50,7 +50,7 @@ export type PaletteItem = {
   down?: boolean
 }
 
-export type PaletteGroup = {
+export interface PaletteGroup {
   label: "Navigation" | "Monitors" | "Live Incidents"
   items: PaletteItem[]
 }
@@ -174,7 +174,9 @@ export function nextPaletteIndex(
     : Math.max(index - 1, 0)
 }
 
-type PaletteContextValue = { openPalette: () => void }
+interface PaletteContextValue {
+  openPalette: () => void
+}
 const PaletteContext = createContext<PaletteContextValue | null>(null)
 
 export function useCommandPalette(): PaletteContextValue {

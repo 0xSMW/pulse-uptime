@@ -147,9 +147,7 @@ describe("pollDueSources orchestration", () => {
     const [outcome] = persist.mock.calls[0] as [PollOutcome]
     expect(outcome.kind).toBe("snapshot")
     if (outcome.kind === "snapshot") {
-      expect(outcome.snapshot.components["k8w3r06qmzrp"].state).toBe(
-        "OPERATIONAL"
-      )
+      expect(outcome.snapshot.components.k8w3r06qmzrp.state).toBe("OPERATIONAL")
       expect(outcome.etag).toBe('"abc"')
     }
   })
@@ -266,9 +264,7 @@ describe("pollDueSources orchestration", () => {
     const [outcome] = persist.mock.calls[0] as [PollOutcome]
     expect(outcome.kind).toBe("snapshot")
     if (outcome.kind === "snapshot") {
-      expect(outcome.snapshot.components["k8w3r06qmzrp"].state).toBe(
-        "OPERATIONAL"
-      )
+      expect(outcome.snapshot.components.k8w3r06qmzrp.state).toBe("OPERATIONAL")
     }
     // The failed optional document is requested exactly once, not re-fetched in a loop.
     const maintenanceCalls = fetchDocument.mock.calls.filter(
@@ -814,9 +810,7 @@ describe("pollDueSources orchestration", () => {
     const [outcome] = persist.mock.calls[0] as [PollOutcome]
     expect(outcome.kind).toBe("snapshot")
     if (outcome.kind === "snapshot") {
-      expect(outcome.snapshot.components["k8w3r06qmzrp"].state).toBe(
-        "OPERATIONAL"
-      )
+      expect(outcome.snapshot.components.k8w3r06qmzrp.state).toBe("OPERATIONAL")
     }
   })
 

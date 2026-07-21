@@ -42,7 +42,7 @@ import { cn } from "@/lib/utils"
 type AvailabilityRange = "h24" | "d7" | "d30" | "d90"
 type ResponseRange = Exclude<AvailabilityRange, "d90">
 
-export type MonitorDetailData = {
+export interface MonitorDetailData {
   id: string
   name: string
   url: string

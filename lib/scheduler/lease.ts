@@ -3,8 +3,12 @@ export const MONITORING_LEASE = "monitor-check"
 export const MAINTENANCE_LEASE = "maintenance"
 
 export interface LeaseStore {
-  acquire(name: string, ownerId: string, durationMs: number): Promise<boolean>
-  release(name: string, ownerId: string): Promise<void>
+  acquire: (
+    name: string,
+    ownerId: string,
+    durationMs: number
+  ) => Promise<boolean>
+  release: (name: string, ownerId: string) => Promise<void>
 }
 
 export async function withLease<T>(

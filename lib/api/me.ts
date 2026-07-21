@@ -1,6 +1,6 @@
 import type { Principal } from "./principal"
 
-export type PrincipalProfile = {
+export interface PrincipalProfile {
   name: string | null
   timezone: string | null
   avatarImageId: string | null

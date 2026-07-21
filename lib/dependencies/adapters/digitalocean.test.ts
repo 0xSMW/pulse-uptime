@@ -59,7 +59,7 @@ describe("DigitalOcean preset component selection against the live feed", () => 
       kind: "component_ids",
       ids: ["p1x9rv4137gx"],
     })
-    expect(snapshot.components["p1x9rv4137gx"]).toMatchObject({
+    expect(snapshot.components.p1x9rv4137gx).toMatchObject({
       state: "OPERATIONAL",
     })
   })
@@ -94,7 +94,7 @@ describe("DigitalOcean preset component selection against the live feed", () => 
     expect(snapshot.components["4rgs7bbljl8d"]).toMatchObject({
       state: "OPERATIONAL",
     })
-    expect(snapshot.components["kl8qv98c9brp"]).toMatchObject({
+    expect(snapshot.components.kl8qv98c9brp).toMatchObject({
       state: "OPERATIONAL",
     })
   })
@@ -102,8 +102,8 @@ describe("DigitalOcean preset component selection against the live feed", () => 
   it("carries the regional children the discovered_children scope resolves at validation time", () => {
     // A regional child of each group (Droplets FRA1, Managed Databases NYC1)
     // is present in the feed, confirming the groups genuinely fan out per region.
-    expect(snapshot.components["kkg2cfkqkwj1"]).toBeDefined()
-    expect(snapshot.components["d2m7jh32j7z1"]).toBeDefined()
+    expect(snapshot.components.kkg2cfkqkwj1).toBeDefined()
+    expect(snapshot.components.d2m7jh32j7z1).toBeDefined()
   })
 
   it("builds a complete catalog directory with childrenByParent for Droplets and Managed Databases", () => {

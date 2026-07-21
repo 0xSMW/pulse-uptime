@@ -195,7 +195,7 @@ async function resetFixtureData(conn: GatedConnection): Promise<void> {
     )
   await db
     .delete(schema.adminUsers)
-    .where(dsql`${schema.adminUsers.email} like ${"%@" + FIXTURE_EMAIL_DOMAIN}`)
+    .where(dsql`${schema.adminUsers.email} like ${`%@${FIXTURE_EMAIL_DOMAIN}`}`)
   await db
     .delete(schema.apiTokens)
     .where(dsql`${schema.apiTokens.name} like 'qh-%'`)
@@ -434,7 +434,7 @@ async function insertChecksIncidentsAndOutbox(
           : intBetween(rand, 500, 5000),
         effectiveUrl: monitor.url,
         redirectCount: 0,
-        resolvedAddress: "203.0.113." + intBetween(rand, 1, 254),
+        resolvedAddress: `203.0.113.${intBetween(rand, 1, 254)}`,
         errorCode: successful
           ? null
           : pick(rand, ["TIMEOUT", "CONNECTION_REFUSED", "DNS_ERROR"]),

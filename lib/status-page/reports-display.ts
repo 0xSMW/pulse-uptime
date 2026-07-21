@@ -17,7 +17,7 @@ export type ReportUpdateStatus =
   | "completed"
 export type ReportPhase = "ongoing" | "upcoming" | "window_ended" | "resolved"
 
-export type PublicReportEntry = {
+export interface PublicReportEntry {
   id: string
   type: ReportKind
   title: string
@@ -42,7 +42,7 @@ export type PublicReportEntry = {
   }>
 }
 
-export type PublicReportsView = {
+export interface PublicReportsView {
   ongoing: PublicReportEntry[]
   upcoming: PublicReportEntry[]
   windowEnded: PublicReportEntry[]
@@ -128,7 +128,7 @@ export function reportBannerTier(
  */
 export function deriveOverallState(
   machineStates: readonly string[],
-  ongoingReports: ReadonlyArray<Pick<PublicReportEntry, "type" | "affected">>
+  ongoingReports: readonly Pick<PublicReportEntry, "type" | "affected">[]
 ): PublicOverallState {
   if (machineStates.length === 0 && ongoingReports.length === 0) {
     return "empty"
@@ -151,7 +151,7 @@ export function deriveOverallState(
 
 /** Incident ids already represented by a published report (dedupe). */
 export function promotedIncidentIds(
-  reports: ReadonlyArray<Pick<PublicReportEntry, "originIncidentId">>
+  reports: readonly Pick<PublicReportEntry, "originIncidentId">[]
 ): Set<string> {
   const ids = new Set<string>()
   for (const report of reports) {
@@ -172,7 +172,7 @@ export function excludePromotedIncidents<T extends { id: string }>(
   return incidents.filter((incident) => !promoted.has(incident.id))
 }
 
-export type MonitorReportAnnotation = {
+export interface MonitorReportAnnotation {
   reportId: string
   impact: ReportImpact
   label: string
@@ -196,7 +196,7 @@ const impactSeverity: Record<ReportImpact, number> = {
  * dot, never overrides it.
  */
 export function monitorReportAnnotations(
-  ongoingReports: ReadonlyArray<Pick<PublicReportEntry, "id" | "affected">>
+  ongoingReports: readonly Pick<PublicReportEntry, "id" | "affected">[]
 ): Map<string, MonitorReportAnnotation> {
   const annotations = new Map<string, MonitorReportAnnotation>()
   for (const report of ongoingReports) {

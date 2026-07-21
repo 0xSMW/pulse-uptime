@@ -24,134 +24,134 @@ import {
 } from "./budget"
 
 export interface MaintenanceStore {
-  reconcileStaleOutbox(now: Date, remainingMs?: number): Promise<number>
-  reconcileStaleCronRuns(now: Date, remainingMs?: number): Promise<number>
-  deleteRawChecks(
+  reconcileStaleOutbox: (now: Date, remainingMs?: number) => Promise<number>
+  reconcileStaleCronRuns: (now: Date, remainingMs?: number) => Promise<number>
+  deleteRawChecks: (
     cutoff: Date,
     limit: number,
     remainingMs?: number
-  ): Promise<number>
-  deleteSentNotifications(
+  ) => Promise<number>
+  deleteSentNotifications: (
     cutoff: Date,
     limit: number,
     remainingMs?: number
-  ): Promise<number>
-  expireConfigApprovals(
+  ) => Promise<number>
+  expireConfigApprovals: (
     now: Date,
     consumedCutoff: Date,
     limit: number,
     remainingMs?: number
-  ): Promise<number>
-  expireApiIdempotency(
+  ) => Promise<number>
+  expireApiIdempotency: (
     now: Date,
     limit: number,
     remainingMs?: number
-  ): Promise<number>
-  markDeviceAuthorizationsExpired(
+  ) => Promise<number>
+  markDeviceAuthorizationsExpired: (
     now: Date,
     limit: number,
     remainingMs?: number
-  ): Promise<number>
-  deleteExpiredDeviceAuthorizations(
+  ) => Promise<number>
+  deleteExpiredDeviceAuthorizations: (
     retentionCutoff: Date,
     limit: number,
     remainingMs?: number
-  ): Promise<number>
-  expireRateLimitBuckets(
+  ) => Promise<number>
+  expireRateLimitBuckets: (
     now: Date,
     limit: number,
     remainingMs?: number
-  ): Promise<number>
-  retainConfigSnapshots(
+  ) => Promise<number>
+  retainConfigSnapshots: (
     rejectedCutoff: Date,
     acceptedLimit: number,
     limit: number,
     remainingMs?: number
-  ): Promise<number>
-  deleteOldCronRuns(
+  ) => Promise<number>
+  deleteOldCronRuns: (
     cutoff: Date,
     limit: number,
     remainingMs?: number
-  ): Promise<number>
-  deleteOldRollups(
+  ) => Promise<number>
+  deleteOldRollups: (
     dayCutoff: string,
     limit: number,
     remainingMs?: number
-  ): Promise<number>
-  compact15Minute(
+  ) => Promise<number>
+  compact15Minute: (
     start: Date,
     end: Date,
     now: Date,
     remainingMs?: number
-  ): Promise<number>
-  fillSchedulerGaps(
+  ) => Promise<number>
+  fillSchedulerGaps: (
     start: Date,
     end: Date,
     now: Date,
     remainingMs?: number
-  ): Promise<number>
-  schedulerCoverageStart(now: Date, remainingMs?: number): Promise<Date>
-  promoteRollups(
+  ) => Promise<number>
+  schedulerCoverageStart: (now: Date, remainingMs?: number) => Promise<Date>
+  promoteRollups: (
     source: "15m" | "hour",
     target: "hour" | "day",
     start: Date,
     end: Date,
     remainingMs?: number
-  ): Promise<number>
-  measureAndSnapshotUsage(
+  ) => Promise<number>
+  measureAndSnapshotUsage: (
     now: Date,
     remainingMs?: number
-  ): Promise<GovernorMode>
+  ) => Promise<GovernorMode>
   /** Latest stored governor mode when measurement cannot run this pass. */
-  readLatestGovernorMode(): Promise<GovernorMode | null>
-  enforceTelemetryRetention(
+  readLatestGovernorMode: () => Promise<GovernorMode | null>
+  enforceTelemetryRetention: (
     now: Date,
     mode: GovernorMode,
     limit: number,
     remainingMs?: number
-  ): Promise<number>
-  retainUsageSnapshots(
+  ) => Promise<number>
+  retainUsageSnapshots: (
     now: Date,
     limit: number,
     remainingMs?: number
-  ): Promise<number>
-  retainExceptions(
+  ) => Promise<number>
+  retainExceptions: (
     now: Date,
     limit: number,
     remainingMs?: number
-  ): Promise<number>
-  retainExceptionPayloads(
+  ) => Promise<number>
+  retainExceptionPayloads: (
     now: Date,
     limit: number,
     remainingMs?: number
-  ): Promise<number>
+  ) => Promise<number>
   /** Orphan images: unattached for 24h, plus a hard cap keeping the newest N. */
-  deleteOrphanImages(
+  deleteOrphanImages: (
     cutoff: Date,
     keepNewest: number,
     limit: number,
     remainingMs?: number
-  ): Promise<number>
+  ) => Promise<number>
   /** Fetches every enabled dependency source once (read-only, live) and disables only the presets whose selector ids have drifted. Runs once per maintenance pass inside a reserved slice, stopping at deadlineAtMs so it cannot overrun the maintenance window. */
-  reconcileDependencyCatalog(
+  reconcileDependencyCatalog: (
     now: Date,
     deadlineAtMs?: number
-  ): Promise<{ checkedSources: number; disabledPresets: number }>
+  ) => Promise<{ checkedSources: number; disabledPresets: number }>
   /** Empties provider_incident_updates body text older than two years. Incident identity and timing outlive this. */
-  retainDependencyIncidentUpdates(
+  retainDependencyIncidentUpdates: (
     cutoff: Date,
     limit: number,
     remainingMs?: number
-  ): Promise<number>
+  ) => Promise<number>
   /** Closed dependency_state_intervals older than two years, compacted to one row per dependency/day/state. */
-  compactDependencyStateIntervals(
+  compactDependencyStateIntervals: (
     cutoff: Date,
     limit: number,
     remainingMs?: number
-  ): Promise<number>
+  ) => Promise<number>
 }
 
-export type MaintenanceSummary = {
+export interface MaintenanceSummary {
   staleOutbox: number
   staleCronRuns: number
   rollups: number
@@ -172,7 +172,9 @@ export const CATALOG_VALIDATION_BUDGET_MS = 10_000
 export const ORPHAN_IMAGE_KEEP_NEWEST = 20
 export const SWEEP_WORK_BUDGET_MS = 20_000
 
-export type SweepSummary = { expired: number }
+export interface SweepSummary {
+  expired: number
+}
 
 /**
  * True when a store step was cancelled by the budgeted statement_timeout.

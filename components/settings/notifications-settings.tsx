@@ -13,24 +13,27 @@ import { CardHeading } from "@/components/settings/settings-row"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 
-export type NotificationSettingsData = {
+export interface NotificationSettingsData {
   defaultRecipients: string[]
   sender: string | null
 }
 
-type DeclarativeConfig = {
+interface DeclarativeConfig {
   version: 1
   settings: Record<string, unknown> & { defaultRecipients: string[] }
-  monitors: Array<Record<string, unknown>>
+  monitors: Record<string, unknown>[]
 }
-type ConfigurationMeta = { requestId?: string; configHash?: string }
-type ConfigurationPlan = {
+interface ConfigurationMeta {
+  requestId?: string
+  configHash?: string
+}
+interface ConfigurationPlan {
   baseConfigHash: string
   targetConfigHash: string
   planHash: string
   destructiveApprovalRequired: boolean
 }
-type ConfigurationOperation = {
+interface ConfigurationOperation {
   id: string
   state: "written" | "accepted" | "rejected" | "failed"
   rejectionReason: string | null

@@ -5,7 +5,7 @@ import {
 import type { DependencyState } from "@/lib/dependencies/types"
 
 /** One bucket of dependency state history, as returned by lib/dependencies/queries.ts buildStateBuckets. `state` is null before the dependency existed. */
-export type DependencyStateBucket = {
+export interface DependencyStateBucket {
   start: string
   state: DependencyState | null
 }

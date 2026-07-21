@@ -5,7 +5,10 @@ import type * as React from "react"
 import { cn } from "@/lib/utils"
 
 /** Mirrors the Message shape in components/incidents/report-editor.tsx. */
-export type Message = { text: string; tone: "info" | "error" }
+export interface Message {
+  text: string
+  tone: "info" | "error"
+}
 
 /**
  * The one status live region per settings card. Always mounted (empty when

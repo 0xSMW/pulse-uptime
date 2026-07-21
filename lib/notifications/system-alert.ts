@@ -14,7 +14,7 @@ import type { SystemAlertPayload } from "./types"
 // without joining anything. Health evaluation only enqueues durable work; the
 // normal outbox state machine owns delivery (including the sweep drain).
 
-export type SystemAlertInput = {
+export interface SystemAlertInput {
   // Stable kind used in the dedup key, for example "monitoring-loop-failure".
   kind: string
   title: string
@@ -24,7 +24,7 @@ export type SystemAlertInput = {
   recipients: readonly string[]
 }
 
-export type EnqueuedSystemAlert = {
+export interface EnqueuedSystemAlert {
   id: string
   recipient: string
   idempotencyKey: string

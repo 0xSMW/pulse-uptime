@@ -37,9 +37,16 @@ const STATE_PRIORITY: Record<DependencyState, number> = {
   OPERATIONAL: 4,
 }
 
-type IntervalRow = { state: string; startedAt: Date; endedAt: Date | null }
+interface IntervalRow {
+  state: string
+  startedAt: Date
+  endedAt: Date | null
+}
 
-export type StateBucket = { start: string; state: DependencyState | null }
+export interface StateBucket {
+  start: string
+  state: DependencyState | null
+}
 
 /** Buckets a dependency's state-interval history into fixed-width windows, picking the worst overlapping state per bucket (or null when no interval covers it, i.e. before the dependency existed). */
 function buildStateBuckets(
@@ -73,7 +80,7 @@ function buildStateBuckets(
   return buckets
 }
 
-export type DependencyDashboardRow = {
+export interface DependencyDashboardRow {
   id: string
   presetId: string
   scopeId: string | null
@@ -210,14 +217,14 @@ export async function listDependenciesForDashboard(): Promise<
   })
 }
 
-export type DependencyIncidentUpdate = {
+export interface DependencyIncidentUpdate {
   state: string
   bodyText: string
   createdAt: string
   updatedAt: string
 }
 
-export type DependencyIncident = {
+export interface DependencyIncident {
   id: string
   title: string
   state: string
@@ -229,7 +236,7 @@ export type DependencyIncident = {
   updates: DependencyIncidentUpdate[]
 }
 
-export type DependencyDetail = {
+export interface DependencyDetail {
   id: string
   presetId: string
   scopeId: string | null
@@ -440,7 +447,7 @@ export async function getDependencyDetail(
   }
 }
 
-export type DependencyCatalogPreset = {
+export interface DependencyCatalogPreset {
   id: string
   name: string
   provider: string
@@ -463,7 +470,7 @@ export type DependencyCatalogPreset = {
   installedScopeIds: string[]
 }
 
-export type DependencyCatalogCategory = {
+export interface DependencyCatalogCategory {
   category: string
   presets: DependencyCatalogPreset[]
 }

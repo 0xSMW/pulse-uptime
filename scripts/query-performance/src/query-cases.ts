@@ -44,7 +44,7 @@ export interface ExcludedQuery {
 }
 
 function toSQL(query: {
-  toSQL(): { sql: string; params: unknown[] }
+  toSQL: () => { sql: string; params: unknown[] }
 }): ResolvedQuery {
   const built = query.toSQL()
   return { text: built.sql, params: built.params }

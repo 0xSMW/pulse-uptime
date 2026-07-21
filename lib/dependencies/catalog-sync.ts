@@ -50,37 +50,37 @@ export const SOURCE_DROPPED_FROM_MANIFEST_ERROR =
   "Source is no longer present in the catalog manifest"
 
 export interface CatalogSyncExecutor {
-  lock(): Promise<void>
-  getStoredCatalogVersion(): Promise<string | null>
-  upsertSource(
+  lock: () => Promise<void>
+  getStoredCatalogVersion: () => Promise<string | null>
+  upsertSource: (
     source: DependencySourceManifest,
     catalogVersion: string
-  ): Promise<void>
-  upsertPreset(
+  ) => Promise<void>
+  upsertPreset: (
     preset: DependencyPresetManifest,
     catalogVersion: string,
     fidelity: DependencyFidelity
-  ): Promise<void>
-  listEnabledSourceIds(): Promise<string[]>
-  disableSource(
+  ) => Promise<void>
+  listEnabledSourceIds: () => Promise<string[]>
+  disableSource: (
     sourceId: string,
     observedAt: Date,
     error: string
-  ): Promise<void>
-  listEnabledPresetIdsForSource(sourceId: string): Promise<string[]>
-  disablePreset(
+  ) => Promise<void>
+  listEnabledPresetIdsForSource: (sourceId: string) => Promise<string[]>
+  disablePreset: (
     presetId: string,
     validatedAt: Date,
     error: string
-  ): Promise<void>
-  flipDependenciesToUnknown(
+  ) => Promise<void>
+  flipDependenciesToUnknown: (
     catalogId: string,
     observedAt: Date
-  ): Promise<number>
+  ) => Promise<number>
 }
 
 export interface CatalogSyncStore {
-  transaction<T>(work: (tx: CatalogSyncExecutor) => Promise<T>): Promise<T>
+  transaction: <T>(work: (tx: CatalogSyncExecutor) => Promise<T>) => Promise<T>
 }
 
 export interface CatalogSyncResult {
@@ -524,7 +524,7 @@ interface PresetRow {
 
 export type DiscoveredScopeKind = "discovered_child" | "discovered_location"
 
-export type ObservedScopeOption = {
+export interface ObservedScopeOption {
   scopeId: string
   label: string
   scopeKind: DiscoveredScopeKind
@@ -534,41 +534,46 @@ export type ObservedScopeOption = {
 
 export interface CatalogReconcileExecutor {
   /** Enabled presets plus drift-disabled ones (validationError set) for the source, so a preset frozen by transient drift can re-enable once its ids return. A manifest-shipped disabled preset (no validationError) is not loaded. */
-  loadPresetsForSource(sourceId: string): Promise<PresetRow[]>
-  recordSourceValidation(
+  loadPresetsForSource: (sourceId: string) => Promise<PresetRow[]>
+  recordSourceValidation: (
     sourceId: string,
     validatedAt: Date,
     error: string | null
-  ): Promise<void>
-  recordPresetValidationOk(presetId: string, validatedAt: Date): Promise<void>
+  ) => Promise<void>
+  recordPresetValidationOk: (
+    presetId: string,
+    validatedAt: Date
+  ) => Promise<void>
   /** Re-enables a drift-disabled preset whose ids are present again, clearing the validation error so its installs recompute on the next poll. */
-  reEnablePreset(presetId: string, validatedAt: Date): Promise<void>
-  disablePreset(
+  reEnablePreset: (presetId: string, validatedAt: Date) => Promise<void>
+  disablePreset: (
     presetId: string,
     validatedAt: Date,
     error: string
-  ): Promise<void>
-  flipDependenciesToUnknown(
+  ) => Promise<void>
+  flipDependenciesToUnknown: (
     catalogId: string,
     observedAt: Date
-  ): Promise<number>
+  ) => Promise<number>
   /**
    * Transactional scope option sync for one catalog preset. Upserts observed
    * options as available with refreshed label and last_seen_at, and marks any
    * previously stored option not in observed as available=false. The observedAt
    * timestamp is the consistency boundary for unavailable marks.
    */
-  syncDiscoveredScopeOptions(
+  syncDiscoveredScopeOptions: (
     catalogId: string,
     observed: readonly ObservedScopeOption[],
     observedAt: Date
-  ): Promise<void>
+  ) => Promise<void>
 }
 
 export interface CatalogReconcileStore {
   /** Enabled sources, read outside any write transaction so the live fetches that follow hold no database connection. */
-  loadEnabledSources(): Promise<EnabledSourceRow[]>
-  transaction<T>(work: (tx: CatalogReconcileExecutor) => Promise<T>): Promise<T>
+  loadEnabledSources: () => Promise<EnabledSourceRow[]>
+  transaction: <T>(
+    work: (tx: CatalogReconcileExecutor) => Promise<T>
+  ) => Promise<T>
 }
 
 export interface ReconcileCatalogDeps {
@@ -810,7 +815,7 @@ export async function reconcileCatalog(
     const directory = directories.get(source.id) ?? null
     const perSource = await deps.store.transaction(async (tx) => {
       const validatedAt = now()
-      if (!(directory && directory.complete)) {
+      if (!directory?.complete) {
         // Incomplete or failed fetch: record feed error when null, and never
         // revise discovered scope availability from a partial page set.
         await tx.recordSourceValidation(

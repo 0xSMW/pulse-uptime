@@ -48,7 +48,7 @@ function baseStore(
 
 describe("performMaintenance", () => {
   it("reconciles, compacts mergeable rollups, and uses bounded retention batches", async () => {
-    const calls: Array<[string, ...unknown[]]> = []
+    const calls: [string, ...unknown[]][] = []
     const record =
       (name: string) =>
       async (...args: unknown[]) => {

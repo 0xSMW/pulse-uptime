@@ -15,14 +15,14 @@ import {
 } from "./scopes"
 import { digestBearerToken, parseBearerAuthorization } from "./tokens"
 
-export type HumanPrincipal = {
+export interface HumanPrincipal {
   type: "human"
   id: string
   email: string
   scopes: ApiScope[]
 }
 
-export type ApiTokenPrincipal = {
+export interface ApiTokenPrincipal {
   type: "api_token"
   id: string
   name: string
@@ -30,7 +30,7 @@ export type ApiTokenPrincipal = {
   expiresAt: Date
 }
 
-export type CliSessionPrincipal = {
+export interface CliSessionPrincipal {
   type: "cli_session"
   id: string
   email: string
@@ -49,10 +49,17 @@ export type CliSessionPrincipal = {
 export type Principal = HumanPrincipal | ApiTokenPrincipal | CliSessionPrincipal
 
 export interface PrincipalStore {
-  findApiToken(digest: Buffer, now: Date): Promise<ApiTokenPrincipal | null>
-  findCliSession(digest: Buffer, now: Date): Promise<CliSessionPrincipal | null>
-  touchApiToken(id: string, now: Date): Promise<void>
-  touchCliSession(id: string, installationId: string, now: Date): Promise<void>
+  findApiToken: (digest: Buffer, now: Date) => Promise<ApiTokenPrincipal | null>
+  findCliSession: (
+    digest: Buffer,
+    now: Date
+  ) => Promise<CliSessionPrincipal | null>
+  touchApiToken: (id: string, now: Date) => Promise<void>
+  touchCliSession: (
+    id: string,
+    installationId: string,
+    now: Date
+  ) => Promise<void>
 }
 
 type HumanSession = Awaited<ReturnType<typeof getCurrentSession>>

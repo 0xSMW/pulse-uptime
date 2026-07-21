@@ -145,7 +145,7 @@ export const getStatusFaviconDataUri = cache(
     }
     try {
       const image = await findImage(config.faviconImageId)
-      if (!image || image.kind !== "favicon") {
+      if (image?.kind !== "favicon") {
         return null
       }
       return imageDataUri(image.mimeType, image.bytes)

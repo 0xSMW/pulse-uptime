@@ -31,7 +31,7 @@ import { cn } from "@/lib/utils"
 // live in components/ui/row-navigation.
 export { HOVER_PREFETCH_DELAY_MS, isPlainLeftClick }
 
-export type DashboardMonitor = {
+export interface DashboardMonitor {
   id: string
   name: string
   url: string

@@ -25,7 +25,7 @@ export {
   REPORT_STATUSES,
 }
 
-export type ReportUpdateData = {
+export interface ReportUpdateData {
   id: string
   status: ReportUpdateStatus
   markdown: string
@@ -37,14 +37,14 @@ export type ReportUpdateData = {
   createdAt?: string
 }
 
-export type ReportAffectedData = {
+export interface ReportAffectedData {
   monitorId: string
   monitorName: string
   groupName: string | null
   impact: ReportImpact
 }
 
-export type ReportData = {
+export interface ReportData {
   id: string
   type: ReportType
   title: string
@@ -64,7 +64,7 @@ export type ReportData = {
  * Row shape for the reports list: mirrors the lean serialization of
  * listStatusReportSummaries (counts + latest update, never markdown).
  */
-export type ReportListRowData = {
+export interface ReportListRowData {
   id: string
   type: ReportType
   title: string
@@ -94,13 +94,13 @@ export function reportDotState(status: ReportUpdateStatus): MonitorState {
   }
 }
 
-export type UpdateEdit = {
+export interface UpdateEdit {
   id: string
   status?: ReportUpdateStatus
   publishedAt?: string
 }
 
-type RankedUpdate = {
+interface RankedUpdate {
   id: string
   status: ReportUpdateStatus
   publishedAt: number
@@ -258,7 +258,7 @@ export function isBeforeStart(
   return publishedAt !== null && startsAt !== null && publishedAt < startsAt
 }
 
-export type ReportFormErrors = {
+export interface ReportFormErrors {
   title?: string
   startsAt?: string
   endsAt?: string

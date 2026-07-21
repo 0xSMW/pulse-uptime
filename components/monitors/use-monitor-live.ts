@@ -38,7 +38,7 @@ async function fetchLive(url: string): Promise<MonitorLiveData> {
   return body.data
 }
 
-export type MonitorLiveStatus = {
+export interface MonitorLiveStatus {
   data: MonitorLiveData | null
   updatedAt: number | null
   isPaused: boolean

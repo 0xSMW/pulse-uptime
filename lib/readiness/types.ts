@@ -3,14 +3,14 @@ export const readinessSystems = ["vercel", "database", "edge", "email"] as const
 export type ReadinessSystem = (typeof readinessSystems)[number]
 export type ReadinessState = "ready" | "warning" | "blocked"
 
-export type ReadinessResult = {
+export interface ReadinessResult {
   system: ReadinessSystem
   state: ReadinessState
   code: string
   remediation?: string
 }
 
-export type ReadinessReport = {
+export interface ReadinessReport {
   checkedAt: string
   expiresAt: string
   canContinue: boolean

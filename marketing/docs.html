@@ -24,7 +24,7 @@
     try {
       document.documentElement.dataset.theme =
         localStorage.getItem("pulse-marketing-theme") || "dark"
-    } catch (error) {
+    } catch {
       /* private mode */
     }
     </script>
@@ -2174,7 +2174,8 @@ pulsectl config apply --file monitors.yaml --wait</code></pre>
               Requests without credentials get <code>401</code> with a
               <code>WWW-Authenticate</code>
               header. Authenticated requests missing a scope get
-              <code>403</code> with error code
+              <code>403</code>
+              with error code
               <code>SCOPE_DENIED</code>.
             </p>
           </div>
@@ -2201,7 +2202,8 @@ pulsectl config apply --file monitors.yaml --wait</code></pre>
               Rate limits are per principal over a five-minute window:
               <strong>600 reads</strong>
               and <strong>120 mutations</strong>. Exceeding either returns
-              <code>429</code> with a
+              <code>429</code>
+              with a
               <code>Retry-After</code>
               header. Validation failures return
               <code>400</code>

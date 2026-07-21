@@ -57,7 +57,7 @@ export function storedStatusReportError(
   }
 }
 
-type MutationOutcome<T> = {
+interface MutationOutcome<T> {
   status: number
   kind: string
   data: T

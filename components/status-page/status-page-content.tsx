@@ -36,7 +36,7 @@ import { OverallBanner } from "./overall-banner"
 import styles from "./status-page.module.css"
 import { StatusUnavailableNotice } from "./status-unavailable-notice"
 
-export type StatusPageDisplayConfig = {
+export interface StatusPageDisplayConfig {
   layout: "vertical" | "horizontal"
   theme: "system" | "light" | "dark"
   logoLightImageId: string | null
@@ -51,7 +51,7 @@ export type StatusPageDisplayConfig = {
   announcementMarkdown: string | null
 }
 
-export type PublicStatusData = {
+export interface PublicStatusData {
   pageName: string
   lastUpdatedAt: string
   overallState: PublicOverallState

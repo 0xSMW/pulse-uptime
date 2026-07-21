@@ -25,16 +25,16 @@ export type QueryFn = <T>(
 ) => Promise<readonly T[]>
 
 export interface QueryExecutor {
-  query<T>(text: string, values: readonly unknown[]): Promise<readonly T[]>
+  query: <T>(text: string, values: readonly unknown[]) => Promise<readonly T[]>
   /**
    * Optional: run work on one connection with transaction-local
    * statement_timeout so a long SQL step cannot outlive its maintenance
    * budget. When absent, callers fall back to plain query.
    */
-  withStatementTimeout?<T>(
+  withStatementTimeout?: <T>(
     timeoutMs: number,
     work: (query: QueryFn) => Promise<T>
-  ): Promise<T>
+  ) => Promise<T>
 }
 
 interface AffectedRow {

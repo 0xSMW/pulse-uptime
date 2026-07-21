@@ -20,7 +20,7 @@ import { DATABASE_STORAGE_BUDGET_BYTES } from "./types"
 
 type RuntimeDate = Date | string | number
 
-type SnapshotRow = {
+interface SnapshotRow {
   captured_at: RuntimeDate
   storage_bytes: bigint | string
   index_bytes: bigint | string
@@ -35,7 +35,7 @@ type SnapshotRow = {
   maintenance_status: string | null
 }
 
-type RetentionRow = {
+interface RetentionRow {
   key: string
   label: string
   configured_seconds: number | string | null

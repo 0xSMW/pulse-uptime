@@ -13,25 +13,25 @@ import {
 } from "./run-record"
 import { scheduledMinuteAt } from "./time"
 
-export type MonitoringCoordinatorDependencies = {
+export interface MonitoringCoordinatorDependencies {
   leases: LeaseStore
   runs: CronRunStore
   // Deployment identity recorded on the cron_runs row for release-bound proof.
   releaseId: string
-  loadConfig(now: Date): Promise<MonitoringConfig>
-  reconcileOutbox(now: Date): Promise<number>
-  deliverOutbox(): Promise<DeliverySummary>
-  runMonitor(
+  loadConfig: (now: Date) => Promise<MonitoringConfig>
+  reconcileOutbox: (now: Date) => Promise<number>
+  deliverOutbox: () => Promise<DeliverySummary>
+  runMonitor: (
     monitor: MonitorConfig,
     scheduledAt: Date,
     runId: string
-  ): Promise<MonitorRunOutcome>
-  persistMinute?(
+  ) => Promise<MonitorRunOutcome>
+  persistMinute?: (
     config: MonitoringConfig,
     scheduledMinute: Date,
     schedulerStartedAt: Date,
     schedulerCompletedAt: Date
-  ): Promise<void>
+  ) => Promise<void>
   now?: () => Date
   nowMs?: () => number
   createId?: () => string

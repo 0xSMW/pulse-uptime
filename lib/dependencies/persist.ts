@@ -469,7 +469,9 @@ export interface DependencyNotificationInput {
 }
 
 export interface PersistExecutor {
-  loadInstalledDependencies(sourceId: string): Promise<InstalledDependencyRow[]>
+  loadInstalledDependencies: (
+    sourceId: string
+  ) => Promise<InstalledDependencyRow[]>
   /**
    * Batched read of resolved_at for this source's incidents, keyed by
    * external id, as stored before this poll's upserts touch them. Read once
@@ -477,10 +479,10 @@ export interface PersistExecutor {
    * prior state rather than the row this same poll just wrote. A missing key
    * means the incident row did not exist before this poll.
    */
-  loadPriorIncidentResolution(
+  loadPriorIncidentResolution: (
     sourceId: string,
     externalIds: readonly string[]
-  ): Promise<Map<string, Date | null>>
+  ) => Promise<Map<string, Date | null>>
   /**
    * Existing (dependencyId, incidentId) pairs already recorded in
    * dependency_incident_matches for these incident internal ids, as a
@@ -488,14 +490,14 @@ export interface PersistExecutor {
    * source scopes (no new broad match), and for component-scoped incidents
    * whose provider no longer lists a previously matched id.
    */
-  loadExistingMatches(incidentIds: readonly string[]): Promise<Set<string>>
+  loadExistingMatches: (incidentIds: readonly string[]) => Promise<Set<string>>
   /**
    * This source's currently stored-open incidents (resolved_at is null), with
    * just enough of each to close it and fire recovery. Read only under a
    * snapshot whose incidentsComplete flag is true, so a stored-open incident
    * absent from the snapshot can be closed as resolved.
    */
-  loadOpenIncidents(sourceId: string): Promise<
+  loadOpenIncidents: (sourceId: string) => Promise<
     Array<{
       internalId: string
       externalId: string
@@ -504,19 +506,19 @@ export interface PersistExecutor {
     }>
   >
   /** Sets resolved_at (and state resolved, provider_updated_at) on a stored-open incident whose external id vanished from a complete snapshot. */
-  closeIncident(internalId: string, resolvedAt: Date): Promise<void>
+  closeIncident: (internalId: string, resolvedAt: Date) => Promise<void>
   /** Upsert on (source_id, external_id); updates in place only when provider_updated_at actually advanced. Returns the incident's internal id either way. */
-  upsertIncident(
+  upsertIncident: (
     sourceId: string,
     candidateId: string,
     incident: NormalizedIncident
-  ): Promise<string>
+  ) => Promise<string>
   /** New (incidentId, externalComponentId) pairs only; existing pairs are left untouched. */
-  upsertIncidentComponents(
+  upsertIncidentComponents: (
     incidentId: string,
     componentIds: readonly string[],
     associationKind: "explicit" | "inferred"
-  ): Promise<void>
+  ) => Promise<void>
   /**
    * Monotonic upsert of provider update rows, keyed by provider identity
    * (incident_id, external_update_id). Rows are snapshots of the provider's
@@ -525,10 +527,10 @@ export interface PersistExecutor {
    * applies when a material field differs, and older snapshots are ignored.
    * Earliest provider_created_at is preserved. Identical replay is a no-op.
    */
-  upsertIncidentUpdates(
+  upsertIncidentUpdates: (
     incidentId: string,
     updates: NormalizedIncident["updates"]
-  ): Promise<void>
+  ) => Promise<void>
   /**
    * New (dependencyId, incidentId) pairs only; a match, once recorded, is
    * never removed even if the provider later disassociates the component.
@@ -537,12 +539,12 @@ export interface PersistExecutor {
    * combined with the incident's prior resolved_at, this tells "just started
    * matching" apart from "still matching, same as last poll".
    */
-  upsertDependencyIncidentMatch(
+  upsertDependencyIncidentMatch: (
     dependencyId: string,
     incidentId: string,
     matchKind: "component_match" | "inferred",
     now: Date
-  ): Promise<boolean>
+  ) => Promise<boolean>
   /**
    * Updates dependency_state in place always; closes/opens
    * dependency_state_intervals only when state changed from previousState.
@@ -551,7 +553,7 @@ export interface PersistExecutor {
    * dashboard's "Last Successful Feed Check" keeps the last real success
    * rather than showing the failure time.
    */
-  applyDependencyState(
+  applyDependencyState: (
     dependencyId: string,
     previousState: DependencyState,
     next: {
@@ -561,12 +563,12 @@ export interface PersistExecutor {
       pollSucceeded: boolean
     },
     now: Date
-  ): Promise<void>
-  enqueueNotification(
+  ) => Promise<void>
+  enqueueNotification: (
     input: DependencyNotificationInput,
     now: Date
-  ): Promise<number>
-  updateSourceHealthSuccess(
+  ) => Promise<number>
+  updateSourceHealthSuccess: (
     sourceId: string,
     patch: {
       etag: string | null
@@ -574,8 +576,8 @@ export interface PersistExecutor {
       nextPollAt: Date
       now: Date
     }
-  ): Promise<void>
-  updateSourceHealthNotModified(
+  ) => Promise<void>
+  updateSourceHealthNotModified: (
     sourceId: string,
     patch: {
       etag: string | null
@@ -583,8 +585,8 @@ export interface PersistExecutor {
       nextPollAt: Date
       now: Date
     }
-  ): Promise<void>
-  updateSourceHealthFailure(
+  ) => Promise<void>
+  updateSourceHealthFailure: (
     sourceId: string,
     patch: {
       errorCode: string
@@ -592,11 +594,11 @@ export interface PersistExecutor {
       nextPollAt: Date
       now: Date
     }
-  ): Promise<void>
+  ) => Promise<void>
 }
 
 export interface PersistStore {
-  transaction<T>(work: (tx: PersistExecutor) => Promise<T>): Promise<T>
+  transaction: <T>(work: (tx: PersistExecutor) => Promise<T>) => Promise<T>
 }
 
 export interface PersistContext {

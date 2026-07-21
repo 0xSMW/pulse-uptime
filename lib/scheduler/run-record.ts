@@ -1,5 +1,5 @@
 export type CronJobName = "monitor-check" | "maintenance"
-export type CronRunCounts = {
+export interface CronRunCounts {
   monitorCount: number
   successCount: number
   failureCount: number
@@ -12,7 +12,7 @@ export type CronRunCounts = {
 // cron_runs after an incident sees the real fault instead of a lossy summary.
 // Bounded at CRON_ERROR_CAPTURE_BYTES with an explicit truncated marker so a
 // pathological error can never bloat a run row without saying so.
-export type CronErrorCapture = {
+export interface CronErrorCapture {
   message: string
   name: string
   code?: string
@@ -29,26 +29,30 @@ export type CronErrorCapture = {
   truncated?: boolean
 }
 
-export type CronRunFailure = {
+export interface CronRunFailure {
   message: string
   capture: CronErrorCapture
 }
 
 export interface CronRunStore {
-  start(input: {
+  start: (input: {
     id: string
     jobName: CronJobName
     scheduledMinute: Date
     startedAt: Date
     releaseId: string
-  }): Promise<boolean>
-  complete(id: string, completedAt: Date, counts: CronRunCounts): Promise<void>
-  fail(
+  }) => Promise<boolean>
+  complete: (
+    id: string,
+    completedAt: Date,
+    counts: CronRunCounts
+  ) => Promise<void>
+  fail: (
     id: string,
     completedAt: Date,
     failure: CronRunFailure,
     counts?: CronRunCounts
-  ): Promise<void>
+  ) => Promise<void>
 }
 
 export function emptyRunCounts(): CronRunCounts {

@@ -18,14 +18,16 @@ import { Field } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { initialsFor } from "@/lib/account/initials"
 
-export type AccountSettingsData = {
+export interface AccountSettingsData {
   name: string | null
   email: string
   timezone: string | null
   avatarImageId: string | null
 }
 
-type ApiErrorEnvelope = { error?: { message?: string } }
+interface ApiErrorEnvelope {
+  error?: { message?: string }
+}
 
 async function requestJson(path: string, init: RequestInit) {
   const response = await fetch(path, {

@@ -1,7 +1,7 @@
 import { COMPACT_15_MINUTE_SQL, PROMOTE_ROLLUP_SQL } from "./sql"
 
 export interface RollupRefreshExecutor {
-  query<T>(text: string, values: readonly unknown[]): Promise<readonly T[]>
+  query: <T>(text: string, values: readonly unknown[]) => Promise<readonly T[]>
 }
 
 export const ROLLUP_REFRESH_MIN_LOOKBACK_MS = 2 * 3_600_000

@@ -17,7 +17,7 @@ import { Field } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { formatRelativeTime } from "@/lib/reporting/format"
 
-export type SecuritySettingsData = {
+export interface SecuritySettingsData {
   sessions: Array<{
     id: string
     browser: string

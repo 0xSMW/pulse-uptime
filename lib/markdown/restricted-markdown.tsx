@@ -2,7 +2,7 @@ import "server-only"
 
 import { renderRestrictedMarkdown } from "./restricted"
 
-type RestrictedMarkdownProps = {
+interface RestrictedMarkdownProps {
   markdown: string
   className?: string
 }

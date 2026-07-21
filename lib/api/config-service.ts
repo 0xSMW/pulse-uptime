@@ -22,7 +22,7 @@ import { configChangeApprovals, configOperations } from "@/lib/db/schema"
 
 export const CONFIG_OPERATION_RETENTION_SECONDS = 7 * 24 * 60 * 60
 
-export type ConfigOperation = {
+export interface ConfigOperation {
   id: string
   baseConfigHash: string
   targetConfigHash: string
@@ -57,39 +57,39 @@ type OperationInsert = Omit<typeof configOperations.$inferInsert, "id"> & {
   id?: string
 }
 type ApprovalInsert = typeof configChangeApprovals.$inferInsert
-export type ConfigurationStore = {
-  readAccepted(): Promise<AcceptedConfigSnapshot | null>
-  transaction<T>(
+export interface ConfigurationStore {
+  readAccepted: () => Promise<AcceptedConfigSnapshot | null>
+  transaction: <T>(
     work: (tx: {
-      lockConfiguration(): Promise<void>
-      readAccepted(): Promise<AcceptedConfigSnapshot | null>
-      findOperation(
+      lockConfiguration: () => Promise<void>
+      readAccepted: () => Promise<AcceptedConfigSnapshot | null>
+      findOperation: (
         principalKey: string,
         idempotencyKey: string
-      ): Promise<ConfigOperation | null>
-      insertApproval(value: ApprovalInsert): Promise<void>
-      insertOperation(value: OperationInsert): Promise<ConfigOperation>
+      ) => Promise<ConfigOperation | null>
+      insertApproval: (value: ApprovalInsert) => Promise<void>
+      insertOperation: (value: OperationInsert) => Promise<ConfigOperation>
     }) => Promise<T>
-  ): Promise<T>
-  readOperation(id: string): Promise<ConfigOperation | null>
+  ) => Promise<T>
+  readOperation: (id: string) => Promise<ConfigOperation | null>
 }
 
-export type ConfigurationService = {
-  get(): Promise<AcceptedConfigSnapshot>
-  schema(): unknown
-  validate(document: unknown): Promise<DeclarativeConfig>
-  plan(input: {
+export interface ConfigurationService {
+  get: () => Promise<AcceptedConfigSnapshot>
+  schema: () => unknown
+  validate: (document: unknown) => Promise<DeclarativeConfig>
+  plan: (input: {
     baseConfigHash: string
     targetConfig: unknown
-  }): Promise<ConfigurationPlan>
-  apply(input: {
+  }) => Promise<ConfigurationPlan>
+  apply: (input: {
     principalKey: string
     requestId: string
     idempotencyKey: string
     ifMatch: string | null
     request: ConfigurationApplyRequest
-  }): Promise<ConfigOperation>
-  operation(id: string): Promise<ConfigOperation | null>
+  }) => Promise<ConfigOperation>
+  operation: (id: string) => Promise<ConfigOperation | null>
 }
 
 const OPERATION_COLUMNS = {

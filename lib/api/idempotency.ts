@@ -20,8 +20,11 @@ import { isUuid } from "@/lib/ids/uuid"
 export const ATOMIC_PROTOCOL = 1
 export const LEGACY_PROTOCOL = 0
 
-export type StoredResponse<T = unknown> = { status: number; body: T }
-export type IdempotencyContext = {
+export interface StoredResponse<T = unknown> {
+  status: number
+  body: T
+}
+export interface IdempotencyContext {
   operationId: string
   /**
    * Opens a database transaction, runs `run`, and if it resolves, persists
@@ -36,34 +39,34 @@ export type IdempotencyContext = {
   ) => Promise<StoredResponse<R>>
 }
 export type IdempotencyRecord = typeof apiIdempotency.$inferSelect
-export type IdempotencyPersistence = {
-  insertRunning(
+export interface IdempotencyPersistence {
+  insertRunning: (
     value: typeof apiIdempotency.$inferInsert
-  ): Promise<string | undefined>
-  findOwner(
+  ) => Promise<string | undefined>
+  findOwner: (
     principalKey: string,
     idempotencyKey: string
-  ): Promise<IdempotencyRecord | undefined>
-  reclaimExpired(
+  ) => Promise<IdempotencyRecord | undefined>
+  reclaimExpired: (
     id: string,
     now: Date,
     value: typeof apiIdempotency.$inferInsert
-  ): Promise<string | null>
-  claimStale(
+  ) => Promise<string | null>
+  claimStale: (
     id: string,
     staleBefore: Date,
     now: Date,
     expiresAt: Date
-  ): Promise<string | undefined>
-  lockOwner(id: string, tx: DatabaseHandle): Promise<void>
-  transaction<R>(run: (tx: DatabaseHandle) => Promise<R>): Promise<R>
-  complete(
+  ) => Promise<string | undefined>
+  lockOwner: (id: string, tx: DatabaseHandle) => Promise<void>
+  transaction: <R>(run: (tx: DatabaseHandle) => Promise<R>) => Promise<R>
+  complete: (
     id: string,
     status: number,
     body: unknown,
     completedAt: Date,
     tx?: DatabaseHandle
-  ): Promise<void>
+  ) => Promise<void>
 }
 
 export class IdempotencyError extends Error {

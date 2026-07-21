@@ -92,7 +92,10 @@ export function maxBytesForKind(kind: ImageKind): number {
   return kind === "favicon" ? MAX_FAVICON_BYTES : MAX_IMAGE_BYTES
 }
 
-export type ValidatedImageUpload = { kind: ImageKind; mimeType: ImageMimeType }
+export interface ValidatedImageUpload {
+  kind: ImageKind
+  mimeType: ImageMimeType
+}
 
 export function validateImageUpload(
   kind: string,
@@ -131,7 +134,7 @@ export function validateImageUpload(
   return { kind, mimeType: normalizedMime }
 }
 
-export type StoredImage = {
+export interface StoredImage {
   id: string
   kind: ImageKind
   mimeType: string
@@ -140,17 +143,17 @@ export type StoredImage = {
 }
 
 export interface ImageStore {
-  insert(input: {
+  insert: (input: {
     kind: ImageKind
     mimeType: string
     bytes: Buffer
     byteSize: number
     createdAt: Date
-  }): Promise<{ id: string }>
-  find(id: string): Promise<StoredImage | null>
+  }) => Promise<{ id: string }>
+  find: (id: string) => Promise<StoredImage | null>
 }
 
-export type ImageDependencies = {
+export interface ImageDependencies {
   store?: ImageStore
   now?: () => Date
 }

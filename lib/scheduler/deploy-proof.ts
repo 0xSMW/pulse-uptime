@@ -7,7 +7,7 @@ import { cronRuns } from "@/lib/db/schema"
 
 export const DEPLOY_PROOF_JOB_NAME = "monitor-check" as const
 
-export type DeployProofRunSnapshot = {
+export interface DeployProofRunSnapshot {
   runId: string
   status: "running" | "completed" | "failed"
   scheduledMinute: Date
@@ -16,7 +16,7 @@ export type DeployProofRunSnapshot = {
   releaseId: string | null
 }
 
-export type DeployProofReady = {
+export interface DeployProofReady {
   status: "ready"
   releaseId: string
   runId: string
@@ -25,7 +25,7 @@ export type DeployProofReady = {
   completedAt: Date
 }
 
-export type DeployProofWaiting = {
+export interface DeployProofWaiting {
   status: "waiting"
   releaseId: string
   latest: DeployProofRunSnapshot | null
@@ -33,14 +33,14 @@ export type DeployProofWaiting = {
 
 export type DeployProofResult = DeployProofReady | DeployProofWaiting
 
-export type DeployProofStore = {
-  findQualifyingCompleted(input: {
+export interface DeployProofStore {
+  findQualifyingCompleted: (input: {
     releaseId: string
     after: Date
-  }): Promise<DeployProofRunSnapshot | null>
-  findLatestForRelease(input: {
+  }) => Promise<DeployProofRunSnapshot | null>
+  findLatestForRelease: (input: {
     releaseId: string
-  }): Promise<DeployProofRunSnapshot | null>
+  }) => Promise<DeployProofRunSnapshot | null>
 }
 
 function mapRow(row: {
@@ -130,7 +130,7 @@ export async function evaluateDeployProof(input: {
     releaseId: input.releaseId,
     after: input.after,
   })
-  if (qualifying && qualifying.completedAt) {
+  if (qualifying?.completedAt) {
     return {
       status: "ready",
       releaseId: input.releaseId,

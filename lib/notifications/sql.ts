@@ -1,7 +1,7 @@
 import type { ClaimedNotification, NotificationEventType } from "./types"
 
 export interface SqlExecutor {
-  query<T>(text: string, values: readonly unknown[]): Promise<readonly T[]>
+  query: <T>(text: string, values: readonly unknown[]) => Promise<readonly T[]>
 }
 
 export const PROVIDER_IDEMPOTENCY_WINDOW_MS = 24 * 60 * 60_000
@@ -20,7 +20,7 @@ interface ClaimedRow {
   claim_token: string
 }
 
-export type ClaimNotificationsOptions = {
+export interface ClaimNotificationsOptions {
   now: Date
   limit: number
   claimToken: string
@@ -28,7 +28,7 @@ export type ClaimNotificationsOptions = {
   eventTypes?: readonly NotificationEventType[]
 }
 
-export type ReconcileStaleClaimsOptions = {
+export interface ReconcileStaleClaimsOptions {
   /** When set, only reconcile rows whose event_type is in this list. */
   eventTypes?: readonly NotificationEventType[]
 }

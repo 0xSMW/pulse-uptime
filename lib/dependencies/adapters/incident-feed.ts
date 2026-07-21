@@ -35,7 +35,10 @@ type ProviderIncidentState =
 
 export type IncidentFeedInventory = "active_only" | "rolling_history"
 
-type MarkerInfo = { state: ProviderIncidentState; resolved: boolean }
+interface MarkerInfo {
+  state: ProviderIncidentState
+  resolved: boolean
+}
 
 // The Statuspage RSS status markers, uppercase in the feed, mapped to the
 // normalized lifecycle vocabulary. Terminal markers (resolved true) close the

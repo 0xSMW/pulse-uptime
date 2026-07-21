@@ -21,8 +21,15 @@ import { cn } from "@/lib/utils"
 
 export const SETTINGS_RETURN_KEY = "pulse:settings-return"
 
-type SidebarItem = { href: string; label: string; icon: LucideIcon }
-type SidebarSection = { label: string; items: SidebarItem[] }
+interface SidebarItem {
+  href: string
+  label: string
+  icon: LucideIcon
+}
+interface SidebarSection {
+  label: string
+  items: SidebarItem[]
+}
 
 const sections: SidebarSection[] = [
   {
@@ -47,7 +54,7 @@ const sections: SidebarSection[] = [
 function storedReturnPath(): string {
   try {
     const stored = window.sessionStorage.getItem(SETTINGS_RETURN_KEY)
-    return stored && stored.startsWith("/") && !stored.startsWith("/settings")
+    return stored?.startsWith("/") && !stored.startsWith("/settings")
       ? stored
       : "/"
   } catch {

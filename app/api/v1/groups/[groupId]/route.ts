@@ -5,7 +5,9 @@ import { executeIdempotent } from "@/lib/api/idempotency"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
 import { routeError } from "@/lib/api/route"
 
-type Params = { params: Promise<{ groupId: string }> }
+interface Params {
+  params: Promise<{ groupId: string }>
+}
 export async function PATCH(request: Request, { params }: Params) {
   const context = await authorize(request, { scope: "monitors:write" })
   if (isApiResponse(context)) {

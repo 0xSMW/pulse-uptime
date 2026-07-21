@@ -27,7 +27,7 @@ import {
 } from "./settings-api"
 import { Sheet, SheetIconButton } from "./sheet"
 
-export type EditableMonitor = {
+export interface EditableMonitor {
   id: string
   name: string
   url: string
@@ -513,7 +513,7 @@ export function MonitorSheet({
     setCreateGroup(false)
   }
   return (
-    <Fragment>
+    <>
       <Sheet
         closeDisabled={Boolean(busy)}
         description={monitor ? monitor.id : "Add a public endpoint"}
@@ -814,6 +814,6 @@ export function MonitorSheet({
           open
         />
       ) : null}
-    </Fragment>
+    </>
   )
 }

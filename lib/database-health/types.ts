@@ -38,7 +38,7 @@ export type DatabaseGovernorMode =
   | "ESSENTIALS_ONLY"
   | "UNKNOWN"
 
-export type DatabaseRetentionMeasurement = {
+export interface DatabaseRetentionMeasurement {
   key: string
   label: string
   configuredSeconds: number | null
@@ -46,7 +46,7 @@ export type DatabaseRetentionMeasurement = {
 }
 
 /** Storage-owned input. Dates stay as Dates until the application boundary. */
-export type DatabaseHealthMeasurement = {
+export interface DatabaseHealthMeasurement {
   capturedAt: Date
   storageBytes: number | null
   otherBytes: number | null
@@ -65,11 +65,11 @@ export type DatabaseHealthMeasurement = {
 }
 
 export interface DatabaseHealthRepository {
-  readLatest(): Promise<DatabaseHealthMeasurement | null>
-  capture(): Promise<DatabaseHealthMeasurement | null>
+  readLatest: () => Promise<DatabaseHealthMeasurement | null>
+  capture: () => Promise<DatabaseHealthMeasurement | null>
 }
 
-export type DatabaseHealth = {
+export interface DatabaseHealth {
   health: DatabaseHealthState
   summary: string
   budgetBytes: number

@@ -1727,7 +1727,7 @@
     ranges.sort((a, b) => a[0] - b[0])
     const merged = [ranges[0]]
     ranges.slice(1).forEach(([start, end]) => {
-      const last = merged[merged.length - 1]
+      const last = merged.at(-1)
       if (start <= last[1]) {
         last[1] = Math.max(last[1], end)
       } else {
@@ -1786,7 +1786,7 @@
               {
                 id: "__terminal",
                 icon: "terminal",
-                label: 'Run "' + raw + '" in the terminal',
+                label: `Run "${raw}" in the terminal`,
                 run: () => {
                   goTo("#cli")
                   runTypedCommand(raw)
@@ -2142,7 +2142,7 @@
   function positionRangeTooltip() {
     const wrap = $(".range-wrap")
     const range = $("#storage-range")
-    if (!(wrap && range && range.clientWidth)) {
+    if (!(wrap && range?.clientWidth)) {
       return
     }
     const progress = (range.value - range.min) / (range.max - range.min)

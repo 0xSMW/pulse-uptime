@@ -324,4 +324,6 @@ select
 from bits
 `
 
-export type UsageModeRow = { governor_mode: GovernorMode }
+export interface UsageModeRow {
+  governor_mode: GovernorMode
+}

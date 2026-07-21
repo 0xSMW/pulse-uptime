@@ -112,7 +112,7 @@ export function selectedScopeForPreset(
       return { ready: false }
     }
     const option = selection.options.find((entry) => entry.id === raw)
-    if (!(option && option.available)) {
+    if (!option?.available) {
       return { ready: false }
     }
     return { ready: true, scopeId: option.id }
@@ -130,7 +130,7 @@ export function selectedScopeForPreset(
   }
 
   const option = selection.options.find((entry) => entry.id === raw)
-  if (!(option && option.available)) {
+  if (!option?.available) {
     return { ready: false }
   }
   return { ready: true, scopeId: option.id }

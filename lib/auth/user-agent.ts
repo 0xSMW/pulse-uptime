@@ -3,7 +3,7 @@
  * list. Family and major version only, no device fingerprinting, no data files.
  */
 
-export type ParsedUserAgent = {
+export interface ParsedUserAgent {
   browser: string
   os: string
 }

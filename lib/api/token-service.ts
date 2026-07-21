@@ -15,7 +15,7 @@ const DEFAULT_TOKEN_LIFETIME_MS = 90 * 24 * 60 * 60_000
 // and validation.
 const CREATOR_LIFETIME_MARGIN_MS = 60_000
 
-export type TokenRecord = {
+export interface TokenRecord {
   id: string
   name: string
   scopes: ApiScope[]

@@ -27,7 +27,7 @@ import type {
 
 type OutboxStatus = "pending" | "sending" | "failed" | "sent" | "dead"
 
-type OutboxRow = {
+interface OutboxRow {
   id: string
   incidentId: string | null
   monitorId: string | null
@@ -173,7 +173,7 @@ function createMemoryOutbox(seed: OutboxRow[] = []) {
         const providerMessageId = values[2] as string
         const now = values[3] as Date
         const row = rows.get(id)
-        if (!row || row.status !== "sending" || row.claimToken !== claimToken) {
+        if (row?.status !== "sending" || row.claimToken !== claimToken) {
           return [] as T[]
         }
         rows.set(id, {
@@ -197,7 +197,7 @@ function createMemoryOutbox(seed: OutboxRow[] = []) {
         const lastError = values[4] as string
         const now = values[5] as Date
         const row = rows.get(id)
-        if (!row || row.status !== "sending" || row.claimToken !== claimToken) {
+        if (row?.status !== "sending" || row.claimToken !== claimToken) {
           return [] as T[]
         }
         rows.set(id, {

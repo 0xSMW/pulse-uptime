@@ -27,7 +27,9 @@ const scopes = [
   "dependencies:write",
 ] as const
 
-type CreatedToken = { token: string }
+interface CreatedToken {
+  token: string
+}
 
 export function TokenSheet({
   open,

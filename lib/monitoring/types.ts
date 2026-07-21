@@ -11,7 +11,7 @@ export type MonitorState =
   | "PENDING"
   | "PAUSED"
 
-export type TimelineBucket = {
+export interface TimelineBucket {
   state: "up" | "down" | "verifying" | "paused" | "no-data"
   label: string
   checks: number
@@ -25,13 +25,13 @@ export type TimelineBucket = {
   endMs?: number
 }
 
-export type HealthWarning = {
+export interface HealthWarning {
   code: string
   message: string
   action: string
 }
 
-export type MonitorStateSnapshot = {
+export interface MonitorStateSnapshot {
   monitorId: string
   state: MonitorStateName
   consecutiveFailures: number
@@ -50,7 +50,7 @@ export type MonitorStateSnapshot = {
   updatedAt: Date
 }
 
-export type CheckTransitionEvent = {
+export interface CheckTransitionEvent {
   type: "check"
   checkedAt: Date
   successful: boolean
@@ -61,7 +61,7 @@ export type CheckTransitionEvent = {
   recoveryThreshold: number
 }
 
-export type LifecycleTransitionEvent = {
+export interface LifecycleTransitionEvent {
   type: "disable" | "archive" | "enable" | "restore"
   occurredAt: Date
 }
@@ -81,14 +81,14 @@ export type IncidentIntent =
     }
   | null
 
-export type StateTransition = {
+export interface StateTransition {
   previousState: MonitorStateName
   state: MonitorStateSnapshot
   changed: boolean
   incident: IncidentIntent
 }
 
-export type ScheduledCheck = {
+export interface ScheduledCheck {
   monitorId: string
   monitorName: string
   runId: string

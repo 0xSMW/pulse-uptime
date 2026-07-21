@@ -145,8 +145,8 @@ function urlHost(url: string): string {
 
 function validateManifestInvariants(
   manifest: {
-    sources: Array<z.infer<typeof sourceSchema>>
-    presets: Array<z.infer<typeof presetSchema>>
+    sources: z.infer<typeof sourceSchema>[]
+    presets: z.infer<typeof presetSchema>[]
   },
   context: z.RefinementCtx
 ): void {

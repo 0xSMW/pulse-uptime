@@ -3,7 +3,7 @@ import { dirname, join, relative, sep } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-type Operation = {
+interface Operation {
   security?: unknown[]
   "x-required-scopes"?: string[]
 }

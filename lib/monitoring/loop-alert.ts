@@ -24,7 +24,7 @@ import {
 
 const ALERT_KIND = "monitoring-loop-failure"
 
-export type LoopAlertSummary = {
+export interface LoopAlertSummary {
   checked: boolean
   unhealthy: boolean
   reason: LoopHealthReason | null

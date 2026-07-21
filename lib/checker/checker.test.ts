@@ -65,7 +65,7 @@ function peerAwareDispatcher(
           onConnectedAddress(address)
         }
       },
-    } as unknown as ManagedDispatcher & { __reportPeer(): void }
+    } as unknown as ManagedDispatcher & { __reportPeer: () => void }
   }
   return { createDispatcher, close }
 }
@@ -204,7 +204,7 @@ describe("HTTP checker", () => {
     const { createDispatcher } = peerAwareDispatcher("8.8.4.4")
     const request: RequestExecutor = async (_url, options) => {
       ;(
-        options.dispatcher as unknown as { __reportPeer(): void }
+        options.dispatcher as unknown as { __reportPeer: () => void }
       ).__reportPeer()
       return response(200)
     }
@@ -225,7 +225,7 @@ describe("HTTP checker", () => {
     const { createDispatcher } = peerAwareDispatcher("199.232.165.91")
     const request: RequestExecutor = async (_url, options) => {
       ;(
-        options.dispatcher as unknown as { __reportPeer(): void }
+        options.dispatcher as unknown as { __reportPeer: () => void }
       ).__reportPeer()
       return response(200)
     }
@@ -256,20 +256,20 @@ describe("HTTP checker", () => {
             peers.push("203.0.113.10")
           }
         },
-      }) as unknown as ManagedDispatcher & { __reportPeer(): void }
+      }) as unknown as ManagedDispatcher & { __reportPeer: () => void }
 
     // Same-origin redirect reuses the dispatcher; peer is not re-reported.
     const request = vi
       .fn<RequestExecutor>()
       .mockImplementationOnce(async (_url, options) => {
         ;(
-          options.dispatcher as unknown as { __reportPeer(): void }
+          options.dispatcher as unknown as { __reportPeer: () => void }
         ).__reportPeer()
         return response(302, { location: "/next" })
       })
       .mockImplementationOnce(async (_url, options) => {
         ;(
-          options.dispatcher as unknown as { __reportPeer(): void }
+          options.dispatcher as unknown as { __reportPeer: () => void }
         ).__reportPeer()
         return response(200)
       })
@@ -292,13 +292,13 @@ describe("HTTP checker", () => {
       .fn<RequestExecutor>()
       .mockImplementationOnce(async (_url, options) => {
         ;(
-          options.dispatcher as unknown as { __reportPeer(): void }
+          options.dispatcher as unknown as { __reportPeer: () => void }
         ).__reportPeer()
         return response(301, { location: "https://www.example.org/" })
       })
       .mockImplementationOnce(async (_url, options) => {
         ;(
-          options.dispatcher as unknown as { __reportPeer(): void }
+          options.dispatcher as unknown as { __reportPeer: () => void }
         ).__reportPeer()
         return response(200)
       })
@@ -321,7 +321,7 @@ describe("HTTP checker", () => {
       }) as unknown as ManagedDispatcher
     const request: RequestExecutor = async (_url, options) => {
       ;(
-        options.dispatcher as unknown as { __reportPeer(): void }
+        options.dispatcher as unknown as { __reportPeer: () => void }
       ).__reportPeer()
       return response(200)
     }

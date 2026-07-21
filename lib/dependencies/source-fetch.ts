@@ -13,7 +13,7 @@ import {
 } from "./fetch"
 
 /** Minimum source fields needed to build a FetchProviderSource. */
-export type ProviderSourceLike = {
+export interface ProviderSourceLike {
   id: string
   allowedHosts: readonly string[]
   config?: Record<string, unknown>

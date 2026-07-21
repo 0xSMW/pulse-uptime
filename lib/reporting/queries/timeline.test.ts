@@ -18,7 +18,7 @@ function mulberry32(seed: number): () => number {
   return () => {
     state = (state + 0x6d_2b_79_f5) | 0
     let t = Math.imul(state ^ (state >>> 15), 1 | state)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    t ^= t + Math.imul(t ^ (t >>> 7), 61 | t)
     return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296
   }
 }
@@ -462,7 +462,7 @@ describe("buildCheckTimeline/buildRollupTimeline equivalence with the reference 
   }
 
   // Nondivisible cases cover floating-point behavior at bucket boundaries.
-  const NON_DIVISIBLE_CASES: Array<[number, number]> = [
+  const NON_DIVISIBLE_CASES: [number, number][] = [
     [7, 1000],
     [3, 100],
     [11, 60_000],
@@ -472,7 +472,7 @@ describe("buildCheckTimeline/buildRollupTimeline equivalence with the reference 
     [17, 12_345_678],
   ]
   // Divisible cases cover direct bucket indexing.
-  const DIVISIBLE_CASES: Array<[number, number]> = [
+  const DIVISIBLE_CASES: [number, number][] = [
     [60, 86_400_000],
     [84, 7 * 86_400_000],
     [90, 30 * 86_400_000],

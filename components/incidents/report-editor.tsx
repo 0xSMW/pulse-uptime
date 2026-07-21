@@ -57,7 +57,7 @@ import {
   validateReportForm,
 } from "./report-status"
 
-export type ReportEditorMonitor = {
+export interface ReportEditorMonitor {
   id: string
   name: string
   group: string | null
@@ -65,7 +65,7 @@ export type ReportEditorMonitor = {
 
 type ImpactValue = ReportImpact | "none"
 
-type EditingUpdate = {
+interface EditingUpdate {
   id: string
   status: ReportUpdateStatus
   markdown: string
@@ -74,7 +74,10 @@ type EditingUpdate = {
   error: string
 }
 
-type Message = { text: string; tone: "info" | "error" }
+interface Message {
+  text: string
+  tone: "info" | "error"
+}
 
 const textareaClass =
   "w-full resize-y rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-3 py-2 font-data text-[13px] aria-invalid:border-[var(--down-text)]"
@@ -89,7 +92,7 @@ function initialImpacts(
   return impacts
 }
 
-type EditorBaseline = {
+interface EditorBaseline {
   title: string
   startsAt: string
   endsAt: string

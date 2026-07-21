@@ -9,7 +9,9 @@ import {
 } from "@/lib/api/monitors"
 import { routeError, success } from "@/lib/api/route"
 
-type Params = { params: Promise<{ monitorId: string }> }
+interface Params {
+  params: Promise<{ monitorId: string }>
+}
 
 export async function GET(request: Request, { params }: Params) {
   const context = await authorize(request, { scope: "monitors:read" })

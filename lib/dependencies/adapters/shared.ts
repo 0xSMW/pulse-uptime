@@ -25,7 +25,7 @@ import type {
  * a circular dependency through the registry index.
  */
 export function catalogDirectoryFromNormalize(
-  adapter: { normalize(input: NormalizeInput): NormalizedProviderSnapshot },
+  adapter: { normalize: (input: NormalizeInput) => NormalizedProviderSnapshot },
   input: { source: DependencySourceManifest; documents: AdapterDocument[] }
 ): CatalogComponentDirectory {
   const snapshot = adapter.normalize({

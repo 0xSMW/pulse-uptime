@@ -67,18 +67,18 @@ export interface DependencyAdapter {
    * pages and per-notice detail fetches); returns [] once nothing more is
    * needed.
    */
-  requests(
+  requests: (
     source: DependencySourceManifest,
     fetchedSoFar?: AdapterDocument[]
-  ): AdapterRequestDescriptor[]
-  normalize(input: NormalizeInput): NormalizedProviderSnapshot
+  ) => AdapterRequestDescriptor[]
+  normalize: (input: NormalizeInput) => NormalizedProviderSnapshot
   /**
    * Builds the catalog component directory from already-fetched current
    * documents. complete is true only when the adapter could parse the full
    * set it needs for identity and group/location discovery. Callers must
    * only invoke this after document collection finished complete.
    */
-  catalogDirectory(input: CatalogDirectoryInput): CatalogComponentDirectory
+  catalogDirectory: (input: CatalogDirectoryInput) => CatalogComponentDirectory
 }
 
 /**

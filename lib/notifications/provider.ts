@@ -6,10 +6,10 @@ export interface NotificationSendResult {
 }
 
 export interface NotificationSender {
-  send(
+  send: (
     message: NotificationMessage,
     idempotencyKey: string
-  ): Promise<NotificationSendResult>
+  ) => Promise<NotificationSendResult>
 }
 
 export class NotificationProviderError extends Error {

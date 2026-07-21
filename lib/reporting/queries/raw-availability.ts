@@ -61,7 +61,7 @@ group by slots.monitor_id, slots.bucket_start
 order by slots.monitor_id, slots.bucket_start
 `
 
-export type RawAvailabilityBucketDbRow = {
+export interface RawAvailabilityBucketDbRow {
   monitor_id: string
   bucket_start: Date | string
   expected_checks: number | string

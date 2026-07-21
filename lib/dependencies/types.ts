@@ -102,7 +102,7 @@ export function componentIdsFromScope(
 }
 
 /** Every adapter returns the same normalized value, per the source adapters contract. */
-export type NormalizedProviderSnapshot = {
+export interface NormalizedProviderSnapshot {
   sourceId: string
   observedAt: string
   providerUpdatedAt: string | null
@@ -166,21 +166,21 @@ export type NormalizedProviderSnapshot = {
  * Selector kinds. A selector containing multiple component IDs aggregates
  * with worst_of: OUTAGE, DEGRADED, MAINTENANCE, then OPERATIONAL.
  */
-export type ComponentIdsSelector = {
+export interface ComponentIdsSelector {
   kind: "component_ids"
   aggregation: "worst_of"
   ids: string[]
 }
 
 /** Google Cloud matches on affected_products[].id, with an optional location filter. */
-export type GoogleProductSelector = {
+export interface GoogleProductSelector {
   kind: "google_product"
   productId: string
   location?: { required: boolean }
 }
 
 /** Status.io matches a component by result.status[].id and a region by containers[].id. */
-export type StatusioComponentContainerSelector = {
+export interface StatusioComponentContainerSelector {
   kind: "statusio_component_container"
   componentId: string
   container: { required: boolean }
@@ -192,7 +192,10 @@ export type DependencySelector =
   | StatusioComponentContainerSelector
 
 /** A fixed, catalog-validated scope choice (e.g. one Neon region container). */
-export type ScopeOption = { id: string; label: string }
+export interface ScopeOption {
+  id: string
+  label: string
+}
 
 /**
  * Scope requirements for presets with unavoidable regional or grouped scope.
@@ -211,7 +214,7 @@ export type DependencyScope =
   | { kind: "discovered_locations"; required: boolean }
 
 /** One selectable scope option returned by the catalog API. */
-export type ScopeSelectionOption = {
+export interface ScopeSelectionOption {
   id: string
   label: string
   available: boolean
@@ -222,7 +225,7 @@ export type ScopeSelectionOption = {
  * Static options come from the manifest. Discovered options come from
  * dependency_discovered_scope_options after a complete directory sync.
  */
-export type ScopeSelection = {
+export interface ScopeSelection {
   required: boolean
   allowsUnscoped: boolean
   status: "static" | "ready" | "pending" | "unavailable"
@@ -230,7 +233,7 @@ export type ScopeSelection = {
 }
 
 /** One child or location option observed in a complete source directory. */
-export type CatalogDirectoryOption = {
+export interface CatalogDirectoryOption {
   id: string
   label: string
   metadata?: Record<string, unknown>
@@ -242,7 +245,7 @@ export type CatalogDirectoryOption = {
  * produce a directory (return null instead) so availability is never revised
  * from a partial page set.
  */
-export type CatalogComponentDirectory = {
+export interface CatalogComponentDirectory {
   componentIds: ReadonlySet<string>
   /** Parent group id -> child components for discovered_children scopes. */
   childrenByParent: ReadonlyMap<string, readonly CatalogDirectoryOption[]>

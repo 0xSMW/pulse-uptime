@@ -9,23 +9,23 @@ export type MaintenanceSkipReason =
   | "pre_catalog_budget"
   | "catalog_budget"
 
-export type MaintenanceSkippedTask = {
+export interface MaintenanceSkippedTask {
   task: string
   reason: MaintenanceSkipReason
 }
 
-export type MaintenanceBudget = {
+export interface MaintenanceBudget {
   readonly hardDeadlineAtMs: number
   readonly catalogDeadlineAtMs: number
   readonly preCatalogDeadlineAtMs: number
-  remainingMs(bound?: MaintenanceBudgetBound): number
-  canStart(minimumMs: number, bound?: MaintenanceBudgetBound): boolean
-  recordSkip(task: string, reason: MaintenanceSkipReason): void
+  remainingMs: (bound?: MaintenanceBudgetBound) => number
+  canStart: (minimumMs: number, bound?: MaintenanceBudgetBound) => boolean
+  recordSkip: (task: string, reason: MaintenanceSkipReason) => void
   readonly skippedTasks: readonly MaintenanceSkippedTask[]
   readonly deadlineExceeded: boolean
 }
 
-export type CreateMaintenanceBudgetInput = {
+export interface CreateMaintenanceBudgetInput {
   nowMs: () => number
   hardDeadlineAtMs: number
   /** Reserved catalog validation slice width in ms. */

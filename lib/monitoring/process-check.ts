@@ -23,28 +23,28 @@ import type {
 type IncidentInsert = typeof incidents.$inferInsert
 type OutboxInsert = typeof notificationOutbox.$inferInsert
 
-export type ProcessCheckTransaction = {
-  insertCheck(check: ScheduledCheck): Promise<boolean>
-  lockMonitorState(monitorId: string): Promise<MonitorStateSnapshot | null>
-  insertIncident(incident: IncidentInsert): Promise<void>
-  updateIncidentProgress(
+export interface ProcessCheckTransaction {
+  insertCheck: (check: ScheduledCheck) => Promise<boolean>
+  lockMonitorState: (monitorId: string) => Promise<MonitorStateSnapshot | null>
+  insertIncident: (incident: IncidentInsert) => Promise<void>
+  updateIncidentProgress: (
     incidentId: string,
     progress: { lastFailureAt?: Date; firstSuccessAt?: Date | null },
     now: Date
-  ): Promise<void>
-  resolveIncident(
+  ) => Promise<void>
+  resolveIncident: (
     incidentId: string,
     firstSuccessAt: Date,
     now: Date
-  ): Promise<void>
-  insertOutbox(rows: OutboxInsert[]): Promise<void>
-  updateMonitorState(state: MonitorStateSnapshot): Promise<void>
+  ) => Promise<void>
+  insertOutbox: (rows: OutboxInsert[]) => Promise<void>
+  updateMonitorState: (state: MonitorStateSnapshot) => Promise<void>
 }
 
-export type ProcessCheckStore = {
-  transaction<T>(
+export interface ProcessCheckStore {
+  transaction: <T>(
     work: (transaction: ProcessCheckTransaction) => Promise<T>
-  ): Promise<T>
+  ) => Promise<T>
 }
 
 function notificationRows(

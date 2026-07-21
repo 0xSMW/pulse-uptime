@@ -1,6 +1,6 @@
 export const PACKED_TELEMETRY_VERSION = 1
 
-export type PackedTelemetry = {
+export interface PackedTelemetry {
   encodingVersion: number
   monitorCount: number
   expectedBitmap: Buffer
@@ -9,7 +9,7 @@ export type PackedTelemetry = {
   latencyValues: Buffer
 }
 
-export type TelemetryValue = {
+export interface TelemetryValue {
   expected: boolean
   completed: boolean
   failed: boolean

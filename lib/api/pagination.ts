@@ -1,6 +1,9 @@
 import { Buffer } from "node:buffer"
 
-export type CursorValue = { sort: string; id: string }
+export interface CursorValue {
+  sort: string
+  id: string
+}
 
 export function encodeCursor(value: CursorValue): string {
   return Buffer.from(JSON.stringify(value), "utf8").toString("base64url")

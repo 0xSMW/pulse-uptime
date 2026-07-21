@@ -62,7 +62,7 @@ describe("Hetzner catalog presets", () => {
     manifest.presets.find((entry) => entry.id === id)!
 
   it("pins each preset to the integer system id validated on the live page", () => {
-    const cases: Array<[string, string, string[]]> = [
+    const cases: [string, string, string[]][] = [
       ["hetzner_cloud_server", "Hetzner Cloud Server", ["3"]],
       ["hetzner_object_storage", "Hetzner Object Storage", ["91"]],
       ["hetzner_dedicated_server", "Hetzner Dedicated Server", ["6"]],

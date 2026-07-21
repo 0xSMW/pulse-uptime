@@ -62,7 +62,7 @@ function fakeStore(
   const calls: string[] = []
   const captured: {
     incident?: unknown
-    outbox?: Array<Record<string, unknown>>
+    outbox?: Record<string, unknown>[]
     state?: MonitorStateSnapshot
   } = {}
   const tx: ProcessCheckTransaction = {

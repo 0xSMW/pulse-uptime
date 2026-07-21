@@ -14,7 +14,7 @@ export type HelpDemoKey =
   | "cli-link"
   | "agent-connect"
 
-export type HelpEntry = {
+export interface HelpEntry {
   kind: "concept" | "guide"
   slug: string
   title: string
@@ -497,7 +497,10 @@ const guides: HelpEntry[] = [
   },
 ]
 
-export type HelpGroup = { label: string; entries: HelpEntry[] }
+export interface HelpGroup {
+  label: string
+  entries: HelpEntry[]
+}
 
 export const helpGroups: HelpGroup[] = [
   { label: "Core Concepts", entries: concepts },
@@ -528,7 +531,7 @@ export function activeHelpSectionId(
     return null
   }
   if (atBottom) {
-    return positions[positions.length - 1]!.id
+    return positions.at(-1)!.id
   }
   let active = positions[0]!.id
   for (const position of positions) {

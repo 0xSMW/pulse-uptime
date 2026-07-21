@@ -8,14 +8,14 @@ import { clientIpFromHeaders } from "@/lib/net/client-ip"
 
 import { digestBearerToken } from "./tokens"
 
-export type RateLimitPolicy = {
+export interface RateLimitPolicy {
   routeKey: string
   limit: number
   windowSeconds: number
   resourceKey?: string
 }
 
-export type RateLimitResult = {
+export interface RateLimitResult {
   allowed: boolean
   remaining: number
   retryAfterSeconds: number

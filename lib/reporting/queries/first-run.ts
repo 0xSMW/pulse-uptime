@@ -80,7 +80,7 @@ export function rollupsSinceActivation<T extends { bucketStart: Date }>(
   return rows.filter((row) => row.bucketStart.getTime() >= cutoff)
 }
 
-export type ObservedCounts = {
+export interface ObservedCounts {
   expected: number
   completed: number
   successful: number

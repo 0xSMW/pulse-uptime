@@ -187,7 +187,7 @@ describe("auth0StatusAdapter.normalize: maintenance", () => {
 describe("auth0StatusAdapter.normalize: private incidents", () => {
   it("ignores a tenant-private incident for both state and the incident list", () => {
     const snapshot = normalize(privateIncident)
-    expect(snapshot.components["AU"]).toMatchObject({ state: "OPERATIONAL" })
+    expect(snapshot.components.AU).toMatchObject({ state: "OPERATIONAL" })
     expect(snapshot.incidents).toEqual([])
   })
 })
