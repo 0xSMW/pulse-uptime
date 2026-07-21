@@ -16,13 +16,12 @@ import { googleCloudStatusAdapter } from "./google-cloud-status"
 import { incidentFeedAdapter } from "./incident-feed"
 import { incidentioCompatAdapter } from "./incidentio-compat"
 import { nextdataEmbeddedAdapter } from "./nextdata-embedded"
-import { AdapterParseError, catalogDirectoryFromNormalize } from "./shared"
+import { AdapterParseError } from "./shared"
 import { sorryV1Adapter } from "./sorry-v1"
 import { statusioPublicAdapter } from "./statusio-public"
 import { statuspageV2Adapter } from "./statuspage-v2"
 
-export type { AdapterParseErrorCode } from "./shared"
-export { AdapterParseError, catalogDirectoryFromNormalize }
+export { AdapterParseError }
 
 /** The three document roles a source's feed can play in a poll cycle. */
 export type AdapterDocumentKind = "current" | "incidents" | "maintenance"

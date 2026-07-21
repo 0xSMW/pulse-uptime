@@ -8,14 +8,6 @@ import {
   type MonitoringConfig,
 } from "./schema"
 
-export type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | JsonValue[]
-  | { [key: string]: JsonValue }
-
 export function canonicalSerialize(value: unknown): string {
   if (
     value === null ||
@@ -81,7 +73,7 @@ export function compareLexically(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0
 }
 
-export function normalizeMonitor(monitor: MonitorConfig): MonitorConfig {
+function normalizeMonitor(monitor: MonitorConfig): MonitorConfig {
   const url = new URL(monitor.url)
   url.hostname = url.hostname.toLowerCase()
   return {
@@ -94,7 +86,7 @@ export function normalizeMonitor(monitor: MonitorConfig): MonitorConfig {
   }
 }
 
-export function normalizeGroup(group: GroupConfig): GroupConfig {
+function normalizeGroup(group: GroupConfig): GroupConfig {
   return { id: group.id, name: group.name.trim() }
 }
 
@@ -164,7 +156,7 @@ function normalizeLegacyDocument(config: {
   }
 }
 
-export function serializedByteLength(value: unknown): number {
+function serializedByteLength(value: unknown): number {
   return Buffer.byteLength(canonicalSerialize(value), "utf8")
 }
 

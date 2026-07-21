@@ -2,8 +2,10 @@ import { NextResponse } from "next/server"
 
 import { isUuid } from "@/lib/ids/uuid"
 
+/** @public Wire version tag stamped into every response envelope and version header. */
 export const API_VERSION = "v1" as const
 
+/** @public Shape of the `meta` field carried by object and list response envelopes. */
 export interface ApiMeta {
   requestId: string
   nextCursor?: string | null

@@ -7,7 +7,7 @@ import type { GatedConnection } from "./db-connection"
 import type { QueryCase, ResolvedQuery } from "./query-cases"
 import type { SampleContext } from "./sample-context"
 
-export interface PlanNodeSummary {
+interface PlanNodeSummary {
   nodeType: string
   actualTotalTimeMs: number
   actualRows: number

@@ -1,3 +1,4 @@
+/** @public Canonical registry of every API scope. The ApiScope type and all scope validation derive from this list. */
 export const API_SCOPES = [
   "monitors:read",
   "monitors:write",
@@ -15,14 +16,14 @@ export const API_SCOPES = [
 
 export type ApiScope = (typeof API_SCOPES)[number]
 
-export const ADMINISTRATOR_SCOPES: readonly ApiScope[] = API_SCOPES
+export const ADMINISTRATOR_SCOPES: readonly ApiScope[] = [...API_SCOPES]
 
 /**
  * Named scope profiles are resolved at AUTH time, not at mint time: a CLI
  * session that stores the "administrator" profile gains newly introduced
  * scopes automatically instead of being stranded on its snapshot.
  */
-export const SCOPE_PROFILES: Readonly<Record<string, readonly ApiScope[]>> = {
+const SCOPE_PROFILES: Readonly<Record<string, readonly ApiScope[]>> = {
   administrator: ADMINISTRATOR_SCOPES,
 }
 
@@ -36,7 +37,7 @@ export function resolveScopeProfile(
   return scopes ? [...scopes] : null
 }
 
-export function isApiScope(value: string): value is ApiScope {
+function isApiScope(value: string): value is ApiScope {
   return (API_SCOPES as readonly string[]).includes(value)
 }
 

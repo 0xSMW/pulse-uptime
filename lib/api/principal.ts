@@ -22,7 +22,7 @@ export interface HumanPrincipal {
   scopes: ApiScope[]
 }
 
-export interface ApiTokenPrincipal {
+interface ApiTokenPrincipal {
   type: "api_token"
   id: string
   name: string
@@ -30,7 +30,7 @@ export interface ApiTokenPrincipal {
   expiresAt: Date
 }
 
-export interface CliSessionPrincipal {
+interface CliSessionPrincipal {
   type: "cli_session"
   id: string
   email: string
@@ -108,7 +108,7 @@ export async function resolvePrincipal(
 
 const LAST_USED_WRITE_INTERVAL_MS = 5 * 60_000
 
-export const databasePrincipalStore: PrincipalStore = {
+const databasePrincipalStore: PrincipalStore = {
   async findApiToken(digest, now) {
     const [row] = await db
       .select({

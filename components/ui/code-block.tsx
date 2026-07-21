@@ -6,7 +6,7 @@ import * as React from "react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
-export interface CodeBlockProps extends React.HTMLAttributes<HTMLDivElement> {
+interface CodeBlockProps extends React.HTMLAttributes<HTMLDivElement> {
   code: string
   language?: string
   copyLabel?: string

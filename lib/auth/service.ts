@@ -402,7 +402,7 @@ export async function revokeSession(sessionId: string) {
     .where(eq(humanSessions.id, sessionId))
 }
 
-export const LAST_SEEN_REFRESH_SECONDS = 60
+const LAST_SEEN_REFRESH_SECONDS = 60
 
 /**
  * lastSeenAt is load-bearing for the Security page but written from every

@@ -16,9 +16,9 @@ import type {
   NotificationLogger,
 } from "./types"
 
-export const MAX_DELIVERY_ATTEMPTS = 5
-export const MAX_CLAIM_BATCH_SIZE = 100
-export const MAX_SEND_CONCURRENCY = 10
+const MAX_DELIVERY_ATTEMPTS = 5
+const MAX_CLAIM_BATCH_SIZE = 100
+const MAX_SEND_CONCURRENCY = 10
 const RETRY_DELAYS_MS = [
   60_000,
   5 * 60_000,

@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils"
 export const INCIDENT_FEED_ONLY_LABEL = "Incident feed only"
 
 // Plain-language tooltip on the chip so a reader knows what they actually get.
-export const INCIDENT_FEED_ONLY_HINT =
+const INCIDENT_FEED_ONLY_HINT =
   "Provider posts incident notices, not per-component health"
 
 export function DependencyFidelityBadge({

@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils"
 
 export type { MonitorState }
 
-export interface StatusDotProps {
+interface StatusDotProps {
   state: MonitorState
   size?: "sm" | "md"
   className?: string

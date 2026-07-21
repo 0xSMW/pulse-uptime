@@ -2,7 +2,7 @@ import "server-only"
 
 import { createHash, timingSafeEqual } from "node:crypto"
 
-export const BOOTSTRAP_TOKEN_HEADER = "x-pulse-bootstrap-token"
+const BOOTSTRAP_TOKEN_HEADER = "x-pulse-bootstrap-token"
 
 /**
  * The first-admin claim is gated on a one-time, high-entropy bootstrap credential
@@ -12,15 +12,6 @@ export const BOOTSTRAP_TOKEN_HEADER = "x-pulse-bootstrap-token"
  * account-takeover path — a direct HTTP client can no longer become the sole
  * administrator by merely presenting the expected Origin.
  */
-export function bootstrapTokenConfigured(
-  env: NodeJS.ProcessEnv = process.env
-): boolean {
-  return (
-    typeof env.PULSE_BOOTSTRAP_TOKEN === "string" &&
-    env.PULSE_BOOTSTRAP_TOKEN.length >= 16
-  )
-}
-
 export function verifyBootstrapToken(
   provided: string | undefined | null,
   env: NodeJS.ProcessEnv = process.env

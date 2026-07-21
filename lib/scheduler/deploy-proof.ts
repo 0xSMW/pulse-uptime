@@ -5,7 +5,7 @@ import { and, desc, eq, gte, isNotNull } from "drizzle-orm"
 import { db } from "@/lib/db/client"
 import { cronRuns } from "@/lib/db/schema"
 
-export const DEPLOY_PROOF_JOB_NAME = "monitor-check" as const
+const DEPLOY_PROOF_JOB_NAME = "monitor-check" as const
 
 export interface DeployProofRunSnapshot {
   runId: string
@@ -16,7 +16,7 @@ export interface DeployProofRunSnapshot {
   releaseId: string | null
 }
 
-export interface DeployProofReady {
+interface DeployProofReady {
   status: "ready"
   releaseId: string
   runId: string
@@ -25,7 +25,7 @@ export interface DeployProofReady {
   completedAt: Date
 }
 
-export interface DeployProofWaiting {
+interface DeployProofWaiting {
   status: "waiting"
   releaseId: string
   latest: DeployProofRunSnapshot | null

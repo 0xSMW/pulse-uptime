@@ -87,7 +87,7 @@ export interface MonitorFirstRun {
 // Ranges the live poll recomputes. The d30 and d90 figures are absent from the
 // payload, so the client keeps the snapshot values that a rollup refresh
 // advances rather than overwriting them with nulls each poll.
-export type LiveRange = "h24" | "d7"
+type LiveRange = "h24" | "d7"
 
 // The changing subset of a monitor page. The live poll returns exactly these
 // fields so the client can merge them over the server snapshot in place.

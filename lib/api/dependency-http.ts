@@ -11,9 +11,7 @@ import { apiError, errorEnvelope } from "./envelopes"
 import type { StoredResponse } from "./idempotency"
 
 /** Shared status map for the dependencies route family. */
-export function dependencyErrorStatus(
-  code: DependencyApiError["code"]
-): number {
+function dependencyErrorStatus(code: DependencyApiError["code"]): number {
   if (code === "DEPENDENCY_NOT_FOUND") {
     return 404
   }

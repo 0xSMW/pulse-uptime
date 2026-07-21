@@ -143,7 +143,7 @@ export type ManagedDispatcher = Dispatcher & {
   close: () => Promise<void>
 }
 
-export type FetchResponseBody = AsyncIterable<Uint8Array> & {
+type FetchResponseBody = AsyncIterable<Uint8Array> & {
   destroy: (error?: Error) => void
 }
 
@@ -153,7 +153,7 @@ export interface FetchResponse {
   body: FetchResponseBody
 }
 
-export type FetchRequestExecutor = (
+type FetchRequestExecutor = (
   url: URL,
   options: {
     method: "GET"
@@ -166,7 +166,7 @@ export type FetchRequestExecutor = (
   }
 ) => Promise<FetchResponse>
 
-export type FetchDispatcherFactory = (options: {
+type FetchDispatcherFactory = (options: {
   lookup: SecureLookup
   connectTimeoutMs: number
 }) => ManagedDispatcher

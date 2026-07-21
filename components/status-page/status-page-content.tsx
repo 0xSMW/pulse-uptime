@@ -36,7 +36,7 @@ import { OverallBanner } from "./overall-banner"
 import styles from "./status-page.module.css"
 import { StatusUnavailableNotice } from "./status-unavailable-notice"
 
-export interface StatusPageDisplayConfig {
+interface StatusPageDisplayConfig {
   layout: "vertical" | "horizontal"
   theme: "system" | "light" | "dark"
   logoLightImageId: string | null

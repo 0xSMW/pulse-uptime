@@ -9,15 +9,12 @@ import { isValidIanaTimeZone } from "@/lib/time/iana"
  */
 
 export const DEFAULT_STATUS_PAGE_NAME = "Pulse Status"
-/** @deprecated Use DEFAULT_STATUS_PAGE_NAME. Retained for existing importers. */
-export const STATUS_PAGE_NAME_FALLBACK = DEFAULT_STATUS_PAGE_NAME
-export const STATUS_PAGE_LAYOUTS = ["vertical", "horizontal"] as const
-export const STATUS_PAGE_THEMES = ["system", "light", "dark"] as const
-export const STATUS_PAGE_HISTORY_DAYS = [30, 60, 90] as const
+const STATUS_PAGE_LAYOUTS = ["vertical", "horizontal"] as const
+const STATUS_PAGE_THEMES = ["system", "light", "dark"] as const
 export const MAX_NAV_LINKS = 8
-export const MAX_CUSTOM_BYTES = 10 * 1024
-export const MAX_ANNOUNCEMENT_BYTES = 2 * 1024
-export const MAX_MIN_INCIDENT_SECONDS = 7 * 86_400
+const MAX_CUSTOM_BYTES = 10 * 1024
+const MAX_ANNOUNCEMENT_BYTES = 2 * 1024
+const MAX_MIN_INCIDENT_SECONDS = 7 * 86_400
 
 function utf8Bytes(value: string): number {
   return new TextEncoder().encode(value).length
@@ -50,7 +47,7 @@ const boundedText = (maxBytes: number) =>
     message: `Must be at most ${maxBytes} bytes`,
   })
 
-export const navLinkSchema = z.strictObject({
+const navLinkSchema = z.strictObject({
   label: z.string().trim().min(1).max(40),
   url: httpOrMailtoUrl,
 })

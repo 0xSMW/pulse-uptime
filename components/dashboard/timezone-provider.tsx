@@ -14,7 +14,7 @@ export const DEFAULT_TIMEZONE = "system"
 export const TIMEZONE_STORAGE_KEY = "pulse-timezone-override"
 export const LEGACY_TIMEZONE_STORAGE_KEY = "pulse-timezone"
 
-export type TimezonePreference = "system" | string
+type TimezonePreference = "system" | string
 
 interface TimezoneContextValue {
   /** Effective preference: device override → account (server) → system. */
@@ -32,7 +32,7 @@ interface TimezoneContextValue {
   setDeviceOverride: (timezone: string | null) => void
 }
 
-export interface TimezoneProviderProps {
+interface TimezoneProviderProps {
   children: React.ReactNode
   defaultTimezone?: string
   storageKey?: string

@@ -6,7 +6,6 @@ import { cn } from "@/lib/utils"
 
 const DropdownMenu = MenuPrimitive.Root
 const DropdownMenuTrigger = MenuPrimitive.Trigger
-const DropdownMenuGroup = MenuPrimitive.Group
 const DropdownMenuRadioGroup = MenuPrimitive.RadioGroup
 
 function DropdownMenuContent({
@@ -89,7 +88,6 @@ function DropdownMenuSeparator({
 export {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLinkItem,
   DropdownMenuRadioGroup,

@@ -5,8 +5,8 @@ import { and, eq, inArray, sql } from "drizzle-orm"
 import { type DatabaseHandle, db } from "@/lib/db/client"
 import { adminUsers, images, statusPageConfig } from "@/lib/db/schema"
 import {
+  DEFAULT_STATUS_PAGE_NAME,
   parseStatusPageConfigDocument,
-  STATUS_PAGE_NAME_FALLBACK,
   type StatusPageConfigDocument,
   type StatusPageNavLink,
 } from "@/lib/status-page/schema"
@@ -25,7 +25,7 @@ import {
  * Name seeding mechanic: the migration seeds row 1 with name NULL and
  * updatedAt NULL (version 0). The read path coalesces NULL name to
  * NEXT_PUBLIC_STATUS_PAGE_NAME (trimmed) and then falls back to the runtime
- * literal "Pulse Status" (DEFAULT_STATUS_PAGE_NAME via STATUS_PAGE_NAME_FALLBACK),
+ * literal "Pulse Status" (DEFAULT_STATUS_PAGE_NAME),
  * and never persists the coalesced value. The first
  * successful PUT is the first write, so env-configured deployments keep their
  * title with no magic markers. Version 0 (the seed/unwritten state) still
@@ -73,14 +73,14 @@ function etagOpaqueTag(etag: string): string {
 }
 
 /** True when two ETags identify the same representation under weak comparison. */
-export function statusPageConfigEtagMatches(
+function statusPageConfigEtagMatches(
   current: string,
   ifMatch: string
 ): boolean {
   return etagOpaqueTag(current) === etagOpaqueTag(ifMatch)
 }
 
-export type StatusPageConfigRow = StatusPageConfigDocument & {
+type StatusPageConfigRow = StatusPageConfigDocument & {
   updatedAt: Date | null
   version: number
 }
@@ -111,7 +111,7 @@ export interface StatusPageConfigDependencies {
 }
 
 function defaultName(env: Record<string, string | undefined>): string {
-  return env.NEXT_PUBLIC_STATUS_PAGE_NAME?.trim() || STATUS_PAGE_NAME_FALLBACK
+  return env.NEXT_PUBLIC_STATUS_PAGE_NAME?.trim() || DEFAULT_STATUS_PAGE_NAME
 }
 
 function present(
@@ -281,7 +281,7 @@ const configSelection = {
 }
 
 /** Binds the store to `handle` (default the pool) so a caller can join an outer transaction as a savepoint. */
-export function createDatabaseStatusPageConfigStore(
+function createDatabaseStatusPageConfigStore(
   handle: DatabaseHandle = db
 ): StatusPageConfigStore {
   return {
@@ -364,5 +364,5 @@ export function createDatabaseStatusPageConfigStore(
   }
 }
 
-export const databaseStatusPageConfigStore: StatusPageConfigStore =
+const databaseStatusPageConfigStore: StatusPageConfigStore =
   createDatabaseStatusPageConfigStore()

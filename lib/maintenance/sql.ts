@@ -19,7 +19,7 @@ import {
 } from "@/lib/storage/sql"
 import type { MaintenanceStore } from "./coordinator"
 
-export type QueryFn = <T>(
+type QueryFn = <T>(
   text: string,
   values: readonly unknown[]
 ) => Promise<readonly T[]>

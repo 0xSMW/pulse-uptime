@@ -77,19 +77,4 @@ const CardContent = ({
 }) => <div className={cn("p-6", className)} ref={ref} {...props} />
 CardContent.displayName = "CardContent"
 
-const CardFooter = ({
-  className,
-  ref,
-  ...props
-}: React.HTMLAttributes<HTMLDivElement> & {
-  ref?: React.RefObject<HTMLDivElement | null>
-}) => (
-  <div
-    className={cn("flex items-center gap-2 p-6 pt-0", className)}
-    ref={ref}
-    {...props}
-  />
-)
-CardFooter.displayName = "CardFooter"
-
-export { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
+export { Card, CardContent, CardDescription, CardHeader, CardTitle }

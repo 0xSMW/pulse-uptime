@@ -18,12 +18,7 @@ import {
  */
 
 export type { ReportImpact, ReportType, ReportUpdateStatus }
-export {
-  impactOptions,
-  isResolvingStatus,
-  REPORT_STATUS_LABELS,
-  REPORT_STATUSES,
-}
+export { impactOptions, REPORT_STATUS_LABELS, REPORT_STATUSES }
 
 export interface ReportUpdateData {
   id: string
@@ -37,7 +32,7 @@ export interface ReportUpdateData {
   createdAt?: string
 }
 
-export interface ReportAffectedData {
+interface ReportAffectedData {
   monitorId: string
   monitorName: string
   groupName: string | null
@@ -266,7 +261,7 @@ export interface ReportFormErrors {
   publishedAt?: string
 }
 
-export const MAX_REPORT_MARKDOWN = 10_240
+const MAX_REPORT_MARKDOWN = 10_240
 
 export function validateReportForm(input: {
   title: string

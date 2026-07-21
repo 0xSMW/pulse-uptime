@@ -2,7 +2,7 @@ import { createHmac, randomBytes } from "node:crypto"
 
 import { canonicalSerialize } from "@/lib/config/canonical"
 
-export const API_TOKEN_PREFIX = "pulse_live_"
+const API_TOKEN_PREFIX = "pulse_live_"
 export const CLI_SESSION_PREFIX = "pulse_cli_"
 const TOKEN_BYTES = 32
 

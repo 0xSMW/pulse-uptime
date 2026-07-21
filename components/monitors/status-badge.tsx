@@ -5,7 +5,7 @@ import {
 } from "@/components/monitors/status-dot"
 import { cn } from "@/lib/utils"
 
-export interface StatusBadgeProps {
+interface StatusBadgeProps {
   state: MonitorState
   className?: string
 }

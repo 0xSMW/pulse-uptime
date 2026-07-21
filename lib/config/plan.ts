@@ -11,13 +11,13 @@ import {
 } from "./tripwire"
 import { validateDeclarativeConfig } from "./validation"
 
-export interface SettingChange {
+interface SettingChange {
   path: string
   before: unknown
   after: unknown
 }
 
-export interface MonitorUpdate {
+interface MonitorUpdate {
   id: string
   before: MonitorConfig | null
   after: MonitorConfig

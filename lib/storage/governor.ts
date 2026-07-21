@@ -2,7 +2,7 @@ import type { DatabaseGovernorMode } from "@/lib/database-health/types"
 
 export const STORAGE_BUDGET_BYTES = 500_000_000
 
-export const governorModes = [
+const governorModes = [
   "full",
   "compact_early",
   "shortened",

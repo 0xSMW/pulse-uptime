@@ -24,7 +24,7 @@ const themeOptions: { label: string; value: Theme; Icon: typeof Monitor }[] = [
   { label: "Light", value: "light", Icon: Sun },
 ]
 
-export function MenuAppearanceControl() {
+function MenuAppearanceControl() {
   const { theme, setTheme } = useTheme()
 
   return (

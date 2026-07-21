@@ -1,7 +1,7 @@
 import { Resend } from "resend"
 import type { NotificationMessage } from "./message"
 
-export interface NotificationSendResult {
+interface NotificationSendResult {
   providerMessageId: string
 }
 

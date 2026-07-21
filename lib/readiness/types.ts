@@ -1,7 +1,7 @@
 export const readinessSystems = ["vercel", "database", "edge", "email"] as const
 
-export type ReadinessSystem = (typeof readinessSystems)[number]
-export type ReadinessState = "ready" | "warning" | "blocked"
+type ReadinessSystem = (typeof readinessSystems)[number]
+type ReadinessState = "ready" | "warning" | "blocked"
 
 export interface ReadinessResult {
   system: ReadinessSystem

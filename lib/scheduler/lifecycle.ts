@@ -1,8 +1,5 @@
 import { transitionMonitor } from "@/lib/monitoring/state-machine"
-import type {
-  MonitorStateName,
-  MonitorStateSnapshot,
-} from "@/lib/monitoring/types"
+import type { MonitorStateSnapshot } from "@/lib/monitoring/types"
 
 export type LifecycleTarget = "ACTIVE" | "PAUSED" | "ARCHIVED"
 
@@ -87,26 +84,4 @@ export function transitionLifecycle(
     }
   }
   return { changed, state, resolution }
-}
-
-export function targetFor(
-  enabled: boolean,
-  archived: boolean
-): LifecycleTarget {
-  if (archived) {
-    return "ARCHIVED"
-  }
-  return enabled ? "ACTIVE" : "PAUSED"
-}
-
-export function isLifecycleState(value: string): value is MonitorStateName {
-  return [
-    "PENDING",
-    "UP",
-    "VERIFYING_DOWN",
-    "DOWN",
-    "VERIFYING_UP",
-    "PAUSED",
-    "ARCHIVED",
-  ].includes(value)
 }

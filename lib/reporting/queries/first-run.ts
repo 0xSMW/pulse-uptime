@@ -17,7 +17,7 @@ export type MonitorPhase = "setup" | "collecting" | "active"
 export type AvailabilityRange = "h24" | "d7" | "d30" | "d90"
 
 // A range unlocks once the completed data window covers its full span.
-export const RANGE_UNLOCK_MS: Record<AvailabilityRange, number> = {
+const RANGE_UNLOCK_MS: Record<AvailabilityRange, number> = {
   h24: 86_400_000,
   d7: 7 * 86_400_000,
   d30: 30 * 86_400_000,
@@ -25,7 +25,7 @@ export const RANGE_UNLOCK_MS: Record<AvailabilityRange, number> = {
 }
 
 // The collecting phase spans the first day after activation.
-export const COLLECTING_WINDOW_MS = 86_400_000
+const COLLECTING_WINDOW_MS = 86_400_000
 
 export function observedMs(activatedAt: Date | null, now: Date): number {
   if (activatedAt === null) {

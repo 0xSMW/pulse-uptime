@@ -93,7 +93,7 @@ export function validateDraft(input: MonitorDraft): MonitorDraft {
   }
 }
 
-export async function getOnboardingState(userId: string) {
+async function getOnboardingState(userId: string) {
   const [row] = await db
     .select()
     .from(onboardingProgress)

@@ -163,14 +163,14 @@ export interface MaintenanceSummary {
   deadlineExceeded: boolean
 }
 
-export const RETENTION_BATCH_SIZE = 10_000
-export const MAINTENANCE_WORK_BUDGET_MS = 45_000
+const RETENTION_BATCH_SIZE = 10_000
+const MAINTENANCE_WORK_BUDGET_MS = 45_000
 // Catalog validation gets this slice reserved from the maintenance window. The
 // reservation means heavy retention can never starve it, and its own deadline
 // caps it to the slice so it can never overrun the window or starve retention.
 export const CATALOG_VALIDATION_BUDGET_MS = 10_000
-export const ORPHAN_IMAGE_KEEP_NEWEST = 20
-export const SWEEP_WORK_BUDGET_MS = 20_000
+const ORPHAN_IMAGE_KEEP_NEWEST = 20
+const SWEEP_WORK_BUDGET_MS = 20_000
 
 export interface SweepSummary {
   expired: number

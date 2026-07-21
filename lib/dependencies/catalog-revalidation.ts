@@ -23,7 +23,7 @@ import type { CatalogComponentDirectory } from "./types"
 // so body caps, request mode, host allowlists, document caps, and deadline
 // budgets match the poller. Incomplete collection never yields a directory.
 
-export interface LiveCatalogDirectoryArgs {
+interface LiveCatalogDirectoryArgs {
   source: {
     id: string
     adapter: string
@@ -144,6 +144,3 @@ export function createLiveCatalogDirectoryFetcher(
     }
   }
 }
-
-/** @deprecated Prefer createLiveCatalogDirectoryFetcher. Kept as a thin alias during rename. */
-export const createLiveFetchSourceComponents = createLiveCatalogDirectoryFetcher

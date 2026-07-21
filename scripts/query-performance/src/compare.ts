@@ -45,14 +45,14 @@ function medianSample(samples: ExplainSample[]): {
   }
 }
 
-export type Verdict =
+type Verdict =
   | "improved"
   | "unchanged"
   | "regressed"
   | "missing-in-candidate"
   | "missing-in-baseline"
 
-export interface CaseComparison {
+interface CaseComparison {
   name: string
   verdict: Verdict
   baseline: ReturnType<typeof medianSample> | null

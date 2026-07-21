@@ -61,7 +61,7 @@ export interface CheckTransitionEvent {
   recoveryThreshold: number
 }
 
-export interface LifecycleTransitionEvent {
+interface LifecycleTransitionEvent {
   type: "disable" | "archive" | "enable" | "restore"
   occurredAt: Date
 }

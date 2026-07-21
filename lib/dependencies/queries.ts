@@ -43,7 +43,7 @@ interface IntervalRow {
   endedAt: Date | null
 }
 
-export interface StateBucket {
+interface StateBucket {
   start: string
   state: DependencyState | null
 }
@@ -217,14 +217,14 @@ export async function listDependenciesForDashboard(): Promise<
   })
 }
 
-export interface DependencyIncidentUpdate {
+interface DependencyIncidentUpdate {
   state: string
   bodyText: string
   createdAt: string
   updatedAt: string
 }
 
-export interface DependencyIncident {
+interface DependencyIncident {
   id: string
   title: string
   state: string

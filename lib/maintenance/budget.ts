@@ -2,9 +2,9 @@
 // pre-catalog slice (retention, compaction, gap recovery, usage) and a reserved
 // catalog slice so heavy night work never starves dependency feed validation.
 
-export type MaintenanceBudgetBound = "hard" | "pre_catalog" | "catalog"
+type MaintenanceBudgetBound = "hard" | "pre_catalog" | "catalog"
 
-export type MaintenanceSkipReason =
+type MaintenanceSkipReason =
   | "hard_deadline"
   | "pre_catalog_budget"
   | "catalog_budget"

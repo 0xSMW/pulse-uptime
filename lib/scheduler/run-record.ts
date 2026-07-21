@@ -1,4 +1,4 @@
-export type CronJobName = "monitor-check" | "maintenance"
+type CronJobName = "monitor-check" | "maintenance"
 export interface CronRunCounts {
   monitorCount: number
   successCount: number
@@ -59,7 +59,7 @@ export function emptyRunCounts(): CronRunCounts {
   return { monitorCount: 0, successCount: 0, failureCount: 0, skippedCount: 0 }
 }
 
-export function safeCronError(error: unknown): string {
+function safeCronError(error: unknown): string {
   const message =
     error instanceof Error ? error.message : "Unknown cron failure"
   return message.replace(/[\r\n\t]+/g, " ").slice(0, 500)

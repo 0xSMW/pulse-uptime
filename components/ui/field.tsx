@@ -2,7 +2,7 @@ import type * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-export interface FieldProps extends React.HTMLAttributes<HTMLDivElement> {
+interface FieldProps extends React.HTMLAttributes<HTMLDivElement> {
   label: React.ReactNode
   htmlFor?: string
   description?: React.ReactNode

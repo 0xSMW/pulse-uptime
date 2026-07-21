@@ -47,7 +47,7 @@ export function statusReportRouteError(
  * so they must be recorded as the idempotent operation's own response. See
  * runStatusReportMutation's doc comment for why.
  */
-export function storedStatusReportError(
+function storedStatusReportError(
   error: StatusReportError,
   requestId: string
 ): StoredResponse {

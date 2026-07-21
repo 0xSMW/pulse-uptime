@@ -54,7 +54,7 @@ const publicUrlSchema = z
     }
   })
 
-export const checkTargetSchema = z
+const checkTargetSchema = z
   .object({
     url: publicUrlSchema,
     method: z.enum(["GET", "HEAD"]),
@@ -74,7 +74,7 @@ export const checkTargetSchema = z
 
 const emailSchema = z.string().email()
 
-export const monitorConfigSchema = checkTargetSchema
+const monitorConfigSchema = checkTargetSchema
   .extend({
     id: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{1,62})[a-z0-9]$/),
     name: z.string().trim().min(1).max(80),

@@ -22,7 +22,7 @@ import { configChangeApprovals, configOperations } from "@/lib/db/schema"
 
 export const CONFIG_OPERATION_RETENTION_SECONDS = 7 * 24 * 60 * 60
 
-export interface ConfigOperation {
+interface ConfigOperation {
   id: string
   baseConfigHash: string
   targetConfigHash: string
@@ -36,7 +36,7 @@ export interface ConfigOperation {
   failedAt: string | null
 }
 
-export class ConfigurationServiceError extends Error {
+class ConfigurationServiceError extends Error {
   constructor(
     readonly code:
       | "CONFIG_NOT_INITIALIZED"

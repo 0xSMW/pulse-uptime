@@ -12,13 +12,13 @@ import { isUuid } from "@/lib/ids/uuid"
  * immutable caching safe.
  */
 
-export type ImageKind = (typeof imageKinds)[number]
+type ImageKind = (typeof imageKinds)[number]
 
 export const MAX_IMAGE_BYTES = 512 * 1024
 export const MAX_FAVICON_BYTES = 32 * 1024
 
 /** SVGs are stored as-is and always served with a strict CSP. */
-export const IMAGE_MIME_TYPES = [
+const IMAGE_MIME_TYPES = [
   "image/png",
   "image/jpeg",
   "image/svg+xml",
@@ -42,7 +42,7 @@ export class ImageServiceError extends Error {
   }
 }
 
-export function isImageKind(value: string): value is ImageKind {
+function isImageKind(value: string): value is ImageKind {
   return (imageKinds as readonly string[]).includes(value)
 }
 
@@ -88,7 +88,7 @@ export function matchesImageSignature(
   }
 }
 
-export function maxBytesForKind(kind: ImageKind): number {
+function maxBytesForKind(kind: ImageKind): number {
   return kind === "favicon" ? MAX_FAVICON_BYTES : MAX_IMAGE_BYTES
 }
 

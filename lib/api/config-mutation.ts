@@ -73,7 +73,7 @@ async function writeEdgeConfig(config: MonitoringConfig): Promise<void> {
   }
 }
 
-export async function synchronizeRegistry(
+async function synchronizeRegistry(
   tx: DbTransaction,
   config: MonitoringConfig,
   hash: string,

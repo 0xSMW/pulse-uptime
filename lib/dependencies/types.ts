@@ -166,20 +166,21 @@ export interface NormalizedProviderSnapshot {
  * Selector kinds. A selector containing multiple component IDs aggregates
  * with worst_of: OUTAGE, DEGRADED, MAINTENANCE, then OPERATIONAL.
  */
+/** @public */
 export interface ComponentIdsSelector {
   kind: "component_ids"
   aggregation: "worst_of"
   ids: string[]
 }
 
-/** Google Cloud matches on affected_products[].id, with an optional location filter. */
+/** @public Google Cloud matches on affected_products[].id, with an optional location filter. */
 export interface GoogleProductSelector {
   kind: "google_product"
   productId: string
   location?: { required: boolean }
 }
 
-/** Status.io matches a component by result.status[].id and a region by containers[].id. */
+/** @public Status.io matches a component by result.status[].id and a region by containers[].id. */
 export interface StatusioComponentContainerSelector {
   kind: "statusio_component_container"
   componentId: string
@@ -192,7 +193,7 @@ export type DependencySelector =
   | StatusioComponentContainerSelector
 
 /** A fixed, catalog-validated scope choice (e.g. one Neon region container). */
-export interface ScopeOption {
+interface ScopeOption {
   id: string
   label: string
 }
@@ -213,7 +214,7 @@ export type DependencyScope =
   | { kind: "discovered_children"; groupId: string; required: boolean }
   | { kind: "discovered_locations"; required: boolean }
 
-/** One selectable scope option returned by the catalog API. */
+/** @public One selectable scope option returned by the catalog API. */
 export interface ScopeSelectionOption {
   id: string
   label: string

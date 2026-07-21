@@ -33,9 +33,9 @@ export const MAX_DOCUMENTS_PER_CYCLE = 200
  */
 export const MAX_CATALOG_DOCUMENTS_PER_SOURCE = 200
 
-export type DocumentCollectorAdapter = Pick<DependencyAdapter, "requests">
+type DocumentCollectorAdapter = Pick<DependencyAdapter, "requests">
 
-export type CollectDocumentsFetch = (
+type CollectDocumentsFetch = (
   request: AdapterRequestDescriptor,
   options: {
     deadlineAtMs?: number

@@ -19,7 +19,7 @@ export const ORDINARY_NOTIFICATION_EVENT_TYPES = [
 
 const nonempty = z.string().trim().min(1)
 
-export const incidentOpenedPayloadSchema = z.object({
+const incidentOpenedPayloadSchema = z.object({
   type: z.literal("incident.opened"),
   monitorName: nonempty,
   incidentId: nonempty,
@@ -27,7 +27,7 @@ export const incidentOpenedPayloadSchema = z.object({
   cause: nonempty,
 })
 
-export const incidentResolvedPayloadSchema = z.object({
+const incidentResolvedPayloadSchema = z.object({
   type: z.literal("incident.resolved"),
   monitorName: nonempty,
   incidentId: nonempty,
@@ -35,7 +35,7 @@ export const incidentResolvedPayloadSchema = z.object({
   duration: nonempty,
 })
 
-export const testNotificationPayloadSchema = z.object({
+const testNotificationPayloadSchema = z.object({
   type: z.literal("notification.test"),
   installationName: nonempty.optional(),
 })
@@ -43,7 +43,7 @@ export const testNotificationPayloadSchema = z.object({
 // Provider-reported dependency incidents/recoveries. Carries everything the
 // email needs to render (name, provider, title, state, link, provider
 // timestamp) so delivery never has to join back to dependency tables.
-export const dependencyIncidentPayloadSchema = z.object({
+const dependencyIncidentPayloadSchema = z.object({
   type: z.literal("dependency.incident"),
   dependencyName: nonempty,
   provider: nonempty,
@@ -53,7 +53,7 @@ export const dependencyIncidentPayloadSchema = z.object({
   providerTimestamp: nonempty,
 })
 
-export const dependencyRecoveryPayloadSchema = z.object({
+const dependencyRecoveryPayloadSchema = z.object({
   type: z.literal("dependency.recovery"),
   dependencyName: nonempty,
   provider: nonempty,
@@ -66,7 +66,7 @@ export const dependencyRecoveryPayloadSchema = z.object({
 // Operator-facing self-alert with no monitor or dependency subject. Raised when
 // the monitoring loop itself is broken (stale or failing), so it carries the
 // human title, the detail body, the machine reason, and when it was detected.
-export const systemAlertPayloadSchema = z.object({
+const systemAlertPayloadSchema = z.object({
   type: z.literal("system.alert"),
   title: nonempty,
   detail: nonempty,
@@ -83,15 +83,11 @@ export const notificationPayloadSchema = z.discriminatedUnion("type", [
   systemAlertPayloadSchema,
 ])
 
-export type IncidentOpenedPayload = z.infer<typeof incidentOpenedPayloadSchema>
+type IncidentOpenedPayload = z.infer<typeof incidentOpenedPayloadSchema>
 
-export type IncidentResolvedPayload = z.infer<
-  typeof incidentResolvedPayloadSchema
->
+type IncidentResolvedPayload = z.infer<typeof incidentResolvedPayloadSchema>
 
-export type TestNotificationPayload = z.infer<
-  typeof testNotificationPayloadSchema
->
+type TestNotificationPayload = z.infer<typeof testNotificationPayloadSchema>
 
 export type DependencyIncidentPayload = z.infer<
   typeof dependencyIncidentPayloadSchema

@@ -38,7 +38,7 @@ export type DatabaseGovernorMode =
   | "ESSENTIALS_ONLY"
   | "UNKNOWN"
 
-export interface DatabaseRetentionMeasurement {
+interface DatabaseRetentionMeasurement {
   key: string
   label: string
   configuredSeconds: number | null

@@ -9,7 +9,7 @@ import { MonitorApiError, setMonitorEnabled } from "./monitors"
 import { routeError } from "./route"
 
 /** Shared status map for the monitors route family. */
-export function monitorErrorStatus(code: MonitorApiError["code"]): number {
+function monitorErrorStatus(code: MonitorApiError["code"]): number {
   return code === "MONITOR_NOT_FOUND"
     ? 404
     : code === "MONITOR_EXISTS"

@@ -6,7 +6,7 @@ import "server-only"
 
 export const PULSE_RELEASE_ID_MAX_LENGTH = 128
 
-export type ReleaseIdFailureReason = "missing" | "empty" | "too_long"
+type ReleaseIdFailureReason = "missing" | "empty" | "too_long"
 
 export type ReleaseIdResult =
   | { ok: true; releaseId: string }

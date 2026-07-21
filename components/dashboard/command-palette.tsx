@@ -9,7 +9,6 @@ import {
   Suspense,
   use,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -39,7 +38,7 @@ export interface PaletteIncident {
   cause: string
 }
 
-export interface PaletteItem {
+interface PaletteItem {
   id: string
   text: string
   searchText: string
@@ -178,16 +177,6 @@ interface PaletteContextValue {
   openPalette: () => void
 }
 const PaletteContext = createContext<PaletteContextValue | null>(null)
-
-export function useCommandPalette(): PaletteContextValue {
-  const value = useContext(PaletteContext)
-  if (!value) {
-    throw new Error(
-      "useCommandPalette must be used inside CommandPaletteProvider"
-    )
-  }
-  return value
-}
 
 export function CommandPaletteProvider({
   monitorsPromise,

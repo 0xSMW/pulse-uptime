@@ -1,4 +1,3 @@
-import { z } from "zod";
 import { assertConfigSize, normalizeDeclarativeConfig, normalizeMonitoringConfig } from "./canonical";
 import {
   declarativeConfigSchema,
@@ -14,7 +13,7 @@ function legacyGroupId(name: string): string {
   return `group-${createHash("sha256").update(name.trim().toLocaleLowerCase("en-US")).digest("hex").slice(0, 12)}`;
 }
 
-export function adaptLegacyDeclarativeConfig(input: unknown): DeclarativeConfig {
+function adaptLegacyDeclarativeConfig(input: unknown): DeclarativeConfig {
   const legacy = legacyDeclarativeConfigSchema.parse(input);
   const namesByFolded = new Map<string, string>();
   for (const monitor of legacy.monitors) {
@@ -55,14 +54,4 @@ export function validateMonitoringConfig(input: unknown): MonitoringConfig {
   const normalized = normalizeMonitoringConfig(parsed);
   assertConfigSize(normalized);
   return normalized;
-}
-
-export function safeValidateDeclarativeConfig(input: unknown):
-  | { success: true; data: DeclarativeConfig }
-  | { success: false; error: z.ZodError | Error } {
-  try {
-    return { success: true, data: validateDeclarativeConfig(input) };
-  } catch (error) {
-    return { success: false, error: error instanceof Error ? error : new Error("Invalid configuration") };
-  }
 }

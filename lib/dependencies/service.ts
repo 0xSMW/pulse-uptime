@@ -48,7 +48,7 @@ export class DependencyApiError extends Error {
   }
 }
 
-export interface DiscoveredScopeOptionRow {
+interface DiscoveredScopeOptionRow {
   scopeId: string
   label: string
   available: boolean
@@ -82,7 +82,7 @@ export interface DependencyPresetRow {
   scope: DependencyScope | null
 }
 
-export interface DependencyRow {
+interface DependencyRow {
   id: string
   catalogId: string
   scopeId: string | null

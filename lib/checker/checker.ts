@@ -289,15 +289,6 @@ export function createHttpChecker(dependencies: CheckerDependencies = {}) {
   }
 }
 
-export const checkHttpEndpoint = createHttpChecker()
-
-export function checkMonitor(
-  target: CheckTarget,
-  dependencies?: CheckerDependencies
-) {
-  return createHttpChecker(dependencies)(target, { mode: "scheduled" })
-}
-
 export function runManualCheck(
   url: string,
   options: Partial<Omit<CheckTarget, "url">> & { userAgent?: string } = {},

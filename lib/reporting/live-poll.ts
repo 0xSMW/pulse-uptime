@@ -35,7 +35,7 @@ export function livePollIntervalMs(input: {
 // the start delay up to the cap so a flapping endpoint is not hammered.
 export const LIVE_BACKOFF_START_MS = 5000
 export const LIVE_BACKOFF_MAX_MS = 60_000
-export const LIVE_STALE_AFTER_ERRORS = 3
+const LIVE_STALE_AFTER_ERRORS = 3
 
 export function livePollBackoffMs(errorCount: number): number {
   if (errorCount <= 0) {

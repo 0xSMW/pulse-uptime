@@ -1,10 +1,9 @@
-export const HISTOGRAM_VERSION = 1
-export const LATENCY_BUCKET_UPPER_BOUNDS_MS = [
+const LATENCY_BUCKET_UPPER_BOUNDS_MS = [
   100, 250, 500, 1000, 2500, 5000, 10_000,
 ] as const
-export const HISTOGRAM_BUCKET_COUNT = LATENCY_BUCKET_UPPER_BOUNDS_MS.length + 1
+const HISTOGRAM_BUCKET_COUNT = LATENCY_BUCKET_UPPER_BOUNDS_MS.length + 1
 
-export function latencyBucket(latencyMs: number): number {
+function latencyBucket(latencyMs: number): number {
   if (!Number.isFinite(latencyMs) || latencyMs < 0) {
     throw new RangeError("Latency must be nonnegative")
   }

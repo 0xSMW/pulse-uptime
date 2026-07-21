@@ -85,7 +85,7 @@ const providerMarkGlyphs: Record<string, ProviderMarkGlyph> = {
 }
 
 /** Brand path for a provider, or null when only the initial fallback exists. */
-export function providerMarkPath(provider: string): string | null {
+function providerMarkPath(provider: string): string | null {
   return providerMarkPaths[provider] ?? null
 }
 

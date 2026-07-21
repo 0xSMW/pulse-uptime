@@ -8,7 +8,7 @@ import { PrefetchKind } from "next/dist/client/components/router-reducer/router-
 
 // A click that lands on any of these (or their descendants) is left to the
 // control, not hijacked into a row navigation.
-export const rowInteractiveSelector =
+const rowInteractiveSelector =
   "a, button, input, select, textarea, summary, [role='button'], [role='link'], [contenteditable='true']"
 
 // Wait for hover intent before prefetching a row's target.

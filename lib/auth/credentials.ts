@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto"
 import argon2 from "argon2"
 
 export const SESSION_COOKIE_NAME = "__Host-pulse_session"
-export const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000
+const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000
 
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase()

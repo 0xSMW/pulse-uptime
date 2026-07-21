@@ -107,9 +107,3 @@ export function loadTempProjectState(): {
   }
   return { project, connectionString }
 }
-
-export const paths = {
-  stateDir: STATE_DIR,
-  projectStatePath: PROJECT_STATE_PATH,
-  connectionPath: CONNECTION_PATH,
-} as const

@@ -8,7 +8,7 @@ export interface PackedMinuteExecutor {
   query: <T>(text: string, values: readonly unknown[]) => Promise<readonly T[]>
 }
 
-export interface MinuteCheckResult {
+interface MinuteCheckResult {
   monitorId: string
   completed: boolean
   failed: boolean

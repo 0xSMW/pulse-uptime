@@ -505,9 +505,6 @@ export type FetchCatalogDirectory = (args: {
   nowMs?: () => number
 }) => Promise<CatalogComponentDirectory | null>
 
-/** @deprecated Prefer FetchCatalogDirectory. Alias kept while call sites migrate. */
-export type FetchSourceComponents = FetchCatalogDirectory
-
 interface EnabledSourceRow {
   id: string
   adapter: string
@@ -522,7 +519,7 @@ interface PresetRow {
   enabled: boolean
 }
 
-export type DiscoveredScopeKind = "discovered_child" | "discovered_location"
+type DiscoveredScopeKind = "discovered_child" | "discovered_location"
 
 export interface ObservedScopeOption {
   scopeId: string
@@ -703,7 +700,7 @@ export function planDiscoveredScopeSync(
  * Call only after a complete directory fetch. Failed/timeout paths must not
  * invoke this so prior availability is preserved.
  */
-export async function syncDiscoveredScopeOptionsSql(
+async function syncDiscoveredScopeOptionsSql(
   tx: DatabaseTransaction,
   catalogId: string,
   observed: readonly ObservedScopeOption[],

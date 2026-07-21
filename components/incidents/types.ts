@@ -1,6 +1,6 @@
 export type IncidentFilter = "all" | "ongoing" | "resolved"
 
-export type NotificationState = "sent" | "retrying" | "dead" | "none"
+type NotificationState = "sent" | "retrying" | "dead" | "none"
 
 export interface IncidentSummary {
   id: string

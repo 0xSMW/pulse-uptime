@@ -47,7 +47,7 @@ async function requestJson(path: string, init: RequestInit) {
 const MAX_AVATAR_BYTES = 512 * 1024
 const AVATAR_MIME_TYPES = ["image/png", "image/jpeg", "image/webp"]
 
-export function avatarValidationError(file: File): string {
+function avatarValidationError(file: File): string {
   const type = file.type.split(";")[0]?.trim().toLowerCase() ?? ""
   if (!AVATAR_MIME_TYPES.includes(type)) {
     return "Use a PNG, JPEG, or WebP image."

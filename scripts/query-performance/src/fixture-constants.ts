@@ -1,7 +1,6 @@
 // Fixture identifiers use the `qh-` namespace and reserved invalid domains.
 // Reset and validation queries remain scoped to synthetic data.
 
-export const FIXTURE_TAG = "qh"
 // Increase when seeded shape or cardinality changes so retained fixtures are rejected.
 export const FIXTURE_VERSION = 5
 export const MONITOR_COUNT = 100

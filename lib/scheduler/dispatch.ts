@@ -3,10 +3,10 @@ import type { MonitorConfig } from "@/lib/config/schema"
 import type { CronRunCounts } from "./run-record"
 import { isDueAt } from "./time"
 
-export const DISPATCH_CUTOFF_MS = 45_000
-export const FUNCTION_MAX_DURATION_MS = 60_000
-export const CHECK_COMPLETION_BUFFER_MS = 8000
-export const MAX_ACTIVE_MONITORS = 100
+const DISPATCH_CUTOFF_MS = 45_000
+const FUNCTION_MAX_DURATION_MS = 60_000
+const CHECK_COMPLETION_BUFFER_MS = 8000
+const MAX_ACTIVE_MONITORS = 100
 
 export type MonitorRunOutcome = "success" | "failure" | "duplicate"
 

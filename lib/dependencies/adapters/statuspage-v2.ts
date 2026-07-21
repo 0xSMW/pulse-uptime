@@ -271,7 +271,7 @@ function findDocument(
  * components that declare group_id, keyed by that parent. A group's own
  * `components` membership list is retained only as metadata when present.
  */
-export function statuspageCatalogDirectory(
+function statuspageCatalogDirectory(
   summaryComponents: ReadonlyArray<{
     id: string
     name: string

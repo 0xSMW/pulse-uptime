@@ -12,7 +12,7 @@ export const CONSECUTIVE_FAILURE_THRESHOLD = 3
 // A monitor-check run is expected every minute. The dashboard warns at three
 // minutes. The email alert waits five so a couple of missed invocations do not
 // page an operator, while a true silent stop is still caught quickly.
-export const MONITORING_ALERT_STALE_MS = 5 * 60_000
+const MONITORING_ALERT_STALE_MS = 5 * 60_000
 
 /**
  * Counts leading `failed` runs in a list ordered most-recent first. A

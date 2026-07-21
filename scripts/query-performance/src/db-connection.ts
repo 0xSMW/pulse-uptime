@@ -12,7 +12,7 @@ import {
   type TempProjectState,
 } from "./local-state"
 
-export class SafetyGateError extends Error {}
+class SafetyGateError extends Error {}
 
 export interface GatedConnection {
   readonly project: TempProjectState

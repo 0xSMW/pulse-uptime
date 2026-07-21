@@ -23,7 +23,7 @@ type SnapshotReader = typeof db
 // so a persisted configHash that no longer matches its configJson is rejected
 // rather than trusted. Missing accepted row returns null. A present but invalid
 // or hash-mismatched row throws.
-export async function readAcceptedSnapshot(
+async function readAcceptedSnapshot(
   executor: SnapshotReader = db
 ): Promise<AcceptedSnapshot | null> {
   const [row] = await executor

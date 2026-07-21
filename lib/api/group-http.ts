@@ -14,7 +14,7 @@ import type { StoredResponse } from "./idempotency"
  * target (404), GROUP_EXISTS and GROUP_NOT_EMPTY are conflicts with current
  * config state (409).
  */
-export function groupErrorStatus(code: GroupApiError["code"]): number {
+function groupErrorStatus(code: GroupApiError["code"]): number {
   return code === "GROUP_NOT_FOUND" ? 404 : 409
 }
 

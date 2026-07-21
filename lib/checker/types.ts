@@ -1,6 +1,6 @@
 import type { Dispatcher } from "undici"
 
-export const CHECK_ERROR_CODES = [
+const CHECK_ERROR_CODES = [
   "TIMEOUT",
   "DNS_ERROR",
   "CONNECTION_REFUSED",
@@ -16,7 +16,7 @@ export const CHECK_ERROR_CODES = [
 ] as const
 
 export type CheckErrorCode = (typeof CHECK_ERROR_CODES)[number]
-export type CheckMethod = "GET" | "HEAD"
+type CheckMethod = "GET" | "HEAD"
 export type CheckMode = "scheduled" | "manual"
 
 export interface CheckTarget {
@@ -26,18 +26,7 @@ export interface CheckTarget {
   expectedStatus: { minimum: number; maximum: number }
 }
 
-export type MonitorConfig = CheckTarget & {
-  id: string
-  name: string
-  enabled: boolean
-  group: string | null
-  intervalMinutes: 1 | 5 | 10 | 15
-  failureThreshold: number
-  recoveryThreshold: number
-  recipients: string[]
-}
-
-export interface CheckMetadata {
+interface CheckMetadata {
   mode: CheckMode
   method: CheckMethod
   requestedUrl: string
@@ -57,7 +46,7 @@ export type CheckResult =
       errorMessage: string
     })
 
-export interface ResponseBody {
+interface ResponseBody {
   destroy: (error?: Error) => void
 }
 export interface CheckerResponse {

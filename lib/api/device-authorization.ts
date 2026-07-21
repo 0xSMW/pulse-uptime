@@ -55,7 +55,7 @@ export class DeviceAuthorizationError extends Error {
   }
 }
 
-export function normalizeUserCode(value: string): string {
+function normalizeUserCode(value: string): string {
   const compact = value
     .trim()
     .toUpperCase()

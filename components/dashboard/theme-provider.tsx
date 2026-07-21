@@ -3,7 +3,7 @@
 import * as React from "react"
 
 export type Theme = "system" | "dark" | "light"
-export type ResolvedTheme = Exclude<Theme, "system">
+type ResolvedTheme = Exclude<Theme, "system">
 
 interface ThemeContextValue {
   theme: Theme
@@ -11,7 +11,7 @@ interface ThemeContextValue {
   setTheme: (theme: Theme) => void
 }
 
-export interface ThemeProviderProps {
+interface ThemeProviderProps {
   children: React.ReactNode
   attribute?: "data-theme"
   defaultTheme?: Theme

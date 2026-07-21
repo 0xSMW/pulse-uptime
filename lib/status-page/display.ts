@@ -3,7 +3,7 @@ import type { TimelineBucket } from "@/lib/monitoring/types"
 import { trimTrailingZeros } from "@/lib/reporting/format"
 
 import {
-  STATUS_PAGE_NAME_FALLBACK,
+  DEFAULT_STATUS_PAGE_NAME,
   type StatusPageConfigDocument,
 } from "./schema"
 
@@ -18,7 +18,7 @@ export function defaultStatusPageDocument(
   env: Record<string, string | undefined> = process.env
 ): StatusPageConfigDocument {
   return {
-    name: env.NEXT_PUBLIC_STATUS_PAGE_NAME?.trim() || STATUS_PAGE_NAME_FALLBACK,
+    name: env.NEXT_PUBLIC_STATUS_PAGE_NAME?.trim() || DEFAULT_STATUS_PAGE_NAME,
     layout: "vertical",
     theme: "system",
     logoLightImageId: null,

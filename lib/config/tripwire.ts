@@ -1,7 +1,7 @@
 import { compareLexically } from "./canonical"
 import type { DeclarativeConfig, MonitorConfig } from "./schema"
 
-export type DestructiveChangeReason =
+type DestructiveChangeReason =
   | { type: "all-active-monitors-removed"; previousActiveCount: number }
   | { type: "removed-monitor-count"; removedCount: number; threshold: 5 }
   | {

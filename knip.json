@@ -1,0 +1,7 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": ["emails/*.tsx"],
+  "ignore": ["marketing/**"],
+  "rules": { "duplicates": "off" },
+  "ignoreDependencies": ["@biomejs/biome"]
+}
