@@ -112,6 +112,7 @@ type DependencyDetail struct {
 	Checking             bool                 `json:"checking"`
 	ProviderUpdatedAt    *string              `json:"providerUpdatedAt"`
 	LastSuccessfulPollAt *string              `json:"lastSuccessfulPollAt"`
+	BackfillFailedAt     *string              `json:"backfillFailedAt"`
 	CanonicalURL         string               `json:"canonicalUrl,omitempty"`
 	Incidents            []DependencyIncident `json:"incidents,omitempty"`
 }
@@ -168,7 +169,7 @@ type CatalogData struct {
 func NewGroup(d Dependencies) *cobra.Command {
 	d = defaults(d)
 	group := &cobra.Command{Use: "dependency", Short: "Manage third-party dependencies", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
-	group.AddCommand(newCatalogCommand(d), newListCommand(d), newGetCommand(d), newAddCommand(d), newRemoveCommand(d))
+	group.AddCommand(newCatalogCommand(d), newListCommand(d), newGetCommand(d), newAddCommand(d), newBackfillCommand(d), newRemoveCommand(d))
 	return group
 }
 
@@ -255,6 +256,27 @@ func newAddCommand(d Dependencies) *cobra.Command {
 	cmd.Flags().StringVar(&scope, "scope", "", "Region or component scope for a regional preset")
 	cmd.Flags().BoolVar(&noNotifications, "no-notifications", false, "Disable notifications for this dependency")
 	return cmd
+}
+
+// newBackfillCommand retries the install-time incident history backfill for a
+// dependency whose add-time scan failed. The endpoint is idempotent and safe to
+// call regardless of the mark, so a retry on an unmarked dependency is a no-op.
+// On success the backfillFailedAt mark clears and the refreshed detail renders.
+func newBackfillCommand(d Dependencies) *cobra.Command {
+	return &cobra.Command{Use: "backfill <id>", Short: "Retry install-time incident history backfill", Args: cobra.ExactArgs(1), Annotations: annotations("dependencies:write"), RunE: func(cmd *cobra.Command, args []string) error {
+		if strings.TrimSpace(args[0]) == "" {
+			return invalid("dependency id is required")
+		}
+		key, err := idempotencyKey(d)
+		if err != nil {
+			return err
+		}
+		var doc Envelope
+		if err := d.Client.Do(cmd.Context(), Request{Method: http.MethodPost, Path: dependencyPath(args[0]) + "/backfill", IdempotencyKey: key, Result: &doc}); err != nil {
+			return d.MapError(err)
+		}
+		return renderDetail(d, d.Format(), doc)
+	}}
 }
 
 func newRemoveCommand(d Dependencies) *cobra.Command {
@@ -561,7 +583,7 @@ func renderDetail(d Dependencies, format string, doc Envelope) error {
 	case "tsv":
 		var detail DependencyDetail
 		if json.Unmarshal(doc.Data, &detail) == nil && detail.ID != "" {
-			_, e := fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\n", output.EscapeTSVField(detail.ID), output.EscapeTSVField(detail.State), output.EscapeTSVField(detail.Provider), output.EscapeTSVField(detail.Name))
+			_, e := fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\t%s\n", output.EscapeTSVField(detail.ID), output.EscapeTSVField(detail.State), output.EscapeTSVField(detail.Provider), output.EscapeTSVField(detail.Name), output.EscapeTSVField(value(detail.BackfillFailedAt)))
 			return e
 		}
 		_, e := fmt.Fprintln(d.Out, string(doc.Data))
@@ -587,6 +609,9 @@ func renderDetailHuman(w io.Writer, detail DependencyDetail) {
 	fmt.Fprintf(w, "Notifications %s\n", enabledLabel(detail.NotificationsEnabled))
 	fmt.Fprintf(w, "Last poll     %s\n", output.SanitizeDisplay(value(detail.LastSuccessfulPollAt)))
 	fmt.Fprintf(w, "Canonical URL %s\n", output.SanitizeDisplay(detail.CanonicalURL))
+	if detail.BackfillFailedAt != nil {
+		fmt.Fprintf(w, "Backfill      failed %s, retry with dependency backfill %s\n", output.SanitizeDisplay(*detail.BackfillFailedAt), output.SanitizeDisplay(detail.ID))
+	}
 	active := activeIncidents(detail.Incidents)
 	if len(active) == 0 {
 		fmt.Fprintln(w, "Active incidents  none")

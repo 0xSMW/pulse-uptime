@@ -353,6 +353,87 @@ func TestGetJSONOutputUnaffectedByProviderReportedLabel(t *testing.T) {
 	}
 }
 
+func TestGetRendersBackfillMarkWhenSet(t *testing.T) {
+	detail := `{"id":"dep-1","presetId":"vercel_runtime","name":"Vercel Runtime","provider":"Vercel","state":"OPERATIONAL","backfillFailedAt":"2026-07-20T00:00:00Z"}`
+	client := &fakeClient{do: func(r Request) error {
+		doc := r.Result.(*Envelope)
+		*doc = Envelope{APIVersion: "v1", Kind: "Dependency", Data: json.RawMessage(detail)}
+		return nil
+	}}
+	var stdout bytes.Buffer
+	cmd := NewGroup(Dependencies{Client: client, Out: &stdout, Format: func() string { return "table" }})
+	cmd.SetArgs([]string{"get", "dep-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "Backfill      failed 2026-07-20T00:00:00Z, retry with dependency backfill dep-1") {
+		t.Fatalf("missing backfill mark line: %q", stdout.String())
+	}
+}
+
+func TestGetOmitsBackfillMarkWhenNull(t *testing.T) {
+	detail := `{"id":"dep-1","presetId":"vercel_runtime","name":"Vercel Runtime","provider":"Vercel","state":"OPERATIONAL","backfillFailedAt":null}`
+	client := &fakeClient{do: func(r Request) error {
+		doc := r.Result.(*Envelope)
+		*doc = Envelope{APIVersion: "v1", Kind: "Dependency", Data: json.RawMessage(detail)}
+		return nil
+	}}
+	var stdout bytes.Buffer
+	cmd := NewGroup(Dependencies{Client: client, Out: &stdout, Format: func() string { return "table" }})
+	cmd.SetArgs([]string{"get", "dep-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stdout.String(), "Backfill") {
+		t.Fatalf("backfill line must stay hidden when the mark is null: %q", stdout.String())
+	}
+}
+
+func TestBackfillPostsAndRendersRefreshedDetail(t *testing.T) {
+	refreshed := `{"id":"dep-1","presetId":"vercel_runtime","name":"Vercel Runtime","provider":"Vercel","state":"OPERATIONAL","backfillFailedAt":null}`
+	client := &fakeClient{do: func(r Request) error {
+		doc := r.Result.(*Envelope)
+		*doc = Envelope{APIVersion: "v1", Kind: "Dependency", Data: json.RawMessage(refreshed)}
+		return nil
+	}}
+	var stdout bytes.Buffer
+	cmd := NewGroup(Dependencies{
+		Client: client, Out: &stdout, Format: func() string { return "table" },
+		NewID: func() (string, error) { return "idem-backfill", nil },
+	})
+	cmd.SetArgs([]string{"backfill", "dep 1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	request := client.requests[0]
+	if request.Method != http.MethodPost || request.Path != "/api/v1/dependencies/dep%201/backfill" || request.IdempotencyKey != "idem-backfill" {
+		t.Fatalf("request = %#v", request)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "State         OPERATIONAL") {
+		t.Fatalf("missing refreshed detail: %q", out)
+	}
+	if strings.Contains(out, "Backfill") {
+		t.Fatalf("cleared mark must not render a backfill line: %q", out)
+	}
+}
+
+func TestBackfillMapsNotFound(t *testing.T) {
+	sentinel := errors.New("DEPENDENCY_NOT_FOUND")
+	mapped := errors.New("mapped-not-found")
+	client := &fakeClient{do: func(Request) error { return sentinel }}
+	cmd := NewGroup(Dependencies{Client: client, NewID: func() (string, error) { return "idem-backfill", nil }, MapError: func(err error) error {
+		if !errors.Is(err, sentinel) {
+			t.Fatalf("mapped error = %v", err)
+		}
+		return mapped
+	}})
+	cmd.SetArgs([]string{"backfill", "dep-1"})
+	if err := cmd.Execute(); !errors.Is(err, mapped) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestAddSendsBodyAndRendersCreatedDependency(t *testing.T) {
 	created := `{"id":"dep-9","presetId":"neon_database","name":"Neon Database","provider":"Neon","state":"UNKNOWN","checking":true,"notificationsEnabled":false}`
 	client := &fakeClient{do: func(r Request) error {
@@ -497,11 +578,12 @@ func TestGroupTreeAndScopes(t *testing.T) {
 		names[child.Name()] = child.Annotations["requiredScope"]
 	}
 	want := map[string]string{
-		"catalog": "dependencies:read",
-		"list":    "dependencies:read",
-		"get":     "dependencies:read",
-		"add":     "dependencies:write",
-		"remove":  "dependencies:write",
+		"catalog":  "dependencies:read",
+		"list":     "dependencies:read",
+		"get":      "dependencies:read",
+		"add":      "dependencies:write",
+		"backfill": "dependencies:write",
+		"remove":   "dependencies:write",
 	}
 	for name, scope := range want {
 		if names[name] != scope {
