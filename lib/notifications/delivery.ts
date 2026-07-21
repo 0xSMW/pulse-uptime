@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { runBoundedWork } from "@/lib/async/bounded-work"
 import {
   createNotificationMessage,
   InvalidNotificationPayloadError,
@@ -51,25 +52,34 @@ export interface DeliverySummary {
   lostClaims: number
 }
 
-async function runBounded<T>(
-  items: readonly T[],
-  concurrency: number,
-  worker: (item: T) => Promise<void>
-): Promise<void> {
-  let cursor = 0
-  const runners = Array.from(
-    { length: Math.min(concurrency, items.length) },
-    async () => {
-      while (cursor < items.length) {
-        const item = items[cursor]
-        cursor += 1
-        if (item) {
-          await worker(item)
-        }
-      }
-    }
-  )
-  await Promise.all(runners)
+/** One row's outcome after provider work and successful claim bookkeeping. */
+type RowDeliveryOutcome =
+  | { kind: "sent" }
+  | { kind: "failed" }
+  | { kind: "dead" }
+  | { kind: "lost_claim" }
+
+/**
+ * Raised when mark-sent / mark-failed (or other claim bookkeeping) throws for
+ * one or more rows. The pool always drains first. `summary` holds counts from
+ * rows whose bookkeeping completed. `notificationIds` are safe row ids only.
+ */
+export class NotificationDeliveryInfrastructureError extends Error {
+  override readonly name = "NotificationDeliveryInfrastructureError"
+
+  constructor(
+    readonly notificationIds: readonly string[],
+    readonly summary: DeliverySummary,
+    options?: ErrorOptions
+  ) {
+    const ids = notificationIds.join(", ")
+    super(
+      notificationIds.length === 1
+        ? `Notification delivery bookkeeping failed for row ${ids}`
+        : `Notification delivery bookkeeping failed for rows ${ids}`,
+      options
+    )
+  }
 }
 
 function safeFailure(error: unknown): { code: string; retryable: boolean } {
@@ -80,6 +90,81 @@ function safeFailure(error: unknown): { code: string; retryable: boolean } {
     return { code: error.code, retryable: false }
   }
   return { code: "PROVIDER_UNAVAILABLE", retryable: true }
+}
+
+async function deliverClaimedRow(
+  row: ClaimedNotification,
+  dependencies: DeliveryDependencies,
+  now: Date
+): Promise<RowDeliveryOutcome> {
+  let providerMessageId: string
+  try {
+    const message = createNotificationMessage(row, dependencies.appUrl)
+    const result = await dependencies.sender.send(message, row.idempotencyKey)
+    providerMessageId = result.providerMessageId
+  } catch (error) {
+    // Provider or payload failure. Bookkeeping throws stay uncaught so the
+    // settled pool records them as infrastructure rejections.
+    const failure = safeFailure(error)
+    const dead = !failure.retryable || row.attemptCount >= MAX_DELIVERY_ATTEMPTS
+    const persisted = await markNotificationFailed(dependencies.db, row, {
+      dead,
+      nextAttemptAt: retryAt(now, row.attemptCount),
+      errorCode: failure.code,
+      now,
+    })
+    if (!persisted) {
+      return { kind: "lost_claim" }
+    }
+    dependencies.log?.({
+      event: "notification.failed",
+      notificationId: row.id,
+      ...(row.incidentId ? { incidentId: row.incidentId } : {}),
+      ...(row.monitorId ? { monitorId: row.monitorId } : {}),
+      ...(row.dependencyId ? { dependencyId: row.dependencyId } : {}),
+      attemptCount: row.attemptCount,
+      errorCode: failure.code,
+    })
+    return dead ? { kind: "dead" } : { kind: "failed" }
+  }
+
+  const persisted = await markNotificationSent(
+    dependencies.db,
+    row,
+    providerMessageId,
+    now
+  )
+  if (!persisted) {
+    return { kind: "lost_claim" }
+  }
+  dependencies.log?.({
+    event: "notification.sent",
+    notificationId: row.id,
+    ...(row.incidentId ? { incidentId: row.incidentId } : {}),
+    ...(row.monitorId ? { monitorId: row.monitorId } : {}),
+    ...(row.dependencyId ? { dependencyId: row.dependencyId } : {}),
+    attemptCount: row.attemptCount,
+  })
+  return { kind: "sent" }
+}
+
+function applyRowOutcome(
+  summary: DeliverySummary,
+  outcome: RowDeliveryOutcome
+): void {
+  if (outcome.kind === "sent") {
+    summary.sent += 1
+    return
+  }
+  if (outcome.kind === "failed") {
+    summary.failed += 1
+    return
+  }
+  if (outcome.kind === "dead") {
+    summary.dead += 1
+    return
+  }
+  summary.lostClaims += 1
 }
 
 export async function deliverPendingNotifications(
@@ -121,59 +206,39 @@ export async function deliverPendingNotifications(
     lostClaims: 0,
   }
 
-  await runBounded(rows, concurrency, async (row: ClaimedNotification) => {
-    try {
-      const message = createNotificationMessage(row, dependencies.appUrl)
-      const result = await dependencies.sender.send(message, row.idempotencyKey)
-      const persisted = await markNotificationSent(
-        dependencies.db,
-        row,
-        result.providerMessageId,
-        now
-      )
-      if (!persisted) {
-        summary.lostClaims += 1
-        return
-      }
-      summary.sent += 1
-      dependencies.log?.({
-        event: "notification.sent",
-        notificationId: row.id,
-        ...(row.incidentId ? { incidentId: row.incidentId } : {}),
-        ...(row.monitorId ? { monitorId: row.monitorId } : {}),
-        ...(row.dependencyId ? { dependencyId: row.dependencyId } : {}),
-        attemptCount: row.attemptCount,
-      })
-    } catch (error) {
-      const failure = safeFailure(error)
-      const dead =
-        !failure.retryable || row.attemptCount >= MAX_DELIVERY_ATTEMPTS
-      const persisted = await markNotificationFailed(dependencies.db, row, {
-        dead,
-        nextAttemptAt: retryAt(now, row.attemptCount),
-        errorCode: failure.code,
-        now,
-      })
-      if (!persisted) {
-        summary.lostClaims += 1
-        return
-      }
-      if (dead) {
-        summary.dead += 1
-      } else {
-        summary.failed += 1
-      }
-      dependencies.log?.({
-        event: "notification.failed",
-        notificationId: row.id,
-        ...(row.incidentId ? { incidentId: row.incidentId } : {}),
-        ...(row.monitorId ? { monitorId: row.monitorId } : {}),
-        ...(row.dependencyId ? { dependencyId: row.dependencyId } : {}),
-        attemptCount: row.attemptCount,
-        errorCode: failure.code,
-      })
-    }
+  // Settled pool: every started send finishes before return. Provider failures
+  // and bookkeeping failures are captured per row, not via Promise.all reject.
+  const outcomes = await runBoundedWork(rows, {
+    concurrency,
+    worker: (row) => deliverClaimedRow(row, dependencies, now),
   })
+
+  const failedIds: string[] = []
+  const causes: unknown[] = []
+  for (let index = 0; index < outcomes.length; index += 1) {
+    const outcome = outcomes[index]
+    const row = rows[index]
+    if (!(outcome && row)) {
+      continue
+    }
+    if (outcome.status === "fulfilled") {
+      applyRowOutcome(summary, outcome.value)
+      continue
+    }
+    if (outcome.status === "rejected") {
+      failedIds.push(row.id)
+      causes.push(outcome.reason)
+    }
+  }
+
+  if (failedIds.length > 0) {
+    throw new NotificationDeliveryInfrastructureError(failedIds, summary, {
+      cause:
+        causes.length === 1
+          ? causes[0]
+          : new AggregateError(causes, "Multiple bookkeeping failures"),
+    })
+  }
 
   return summary
 }
