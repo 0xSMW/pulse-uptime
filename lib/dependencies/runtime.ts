@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto"
 
 import { requireAcceptedConfig } from "@/lib/api/config-mutation"
 import { db } from "@/lib/db/client"
+import { queryExecutor } from "@/lib/db/query-executor"
 import {
   type DeliverySummary,
   deliverPendingNotifications,
@@ -12,7 +13,6 @@ import { createResendSender } from "@/lib/notifications/provider"
 import { reconcileStaleClaims, type SqlExecutor } from "@/lib/notifications/sql"
 import { ORDINARY_NOTIFICATION_EVENT_TYPES } from "@/lib/notifications/types"
 import { requirePulseReleaseId } from "@/lib/release/id"
-import { queryExecutor } from "@/lib/scheduler/runtime"
 import { createSqlLeaseStore } from "@/lib/scheduler/sql"
 import { scheduledMinuteAt } from "@/lib/scheduler/time"
 
@@ -26,16 +26,9 @@ import {
 } from "./poller"
 import type { DependencyAdapterName } from "./types"
 
-// Mirrors runMonitoringCron (lib/scheduler/runtime.ts) but shares no lease,
-// deadline, or transaction with it, per the doc's isolation requirement:
-// its own lease name, its own cron_runs job name, its own SQL store.
-//
-// withLease (lib/scheduler/lease.ts) hardcodes a 90s duration for every
-// caller, and CronJobName (lib/scheduler/run-record.ts) is a closed union
-// that doesn't include "check-dependencies". Both are outside this phase's
-// owned paths, so this module reimplements the same acquire/release and
-// start/complete/fail shapes locally against the existing job_leases and
-// cron_runs tables rather than widening shared types it doesn't own.
+// Dependency cron still uses a local lease/run path. Shared primitives now
+// exist (DEPENDENCY_LEASE, CronJobName "check-dependencies", runCronCoordinator,
+// withLease release-safe) but migration is owned by DEP-01.
 
 const DEPENDENCY_LEASE = "dependency-check"
 // The lease must outlive a maximal run so a slow run never loses exclusivity.

@@ -13,8 +13,8 @@ import {
   type MonitoringConfig,
   validateMonitoringConfig,
 } from "@/lib/config"
-import { db, sql } from "@/lib/db/client"
-import { portableQueryValues } from "@/lib/db/query-values"
+import { db } from "@/lib/db/client"
+import { queryExecutor } from "@/lib/db/query-executor"
 import {
   configChangeApprovals,
   configOperations,
@@ -24,7 +24,7 @@ import {
 import type { MonitorStateSnapshot } from "@/lib/monitoring/types"
 import { deliverPendingNotifications } from "@/lib/notifications/delivery"
 import { createResendSender } from "@/lib/notifications/provider"
-import { reconcileStaleClaims, type SqlExecutor } from "@/lib/notifications/sql"
+import { reconcileStaleClaims } from "@/lib/notifications/sql"
 import { ORDINARY_NOTIFICATION_EVENT_TYPES } from "@/lib/notifications/types"
 import { requirePulseReleaseId } from "@/lib/release/id"
 import {
@@ -44,50 +44,12 @@ import { synchronizeRegistry as syncRegistryRows } from "./registry-sync"
 import { createSqlCronRunStore, createSqlLeaseStore } from "./sql"
 import { isDueAt } from "./time"
 
+// Re-export so scheduler-local call sites keep a single import path.
+export { queryExecutor }
+
 interface AcceptedRow {
   configJson: unknown
   configHash: string
-}
-
-export const queryExecutor: SqlExecutor & {
-  withStatementTimeout: <T>(
-    timeoutMs: number,
-    work: (
-      query: <R>(
-        text: string,
-        values: readonly unknown[]
-      ) => Promise<readonly R[]>
-    ) => Promise<T>
-  ) => Promise<T>
-} = {
-  async query<T>(
-    text: string,
-    values: readonly unknown[]
-  ): Promise<readonly T[]> {
-    return (await sql.unsafe(
-      text,
-      portableQueryValues(values) as never[]
-    )) as unknown as readonly T[]
-  },
-  // One connection for the whole work block so SET LOCAL statement_timeout
-  // applies to the maintenance SQL that follows inside the same transaction.
-  async withStatementTimeout(timeoutMs, work) {
-    return sql.begin(async (tx) => {
-      const timeout = Math.max(1, Math.floor(timeoutMs))
-      await tx.unsafe(`select set_config('statement_timeout', $1, true)`, [
-        String(timeout),
-      ] as never[])
-      const query = async <R>(
-        text: string,
-        values: readonly unknown[]
-      ): Promise<readonly R[]> =>
-        (await tx.unsafe(
-          text,
-          portableQueryValues(values) as never[]
-        )) as unknown as readonly R[]
-      return work(query)
-    }) as Promise<ReturnType<typeof work>>
-  },
 }
 
 async function synchronizeRegistry(

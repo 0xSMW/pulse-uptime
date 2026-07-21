@@ -294,7 +294,7 @@ describe("runDependencyCron wiring", () => {
     vi.doMock("@/lib/notifications/provider", () => ({
       createResendSender: () => ({ send: vi.fn() }),
     }))
-    vi.doMock("@/lib/scheduler/runtime", () => ({
+    vi.doMock("@/lib/db/query-executor", () => ({
       queryExecutor: { query: vi.fn().mockResolvedValue([{ id: "run-1" }]) },
     }))
     vi.doMock("@/lib/scheduler/sql", () => ({
@@ -326,7 +326,7 @@ describe("runDependencyCron wiring", () => {
     vi.doUnmock("@/lib/api/config-mutation")
     vi.doUnmock("@/lib/notifications/delivery")
     vi.doUnmock("@/lib/notifications/provider")
-    vi.doUnmock("@/lib/scheduler/runtime")
+    vi.doUnmock("@/lib/db/query-executor")
     vi.doUnmock("@/lib/scheduler/sql")
     vi.doUnmock("./catalog-sync")
     vi.doUnmock("./poller")

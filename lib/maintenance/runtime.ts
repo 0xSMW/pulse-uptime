@@ -1,6 +1,7 @@
 import "server-only"
 
 import { db } from "@/lib/db/client"
+import { queryExecutor } from "@/lib/db/query-executor"
 import {
   crossCheckMonitoringLoop,
   type LoopAlertSummary,
@@ -12,7 +13,6 @@ import {
 import { createResendSender } from "@/lib/notifications/provider"
 import { reconcileStaleClaims } from "@/lib/notifications/sql"
 import { requirePulseReleaseId } from "@/lib/release/id"
-import { queryExecutor } from "@/lib/scheduler/runtime"
 import { createSqlCronRunStore, createSqlLeaseStore } from "@/lib/scheduler/sql"
 
 import {
