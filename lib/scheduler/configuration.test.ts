@@ -28,26 +28,26 @@ describe("configuration source fallback", () => {
   }
   const previous = { config, hash: hashCanonical(config) }
 
-  it.each([
-    "read failure",
-    "missing value",
-  ])("uses the accepted snapshot after %s", async (scenario) => {
-    const loaded = await evaluateConfigurationSource({
-      readDesired:
-        scenario === "read failure"
-          ? async () => {
-              throw new Error("edge unavailable")
-            }
-          : async () => undefined,
-      previous,
-      now: new Date("2026-07-18T04:00:00Z"),
-    })
-    expect(loaded.sourceError).toBe(true)
-    expect(loaded.result.status).toBe("rejected")
-    if (loaded.result.status === "rejected") {
-      expect(loaded.result.config).toEqual(previous.config)
+  it.each(["read failure", "missing value"])(
+    "uses the accepted snapshot after %s",
+    async (scenario) => {
+      const loaded = await evaluateConfigurationSource({
+        readDesired:
+          scenario === "read failure"
+            ? async () => {
+                throw new Error("edge unavailable")
+              }
+            : async () => undefined,
+        previous,
+        now: new Date("2026-07-18T04:00:00Z"),
+      })
+      expect(loaded.sourceError).toBe(true)
+      expect(loaded.result.status).toBe("rejected")
+      if (loaded.result.status === "rejected") {
+        expect(loaded.result.config).toEqual(previous.config)
+      }
     }
-  })
+  )
 
   it("fails when neither Edge Config nor an accepted snapshot exists", async () => {
     const loaded = await evaluateConfigurationSource({

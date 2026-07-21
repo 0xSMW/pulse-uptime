@@ -9,24 +9,25 @@ describe("scheduler time alignment", () => {
     ).toBe("2026-07-18T04:07:00.000Z")
   })
 
-  it.each([
-    1, 5, 10, 15,
-  ] as const)("aligns %i-minute monitors to the epoch", (intervalMinutes) => {
-    expect(
-      isDueAt(
-        { enabled: true, intervalMinutes },
-        new Date("2026-07-18T04:00:00Z")
-      )
-    ).toBe(true)
-    if (intervalMinutes > 1) {
+  it.each([1, 5, 10, 15] as const)(
+    "aligns %i-minute monitors to the epoch",
+    (intervalMinutes) => {
       expect(
         isDueAt(
           { enabled: true, intervalMinutes },
-          new Date("2026-07-18T04:01:00Z")
+          new Date("2026-07-18T04:00:00Z")
         )
-      ).toBe(false)
+      ).toBe(true)
+      if (intervalMinutes > 1) {
+        expect(
+          isDueAt(
+            { enabled: true, intervalMinutes },
+            new Date("2026-07-18T04:01:00Z")
+          )
+        ).toBe(false)
+      }
     }
-  })
+  )
 
   it("never schedules disabled monitors", () => {
     expect(

@@ -98,8 +98,9 @@ describe("database health repository", () => {
       ])
     const result = await databaseHealthRepository.readLatest()
     expect(result?.maintenanceHealthy).toBeNull()
+    expect(result).not.toBeNull()
     expect(
-      result?.retention.map(({ configuredSeconds }) => configuredSeconds)
+      result!.retention.map(({ configuredSeconds }) => configuredSeconds)
     ).toEqual([86_400, 259_200])
   })
 
@@ -141,7 +142,8 @@ describe("database health repository", () => {
         },
       ])
     const result = await databaseHealthRepository.readLatest()
-    expect(result?.capturedAt.toISOString()).toBe("2026-07-18T04:00:00.000Z")
+    expect(result).not.toBeNull()
+    expect(result!.capturedAt.toISOString()).toBe("2026-07-18T04:00:00.000Z")
     expect(result?.retention[0]?.oldestAt?.toISOString()).toBe(
       "2026-07-18T04:00:00.000Z"
     )

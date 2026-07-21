@@ -64,16 +64,16 @@ describe("maintenance SQL store", () => {
   })
 
   describe("scalar affected-count parsing", () => {
-    it.each([
-      0, 1, 10_000,
-    ])("returns %i exactly from a single scalar row", async (affected) => {
-      const query = vi.fn().mockResolvedValue([{ affected }])
-      const result = await createSqlMaintenanceStore({ query }).deleteRawChecks(
-        new Date("2026-06-18T00:00:00Z"),
-        20_000
-      )
-      expect(result).toBe(affected)
-    })
+    it.each([0, 1, 10_000])(
+      "returns %i exactly from a single scalar row",
+      async (affected) => {
+        const query = vi.fn().mockResolvedValue([{ affected }])
+        const result = await createSqlMaintenanceStore({
+          query,
+        }).deleteRawChecks(new Date("2026-06-18T00:00:00Z"), 20_000)
+        expect(result).toBe(affected)
+      }
+    )
 
     it("treats a missing row as zero affected", async () => {
       const query = vi.fn().mockResolvedValue([])

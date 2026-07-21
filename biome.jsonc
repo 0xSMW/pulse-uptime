@@ -13,8 +13,15 @@
     "defaultBranch": "master"
   },
   "files": {
-    // Generated or foreign-toolchain files stay out of format and lint
-    "includes": ["!!drizzle", "!!cli", "!!pnpm-lock.yaml"]
+    // Generated or foreign-toolchain files stay out of format and lint.
+    // authorization-flow.tsx trips a Biome 2.5.4 module resolver panic,
+    // remove the exclusion once biomejs/biome#10996 ships
+    "includes": [
+      "!!drizzle",
+      "!!cli",
+      "!!pnpm-lock.yaml",
+      "!!app/cli/authorize/authorization-flow.tsx"
+    ]
   },
   "javascript": {
     "formatter": {

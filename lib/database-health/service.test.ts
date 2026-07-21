@@ -62,16 +62,19 @@ describe("database health state", () => {
     [0.85, "PROTECTING"],
     [0.95, "PROTECTING"],
     [0.950_001, "CRITICAL"],
-  ] as const)("maps projected utilization %s to %s", (utilization, expected) => {
-    expect(
-      deriveDatabaseHealthState(
-        measurement({
-          projected30DayBytes: DATABASE_STORAGE_BUDGET_BYTES * utilization,
-        }),
-        now
-      )
-    ).toBe(expected)
-  })
+  ] as const)(
+    "maps projected utilization %s to %s",
+    (utilization, expected) => {
+      expect(
+        deriveDatabaseHealthState(
+          measurement({
+            projected30DayBytes: DATABASE_STORAGE_BUDGET_BYTES * utilization,
+          }),
+          now
+        )
+      ).toBe(expected)
+    }
+  )
 
   it("prioritizes failed maintenance over stale metrics", () => {
     expect(

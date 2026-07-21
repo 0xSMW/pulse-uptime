@@ -369,9 +369,12 @@ describe("buildRollupTimeline call-site bucket widths", () => {
     ["monitors 30d", 90, 30 * 86_400_000],
     ["monitors/status 90d", 90, 90 * 86_400_000],
     ["dashboard table 24h", 32, 86_400_000],
-  ])("%s: durationMs divides evenly into bucketCount buckets", (_label, bucketCount, durationMs) => {
-    expect(durationMs % bucketCount).toBe(0)
-  })
+  ])(
+    "%s: durationMs divides evenly into bucketCount buckets",
+    (_label, bucketCount, durationMs) => {
+      expect(durationMs % bucketCount).toBe(0)
+    }
+  )
 })
 
 describe("buildCheckTimeline/buildRollupTimeline equivalence with the reference filter-per-bucket behavior", () => {
@@ -481,39 +484,49 @@ describe("buildCheckTimeline/buildRollupTimeline equivalence with the reference 
 
   const now = new Date("2026-07-18T12:00:00.000Z")
 
-  it.each([
-    ...NON_DIVISIBLE_CASES,
-    ...DIVISIBLE_CASES,
-  ])("buildCheckTimeline matches the reference for bucketCount=%d durationMs=%d across random, boundary, and unsorted rows", (bucketCount, durationMs) => {
-    const startMs = now.getTime() - durationMs
-    const width = durationMs / bucketCount
-    const rows = shuffle([
-      ...randomCheckRows(startMs, durationMs, 40),
-      ...boundaryCheckRows(startMs, width, bucketCount),
-    ])
+  it.each([...NON_DIVISIBLE_CASES, ...DIVISIBLE_CASES])(
+    "buildCheckTimeline matches the reference for bucketCount=%d durationMs=%d across random, boundary, and unsorted rows",
+    (bucketCount, durationMs) => {
+      const startMs = now.getTime() - durationMs
+      const width = durationMs / bucketCount
+      const rows = shuffle([
+        ...randomCheckRows(startMs, durationMs, 40),
+        ...boundaryCheckRows(startMs, width, bucketCount),
+      ])
 
-    const actual = buildCheckTimeline(rows, bucketCount, durationMs, now)
-    const expected = referenceCheckTimeline(rows, bucketCount, durationMs, now)
+      const actual = buildCheckTimeline(rows, bucketCount, durationMs, now)
+      const expected = referenceCheckTimeline(
+        rows,
+        bucketCount,
+        durationMs,
+        now
+      )
 
-    expect(actual).toEqual(expected)
-  })
+      expect(actual).toEqual(expected)
+    }
+  )
 
-  it.each([
-    ...NON_DIVISIBLE_CASES,
-    ...DIVISIBLE_CASES,
-  ])("buildRollupTimeline matches the reference for bucketCount=%d durationMs=%d across random, boundary, and unsorted rows", (bucketCount, durationMs) => {
-    const startMs = now.getTime() - durationMs
-    const width = durationMs / bucketCount
-    const rows = shuffle([
-      ...randomRollupRows(startMs, durationMs, 40),
-      ...boundaryRollupRows(startMs, width, bucketCount),
-    ])
+  it.each([...NON_DIVISIBLE_CASES, ...DIVISIBLE_CASES])(
+    "buildRollupTimeline matches the reference for bucketCount=%d durationMs=%d across random, boundary, and unsorted rows",
+    (bucketCount, durationMs) => {
+      const startMs = now.getTime() - durationMs
+      const width = durationMs / bucketCount
+      const rows = shuffle([
+        ...randomRollupRows(startMs, durationMs, 40),
+        ...boundaryRollupRows(startMs, width, bucketCount),
+      ])
 
-    const actual = buildRollupTimeline(rows, bucketCount, durationMs, now)
-    const expected = referenceRollupTimeline(rows, bucketCount, durationMs, now)
+      const actual = buildRollupTimeline(rows, bucketCount, durationMs, now)
+      const expected = referenceRollupTimeline(
+        rows,
+        bucketCount,
+        durationMs,
+        now
+      )
 
-    expect(actual).toEqual(expected)
-  })
+      expect(actual).toEqual(expected)
+    }
+  )
 
   it("matches the reference across many random non-divisible window shapes, not just fixed cases", () => {
     for (let trial = 0; trial < 25; trial += 1) {

@@ -31,13 +31,10 @@ describe("public address policy", () => {
     expect(() => assertPublicAddress(address)).toThrow(BlockedTargetError)
   })
 
-  it.each([
-    "8.8.8.8",
-    "1.1.1.1",
-    "2001:4860:4860::8888",
-    "::ffff:8.8.8.8",
-  ])("allows publicly routed address %s", (address) =>
-    expect(isPublicAddress(address)).toBe(true))
+  it.each(["8.8.8.8", "1.1.1.1", "2001:4860:4860::8888", "::ffff:8.8.8.8"])(
+    "allows publicly routed address %s",
+    (address) => expect(isPublicAddress(address)).toBe(true)
+  )
 
   it("rejects malformed addresses", () => {
     expect(isPublicAddress("example.com")).toBe(false)

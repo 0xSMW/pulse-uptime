@@ -60,9 +60,12 @@ describe("isPlainLeftClick", () => {
     ["shift", { ...plain, shiftKey: true }],
     ["alt", { ...plain, altKey: true }],
     ["defaultPrevented", { ...plain, defaultPrevented: true }],
-  ])("rejects %s clicks so they never enter the pending state", (_label, event) => {
-    expect(isPlainLeftClick(event)).toBe(false)
-  })
+  ])(
+    "rejects %s clicks so they never enter the pending state",
+    (_label, event) => {
+      expect(isPlainLeftClick(event)).toBe(false)
+    }
+  )
 })
 
 describe("shouldPrefetchMonitor", () => {

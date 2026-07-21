@@ -10,6 +10,7 @@ export default async function AccountSettingsPage() {
     redirect("/onboarding")
   }
   const data = await getAccountSettings(session.userId)
+  // biome-ignore lint/suspicious/noUnnecessaryConditions: findAccountProfile returns null for an unknown user id
   if (!data) {
     redirect("/onboarding")
   }

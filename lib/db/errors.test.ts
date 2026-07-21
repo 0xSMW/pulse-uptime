@@ -22,13 +22,16 @@ describe("isDatabaseUnavailableError", () => {
     "CONNECTION_CLOSED",
     "CONNECTION_DESTROYED",
     "CONNECTION_ENDED",
-  ])("classifies postgres.js connection error code %s as unavailable", (code) => {
-    expect(
-      isDatabaseUnavailableError(
-        errorWithCode(code, `write ${code} 127.0.0.1:5432`)
-      )
-    ).toBe(true)
-  })
+  ])(
+    "classifies postgres.js connection error code %s as unavailable",
+    (code) => {
+      expect(
+        isDatabaseUnavailableError(
+          errorWithCode(code, `write ${code} 127.0.0.1:5432`)
+        )
+      ).toBe(true)
+    }
+  )
 
   it("classifies an unrecognized postgres.js CONNECTION_ prefixed code as unavailable", () => {
     expect(

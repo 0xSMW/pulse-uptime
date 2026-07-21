@@ -78,6 +78,7 @@ async function readMonitorLoopSignals(
 async function loadAlertRecipients(): Promise<string[]> {
   try {
     const snapshot = await findAcceptedSnapshot()
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: findAcceptedSnapshot returns null when no config is accepted
     return snapshot?.config.settings.defaultRecipients ?? []
   } catch {
     return []

@@ -76,7 +76,8 @@ export async function GET(request: Request): Promise<Response> {
       after: after.toISOString(),
       ...(result.status === "ready"
         ? { runId: result.runId, completedAt: result.completedAt.toISOString() }
-        : { latestStatus: result.latest?.status ?? null }),
+        : // biome-ignore lint/suspicious/noUnnecessaryConditions: result.latest is nullable so the null fallback is reachable
+          { latestStatus: result.latest?.status ?? null }),
     })
   )
 

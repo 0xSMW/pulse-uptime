@@ -25,6 +25,7 @@ async function getAcceptedConfig(): Promise<MonitoringConfig | null> {
   // read as absent here rather than crash the whole render.
   try {
     const snapshot = await findAcceptedSnapshot()
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: findAcceptedSnapshot returns null when no config is accepted
     return snapshot?.config ?? null
   } catch {
     return null

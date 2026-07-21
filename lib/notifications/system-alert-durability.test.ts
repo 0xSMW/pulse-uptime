@@ -604,10 +604,15 @@ describe("system.alert durability", () => {
         createId: () => `id-${inserted.length + 1}`,
       }
     )
-    expect(first.map((row) => row.recipient).sort()).toEqual([
-      "oncall@example.com",
-      "ops@example.com",
-    ])
+    expect(
+      first
+        .map((row) => row.recipient)
+        .sort((a, b) => {
+          const sa = String(a)
+          const sb = String(b)
+          return sa < sb ? -1 : sa > sb ? 1 : 0
+        })
+    ).toEqual(["oncall@example.com", "ops@example.com"])
     expect(first).toHaveLength(2)
 
     const second = await enqueueSystemAlert(
