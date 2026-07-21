@@ -16,6 +16,13 @@ import {
   providerIncidentUpdates,
 } from "@/lib/db/schema"
 
+import {
+  type BackfillIncident,
+  buildStateBuckets,
+  type IntervalRow,
+  incidentImpactState,
+  type StateBucket,
+} from "./buckets"
 import type {
   DependencyFidelity,
   DependencyScope,
@@ -27,58 +34,9 @@ import { resolveScopeSelection } from "./types"
 // Reads for the Overview panel, the dependency detail view, and the add
 // sheet's catalog listing. Kept db-direct (no injected store), matching
 // lib/reporting/queries/* convention: reads are queried straight from the
-// schema, mutations go through an injectable store in service.ts.
-
-const STATE_PRIORITY: Record<DependencyState, number> = {
-  OUTAGE: 0,
-  DEGRADED: 1,
-  MAINTENANCE: 2,
-  UNKNOWN: 3,
-  OPERATIONAL: 4,
-}
-
-interface IntervalRow {
-  state: string
-  startedAt: Date
-  endedAt: Date | null
-}
-
-interface StateBucket {
-  start: string
-  state: DependencyState | null
-}
-
-/** Buckets a dependency's state-interval history into fixed-width windows, picking the worst overlapping state per bucket (or null when no interval covers it, i.e. before the dependency existed). */
-function buildStateBuckets(
-  intervals: readonly IntervalRow[],
-  bucketCount: number,
-  bucketMs: number,
-  end: Date
-): StateBucket[] {
-  const windowStart = end.getTime() - bucketCount * bucketMs
-  const buckets: StateBucket[] = []
-  for (let index = 0; index < bucketCount; index += 1) {
-    const bucketStart = windowStart + index * bucketMs
-    const bucketEnd = bucketStart + bucketMs
-    let worst: DependencyState | null = null
-    for (const interval of intervals) {
-      const intervalEnd = interval.endedAt
-        ? interval.endedAt.getTime()
-        : end.getTime()
-      if (
-        interval.startedAt.getTime() < bucketEnd &&
-        intervalEnd > bucketStart
-      ) {
-        const state = interval.state as DependencyState
-        if (worst === null || STATE_PRIORITY[state] < STATE_PRIORITY[worst]) {
-          worst = state
-        }
-      }
-    }
-    buckets.push({ start: new Date(bucketStart).toISOString(), state: worst })
-  }
-  return buckets
-}
+// schema, mutations go through an injectable store in service.ts. Bucket math
+// lives in ./buckets, kept db-free so the assumed-operational backfill overlay
+// stays unit-testable.
 
 // Resolves a dependency's stored scopeId to the human label operators pick at
 // install time. required_options labels live inline in the catalog scope.
@@ -138,6 +96,7 @@ export async function listDependenciesForDashboard(): Promise<
       id: dependencies.id,
       presetId: dependencies.catalogId,
       scopeId: dependencies.scopeId,
+      createdAt: dependencies.createdAt,
       scopeOptions: dependencyCatalog.scopeOptions,
       name: dependencyCatalog.displayName,
       category: dependencyCatalog.category,
@@ -207,10 +166,17 @@ export async function listDependenciesForDashboard(): Promise<
           )
         )
       ),
+    // One batched read covering both the active-incident banner (resolved_at
+    // null subset) and the assumed-operational backfill overlay (any matched
+    // incident whose active window reaches into the 24h render window). Never
+    // per row: a single inArray keeps the list a fixed number of queries.
     db
       .select({
         dependencyId: dependencyIncidentMatches.dependencyId,
         title: providerIncidents.title,
+        impact: providerIncidents.impact,
+        startedAt: providerIncidents.startedAt,
+        resolvedAt: providerIncidents.resolvedAt,
         providerUpdatedAt: providerIncidents.providerUpdatedAt,
       })
       .from(dependencyIncidentMatches)
@@ -221,7 +187,10 @@ export async function listDependenciesForDashboard(): Promise<
       .where(
         and(
           inArray(dependencyIncidentMatches.dependencyId, ids),
-          isNull(providerIncidents.resolvedAt)
+          or(
+            isNull(providerIncidents.resolvedAt),
+            gte(providerIncidents.resolvedAt, windowStart)
+          )
         )
       ),
     discoveredCatalogIds.length === 0
@@ -261,14 +230,24 @@ export async function listDependenciesForDashboard(): Promise<
     string,
     { title: string; providerUpdatedAt: Date }
   >()
+  const backfillIncidentsByDependency = new Map<string, BackfillIncident[]>()
   for (const row of incidentRows) {
-    const existing = activeIncidentByDependency.get(row.dependencyId)
-    if (!existing || row.providerUpdatedAt > existing.providerUpdatedAt) {
-      activeIncidentByDependency.set(row.dependencyId, {
-        title: row.title,
-        providerUpdatedAt: row.providerUpdatedAt,
-      })
+    if (row.resolvedAt === null) {
+      const existing = activeIncidentByDependency.get(row.dependencyId)
+      if (!existing || row.providerUpdatedAt > existing.providerUpdatedAt) {
+        activeIncidentByDependency.set(row.dependencyId, {
+          title: row.title,
+          providerUpdatedAt: row.providerUpdatedAt,
+        })
+      }
     }
+    const list = backfillIncidentsByDependency.get(row.dependencyId) ?? []
+    list.push({
+      startedAt: row.startedAt,
+      resolvedAt: row.resolvedAt,
+      state: incidentImpactState(row.impact),
+    })
+    backfillIncidentsByDependency.set(row.dependencyId, list)
   }
 
   return rows.map((row) => {
@@ -299,7 +278,11 @@ export async function listDependenciesForDashboard(): Promise<
         intervalsByDependency.get(row.id) ?? [],
         24,
         3_600_000,
-        now
+        now,
+        {
+          createdAt: row.createdAt,
+          incidents: backfillIncidentsByDependency.get(row.id) ?? [],
+        }
       ),
     }
   })
@@ -491,6 +474,21 @@ export async function getDependencyDetail(
   const activeIncident =
     incidentRows.find((incident) => incident.resolvedAt === null) ?? null
 
+  // Assumed-operational overlay for the pre-install window. Every matched
+  // incident contributes its impact-derived state to buckets it overlaps
+  // between createdAt - 7d and createdAt. buildStateBuckets gates which
+  // buckets that touches, so passing the full matched set here is safe.
+  const backfill = {
+    createdAt: row.createdAt,
+    incidents: incidentRows.map(
+      (incident): BackfillIncident => ({
+        startedAt: incident.startedAt,
+        resolvedAt: incident.resolvedAt,
+        state: incidentImpactState(incident.impact),
+      })
+    ),
+  }
+
   return {
     id: row.id,
     presetId: row.presetId,
@@ -527,8 +525,8 @@ export async function getDependencyDetail(
         updatedAt: update.providerUpdatedAt.toISOString(),
       })),
     })),
-    timeline24h: buildStateBuckets(intervals, 24, 3_600_000, now),
-    timeline7d: buildStateBuckets(intervals, 7, 86_400_000, now),
+    timeline24h: buildStateBuckets(intervals, 24, 3_600_000, now, backfill),
+    timeline7d: buildStateBuckets(intervals, 7, 86_400_000, now, backfill),
   }
 }
 

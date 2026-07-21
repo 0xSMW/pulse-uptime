@@ -15,6 +15,7 @@ import {
   dependencyStateIntervals,
 } from "@/lib/db/schema"
 
+import { backfillResolvedIncidentMatches } from "./persist"
 import {
   listDependenciesForDashboard,
   getDependencyDetail as queryDependencyDetail,
@@ -528,6 +529,18 @@ export const databaseDependenciesStore: DependenciesStore = {
         startedAt: now,
         endedAt: null,
         sourceObservedAt: state.observedAt,
+      })
+      // Link the source's recent resolved incidents so this install's timeline
+      // and incident list carry real history immediately. Runs on the same tx
+      // as the insert so the matches commit atomically with the dependency;
+      // the poll path never prunes matches, so the immediate first poll leaves
+      // them intact.
+      await backfillResolvedIncidentMatches(tx, {
+        dependencyId: dependency.id,
+        catalogId: dependency.catalogId,
+        sourceId,
+        scopeId: dependency.scopeId,
+        now,
       })
       // Clearing etag/lastModified alongside next_poll_at forces the next
       // poll to a 200 with a full body: a stale validator would otherwise

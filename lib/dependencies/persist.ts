@@ -2,9 +2,9 @@ import "server-only"
 
 import { randomUUID } from "node:crypto"
 
-import { and, eq, inArray, isNull, sql } from "drizzle-orm"
+import { and, eq, gte, inArray, isNull, sql } from "drizzle-orm"
 
-import type { Database } from "@/lib/db/client"
+import type { Database, DatabaseHandle } from "@/lib/db/client"
 import {
   dependencies,
   dependencyCatalog,
@@ -219,6 +219,187 @@ export function selectorIntersectsIncident(
 ): boolean {
   const ids = new Set(matchingIdsForSelector(selector, scopeId))
   return incidentComponentIds.some((id) => ids.has(id))
+}
+
+/** A stored provider incident considered for install-time backfill, with its component associations already gathered. */
+export interface BackfillIncidentCandidate {
+  incidentId: string
+  componentIds: readonly string[]
+  startedAt: Date
+  resolvedAt: Date | null
+}
+
+/**
+ * Selects which of a source's incidents to link to a freshly installed
+ * dependency so its timeline and incident list show real recent history
+ * instead of a fully grey window. A candidate qualifies only when it is
+ * already resolved, its active window [startedAt, resolvedAt] intersects the
+ * trailing 7 days [windowStart, now], and its component associations intersect
+ * the install's selector.
+ *
+ * Active incidents are deliberately excluded: the install schedules an
+ * immediate poll, and that poll opens their match and fires the opening
+ * notification through the normal transition path. Backfilling them here would
+ * pre-create the match and suppress that notification.
+ *
+ * This is the one place that relaxes the poll path's no-install-time-broaden
+ * rule, and only for resolved component-scoped incidents. Source-wide and
+ * unmapped incidents persist no component rows, so they never intersect and
+ * stay unmatched, exactly as the poll path leaves them for a new install.
+ */
+export function selectBackfillIncidentIds(
+  selector: DependencySelector,
+  scopeId: string | null,
+  candidates: readonly BackfillIncidentCandidate[],
+  windowStart: Date,
+  now: Date
+): string[] {
+  const windowStartMs = windowStart.getTime()
+  const nowMs = now.getTime()
+  const ids: string[] = []
+  for (const candidate of candidates) {
+    if (candidate.resolvedAt === null) {
+      continue
+    }
+    if (
+      candidate.startedAt.getTime() > nowMs ||
+      candidate.resolvedAt.getTime() < windowStartMs
+    ) {
+      continue
+    }
+    if (selectorIntersectsIncident(selector, scopeId, candidate.componentIds)) {
+      ids.push(candidate.incidentId)
+    }
+  }
+  return ids
+}
+
+const BACKFILL_WINDOW_MS = 7 * 86_400_000
+
+/**
+ * Links a newly installed dependency to the source's recent resolved incidents
+ * so its timeline and incident list carry real history from the moment it is
+ * added, rather than a fully grey pre-install window. Runs on the caller's
+ * insert transaction so the matches commit atomically with the dependency.
+ * Returns the number of matches created.
+ *
+ * Only resolved component-scoped incidents in the trailing 7 days that
+ * intersect this install's selector are linked (see selectBackfillIncidentIds).
+ * The match rows are created with ON CONFLICT DO NOTHING and the poll path
+ * never prunes matches, so an immediate first poll neither duplicates nor
+ * removes them.
+ */
+export async function backfillResolvedIncidentMatches(
+  tx: DatabaseHandle,
+  params: {
+    dependencyId: string
+    catalogId: string
+    sourceId: string
+    scopeId: string | null
+    now: Date
+  }
+): Promise<number> {
+  const windowStart = new Date(params.now.getTime() - BACKFILL_WINDOW_MS)
+
+  const [preset] = await tx
+    .select({
+      selector: dependencyCatalog.selector,
+      adapter: dependencySources.adapter,
+    })
+    .from(dependencyCatalog)
+    .innerJoin(
+      dependencySources,
+      eq(dependencySources.id, dependencyCatalog.sourceId)
+    )
+    .where(eq(dependencyCatalog.id, params.catalogId))
+    .limit(1)
+  if (!preset) {
+    return 0
+  }
+  const selector = preset.selector as DependencySelector
+  const adapter = preset.adapter as DependencyAdapterName
+
+  // Resolved incidents in the trailing 7 days joined to their component
+  // associations. A resolved_at >= windowStart comparison also drops open
+  // incidents (null resolved_at never satisfies it), and the inner join drops
+  // source-wide and unmapped incidents, which persist no component rows.
+  const rows = await tx
+    .select({
+      incidentId: providerIncidents.id,
+      startedAt: providerIncidents.startedAt,
+      resolvedAt: providerIncidents.resolvedAt,
+      componentId: providerIncidentComponents.externalComponentId,
+    })
+    .from(providerIncidents)
+    .innerJoin(
+      providerIncidentComponents,
+      eq(providerIncidentComponents.incidentId, providerIncidents.id)
+    )
+    .where(
+      and(
+        eq(providerIncidents.sourceId, params.sourceId),
+        gte(providerIncidents.resolvedAt, windowStart)
+      )
+    )
+  if (rows.length === 0) {
+    return 0
+  }
+
+  const componentsByIncident = new Map<string, string[]>()
+  const metaByIncident = new Map<
+    string,
+    { startedAt: Date; resolvedAt: Date | null }
+  >()
+  for (const row of rows) {
+    const list = componentsByIncident.get(row.incidentId) ?? []
+    list.push(row.componentId)
+    componentsByIncident.set(row.incidentId, list)
+    if (!metaByIncident.has(row.incidentId)) {
+      metaByIncident.set(row.incidentId, {
+        startedAt: row.startedAt,
+        resolvedAt: row.resolvedAt,
+      })
+    }
+  }
+  const candidates: BackfillIncidentCandidate[] = [
+    ...componentsByIncident.entries(),
+  ].map(([incidentId, componentIds]) => {
+    const meta = metaByIncident.get(incidentId)
+    return {
+      incidentId,
+      componentIds,
+      startedAt: meta?.startedAt ?? params.now,
+      resolvedAt: meta?.resolvedAt ?? null,
+    }
+  })
+
+  const matchIds = selectBackfillIncidentIds(
+    selector,
+    params.scopeId,
+    candidates,
+    windowStart,
+    params.now
+  )
+  if (matchIds.length === 0) {
+    return 0
+  }
+
+  const matchKind: "component_match" | "inferred" =
+    associationKindForAdapter(adapter) === "inferred"
+      ? "inferred"
+      : "component_match"
+  await tx
+    .insert(dependencyIncidentMatches)
+    .values(
+      matchIds.map((incidentId) => ({
+        dependencyId: params.dependencyId,
+        incidentId,
+        matchKind,
+        matchedAt: params.now,
+      }))
+    )
+    .onConflictDoNothing()
+  return matchIds.length
 }
 
 /**

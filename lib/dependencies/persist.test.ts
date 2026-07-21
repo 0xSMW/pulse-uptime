@@ -6,6 +6,7 @@ vi.mock("server-only", () => ({}))
 
 import {
   associationKindForAdapter,
+  type BackfillIncidentCandidate,
   combinedComponentStates,
   computeNextPollAt,
   type DependencyNotificationInput,
@@ -22,6 +23,7 @@ import {
   persistSnapshot,
   resolveDependencyState,
   safeProviderUrl,
+  selectBackfillIncidentIds,
   selectorIntersectsIncident,
   shouldNotifyDependencyIncident,
   shouldNotifyDependencyRecovery,
@@ -133,6 +135,77 @@ describe("combinedComponentStates", () => {
       ],
     })
     expect(combinedComponentStates(completed).get("c1")).toBe("OPERATIONAL")
+  })
+})
+
+describe("selectBackfillIncidentIds", () => {
+  const selector: DependencySelector = {
+    kind: "component_ids",
+    aggregation: "worst_of",
+    ids: ["comp-a"],
+  }
+  const windowStart = new Date(NOW.getTime() - 7 * 86_400_000)
+
+  function candidate(
+    overrides: Partial<BackfillIncidentCandidate> & { incidentId: string }
+  ): BackfillIncidentCandidate {
+    return {
+      componentIds: ["comp-a"],
+      startedAt: new Date(NOW.getTime() - 2 * 86_400_000),
+      resolvedAt: new Date(NOW.getTime() - 1 * 86_400_000),
+      ...overrides,
+    }
+  }
+
+  it("links a recent resolved incident whose components intersect the selector", () => {
+    expect(
+      selectBackfillIncidentIds(
+        selector,
+        null,
+        [candidate({ incidentId: "recent" })],
+        windowStart,
+        NOW
+      )
+    ).toEqual(["recent"])
+  })
+
+  it("skips an incident resolved before the 7-day window", () => {
+    const old = candidate({
+      incidentId: "old",
+      startedAt: new Date(NOW.getTime() - 9 * 86_400_000),
+      resolvedAt: new Date(NOW.getTime() - 8 * 86_400_000),
+    })
+    expect(
+      selectBackfillIncidentIds(selector, null, [old], windowStart, NOW)
+    ).toEqual([])
+  })
+
+  it("links an incident that started before the window but resolved inside it", () => {
+    const straddle = candidate({
+      incidentId: "straddle",
+      startedAt: new Date(NOW.getTime() - 9 * 86_400_000),
+      resolvedAt: new Date(NOW.getTime() - 6 * 86_400_000),
+    })
+    expect(
+      selectBackfillIncidentIds(selector, null, [straddle], windowStart, NOW)
+    ).toEqual(["straddle"])
+  })
+
+  it("skips an incident whose components do not intersect the selector", () => {
+    const mismatch = candidate({
+      incidentId: "mismatch",
+      componentIds: ["comp-x"],
+    })
+    expect(
+      selectBackfillIncidentIds(selector, null, [mismatch], windowStart, NOW)
+    ).toEqual([])
+  })
+
+  it("skips an active (unresolved) incident, leaving it to the first poll", () => {
+    const active = candidate({ incidentId: "active", resolvedAt: null })
+    expect(
+      selectBackfillIncidentIds(selector, null, [active], windowStart, NOW)
+    ).toEqual([])
   })
 })
 

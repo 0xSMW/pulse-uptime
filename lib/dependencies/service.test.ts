@@ -606,13 +606,20 @@ describe("databaseDependenciesStore validator clearing (FIX D)", () => {
   it("clears the source's etag and last_modified in the same transaction that installs a dependency", async () => {
     const setCalls: Array<{ table: unknown; patch: Record<string, unknown> }> =
       []
+    // A chain that satisfies both the duplicate pre-check
+    // (from/where/limit) and the incident backfill's preset read
+    // (from/innerJoin/where/limit). The preset read resolves empty, so the
+    // backfill returns before its incident query and the insert path is
+    // exercised unchanged.
+    const emptyChain: Record<string, () => unknown> = {
+      from: () => emptyChain,
+      innerJoin: () => emptyChain,
+      where: () => emptyChain,
+      limit: () => Promise.resolve([]),
+    }
     const tx = {
       // No existing active dependency, so the duplicate pre-check passes and the insert proceeds.
-      select: () => ({
-        from: () => ({
-          where: () => ({ limit: vi.fn().mockResolvedValue([]) }),
-        }),
-      }),
+      select: () => emptyChain,
       insert: () => ({ values: vi.fn().mockResolvedValue(undefined) }),
       update: (table: unknown) => ({
         set: (patch: Record<string, unknown>) => {
