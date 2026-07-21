@@ -171,6 +171,27 @@ describe("status page config document schema", () => {
     expectRejected({ announcementMarkdown: "€".repeat(700) })
   })
 
+  it("restricts customHead to safe meta and icon link fragments", () => {
+    expect(
+      statusPageConfigDocumentSchema.safeParse(
+        baseDocument({
+          customHead:
+            '<meta property="og:title" content="Acme"><link rel="icon" href="/f.ico">',
+        })
+      ).success
+    ).toBe(true)
+    expectRejected({ customHead: "<script>alert(1)</script>" })
+    expectRejected({
+      customHead: '<meta http-equiv="refresh" content="0;url=//evil">',
+    })
+    expectRejected({
+      customHead: '<link rel="stylesheet" href="/x.css">',
+    })
+    expectRejected({
+      customHead: '<meta name="x" content="y" onload="alert(1)">',
+    })
+  })
+
   it("bounds minIncidentSeconds to zero through seven days", () => {
     expect(
       statusPageConfigDocumentSchema.safeParse(

@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { parseCustomHead } from "@/lib/status-page/custom-head"
 import { statusAssetUrl } from "@/lib/status-page/display"
 import {
   MAX_NAV_LINKS,
@@ -683,9 +684,16 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
   }
 
   const nameError = draft.name.trim() ? "" : "Page name is required"
+  const customHeadError = (() => {
+    if (!draft.customHead) {
+      return ""
+    }
+    const result = parseCustomHead(draft.customHead)
+    return result.ok ? "" : result.message
+  })()
 
   async function save() {
-    if (busy || nameError) {
+    if (busy || nameError || customHeadError) {
       return
     }
     // Fully-empty rows are dropped. Partially-filled rows block the save.
@@ -1016,11 +1024,16 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
             </label>
             <label className="block">
               <span className="mb-2 block font-medium text-[13px]">
-                Custom HTML
+                Custom head
               </span>
               <textarea
-                aria-label="Custom HTML"
-                className={cn(textareaClass, "font-data")}
+                aria-invalid={Boolean(customHeadError)}
+                aria-label="Custom head"
+                className={cn(
+                  textareaClass,
+                  "font-data",
+                  customHeadError && "border-[var(--down-text)]"
+                )}
                 onChange={(event) =>
                   update({ customHead: textOrNull(event.target.value) })
                 }
@@ -1028,12 +1041,21 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
                 spellCheck={false}
                 value={draft.customHead ?? ""}
               />
-              <span className="mt-1 block text-[var(--fg-muted)] text-xs">
-                Raw markup injected at the top of the public page&rsquo;s body,
-                not the document &lt;head&gt; — tools that only read the head,
-                like meta-tag site verifiers, will not see it. Scripts and
-                styles run as written. Up to 10 KB.
-              </span>
+              {customHeadError ? (
+                <span
+                  className="mt-1 block text-[var(--down-text)] text-xs"
+                  role="alert"
+                >
+                  {customHeadError}
+                </span>
+              ) : (
+                <span className="mt-1 block text-[var(--fg-muted)] text-xs">
+                  Restricted fragment rendered on the public page. Allowed:
+                  &lt;meta&gt; with name, property, content, or charset=utf-8,
+                  and icon &lt;link&gt; tags with site-relative or HTTPS hrefs.
+                  No scripts, styles, or event handlers. Up to 10 KB.
+                </span>
+              )}
             </label>
           </div>
         </CardContent>

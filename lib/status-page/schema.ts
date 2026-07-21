@@ -1,5 +1,6 @@
 import { z } from "zod"
 
+import { parseCustomHead } from "@/lib/status-page/custom-head"
 import { isValidIanaTimeZone } from "@/lib/time/iana"
 
 /**
@@ -68,7 +69,18 @@ export const statusPageConfigDocumentSchema = z.strictObject({
     .max(40)
     .nullable(),
   customCss: boundedText(MAX_CUSTOM_BYTES).nullable(),
-  customHead: boundedText(MAX_CUSTOM_BYTES).nullable(),
+  // Restricted head fragment (meta + icon link only). Parsed on write.
+  customHead: boundedText(MAX_CUSTOM_BYTES)
+    .superRefine((value, ctx) => {
+      const result = parseCustomHead(value)
+      if (!result.ok) {
+        ctx.addIssue({
+          code: "custom",
+          message: result.message,
+        })
+      }
+    })
+    .nullable(),
   announcementEnabled: z.boolean(),
   announcementMarkdown: boundedText(MAX_ANNOUNCEMENT_BYTES).nullable(),
   historyDays: z.union([z.literal(30), z.literal(60), z.literal(90)]),

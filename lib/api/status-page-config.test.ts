@@ -381,6 +381,46 @@ describe("putStatusPageConfig", () => {
       expect.arrayContaining([expect.objectContaining({ path: "name" })])
     )
   })
+
+  it("rejects unsafe customHead fragments with INVALID_CONFIG", async () => {
+    const store = fakeStore()
+    await expect(
+      putStatusPageConfig(
+        document({ customHead: "<script>alert(1)</script>" }),
+        etag,
+        { store }
+      )
+    ).rejects.toMatchObject({
+      code: "INVALID_CONFIG",
+      details: {
+        issues: expect.arrayContaining([
+          expect.objectContaining({ path: "customHead" }),
+        ]),
+      },
+    })
+    expect(store.write).not.toHaveBeenCalled()
+
+    await expect(
+      putStatusPageConfig(
+        document({
+          customHead: '<meta http-equiv="refresh" content="0;url=//evil">',
+        }),
+        etag,
+        { store }
+      )
+    ).rejects.toMatchObject({ code: "INVALID_CONFIG" })
+
+    const ok = await putStatusPageConfig(
+      document({
+        customHead:
+          '<meta property="og:title" content="Acme"><link rel="icon" href="/f.ico">',
+      }),
+      etag,
+      { store, now: () => UPDATED_AT, env: {} }
+    )
+    expect(ok.data.customHead).toContain("og:title")
+    expect(store.write).toHaveBeenCalled()
+  })
 })
 
 /** Minimal in-memory IdempotencyPersistence, mirroring lib/api/idempotency.test.ts. */
