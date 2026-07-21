@@ -1,5 +1,6 @@
 import {
   type ReadinessProbe,
+  type ReadinessProbeOptions,
   type ReadinessReport,
   type ReadinessResult,
   readinessSystems,
@@ -7,34 +8,15 @@ import {
 
 const RESULT_TTL_MS = 60_000
 
-export async function withTimeout<T>(
-  task: Promise<T>,
-  timeoutMs: number,
-  timeoutValue: T
-): Promise<T> {
-  let timeout: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      task,
-      new Promise<T>((resolve) => {
-        timeout = setTimeout(() => resolve(timeoutValue), timeoutMs)
-      }),
-    ])
-  } finally {
-    if (timeout) {
-      clearTimeout(timeout)
-    }
-  }
-}
-
 export async function runReadinessChecks(
   probes: Record<(typeof readinessSystems)[number], ReadinessProbe>,
+  options: ReadinessProbeOptions,
   now = new Date()
 ): Promise<ReadinessReport> {
   const results = await Promise.all(
     readinessSystems.map(async (system): Promise<ReadinessResult> => {
       try {
-        const result = await probes[system]()
+        const result = await probes[system](options)
         return { ...result, system }
       } catch {
         return failureFor(system)
