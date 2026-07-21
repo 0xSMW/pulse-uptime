@@ -16,7 +16,7 @@ Pulse delivers dependable uptime monitoring for a single team, with web and comm
 - Review monitor health, response latency, check coverage, incident history, and a public status page.
 - Publish authored status reports with drafts, timeline updates, and affected services, or promote a detected incident into a report.
 - Customize the status page name, logos, links, announcement banner, history window, and time zone from Settings or the CLI.
-- Work from the terminal with `pulsectl`, a Go CLI polished for humans and fully scriptable for agents, with JSON output on every command.
+- Work from the terminal with `pulsectl`, a CLI polished for humans and fully scriptable for agents, with JSON output on every command.
 - Automate anything through the `/api/v1` control plane, a REST API with an OpenAPI specification, idempotency keys, and ETag concurrency across monitors, dependencies, reports, and status page configuration.
 - Grant agents, scripts, and CI least-privilege access with scoped machine tokens.
 - Run on Vercel with Edge Config for desired configuration and Neon Postgres for durable state and history.
