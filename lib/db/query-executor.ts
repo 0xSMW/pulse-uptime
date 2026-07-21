@@ -16,13 +16,20 @@ export type QueryFn = <T>(
 export interface QueryExecutor {
   query: QueryFn
   /**
-   * One connection for the whole work block so SET LOCAL statement_timeout
-   * applies to the SQL that follows inside the same transaction.
+   * One connection and wall-clock deadline for acquisition plus transaction
+   * work. SET LOCAL statement_timeout receives the remaining budget.
    */
   withStatementTimeout: <T>(
     timeoutMs: number,
     work: (query: QueryFn) => Promise<T>
   ) => Promise<T>
+}
+
+function statementBudgetError(): Error & { code: "57014" } {
+  return Object.assign(
+    new Error("canceling statement due to statement timeout"),
+    { code: "57014" as const }
+  )
 }
 
 export const queryExecutor: QueryExecutor = {
@@ -35,23 +42,83 @@ export const queryExecutor: QueryExecutor = {
       portableQueryValues(values) as never[]
     )) as unknown as readonly T[]
   },
-  // One connection for the whole work block so SET LOCAL statement_timeout
-  // applies to the maintenance SQL that follows inside the same transaction.
+  // Reserve one connection for the whole work block. The wall-clock timer also
+  // bounds pool queueing and connection setup before statement_timeout exists.
   async withStatementTimeout(timeoutMs, work) {
-    return sql.begin(async (tx) => {
-      const timeout = Math.max(1, Math.floor(timeoutMs))
-      await tx.unsafe(`select set_config('statement_timeout', $1, true)`, [
-        String(timeout),
-      ] as never[])
-      const query: QueryFn = async <R>(
+    const timeout = Math.max(1, Math.floor(timeoutMs))
+    const deadlineAtMs = Date.now() + timeout
+    const timeoutError = statementBudgetError()
+    let expired = false
+    const activeQueries = new Set<{ cancel: () => void }>()
+    let timeoutId: ReturnType<typeof setTimeout>
+
+    const deadline = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        expired = true
+        for (const query of activeQueries) {
+          query.cancel()
+        }
+        reject(timeoutError)
+      }, timeout)
+    })
+
+    const transaction = (async () => {
+      const connection = await sql.reserve()
+      let began = false
+
+      const remainingMs = () => Math.floor(deadlineAtMs - Date.now())
+      const assertWithinDeadline = () => {
+        if (expired || remainingMs() <= 0) {
+          throw timeoutError
+        }
+      }
+      const run = async <R>(
         text: string,
-        values: readonly unknown[]
-      ): Promise<readonly R[]> =>
-        (await tx.unsafe(
+        values: readonly unknown[] = []
+      ): Promise<readonly R[]> => {
+        assertWithinDeadline()
+        const pending = connection.unsafe(
           text,
           portableQueryValues(values) as never[]
-        )) as unknown as readonly R[]
-      return work(query)
-    }) as Promise<ReturnType<typeof work>>
+        )
+        activeQueries.add(pending)
+        try {
+          return (await pending) as unknown as readonly R[]
+        } finally {
+          activeQueries.delete(pending)
+        }
+      }
+
+      try {
+        await run("begin")
+        began = true
+        await run(`select set_config('statement_timeout', $1, true)`, [
+          String(Math.max(1, remainingMs())),
+        ])
+        const query: QueryFn = (text, values) => run(text, values)
+        const result = await work(query)
+        assertWithinDeadline()
+        await run("commit")
+        began = false
+        return result
+      } catch (error) {
+        if (began) {
+          try {
+            await connection.unsafe("rollback", [])
+          } catch {
+            // The deadline error remains the useful failure for the caller.
+          }
+        }
+        throw error
+      } finally {
+        connection.release()
+      }
+    })()
+
+    try {
+      return await Promise.race([transaction, deadline])
+    } finally {
+      clearTimeout(timeoutId!)
+    }
   },
 }

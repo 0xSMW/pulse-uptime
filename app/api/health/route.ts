@@ -7,8 +7,7 @@ const DB_PROBE_TIMEOUT_MS = 2500
 // Public and unauthenticated by design. It reveals a single bit, database
 // reachable or not, which the public status page already exposes through its
 // degraded shell. The error boundary uses it to explain failures precisely.
-// Statement timeout bounds the probe on the server. No Promise.race around
-// uncancelled SQL.
+// One wall-clock deadline covers connection acquisition and cancels active SQL.
 export async function GET() {
   let database: "ok" | "unreachable" = "ok"
   try {

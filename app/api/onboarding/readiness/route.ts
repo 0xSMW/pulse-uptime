@@ -36,7 +36,7 @@ export async function GET(request: Request) {
 
   const nowMs = Date.now()
   const deadlineAtMs = nowMs + ONBOARDING_READINESS_TIMEOUT_MS
-  // Outer deadline aborts provider HTTP. DB work is bounded by statement_timeout.
+  // Outer deadline aborts provider HTTP. The query executor bounds all DB work.
   const deadlineSignal = abortSignalForDeadline(deadlineAtMs, nowMs)
   const signal = request.signal.aborted
     ? request.signal
