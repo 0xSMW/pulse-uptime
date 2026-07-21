@@ -42,7 +42,7 @@ go install github.com/0xSMW/pulse-uptime/cli/cmd/pulsectl@latest
 Connect it to the deployed service and sign in:
 
 ```sh
-pulsectl me --server https://pulse.example.com
+pulsectl me --server https://pulse.superposition.app
 ```
 
 The command creates the local context, opens Pulse in a browser, and asks you to link this CLI installation with full administrator access. Confirm the displayed account, installation, permissions, and terminal code, then authorize. The CLI stores the resulting session in the operating-system keyring.
@@ -57,7 +57,7 @@ pulsectl monitor list
 For agents, scripts, and CI, create a scoped token under **Settings → API Tokens** and provide it through the environment:
 
 ```sh
-export PULSECTL_URL=https://pulse.example.com
+export PULSECTL_URL=https://pulse.superposition.app
 export PULSECTL_TOKEN=pulse_live_...
 pulsectl monitor list --output json
 ```
