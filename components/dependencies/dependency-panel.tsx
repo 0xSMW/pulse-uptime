@@ -11,6 +11,12 @@ export async function DependencyPanel() {
     return null
   }
 
+  // The Incident column is present only when at least one dependency carries an
+  // active incident, so an all-clear table does not reserve an empty column.
+  const hasIncidents = dependencies.some((dependency) =>
+    Boolean(dependency.activeIncidentTitle)
+  )
+
   return (
     <section aria-labelledby="dependencies-title" className="mt-8">
       <div className="mb-4 flex items-baseline justify-between gap-4">
@@ -34,12 +40,18 @@ export async function DependencyPanel() {
               <th className="px-4 font-medium">Dependency</th>
               <th className="px-4 font-medium">Timeline 24h</th>
               <th className="px-4 font-medium">Provider Updated</th>
-              <th className="px-6 font-medium">Incident</th>
+              {hasIncidents ? (
+                <th className="px-6 font-medium">Incident</th>
+              ) : null}
             </tr>
           </thead>
           <tbody>
             {dependencies.map((dependency) => (
-              <DependencyPanelRow dependency={dependency} key={dependency.id} />
+              <DependencyPanelRow
+                dependency={dependency}
+                key={dependency.id}
+                showIncident={hasIncidents}
+              />
             ))}
           </tbody>
         </table>
