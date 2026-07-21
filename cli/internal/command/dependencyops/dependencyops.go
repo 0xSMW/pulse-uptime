@@ -508,11 +508,11 @@ func renderCatalog(d Dependencies, format string, doc Envelope) error {
 		}
 		return nil
 	}
-	fmt.Fprintln(d.Out, "ID\tNAME\tCATEGORY\tPROVIDER\tREGION\tINSTALLED")
+	cells := make([][]string, 0, len(rows))
 	for _, row := range rows {
-		fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\t%s\t%s\n", output.SanitizeDisplay(row.ID), output.SanitizeDisplay(row.Name), output.SanitizeDisplay(row.Category), output.SanitizeDisplay(row.Provider), regionRequirement(row.Scope), output.SanitizeDisplay(installedMarker(row)))
+		cells = append(cells, []string{output.SanitizeDisplay(row.ID), output.SanitizeDisplay(row.Name), output.SanitizeDisplay(row.Category), output.SanitizeDisplay(row.Provider), regionRequirement(row.Scope), output.SanitizeDisplay(installedMarker(row))})
 	}
-	return nil
+	return output.Table(d.Out, []string{"ID", "NAME", "CATEGORY", "PROVIDER", "REGION", "INSTALLED"}, cells)
 }
 
 // dependencyStateCaption clarifies that STATE reflects the provider's own
@@ -557,12 +557,15 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 		return nil
 	default:
 		fmt.Fprintln(d.Err, dependencyStateCaption)
-		fmt.Fprintln(d.Out, "STATE\tNAME\tPROVIDER\tREGION\tINCIDENT\tUPDATED")
+		rows := make([][]string, 0, len(doc.Data))
 		for _, raw := range doc.Data {
 			var dep Dependency
 			if json.Unmarshal(raw, &dep) == nil {
-				fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\t%s\t%s\n", output.SanitizeDisplay(dep.State), output.SanitizeDisplay(dep.Name), output.SanitizeDisplay(dep.Provider), output.SanitizeDisplay(dependencyRegion(dep)), output.SanitizeDisplay(value(dep.ActiveIncidentTitle)), output.SanitizeDisplay(value(dep.ProviderUpdatedAt)))
+				rows = append(rows, []string{output.SanitizeDisplay(dep.State), output.SanitizeDisplay(dep.Name), output.SanitizeDisplay(dep.Provider), output.SanitizeDisplay(dependencyRegion(dep)), output.SanitizeDisplay(value(dep.ActiveIncidentTitle)), output.SanitizeDisplay(value(dep.ProviderUpdatedAt))})
 			}
+		}
+		if err := output.Table(d.Out, []string{"STATE", "NAME", "PROVIDER", "REGION", "INCIDENT", "UPDATED"}, rows); err != nil {
+			return err
 		}
 		if doc.Meta.NextCursor != nil && *doc.Meta.NextCursor != "" {
 			fmt.Fprintf(d.Err, "More dependencies available. Continue with --cursor %s\n", *doc.Meta.NextCursor)

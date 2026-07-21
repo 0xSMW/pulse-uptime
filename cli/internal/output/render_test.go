@@ -6,6 +6,28 @@ import (
 	"testing"
 )
 
+func TestTableAlignsMixedWidthCells(t *testing.T) {
+	// Widths count runes, so the em-dash placeholder, glyph cells, and a
+	// SanitizeDisplay-escaped tab all occupy exactly their visible width.
+	header := []string{"ID", "STATE", "UPTIME"}
+	rows := [][]string{
+		{"photos-stephenwalker-co", "● UP", "100.0000%"},
+		{"smw-ai", "PENDING", "—"},
+		{"tabbed", SanitizeDisplay("API\tDOWN"), "✓"},
+	}
+	var out bytes.Buffer
+	if err := Table(&out, header, rows); err != nil {
+		t.Fatal(err)
+	}
+	want := "ID                       STATE        UPTIME\n" +
+		"photos-stephenwalker-co  ● UP         100.0000%\n" +
+		"smw-ai                   PENDING      —\n" +
+		`tabbed                   API\x09DOWN  ` + "✓\n"
+	if out.String() != want {
+		t.Fatalf("table = %q", out.String())
+	}
+}
+
 func TestRenderHumanUsesStableColumns(t *testing.T) {
 	value := map[string]any{"apiVersion": "v1", "kind": "MonitorList", "data": []any{map[string]any{"state": "UP", "name": "API", "id": "api"}}}
 	var out bytes.Buffer
@@ -13,7 +35,7 @@ func TestRenderHumanUsesStableColumns(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
-	if len(lines) != 2 || lines[0] != "ID  NAME  STATE" || lines[1] != "api  API  UP" {
+	if len(lines) != 2 || lines[0] != "ID   NAME  STATE" || lines[1] != "api  API   UP" {
 		t.Fatalf("unexpected table: %q", out.String())
 	}
 }

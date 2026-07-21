@@ -801,7 +801,7 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 		}
 		return nil
 	default:
-		fmt.Fprintln(d.Out, "ID\tNAME\tSTATE\tUPTIME")
+		rows := make([][]string, 0, len(doc.Data))
 		for _, raw := range doc.Data {
 			var m Monitor
 			if json.Unmarshal(raw, &m) == nil {
@@ -814,8 +814,11 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 						uptime = fmt.Sprintf("%.4f%%", f)
 					}
 				}
-				fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\n", output.SanitizeDisplay(m.ID), output.SanitizeDisplay(m.Name), output.SanitizeDisplay(m.State), uptime)
+				rows = append(rows, []string{output.SanitizeDisplay(m.ID), output.SanitizeDisplay(m.Name), output.SanitizeDisplay(m.State), uptime})
 			}
+		}
+		if err := output.Table(d.Out, []string{"ID", "NAME", "STATE", "UPTIME"}, rows); err != nil {
+			return err
 		}
 		if doc.Meta.NextCursor != nil && *doc.Meta.NextCursor != "" {
 			fmt.Fprintf(d.Err, "More monitors available. Continue with --cursor %s\n", *doc.Meta.NextCursor)

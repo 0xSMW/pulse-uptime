@@ -221,7 +221,7 @@ func TestListHumanStopsAfterFirstPageAndPrintsHint(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if len(client.requests) != 1 || !strings.Contains(out.String(), "prod\tProduction\t2") || !strings.Contains(stderr.String(), "--cursor next") {
+	if len(client.requests) != 1 || !strings.Contains(out.String(), "prod  Production  2") || !strings.Contains(stderr.String(), "--cursor next") {
 		t.Fatalf("requests = %d, out = %q, err = %q", len(client.requests), out.String(), stderr.String())
 	}
 }

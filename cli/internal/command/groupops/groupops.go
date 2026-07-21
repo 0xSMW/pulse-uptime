@@ -361,12 +361,15 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 		}
 		return nil
 	default:
-		fmt.Fprintln(d.Out, "ID\tNAME\tMONITORS")
+		rows := make([][]string, 0, len(doc.Data))
 		for _, raw := range doc.Data {
 			var group Group
 			if json.Unmarshal(raw, &group) == nil {
-				fmt.Fprintf(d.Out, "%s\t%s\t%d\n", output.SanitizeDisplay(group.ID), output.SanitizeDisplay(group.Name), group.MonitorCount)
+				rows = append(rows, []string{output.SanitizeDisplay(group.ID), output.SanitizeDisplay(group.Name), strconv.Itoa(group.MonitorCount)})
 			}
+		}
+		if err := output.Table(d.Out, []string{"ID", "NAME", "MONITORS"}, rows); err != nil {
+			return err
 		}
 		if doc.Meta.NextCursor != nil && *doc.Meta.NextCursor != "" {
 			fmt.Fprintf(d.Err, "More groups available. Continue with --cursor %s\n", *doc.Meta.NextCursor)

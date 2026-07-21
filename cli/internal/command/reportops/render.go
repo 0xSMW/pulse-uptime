@@ -72,14 +72,17 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 		}
 		return nil
 	default:
-		fmt.Fprintln(d.Out, "STATUS\tTITLE\tTYPE\tCURRENT\tUPDATED")
+		rows := make([][]string, 0, len(doc.Data))
 		for _, raw := range doc.Data {
 			var r Report
 			if json.Unmarshal(raw, &r) == nil {
-				fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\t%s\n",
+				rows = append(rows, []string{
 					stateGlyph(r), output.SanitizeDisplay(r.Title), output.SanitizeDisplay(r.Type),
-					output.SanitizeDisplay(r.CurrentStatus), output.SanitizeDisplay(updated(r)))
+					output.SanitizeDisplay(r.CurrentStatus), output.SanitizeDisplay(updated(r))})
 			}
+		}
+		if err := output.Table(d.Out, []string{"STATUS", "TITLE", "TYPE", "CURRENT", "UPDATED"}, rows); err != nil {
+			return err
 		}
 		if doc.Meta.NextCursor != nil && *doc.Meta.NextCursor != "" {
 			fmt.Fprintf(d.Err, "More reports available. Continue with --cursor %s\n", output.SanitizeDisplay(*doc.Meta.NextCursor))
@@ -105,11 +108,16 @@ func renderReportDetail(w io.Writer, r Report) error {
 	}
 	if len(r.Affected) > 0 {
 		fmt.Fprintln(w, "\nAffected:")
-		fmt.Fprintln(w, "  MONITOR\tNAME\tGROUP\tIMPACT")
+		rows := make([][]string, 0, len(r.Affected))
 		for _, item := range r.Affected {
-			fmt.Fprintf(w, "  %s\t%s\t%s\t%s\n",
-				output.SanitizeDisplay(item.MonitorID), output.SanitizeDisplay(item.MonitorName),
-				output.SanitizeDisplay(pointer(item.GroupName)), output.SanitizeDisplay(item.Impact))
+			// The two-space prefix on the first cell indents the whole
+			// sub-table, tabwriter widens the column to absorb it.
+			rows = append(rows, []string{
+				"  " + output.SanitizeDisplay(item.MonitorID), output.SanitizeDisplay(item.MonitorName),
+				output.SanitizeDisplay(pointer(item.GroupName)), output.SanitizeDisplay(item.Impact)})
+		}
+		if err := output.Table(w, []string{"  MONITOR", "NAME", "GROUP", "IMPACT"}, rows); err != nil {
+			return err
 		}
 	}
 	if len(r.Updates) > 0 {

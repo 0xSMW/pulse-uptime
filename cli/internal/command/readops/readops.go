@@ -287,7 +287,7 @@ func renderList(d Dependencies, f string, doc ListEnvelope) error {
 		}
 		return nil
 	default:
-		fmt.Fprintln(d.Out, "ID\tMONITOR\tSTATUS\tOPENED")
+		rows := make([][]string, 0, len(doc.Data))
 		for _, raw := range doc.Data {
 			var i Incident
 			if json.Unmarshal(raw, &i) == nil {
@@ -295,8 +295,11 @@ func renderList(d Dependencies, f string, doc ListEnvelope) error {
 				if i.ResolvedAt != nil {
 					state = "RESOLVED"
 				}
-				fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\n", output.SanitizeDisplay(i.ID), output.SanitizeDisplay(i.MonitorID), state, output.SanitizeDisplay(i.OpenedAt))
+				rows = append(rows, []string{output.SanitizeDisplay(i.ID), output.SanitizeDisplay(i.MonitorID), state, output.SanitizeDisplay(i.OpenedAt)})
 			}
+		}
+		if err := output.Table(d.Out, []string{"ID", "MONITOR", "STATUS", "OPENED"}, rows); err != nil {
+			return err
 		}
 		if doc.Meta.NextCursor != nil && *doc.Meta.NextCursor != "" {
 			fmt.Fprintf(d.Err, "More incidents available. Continue with --cursor %s\n", *doc.Meta.NextCursor)
