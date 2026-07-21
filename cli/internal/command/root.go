@@ -406,6 +406,7 @@ func (a *App) rootHelp(w io.Writer) error {
 	fmt.Fprintln(w, "  PULSECTL_TOKEN    Scoped bearer token")
 	fmt.Fprintln(w, "  PULSECTL_OUTPUT   Output format")
 	fmt.Fprintln(w, "  PULSECTL_TIMEOUT  Per-request timeout")
+	fmt.Fprintln(w, "  PULSECTL_NO_INPUT Disable the interactive menu")
 	fmt.Fprintln(w, "  NO_COLOR          Disable color")
 	fmt.Fprintln(w, "\nExamples:")
 	fmt.Fprintln(w, "  pulsectl me --server https://pulse.example.com")
