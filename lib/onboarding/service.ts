@@ -477,9 +477,7 @@ export async function activateFirstMonitor(
       )
     }
 
-    const lockedRecipients = state.emailWarningAcknowledged
-      ? []
-      : recipients
+    const lockedRecipients = state.emailWarningAcknowledged ? [] : recipients
     const accepted = await tx.readAccepted()
     const { config, monitor, hash } = buildActivationConfig({
       draft: lockedDraft,
@@ -489,7 +487,9 @@ export async function activateFirstMonitor(
     const now = new Date()
     const wroteSnapshot = !accepted || accepted.hash !== hash
 
-    // Snapshot, registry, and step transition commit together under the lock.
+    // Snapshot, registry, step transition, and Edge Config write succeed as one
+    // activation attempt under the lock. The external write runs last so a
+    // failure rolls the database work back and leaves activation retryable.
     if (wroteSnapshot) {
       await tx.insertAcceptedSnapshot({ config, hash, now })
     }
@@ -503,14 +503,12 @@ export async function activateFirstMonitor(
       )
     }
 
-    return { monitor, config, hash, wroteSnapshot }
-  })
+    if (wroteSnapshot) {
+      await writeEdge(config)
+    }
 
-  // Edge Config is external and not rollbackable. Write after the DB commit so
-  // the configuration lock is not held across HTTP.
-  if (activated.wroteSnapshot) {
-    await writeEdge(activated.config)
-  }
+    return { monitor, config, hash }
+  })
 
   return {
     monitor: activated.monitor,

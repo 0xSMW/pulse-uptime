@@ -398,6 +398,60 @@ describe("onboarding state machine", () => {
     expect(monitor.recipients).not.toContain("stale@example.com")
   })
 
+  it("rolls activation back when Edge Config fails so retry can succeed", async () => {
+    const world = freshWorld({
+      currentStep: "verify",
+      draftMonitor: { url: "https://example.com/", name: "Main" },
+    })
+    const store = createFakeStore(world)
+    const transaction = store.transaction.bind(store)
+    store.transaction = async (work) => {
+      const progress = structuredClone(world.progress)
+      const accepted = structuredClone(world.accepted)
+      const registry = structuredClone(world.registry)
+      const snapshots = structuredClone(world.snapshots)
+      try {
+        return await transaction(work)
+      } catch (error) {
+        Object.assign(world.progress, progress)
+        world.accepted = accepted
+        world.registry.splice(0, world.registry.length, ...registry)
+        world.snapshots.splice(0, world.snapshots.length, ...snapshots)
+        throw error
+      }
+    }
+    const writeEdgeConfig = vi
+      .fn<(config: MonitoringConfig) => Promise<void>>()
+      .mockRejectedValueOnce(new Error("Edge Config unavailable"))
+      .mockResolvedValueOnce()
+    const deps = {
+      store,
+      checkReadiness: async () => ({ canContinue: true }),
+      runCheck: async () => successCheck(),
+      writeEdgeConfig,
+    }
+
+    await expect(
+      activateFirstMonitor("user-1", { alertEmail: "a@example.com" }, deps)
+    ).rejects.toThrow("Edge Config unavailable")
+
+    expect(world.progress.currentStep).toBe("verify")
+    expect(world.accepted).toBeNull()
+    expect(world.registry).toEqual([])
+    expect(world.snapshots).toEqual([])
+
+    const activated = await activateFirstMonitor(
+      "user-1",
+      { alertEmail: "a@example.com" },
+      deps
+    )
+
+    expect(activated.monitor.name).toBe("Main")
+    expect(world.progress.currentStep).toBe("getting_started")
+    expect(world.accepted?.hash).toBe(activated.hash)
+    expect(writeEdgeConfig).toHaveBeenCalledTimes(2)
+  })
+
   it("serializes concurrent stale activation so only one winner advances", async () => {
     const world = freshWorld({
       currentStep: "verify",
