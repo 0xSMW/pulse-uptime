@@ -134,6 +134,20 @@
       "when": 1784543659259,
       "tag": "0018_rapid_zeigeist",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1784562267795,
+      "tag": "0019_cron_runs_release_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1784569000000,
+      "tag": "0020_dependency_discovered_scope_options",
+      "breakpoints": true
     }
   ]
 }

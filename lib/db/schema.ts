@@ -288,14 +288,25 @@ export const cronRuns = pgTable("cron_runs", {
   // Full structured capture of a failure: message, Postgres diagnostic fields,
   // and the wrapped cause chain, bounded and truncation-marked in run-record.
   errorDetail: jsonb("error_detail"),
+  // Deployment identity that executed this run. Null only on historical rows
+  // written before release-bound proof. New runs always set a nonempty id.
+  releaseId: text("release_id"),
 }, (table) => [
   uniqueIndex("cron_runs_job_schedule").on(table.jobName, table.scheduledMinute),
+  // Speeds release-bound deploy proof: latest completed run for a job+release.
+  index("cron_runs_job_release_completed")
+    .on(table.jobName, table.releaseId, table.completedAt.desc())
+    .where(sql`${table.status} = 'completed' and ${table.releaseId} is not null`),
   check("cron_runs_status", sql`${table.status} in ('running', 'completed', 'failed')`),
   check(
     "cron_runs_counts_nonnegative",
     sql`${table.monitorCount} >= 0 and ${table.successCount} >= 0 and ${table.failureCount} >= 0 and ${table.skippedCount} >= 0`,
   ),
   check("cron_runs_completion_order", sql`${table.completedAt} is null or ${table.completedAt} >= ${table.startedAt}`),
+  check(
+    "cron_runs_release_id",
+    sql`${table.releaseId} is null or length(trim(${table.releaseId})) > 0`,
+  ),
 ]);
 
 export const jobLeases = pgTable("job_leases", {
@@ -789,6 +800,9 @@ export const dependencyCategories = ["ai", "hosting", "auth", "data", "payments"
 // state. Resolved at catalog sync from the manifest preset then source.
 export const dependencyFidelities = ["component", "incident_only"] as const;
 
+/** Discovered scope option kinds materialised from a complete source directory. */
+export const dependencyDiscoveredScopeKinds = ["discovered_child", "discovered_location"] as const;
+
 // Normalized incident and update lifecycle vocabulary. Adapters map each
 // provider's own status strings (Statuspage's investigating/identified/
 // monitoring/resolved, Sorry's recovering/false_alarm, maintenance's
@@ -863,6 +877,31 @@ export const dependencyCatalog = pgTable("dependency_catalog", {
   check(
     "dependency_catalog_fidelity",
     sql`${table.fidelity} in ('component', 'incident_only')`,
+  ),
+]);
+
+/**
+ * Region and location choices discovered from a complete provider directory.
+ * Missing options stay as available=false so install validation can reject a
+ * scope that disappeared without inventing new arbitrary ids.
+ */
+export const dependencyDiscoveredScopeOptions = pgTable("dependency_discovered_scope_options", {
+  catalogId: text("catalog_id").notNull().references(() => dependencyCatalog.id),
+  scopeId: text("scope_id").notNull(),
+  label: text("label").notNull(),
+  scopeKind: text("scope_kind", { enum: dependencyDiscoveredScopeKinds }).notNull(),
+  parentExternalId: text("parent_external_id"),
+  available: boolean("available").notNull(),
+  firstSeenAt: timestamptz("first_seen_at").notNull(),
+  lastSeenAt: timestamptz("last_seen_at").notNull(),
+  metadata: jsonb("metadata"),
+}, (table) => [
+  primaryKey({ columns: [table.catalogId, table.scopeId], name: "dependency_discovered_scope_options_catalog_id_scope_id_pk" }),
+  index("dependency_discovered_scope_options_catalog_available_label")
+    .on(table.catalogId, table.available, table.label),
+  check(
+    "dependency_discovered_scope_options_scope_kind",
+    sql`${table.scopeKind} in ('discovered_child', 'discovered_location')`,
   ),
 ]);
 
