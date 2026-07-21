@@ -175,11 +175,13 @@ describe("acceptDesiredConfiguration", () => {
         source: "edge-config",
       })
     )
+    // Registry sync uses the post-lock write time, not the caller's now, so
+    // the accepted snapshot ordering respects lock serialization.
     expect(synchronizeRegistry).toHaveBeenCalledWith(
       expect.anything(),
       config,
       hash,
-      NOW,
+      expect.any(Date),
       "runtime"
     )
   })
@@ -250,11 +252,12 @@ describe("acceptDesiredConfiguration", () => {
       })
     )
     // Fallback still re-syncs the accepted previous hash so registry agrees.
+    // Registry sync uses the post-lock write time, not the caller's now.
     expect(synchronizeRegistry).toHaveBeenCalledWith(
       expect.anything(),
       previous,
       previousHash,
-      NOW,
+      expect.any(Date),
       "runtime"
     )
   })

@@ -85,6 +85,13 @@ suite("configuration lock PostgreSQL concurrency", () => {
       firstSeenAt: now,
       lastSeenAt: now,
     })
+    // Production inserts a monitor_state row alongside every registry row, so
+    // seed one too. Archiving a removed monitor requires its state row.
+    await dbA.insert(schema.monitorState).values({
+      monitorId: "cfg-lock-mon",
+      state: "PENDING",
+      updatedAt: now,
+    })
     return hash
   }
 

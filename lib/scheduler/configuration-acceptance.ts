@@ -116,6 +116,14 @@ export async function acceptDesiredConfiguration(
     async (tx): Promise<AcceptanceOutcome> => {
       await lockConfiguration(tx)
 
+      // Persisted rows are stamped with a timestamp taken after the lock is
+      // held so the accepted snapshot ordering respects lock serialization. The
+      // caller's now can predate a concurrent API mutation that acquired the
+      // lock and committed first, which would sort this snapshot as older while
+      // the registry sync reflects this config, so readers ordered by acceptedAt
+      // would return the other config than the one the registry runs.
+      const writtenAt = new Date()
+
       const snapshot = await findAcceptedSnapshot(tx as unknown as typeof db)
       const previous = snapshot
         ? { config: snapshot.config, hash: snapshot.hash }
@@ -124,7 +132,7 @@ export async function acceptDesiredConfiguration(
       let result = evaluateConfigurationAcceptance(desired, previous, { now })
 
       if (result.status === "unavailable") {
-        await writeSnapshotObservation(tx, { desired, result, now })
+        await writeSnapshotObservation(tx, { desired, result, now: writtenAt })
         return { kind: "unavailable", reason: result.reason }
       }
 
@@ -157,7 +165,7 @@ export async function acceptDesiredConfiguration(
       }
 
       if (result.status === "unavailable") {
-        await writeSnapshotObservation(tx, { desired, result, now })
+        await writeSnapshotObservation(tx, { desired, result, now: writtenAt })
         return { kind: "unavailable", reason: result.reason }
       }
 
@@ -186,14 +194,28 @@ export async function acceptDesiredConfiguration(
       })
 
       if (guarded.status === "unavailable") {
-        await writeSnapshotObservation(tx, { desired, result: guarded, now })
+        await writeSnapshotObservation(tx, {
+          desired,
+          result: guarded,
+          now: writtenAt,
+        })
         return { kind: "unavailable", reason: guarded.reason }
       }
 
-      await writeSnapshotObservation(tx, { desired, result: guarded, now })
+      await writeSnapshotObservation(tx, {
+        desired,
+        result: guarded,
+        now: writtenAt,
+      })
       // Registry sync shares the locked transaction so snapshot and registry
       // hashes cannot diverge from concurrent API mutations.
-      await syncRegistryRows(tx, guarded.config, guarded.hash, now, "runtime")
+      await syncRegistryRows(
+        tx,
+        guarded.config,
+        guarded.hash,
+        writtenAt,
+        "runtime"
+      )
       return { kind: "ready", result: guarded }
     }
   )
