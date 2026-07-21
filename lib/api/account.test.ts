@@ -216,7 +216,7 @@ function fakeStore(
       email: "old@example.com",
       passwordDigest: "digest",
     }),
-    applyEmailChange: vi.fn().mockResolvedValue(undefined),
+    applyEmailChange: vi.fn().mockResolvedValue("applied"),
     ...overrides,
   }
 }
@@ -346,6 +346,69 @@ describe("changeAccountEmail", () => {
     ).resolves.toEqual({ email: "old@example.com" })
     expect(store.applyEmailChange).not.toHaveBeenCalled()
   })
+
+  it("surfaces ACCOUNT_CHANGED when the email CAS loses", async () => {
+    const store = fakeStore({
+      applyEmailChange: vi.fn().mockResolvedValue("conflict"),
+    })
+    await expect(
+      changeAccountEmail(
+        {
+          ...base,
+          email: "new@example.com",
+          emailConfirm: "new@example.com",
+        },
+        { store, verify: async () => true, ...limitDeps }
+      )
+    ).rejects.toMatchObject({ code: "ACCOUNT_CHANGED" })
+  })
+
+  it("lets exactly one concurrent email change win and keeps CLI email aligned", async () => {
+    let currentEmail = "old@example.com"
+    let cliEmail = "old@example.com"
+    const store: EmailChangeStore = {
+      findUser: async () => ({
+        email: currentEmail,
+        passwordDigest: "digest",
+      }),
+      applyEmailChange: async ({ previousEmail, email }) => {
+        if (previousEmail !== currentEmail) {
+          return "conflict"
+        }
+        currentEmail = email
+        cliEmail = email
+        return "applied"
+      },
+    }
+    const first = changeAccountEmail(
+      {
+        ...base,
+        email: "winner@example.com",
+        emailConfirm: "winner@example.com",
+      },
+      { store, verify: async () => true, ...limitDeps }
+    )
+    const second = changeAccountEmail(
+      {
+        ...base,
+        email: "loser@example.com",
+        emailConfirm: "loser@example.com",
+      },
+      { store, verify: async () => true, ...limitDeps }
+    )
+    const outcomes = await Promise.allSettled([first, second])
+    const fulfilled = outcomes.filter((item) => item.status === "fulfilled")
+    const rejected = outcomes.filter((item) => item.status === "rejected")
+    expect(fulfilled).toHaveLength(1)
+    expect(rejected).toHaveLength(1)
+    expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({
+      code: "ACCOUNT_CHANGED",
+    })
+    expect(currentEmail).toBe(
+      (fulfilled[0] as PromiseFulfilledResult<{ email: string }>).value.email
+    )
+    expect(cliEmail).toBe(currentEmail)
+  })
 })
 
 describe("password change input validation", () => {
@@ -378,7 +441,7 @@ function fakePasswordStore(
       email: "admin@example.com",
       passwordDigest: "digest",
     }),
-    applyPasswordChange: vi.fn().mockResolvedValue(undefined),
+    applyPasswordChange: vi.fn().mockResolvedValue("applied"),
     ...overrides,
   }
 }
@@ -442,7 +505,7 @@ describe("changeAccountPassword", () => {
     expect(store.applyPasswordChange).not.toHaveBeenCalled()
   })
 
-  it("re-hashes and revokes the other sessions in the same store call", async () => {
+  it("re-hashes with digest CAS and revokes every human session", async () => {
     const store = fakePasswordStore()
     const now = new Date("2026-07-18T00:00:00Z")
     await expect(
@@ -460,10 +523,73 @@ describe("changeAccountPassword", () => {
     ).resolves.toEqual({ changed: true })
     expect(store.applyPasswordChange).toHaveBeenCalledWith({
       userId: "usr_1",
-      currentSessionId: "ses_1",
+      expectedPasswordDigest: "digest",
       passwordDigest: "argon2id:a-long-enough-password",
       now,
     })
+  })
+
+  it("surfaces ACCOUNT_CHANGED when the password digest CAS loses", async () => {
+    const store = fakePasswordStore({
+      applyPasswordChange: vi.fn().mockResolvedValue("conflict"),
+    })
+    await expect(
+      changeAccountPassword(
+        { ...base, newPassword: "a-long-enough-password" },
+        {
+          store,
+          verify: async () => true,
+          hash: async () => "argon2id:new",
+          enforceLimit: allowedLimit,
+          digestKey: deterministicDigest,
+        }
+      )
+    ).rejects.toMatchObject({ code: "ACCOUNT_CHANGED" })
+  })
+
+  it("lets exactly one concurrent password change win", async () => {
+    let currentDigest = "digest"
+    const store: PasswordChangeStore = {
+      findUser: async () => ({
+        email: "admin@example.com",
+        passwordDigest: currentDigest,
+      }),
+      applyPasswordChange: async ({
+        expectedPasswordDigest,
+        passwordDigest,
+      }) => {
+        if (expectedPasswordDigest !== currentDigest) {
+          return "conflict"
+        }
+        currentDigest = passwordDigest
+        return "applied"
+      },
+    }
+    const deps = {
+      store,
+      verify: async () => true,
+      hash: async (password: string) => `argon2id:${password}`,
+      enforceLimit: allowedLimit,
+      digestKey: deterministicDigest,
+    }
+    const outcomes = await Promise.allSettled([
+      changeAccountPassword(
+        { ...base, newPassword: "a-long-enough-password" },
+        deps
+      ),
+      changeAccountPassword(
+        { ...base, newPassword: "another-long-password" },
+        deps
+      ),
+    ])
+    const fulfilled = outcomes.filter((item) => item.status === "fulfilled")
+    const rejected = outcomes.filter((item) => item.status === "rejected")
+    expect(fulfilled).toHaveLength(1)
+    expect(rejected).toHaveLength(1)
+    expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({
+      code: "ACCOUNT_CHANGED",
+    })
+    expect(currentDigest).toMatch(/^argon2id:/)
   })
 
   it("reports a missing account", async () => {

@@ -7,7 +7,7 @@ import { apiError, apiJson, objectEnvelope } from "@/lib/api/envelopes"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
 import { routeError } from "@/lib/api/route"
 import { clientIpFromHeaders } from "@/lib/auth/service"
-import { getCurrentSession } from "@/lib/auth/session"
+import { expiredSessionCookie, getCurrentSession } from "@/lib/auth/session"
 
 export async function POST(request: Request) {
   const context = await authorize(request)
@@ -39,9 +39,17 @@ export async function POST(request: Request) {
       currentSessionId: session.sessionId,
       ip: clientIpFromHeaders(request.headers) ?? "unknown",
     })
-    return apiJson(
-      objectEnvelope("PasswordChange", { changed: true }, context.requestId)
+    // Password rotation revokes every human session including this one. Clear
+    // the cookie so the browser never keeps a valid current session token.
+    const response = apiJson(
+      objectEnvelope(
+        "PasswordChange",
+        { changed: true, reauthenticate: true },
+        context.requestId
+      )
     )
+    response.cookies.set(expiredSessionCookie())
+    return response
   } catch (error) {
     if (error instanceof AccountServiceError) {
       if (error.code === "RATE_LIMITED") {
@@ -62,7 +70,9 @@ export async function POST(request: Request) {
           ? 403
           : error.code === "ACCOUNT_NOT_FOUND"
             ? 404
-            : 400
+            : error.code === "ACCOUNT_CHANGED"
+              ? 409
+              : 400
       return apiError(context.requestId, status, error.code, error.message)
     }
     return routeError(error, context.requestId)

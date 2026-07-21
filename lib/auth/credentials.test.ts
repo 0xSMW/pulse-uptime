@@ -3,6 +3,7 @@ import {
   createSessionToken,
   digestSessionToken,
   hashPassword,
+  LOGIN_DUMMY_PASSWORD_DIGEST,
   normalizeEmail,
   sessionExpiresAt,
   validatePassword,
@@ -32,6 +33,16 @@ describe("credential primitives", () => {
     await expect(verifyPassword(digest, "wrong-password-value")).resolves.toBe(
       false
     )
+  })
+
+  it("keeps a committed dummy Argon2id digest that never matches login guesses", async () => {
+    expect(LOGIN_DUMMY_PASSWORD_DIGEST).toMatch(/^\$argon2id\$v=19\$/)
+    await expect(
+      verifyPassword(LOGIN_DUMMY_PASSWORD_DIGEST, "wrong-password-value")
+    ).resolves.toBe(false)
+    await expect(
+      verifyPassword(LOGIN_DUMMY_PASSWORD_DIGEST, "correct-horse-battery")
+    ).resolves.toBe(false)
   })
 
   it("creates 256-bit opaque tokens and stable digests", () => {

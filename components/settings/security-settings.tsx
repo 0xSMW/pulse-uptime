@@ -95,17 +95,10 @@ export function SecuritySettings({ data }: { data: SecuritySettingsData }) {
         method: "POST",
         body: JSON.stringify({ currentPassword, newPassword }),
       })
-      setCurrentPassword("")
-      setNewPassword("")
-      setConfirmPassword("")
-      setPasswordMessage({
-        text: "Password changed. Your other sessions have been signed out.",
-        tone: "info",
-      })
-      router.refresh()
+      // Server revoked every session and expired the cookie. Sign in again.
+      router.push("/login")
     } catch (error) {
       setPasswordMessage({ text: messageForError(error), tone: "error" })
-    } finally {
       setPasswordBusy(false)
     }
   }
@@ -164,7 +157,7 @@ export function SecuritySettings({ data }: { data: SecuritySettingsData }) {
         <CardContent className="pt-0">
           <form className="max-w-[640px] space-y-3" onSubmit={changePassword}>
             <p className="text-[13px] text-[var(--fg-muted)]">
-              Changing your password signs out every other session.
+              Changing your password signs out every session
             </p>
             <Field htmlFor="security-current-password" label="Current password">
               <Input

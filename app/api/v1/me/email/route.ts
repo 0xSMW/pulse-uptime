@@ -62,7 +62,9 @@ export async function POST(request: Request) {
           ? 403
           : error.code === "ACCOUNT_NOT_FOUND"
             ? 404
-            : 400
+            : error.code === "ACCOUNT_CHANGED"
+              ? 409
+              : 400
       return apiError(context.requestId, status, error.code, error.message)
     }
     return routeError(error, context.requestId)

@@ -6,7 +6,18 @@ vi.mock("@/lib/api/middleware", () => ({
   authorize: vi.fn(),
   isApiResponse: (value: unknown) => value instanceof Response,
 }))
-vi.mock("@/lib/auth/session", () => ({ getCurrentSession: vi.fn() }))
+vi.mock("@/lib/auth/session", () => ({
+  getCurrentSession: vi.fn(),
+  expiredSessionCookie: vi.fn(() => ({
+    name: "__Host-pulse_session",
+    value: "",
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: true,
+    path: "/",
+    expires: new Date(0),
+  })),
+}))
 vi.mock("@/lib/api/account", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/account")>()),
   changeAccountPassword: vi.fn(),
@@ -14,7 +25,7 @@ vi.mock("@/lib/api/account", async (importOriginal) => ({
 
 import { AccountServiceError, changeAccountPassword } from "@/lib/api/account"
 import { type ApiContext, authorize } from "@/lib/api/middleware"
-import { getCurrentSession } from "@/lib/auth/session"
+import { expiredSessionCookie, getCurrentSession } from "@/lib/auth/session"
 
 import { POST } from "./route"
 
@@ -87,7 +98,7 @@ describe("POST /api/v1/me/password", () => {
     expect(response.status).toBe(200)
     const payload = await response.json()
     expect(payload.kind).toBe("PasswordChange")
-    expect(payload.data).toEqual({ changed: true })
+    expect(payload.data).toEqual({ changed: true, reauthenticate: true })
     expect(changeAccountPassword).toHaveBeenCalledWith({
       currentPassword: "old-password-12",
       newPassword: "new-password-123",
@@ -95,6 +106,10 @@ describe("POST /api/v1/me/password", () => {
       currentSessionId: session.sessionId,
       ip: "203.0.113.7",
     })
+    expect(expiredSessionCookie).toHaveBeenCalled()
+    const setCookie = response.headers.get("set-cookie") ?? ""
+    expect(setCookie).toContain("__Host-pulse_session=")
+    expect(setCookie.toLowerCase()).toMatch(/expires=thu, 01 jan 1970/)
   })
 
   it("prefers the platform-set x-real-ip over x-forwarded-for", async () => {
@@ -175,5 +190,24 @@ describe("POST /api/v1/me/password", () => {
     )
     expect(response.status).toBe(400)
     expect(changeAccountPassword).not.toHaveBeenCalled()
+  })
+
+  it("maps a lost password CAS to 409 ACCOUNT_CHANGED without expiring the cookie", async () => {
+    vi.mocked(changeAccountPassword).mockRejectedValue(
+      new AccountServiceError(
+        "ACCOUNT_CHANGED",
+        "Account details changed. Refresh and try again."
+      )
+    )
+    const response = await POST(
+      passwordRequest({
+        currentPassword: "old-password-12",
+        newPassword: "new-password-123",
+      })
+    )
+    expect(response.status).toBe(409)
+    const payload = await response.json()
+    expect(payload.error.code).toBe("ACCOUNT_CHANGED")
+    expect(response.headers.get("set-cookie")).toBeNull()
   })
 })
