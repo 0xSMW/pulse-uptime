@@ -17,6 +17,7 @@ describe("adapterRegistry", () => {
       expect(adapter).toBeDefined();
       expect(typeof adapter?.requests).toBe("function");
       expect(typeof adapter?.normalize).toBe("function");
+      expect(typeof adapter?.catalogDirectory).toBe("function");
     }
   });
 

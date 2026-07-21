@@ -3,19 +3,20 @@
 // raw-text fetch mode and the shared bounded XML parser, then displays each
 // entry as provider incident prose verbatim. It never asserts a per-component
 // state: the feed carries no structured component identity, so every incident
-// leaves componentIds empty and provider-wide state is operational unless an
-// active, unresolved incident is present. Resolution is read from the entry's
-// own structured status markers (a Statuspage feed leads each update with a
-// RESOLVED, COMPLETED, or POSTMORTEM marker), never from an incident sliding
-// out of the rolling window. OpenRouter is the launch source: its
-// status.openrouter.ai/incidents.rss is a Statuspage-generated incident
-// history and the only stable documented surface it exposes.
+// carries source-wide scope and provider-wide state is operational unless an
+// active, unresolved incident is present. Resolution markers are read from the
+// entry's own structured status prefixes (a Statuspage feed leads each update
+// with a RESOLVED, COMPLETED, or POSTMORTEM marker). Whether absence from the
+// feed closes open incidents is driven by config.incidentInventory:
+// active_only (Azure) enumerates every open incident, rolling_history
+// (OpenRouter) is a window that must never treat silence as resolution.
 
 import type { DependencySourceManifest } from "../manifest";
 import type { NormalizedProviderSnapshot } from "../types";
+import { sourceIncidentScope } from "../types";
 import { parseFeed, XmlParseError, type XmlFeedItem } from "../xml";
 
-import type { AdapterRequestDescriptor, DependencyAdapter, NormalizeInput } from "./index";
+import type { AdapterRequestDescriptor, CatalogDirectoryInput, DependencyAdapter, NormalizeInput } from "./index";
 import { AdapterParseError, documentsOfKind, latestTimestamp } from "./shared";
 
 type ProviderIncidentState =
@@ -27,15 +28,15 @@ type ProviderIncidentState =
   | "in_progress"
   | "completed";
 
+export type IncidentFeedInventory = "active_only" | "rolling_history";
+
 type MarkerInfo = { state: ProviderIncidentState; resolved: boolean };
 
 // The Statuspage RSS status markers, uppercase in the feed, mapped to the
 // normalized lifecycle vocabulary. Terminal markers (resolved true) close the
-// incident. The parser strips the surrounding markup, so a marker survives as
-// a bare uppercase word immediately before the " - " update delimiter, which
-// is what MARKER_PATTERN keys on. A postmortem is post-resolution, so it maps
-// to resolved. Verifying is a still-running maintenance phase, so it maps to
-// in_progress rather than a terminal state.
+// incident. A postmortem is post-resolution, so it maps to resolved. Verifying
+// is a still-running maintenance phase, so it maps to in_progress rather than
+// a terminal state.
 const STATUS_MARKERS: Record<string, MarkerInfo> = {
   RESOLVED: { state: "resolved", resolved: true },
   POSTMORTEM: { state: "resolved", resolved: true },
@@ -48,32 +49,67 @@ const STATUS_MARKERS: Record<string, MarkerInfo> = {
   "IN PROGRESS": { state: "in_progress", resolved: false },
 };
 
-// Matches the newest update's status marker: a recognized uppercase keyword
-// immediately followed by the " - " delimiter the feed puts between a marker
-// and its update body. The parser strips the surrounding markup to empty rather
-// than to a space, so a marker can abut the preceding timestamp (for example
-// "UTCIDENTIFIED"). A leading word boundary would then fail, so the keyword is
-// matched as a case-sensitive substring instead. Uppercase-only markers and the
-// " - " delimiter keep this from firing on ordinary mixed-case prose. The
-// parser lists updates newest first, so the leftmost match is the current
-// status, and multi-word "IN PROGRESS" leads the alternation so it wins over
-// any single word at the same position.
-const MARKER_PATTERN = /(IN PROGRESS|INVESTIGATING|IDENTIFIED|MONITORING|POSTMORTEM|COMPLETED|SCHEDULED|VERIFYING|RESOLVED)\s*-\s/;
+// Exact vocabulary tokens, longest first so "IN PROGRESS" wins over a partial.
+const MARKER_TOKEN = "(IN PROGRESS|INVESTIGATING|IDENTIFIED|MONITORING|POSTMORTEM|COMPLETED|SCHEDULED|VERIFYING|RESOLVED)";
+// Marker at the very start of the description or a normalized update segment.
+const MARKER_AT_START = new RegExp(`^${MARKER_TOKEN}\\s*-\\s`);
+// Marker immediately after a recognized timestamp timezone token (UTC/GMT).
+// Statuspage prefixes each update with "Mon DD, HH:MM UTC" then the marker.
+const MARKER_AFTER_TZ = new RegExp(`\\b(?:UTC|GMT)\\s+${MARKER_TOKEN}\\s*-\\s`, "g");
 
 // An entry whose prose carries no recognized marker cannot be shown as
 // resolved, so it is surfaced as an active, unresolved incident. This is the
-// safe direction: it never hides an outage behind a false resolution. A real
-// Statuspage history always marks its resolved entries, so this fallback only
-// engages on genuine format drift.
+// safe direction: it never hides an outage behind a false resolution.
 const DEFAULT_ACTIVE_STATE: ProviderIncidentState = "investigating";
+const DEFAULT_ACTIVE_MARKER: MarkerInfo = { state: DEFAULT_ACTIVE_STATE, resolved: false };
 
-/** Reads the newest update's marker from the parsed, markup-stripped description. Absent a recognized marker the entry is treated as an active incident. */
-function resolveMarker(description: string | null): MarkerInfo {
-  if (description) {
-    const match = MARKER_PATTERN.exec(description);
-    if (match) return STATUS_MARKERS[match[1]];
+/**
+ * Reads the current lifecycle marker from markup-stripped incident prose.
+ * A valid marker is an exact vocabulary token plus the " - " delimiter, only
+ * at the start of the description, the start of a normalized update segment,
+ * or immediately after a UTC/GMT timezone token. Mid-body prose never counts.
+ * The first valid marker in provider order (document order, newest first on
+ * Statuspage) determines state. No valid marker yields the active fallback.
+ */
+export function parseIncidentFeedUpdateMarker(description: string | null): MarkerInfo {
+  if (!description) return DEFAULT_ACTIVE_MARKER;
+
+  let bestIndex = Number.POSITIVE_INFINITY;
+  let bestToken: string | null = null;
+
+  const consider = (token: string, index: number) => {
+    if (index < bestIndex) {
+      bestIndex = index;
+      bestToken = token;
+    }
+  };
+
+  const atStart = MARKER_AT_START.exec(description);
+  if (atStart) consider(atStart[1], 0);
+
+  MARKER_AFTER_TZ.lastIndex = 0;
+  for (let match = MARKER_AFTER_TZ.exec(description); match; match = MARKER_AFTER_TZ.exec(description)) {
+    // match[0] starts at UTC/GMT; the token itself is the position we rank.
+    const tokenOffset = match[0].indexOf(match[1]);
+    consider(match[1], match.index + tokenOffset);
   }
-  return { state: DEFAULT_ACTIVE_STATE, resolved: false };
+
+  if (!bestToken) return DEFAULT_ACTIVE_MARKER;
+  return STATUS_MARKERS[bestToken] ?? DEFAULT_ACTIVE_MARKER;
+}
+
+/**
+ * Strict reader for config.incidentInventory. Manifest validation already
+ * requires this for incident_feed, but the adapter re-checks so a drifted
+ * runtime config never invents completeness.
+ */
+export function requireIncidentInventory(source: DependencySourceManifest): IncidentFeedInventory {
+  const value = source.config.incidentInventory;
+  if (value === "active_only" || value === "rolling_history") return value;
+  throw new AdapterParseError(
+    "SCHEMA_INVALID",
+    `${source.id}: config.incidentInventory must be "active_only" or "rolling_history"`,
+  );
 }
 
 /** Parses an RFC822 or ISO timestamp to ISO 8601, falling back to observedAt when the feed omits or malforms it. */
@@ -114,8 +150,23 @@ export const incidentFeedAdapter: DependencyAdapter = {
     return [{ kind: "current", url: source.currentUrl, optional: false, mode: "text" }];
   },
 
+  catalogDirectory(input: CatalogDirectoryInput) {
+    // The feed publishes no per-component inventory. Presets select synthetic
+    // component ids, so the directory declares tracksComponents false and
+    // catalog reconcile never treats those ids as upstream drift.
+    void input;
+    return {
+      componentIds: new Set<string>(),
+      childrenByParent: new Map(),
+      locationsByProduct: new Map(),
+      complete: true,
+      tracksComponents: false,
+    };
+  },
+
   normalize(input: NormalizeInput): NormalizedProviderSnapshot {
     const { source, documents, observedAt } = input;
+    const inventory = requireIncidentInventory(source);
 
     const document = documentsOfKind(documents, "current")[0];
     if (!document || typeof document.text !== "string") {
@@ -135,6 +186,8 @@ export const incidentFeedAdapter: DependencyAdapter = {
       // The shared parser rejects oversized input and any DTD or entity
       // declaration (the billion-laughs and XXE vectors). Surface that as an
       // adapter parse failure so the poller records it and holds prior state.
+      // Network failures, optional misses, malformed envelopes, and budget
+      // exhaustion never reach here as an authoritative empty set.
       if (error instanceof XmlParseError) {
         throw new AdapterParseError("SCHEMA_INVALID", `${source.id}: incident feed rejected by parser (${error.code})`);
       }
@@ -155,7 +208,7 @@ export const incidentFeedAdapter: DependencyAdapter = {
 
     const incidents: NormalizedProviderSnapshot["incidents"] = [];
     for (const [externalId, item] of byId) {
-      const marker = resolveMarker(item.description);
+      const marker = parseIncidentFeedUpdateMarker(item.description);
       const startedAt = toIsoTimestamp(item.pubDate, observedAt);
       const title = item.title ?? "Provider incident";
       const bodyText = item.description ?? title;
@@ -171,10 +224,8 @@ export const incidentFeedAdapter: DependencyAdapter = {
         resolvedAt: marker.resolved ? startedAt : null,
         updatedAt: startedAt,
         canonicalUrl: canonicalUrlOf(item.link),
-        // No structured component identity exists in an incident feed. An empty
-        // componentIds set makes an active incident a source-wide (page-level)
-        // signal rather than a per-component claim.
-        componentIds: [],
+        // No structured component identity: the feed is source-wide by design.
+        scope: sourceIncidentScope(),
         // One update carries the entry's prose verbatim (already bounded by the
         // parser). The feed does not expose stable per-update identity, so the
         // update id is derived from the incident id.
@@ -198,10 +249,10 @@ export const incidentFeedAdapter: DependencyAdapter = {
       // feed cannot assert operational.
       componentsComplete: true,
       components: {},
-      // The incident history is a rolling window that can drop a still-open
-      // incident, so absence is never read as resolution. Resolution comes only
-      // from an explicit terminal marker on the entry itself.
-      incidentsComplete: false,
+      // active_only: a successful snapshot lists every open incident, so absence
+      // closes. rolling_history: the window can drop a still-open incident, so
+      // absence is never resolution and only an explicit terminal marker closes.
+      incidentsComplete: inventory === "active_only",
       incidents,
       // Maintenance windows arrive as ordinary incident entries carrying
       // scheduled, in_progress, or completed markers, never a separate structured

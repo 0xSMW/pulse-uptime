@@ -4,7 +4,11 @@
 // adapter performs network I/O; that stays in lib/dependencies/fetch.ts.
 
 import type { DependencySourceManifest } from "../manifest";
-import type { DependencyAdapterName, NormalizedProviderSnapshot } from "../types";
+import type {
+  CatalogComponentDirectory,
+  DependencyAdapterName,
+  NormalizedProviderSnapshot,
+} from "../types";
 
 import { auth0StatusAdapter } from "./auth0-status";
 import { awsHealthAdapter } from "./aws-health";
@@ -12,12 +16,12 @@ import { googleCloudStatusAdapter } from "./google-cloud-status";
 import { incidentFeedAdapter } from "./incident-feed";
 import { incidentioCompatAdapter } from "./incidentio-compat";
 import { nextdataEmbeddedAdapter } from "./nextdata-embedded";
-import { AdapterParseError } from "./shared";
+import { AdapterParseError, catalogDirectoryFromNormalize } from "./shared";
 import { sorryV1Adapter } from "./sorry-v1";
 import { statusioPublicAdapter } from "./statusio-public";
 import { statuspageV2Adapter } from "./statuspage-v2";
 
-export { AdapterParseError };
+export { AdapterParseError, catalogDirectoryFromNormalize };
 export type { AdapterParseErrorCode } from "./shared";
 
 /** The three document roles a source's feed can play in a poll cycle. */
@@ -51,6 +55,11 @@ export interface NormalizeInput {
   observedAt: string;
 }
 
+export interface CatalogDirectoryInput {
+  source: DependencySourceManifest;
+  documents: AdapterDocument[];
+}
+
 export interface DependencyAdapter {
   /**
    * Documents to fetch this cycle. Called again with the documents fetched
@@ -60,6 +69,13 @@ export interface DependencyAdapter {
    */
   requests(source: DependencySourceManifest, fetchedSoFar?: AdapterDocument[]): AdapterRequestDescriptor[];
   normalize(input: NormalizeInput): NormalizedProviderSnapshot;
+  /**
+   * Builds the catalog component directory from already-fetched current
+   * documents. complete is true only when the adapter could parse the full
+   * set it needs for identity and group/location discovery. Callers must
+   * only invoke this after document collection finished complete.
+   */
+  catalogDirectory(input: CatalogDirectoryInput): CatalogComponentDirectory;
 }
 
 /**

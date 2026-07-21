@@ -12,8 +12,10 @@ import { z } from "zod";
 
 import type { DependencySourceManifest } from "../manifest";
 import type { NormalizedProviderSnapshot } from "../types";
+import { scopeFromComponentIds } from "../types";
 
-import type { AdapterRequestDescriptor, DependencyAdapter, NormalizeInput } from "./index";
+import type { AdapterRequestDescriptor, CatalogDirectoryInput, DependencyAdapter, NormalizeInput } from "./index";
+import { catalogDirectoryFromNormalize } from "./shared";
 import { AdapterParseError, latestTimestamp, requireJson, toBoundedPlainText } from "./shared";
 
 type ComponentState = "OPERATIONAL" | "DEGRADED" | "OUTAGE" | "MAINTENANCE";
@@ -185,7 +187,8 @@ function mapEvent(event: AwsEvent, sourceId: string): NormalizedProviderSnapshot
     resolvedAt: null,
     updatedAt,
     canonicalUrl: null,
-    componentIds: impactedServiceIds(event, sourceId),
+    // Impacted service ids when present, unmapped when AWS names none.
+    scope: scopeFromComponentIds(impactedServiceIds(event, sourceId)),
     updates,
   };
 }
@@ -193,6 +196,10 @@ function mapEvent(event: AwsEvent, sourceId: string): NormalizedProviderSnapshot
 export const awsHealthAdapter: DependencyAdapter = {
   requests(source: DependencySourceManifest): AdapterRequestDescriptor[] {
     return [{ kind: "current", url: source.currentUrl, optional: false }];
+  },
+
+  catalogDirectory(input: CatalogDirectoryInput) {
+    return catalogDirectoryFromNormalize(awsHealthAdapter, input);
   },
 
   normalize(input: NormalizeInput): NormalizedProviderSnapshot {

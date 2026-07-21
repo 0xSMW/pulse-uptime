@@ -82,7 +82,7 @@ describe("auth0StatusAdapter.normalize: single region incident", () => {
       impact: "major",
       resolvedAt: null,
       canonicalUrl: null,
-      componentIds: ["EU-1"],
+      scope: { kind: "components", componentIds: ["EU-1"] },
     });
     expect(incident.startedAt).toBe("2026-07-20T09:45:00.000Z");
   });
@@ -104,7 +104,9 @@ describe("auth0StatusAdapter.normalize: authenticationAffected surfacing", () =>
     const incident = snapshot.incidents[0];
     expect(incident.externalId).toBe("inc_multi_c4");
     expect(incident.impact).toBe("critical");
-    expect([...incident.componentIds].sort()).toEqual(["US-1", "US-3"]);
+    expect(incident.scope.kind).toBe("components");
+    if (incident.scope.kind !== "components") throw new Error("expected components scope");
+    expect([...incident.scope.componentIds].sort()).toEqual(["US-1", "US-3"]);
     expect(incident.updates).toHaveLength(1);
     // authenticationAffected is true in the US-1 leg, so the OR across regions
     // reports it affected.
@@ -145,6 +147,46 @@ describe("auth0StatusAdapter.normalize: private incidents", () => {
     const snapshot = normalize(privateIncident);
     expect(snapshot.components["AU"]).toMatchObject({ state: "OPERATIONAL" });
     expect(snapshot.incidents).toEqual([]);
+  });
+});
+
+describe("auth0StatusAdapter.normalize: terminal lifecycle and synthetic update timestamps", () => {
+  it("pins the synthetic :active update createdAt to the stable start and updatedAt to the latest provider time", () => {
+    const snapshot = normalize(authAffected);
+    const update = snapshot.incidents[0].updates[0];
+    expect(update.externalId).toBe("inc_multi_c4:active");
+    // Winning leg is US-3 at 08:31 (later than US-1). startedAt falls back to
+    // that leg's updated_at when no scheduled_for/monitoring_at is present.
+    expect(update.createdAt).toBe(snapshot.incidents[0].startedAt);
+    expect(update.updatedAt).toBe("2026-07-20T08:31:00.000Z");
+    expect(update.createdAt).toBe("2026-07-20T08:31:00.000Z");
+  });
+
+  it("maps postmortem to resolved, sets resolvedAt, and does not color the region", () => {
+    const body = JSON.parse(JSON.stringify(singleIncident));
+    const eu1 = body.props.pageProps.activeIncidents.find((r: { region: string }) => r.region === "EU-1");
+    eu1.response.incidents[0].status = "postmortem";
+    // monitoring_at anchors startedAt so resolved_at can land after start.
+    eu1.response.incidents[0].monitoring_at = "2026-07-20T09:40:00.000Z";
+    eu1.response.incidents[0].resolved_at = "2026-07-20T09:50:00.000Z";
+    eu1.response.incidents[0].updated_at = "2026-07-20T09:55:00.000Z";
+    const snapshot = normalize(body);
+    expect(snapshot.components["EU-1"]).toMatchObject({ state: "OPERATIONAL" });
+    expect(snapshot.incidents).toHaveLength(1);
+    expect(snapshot.incidents[0].state).toBe("resolved");
+    expect(snapshot.incidents[0].startedAt).toBe("2026-07-20T09:40:00.000Z");
+    expect(snapshot.incidents[0].resolvedAt).toBe("2026-07-20T09:50:00.000Z");
+  });
+
+  it("uses updated_at as resolvedAt for a terminal entry without resolved_at", () => {
+    const body = JSON.parse(JSON.stringify(singleIncident));
+    const eu1 = body.props.pageProps.activeIncidents.find((r: { region: string }) => r.region === "EU-1");
+    eu1.response.incidents[0].status = "resolved";
+    eu1.response.incidents[0].resolved_at = null;
+    eu1.response.incidents[0].updated_at = "2026-07-20T09:58:00.000Z";
+    const snapshot = normalize(body);
+    expect(snapshot.incidents[0].resolvedAt).toBe("2026-07-20T09:58:00.000Z");
+    expect(snapshot.components["EU-1"].state).toBe("OPERATIONAL");
   });
 });
 

@@ -58,24 +58,30 @@ describe("googleCloudStatusAdapter.normalize: location selection", () => {
   it("carries a productId@locationId composite alongside the bare product id for optional location scoping", () => {
     const snapshot = googleCloudStatusAdapter.normalize({ source: googleSource, documents: [currentDoc(degraded)], observedAt: "2026-07-19T10:30:00Z" });
     const [incident] = snapshot.incidents;
-    expect(incident.componentIds).toContain("Z0FZJAMvEB4j3NbCJs6B");
-    expect(incident.componentIds).toContain("Z0FZJAMvEB4j3NbCJs6B@us-east4");
+    expect(incident.scope.kind).toBe("components");
+    if (incident.scope.kind !== "components") throw new Error("expected components scope");
+    expect(incident.scope.componentIds).toContain("Z0FZJAMvEB4j3NbCJs6B");
+    expect(incident.scope.componentIds).toContain("Z0FZJAMvEB4j3NbCJs6B@us-east4");
   });
 
   it("excludes a recovered location from an active incident's composites so its scope is no longer touched", () => {
     const snapshot = googleCloudStatusAdapter.normalize({ source: googleSource, documents: [currentDoc(partialRecovery)], observedAt: "2026-07-19T11:05:00Z" });
     const [incident] = snapshot.incidents;
     expect(incident.resolvedAt).toBeNull();
-    expect(incident.componentIds).toContain("Z0FZJAMvEB4j3NbCJs6B");
-    expect(incident.componentIds).toContain("Z0FZJAMvEB4j3NbCJs6B@us-central1");
-    expect(incident.componentIds).not.toContain("Z0FZJAMvEB4j3NbCJs6B@us-east4");
+    expect(incident.scope.kind).toBe("components");
+    if (incident.scope.kind !== "components") throw new Error("expected components scope");
+    expect(incident.scope.componentIds).toContain("Z0FZJAMvEB4j3NbCJs6B");
+    expect(incident.scope.componentIds).toContain("Z0FZJAMvEB4j3NbCJs6B@us-central1");
+    expect(incident.scope.componentIds).not.toContain("Z0FZJAMvEB4j3NbCJs6B@us-east4");
   });
 
   it("keeps a resolved incident's previously affected location composite for historical matching", () => {
     const snapshot = googleCloudStatusAdapter.normalize({ source: googleSource, documents: [currentDoc(resolved)], observedAt: "2026-07-17T10:00:00Z" });
     const [incident] = snapshot.incidents;
     expect(incident.resolvedAt).not.toBeNull();
-    expect(incident.componentIds).toContain("Z0FZJAMvEB4j3NbCJs6B@us-east4");
+    expect(incident.scope.kind).toBe("components");
+    if (incident.scope.kind !== "components") throw new Error("expected components scope");
+    expect(incident.scope.componentIds).toContain("Z0FZJAMvEB4j3NbCJs6B@us-east4");
   });
 });
 

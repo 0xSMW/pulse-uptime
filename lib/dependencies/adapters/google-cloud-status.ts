@@ -9,9 +9,11 @@
 import { z } from "zod";
 
 import type { DependencySourceManifest } from "../manifest";
-import type { NormalizedProviderSnapshot } from "../types";
+import type { CatalogComponentDirectory, CatalogDirectoryOption, NormalizedProviderSnapshot } from "../types";
+import { scopeFromComponentIds } from "../types";
 
-import type { AdapterRequestDescriptor, DependencyAdapter, NormalizeInput } from "./index";
+import type { AdapterRequestDescriptor, CatalogDirectoryInput, DependencyAdapter, NormalizeInput } from "./index";
+import { catalogDirectoryFromNormalize } from "./shared";
 import { AdapterParseError, latestTimestamp, requireIsoTimestamp, requireJson, toBoundedPlainText } from "./shared";
 
 const productRefSchema = z.object({ id: z.string().min(1) });
@@ -107,7 +109,7 @@ function mapIncident(incident: Incident, sourceId: string): NormalizedProviderSn
     resolvedAt: incident.end ? requireIsoTimestamp(incident.end, sourceId, "incident.end") : null,
     updatedAt: requireIsoTimestamp(incident.modified, sourceId, "incident.modified"),
     canonicalUrl: new URL(incident.uri, "https://status.cloud.google.com/").toString(),
-    componentIds: componentIdsForIncident(incident),
+    scope: scopeFromComponentIds(componentIdsForIncident(incident)),
     updates: incident.updates.map((update) => ({
       // Google updates have no id of their own; the creation timestamp is the stable, immutable identity.
       externalId: update.created,
@@ -119,9 +121,71 @@ function mapIncident(incident: Incident, sourceId: string): NormalizedProviderSn
   };
 }
 
+/**
+ * Parses Google's products roster (products.json) into a catalog directory.
+ * Accepts either `{ products: [...] }` or a bare top-level array. Optional
+ * per-product locations feed discovered_locations scopes when present.
+ * Returns null when the payload is not a product list.
+ */
+export function googleProductsCatalogDirectory(json: unknown): CatalogComponentDirectory | null {
+  let products: unknown[] | null = null;
+  if (Array.isArray(json)) {
+    products = json;
+  } else if (json !== null && typeof json === "object" && Array.isArray((json as { products?: unknown }).products)) {
+    products = (json as { products: unknown[] }).products;
+  }
+  if (!products) return null;
+
+  const componentIds = new Set<string>();
+  const locationsByProduct = new Map<string, CatalogDirectoryOption[]>();
+
+  for (const entry of products) {
+    if (entry === null || typeof entry !== "object") continue;
+    const product = entry as {
+      id?: unknown;
+      title?: unknown;
+      name?: unknown;
+      locations?: unknown;
+    };
+    if (typeof product.id !== "string" || product.id.length === 0) continue;
+    componentIds.add(product.id);
+
+    if (!Array.isArray(product.locations)) continue;
+    const locations: CatalogDirectoryOption[] = [];
+    for (const locationEntry of product.locations) {
+      if (locationEntry === null || typeof locationEntry !== "object") continue;
+      const location = locationEntry as { id?: unknown; title?: unknown; name?: unknown };
+      if (typeof location.id !== "string" || location.id.length === 0) continue;
+      const label = typeof location.title === "string" && location.title.length > 0
+        ? location.title
+        : typeof location.name === "string" && location.name.length > 0
+          ? location.name
+          : location.id;
+      locations.push({ id: location.id, label, metadata: { productId: product.id } });
+    }
+    if (locations.length > 0) locationsByProduct.set(product.id, locations);
+  }
+
+  return {
+    componentIds,
+    childrenByParent: new Map(),
+    locationsByProduct,
+    complete: true,
+    tracksComponents: true,
+  };
+}
+
 export const googleCloudStatusAdapter: DependencyAdapter = {
   requests(source: DependencySourceManifest): AdapterRequestDescriptor[] {
     return [{ kind: "current", url: source.currentUrl, optional: false }];
+  },
+
+  catalogDirectory(input: CatalogDirectoryInput) {
+    // Incidents.json is active-only and not a complete product roster. Catalog
+    // validation uses products.json through googleProductsCatalogDirectory.
+    // This path still returns whatever product ids normalize would see so
+    // callers that pass incidents documents get a consistent incomplete map.
+    return catalogDirectoryFromNormalize(googleCloudStatusAdapter, input);
   },
 
   normalize(input: NormalizeInput): NormalizedProviderSnapshot {

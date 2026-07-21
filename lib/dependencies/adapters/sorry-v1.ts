@@ -14,8 +14,10 @@ import { z } from "zod";
 
 import type { DependencySourceManifest } from "../manifest";
 import type { NormalizedProviderSnapshot } from "../types";
+import { scopeFromComponentIds } from "../types";
 
-import type { AdapterDocument, AdapterRequestDescriptor, DependencyAdapter, NormalizeInput } from "./index";
+import type { AdapterDocument, AdapterRequestDescriptor, CatalogDirectoryInput, DependencyAdapter, NormalizeInput } from "./index";
+import { catalogDirectoryFromNormalize } from "./shared";
 import { AdapterParseError, documentsOfKind, latestTimestamp, requireIsoTimestamp, requireProviderIncidentState, toBoundedPlainText } from "./shared";
 
 const componentSchema = z.object({
@@ -215,6 +217,10 @@ export const sorryV1Adapter: DependencyAdapter = {
     return next;
   },
 
+  catalogDirectory(input: CatalogDirectoryInput) {
+    return catalogDirectoryFromNormalize(sorryV1Adapter, input);
+  },
+
   normalize(input: NormalizeInput): NormalizedProviderSnapshot {
     const { source, documents, observedAt } = input;
 
@@ -270,7 +276,7 @@ export const sorryV1Adapter: DependencyAdapter = {
         resolvedAt: notice.ended_at ? requireIsoTimestamp(notice.ended_at, source.id, "notice.ended_at") : null,
         updatedAt: requireIsoTimestamp(notice.updated_at, source.id, "notice.updated_at"),
         canonicalUrl: notice.url ?? null,
-        componentIds: notice.components.map((component) => String(component.id)),
+        scope: scopeFromComponentIds(notice.components.map((component) => String(component.id))),
         updates: notice.updates.map((update) => ({
           externalId: String(update.id),
           state: requireProviderIncidentState(update.state, source.id),

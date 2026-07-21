@@ -344,3 +344,175 @@ describe("fetchProviderDocument connection reuse", () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("fetchProviderDocument error boundary stages", () => {
+  it("classifies a body-stream UND_ERR_BODY_TIMEOUT as TIMEOUT with stage body", async () => {
+    const body: FetchResponse["body"] = {
+      async *[Symbol.asyncIterator]() {
+        const error = Object.assign(new Error("body timeout"), { code: "UND_ERR_BODY_TIMEOUT" });
+        throw error;
+      },
+      destroy: vi.fn(),
+    };
+    const request = respondWith({ statusCode: 200, headers: {}, body });
+    await expect(fetchProviderDocument(SOURCE, {
+      url: "https://www.vercel-status.com/summary.json",
+      documentKind: "incidents",
+    }, { request, createDispatcher: () => fakeDispatcher() })).rejects.toMatchObject({
+      code: "TIMEOUT",
+      stage: "body",
+      sourceId: "vercel",
+      documentKind: "incidents",
+      url: "https://www.vercel-status.com/summary.json",
+    });
+    expect(body.destroy).toHaveBeenCalled();
+  });
+
+  it("classifies a body-stream socket reset as NETWORK_ERROR with stage body", async () => {
+    const body: FetchResponse["body"] = {
+      async *[Symbol.asyncIterator]() {
+        throw Object.assign(new Error("socket hang up"), { code: "ECONNRESET" });
+      },
+      destroy: vi.fn(),
+    };
+    const request = respondWith({ statusCode: 200, headers: {}, body });
+    await expect(fetchProviderDocument(SOURCE, {
+      url: "https://www.vercel-status.com/summary.json",
+      documentKind: "current",
+    }, { request, createDispatcher: () => fakeDispatcher() })).rejects.toMatchObject({
+      code: "NETWORK_ERROR",
+      stage: "body",
+      sourceId: "vercel",
+      documentKind: "current",
+    });
+    expect(body.destroy).toHaveBeenCalled();
+  });
+
+  it("classifies an aborted body stream as NETWORK_ERROR, not TIMEOUT", async () => {
+    const body: FetchResponse["body"] = {
+      async *[Symbol.asyncIterator]() {
+        throw Object.assign(new Error("aborted"), { name: "AbortError" });
+      },
+      destroy: vi.fn(),
+    };
+    const request = respondWith({ statusCode: 200, headers: {}, body });
+    await expect(fetchProviderDocument(SOURCE, {
+      url: "https://www.vercel-status.com/summary.json",
+    }, { request, createDispatcher: () => fakeDispatcher() })).rejects.toMatchObject({
+      code: "NETWORK_ERROR",
+      stage: "body",
+    });
+    expect(body.destroy).toHaveBeenCalled();
+  });
+
+  it("tags request-establishment timeouts with stage request", async () => {
+    const request = vi.fn<(url: URL, options: Record<string, unknown>) => Promise<FetchResponse>>()
+      .mockRejectedValueOnce(Object.assign(new Error("headers timeout"), { code: "UND_ERR_HEADERS_TIMEOUT" }));
+    await expect(fetchProviderDocument(SOURCE, {
+      url: "https://www.vercel-status.com/summary.json",
+      documentKind: "current",
+    }, { request, createDispatcher: () => fakeDispatcher() })).rejects.toMatchObject({
+      code: "TIMEOUT",
+      stage: "request",
+      sourceId: "vercel",
+      documentKind: "current",
+    });
+  });
+
+  it("tags TOO_LARGE with stage size and destroys the body", async () => {
+    const body: FetchResponse["body"] = {
+      async *[Symbol.asyncIterator]() {
+        yield new Uint8Array(600 * 1024);
+      },
+      destroy: vi.fn(),
+    };
+    const request = respondWith({ statusCode: 200, headers: {}, body });
+    await expect(fetchProviderDocument(SOURCE, { url: "https://www.vercel-status.com/summary.json" }, {
+      request, createDispatcher: () => fakeDispatcher(),
+    })).rejects.toMatchObject({ code: "TOO_LARGE", stage: "size", sourceId: "vercel" });
+    expect(body.destroy).toHaveBeenCalled();
+  });
+});
+
+describe("fetchProviderDocument caller-controlled deadlines", () => {
+  it("uses min(standard timeout, caller timeoutMs) as the request budget", async () => {
+    const request = respondWith({ statusCode: 200, headers: {}, body: jsonBody({ ok: true }) });
+    await fetchProviderDocument(SOURCE, {
+      url: "https://www.vercel-status.com/summary.json",
+      timeoutMs: 1_500,
+    }, { request, createDispatcher: () => fakeDispatcher(), now: () => 0 });
+
+    const options = request.mock.calls[0]?.[1] as { headersTimeout: number; bodyTimeout: number };
+    expect(options.headersTimeout).toBe(1_500);
+    expect(options.bodyTimeout).toBe(1_500);
+  });
+
+  it("uses remaining deadlineAtMs budget when tighter than the standard timeout", async () => {
+    const clock = 1_000;
+    const request = respondWith({ statusCode: 200, headers: {}, body: jsonBody({ ok: true }) });
+    await fetchProviderDocument(SOURCE, {
+      url: "https://www.vercel-status.com/summary.json",
+      deadlineAtMs: 1_000 + 800,
+    }, { request, createDispatcher: () => fakeDispatcher(), now: () => clock });
+
+    const options = request.mock.calls[0]?.[1] as { headersTimeout: number; bodyTimeout: number };
+    expect(options.headersTimeout).toBe(800);
+    expect(options.bodyTimeout).toBe(800);
+  });
+
+  it("rejects before opening the request when remaining budget is below the safety threshold", async () => {
+    const request = vi.fn();
+    await expect(fetchProviderDocument(SOURCE, {
+      url: "https://www.vercel-status.com/summary.json",
+      deadlineAtMs: 1_010,
+    }, {
+      request,
+      createDispatcher: () => fakeDispatcher(),
+      now: () => 1_000,
+    })).rejects.toMatchObject({ code: "TIMEOUT", stage: "request" });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("rejects when timeoutMs is already exhausted before the request opens", async () => {
+    const request = vi.fn();
+    await expect(fetchProviderDocument(SOURCE, {
+      url: "https://www.vercel-status.com/summary.json",
+      timeoutMs: 0,
+    }, { request, createDispatcher: () => fakeDispatcher() })).rejects.toMatchObject({ code: "TIMEOUT" });
+    expect(request).not.toHaveBeenCalled();
+  });
+});
+
+describe("fetchProviderDocument UTF-8 BOM", () => {
+  it("strips a UTF-8 BOM so JSON.parse receives a clean string", async () => {
+    const payload = JSON.stringify({ status: "ok", note: "bom" });
+    const withBom = Uint8Array.from([0xef, 0xbb, 0xbf, ...new TextEncoder().encode(payload)]);
+    const request = respondWith({
+      statusCode: 200,
+      headers: { "content-type": "application/json" },
+      body: bytesBody(withBom),
+    });
+    const result = await fetchProviderDocument(SOURCE, { url: "https://www.vercel-status.com/summary.json" }, {
+      request, createDispatcher: () => fakeDispatcher(),
+    });
+    expect(result).toMatchObject({ status: "ok", json: { status: "ok", note: "bom" } });
+  });
+
+  it("strips a UTF-8 BOM in text mode", async () => {
+    const xml = "<rss><channel></channel></rss>";
+    const withBom = Uint8Array.from([0xef, 0xbb, 0xbf, ...new TextEncoder().encode(xml)]);
+    const request = respondWith({
+      statusCode: 200,
+      headers: { "content-type": "application/rss+xml" },
+      body: bytesBody(withBom),
+    });
+    const result = await fetchProviderDocument(SOURCE, {
+      url: "https://www.vercel-status.com/incidents.rss",
+      mode: "text",
+    }, { request, createDispatcher: () => fakeDispatcher() });
+    expect(result).toMatchObject({ status: "ok", text: xml });
+    if (result.status === "ok") {
+      expect(result.text?.charCodeAt(0)).not.toBe(0xfeff);
+    }
+  });
+});

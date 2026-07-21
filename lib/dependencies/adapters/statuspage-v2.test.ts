@@ -88,7 +88,7 @@ describe("statuspageV2Adapter.normalize: incidents", () => {
     expect(incident.externalId).toBe("g613ntyj2pwf");
     expect(incident.state).toBe("resolved");
     expect(incident.resolvedAt).toBe("2026-07-17T19:43:35.467Z");
-    expect(incident.componentIds).toContain("k8w3r06qmzrp");
+    expect(incident.scope).toEqual({ kind: "components", componentIds: expect.arrayContaining(["k8w3r06qmzrp"]) });
     expect(incident.updates.map((update) => update.state)).toEqual(["resolved", "monitoring", "identified", "investigating"]);
   });
 

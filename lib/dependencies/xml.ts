@@ -87,6 +87,12 @@ export function parseFeed(xml: string, options: ParseFeedOptions = {}): XmlFeedI
     .replace(/<\?[\s\S]*?\?>/g, "")
     .replace(/<!DOCTYPE[^>]*>/gi, "");
 
+  // Envelope integrity first: a truncated </rss> or </feed> fails the whole
+  // document rather than returning a partial item array that looks healthy.
+  assertClosedEnvelope(cleaned);
+
+  // Item/entry extraction is atomic. A truncated later item after valid ones
+  // fails the whole document, never a partial array of earlier items.
   const blocks = extractBlocks(cleaned, ["item", "entry"], maxItems);
   return blocks.map((block) => ({
     guid: firstTagText(block, ["guid", "id"], maxTextLength),
@@ -98,7 +104,53 @@ export function parseFeed(xml: string, options: ParseFeedOptions = {}): XmlFeedI
   }));
 }
 
-/** Slices out the inner content of each `<tag ...>...</tag>` for any of the given tags, capped at maxItems and scanning linearly so a pathological feed cannot cause quadratic blowup. */
+/**
+ * Requires that a recognized <rss> or <feed> envelope is properly closed when
+ * present. Self-closing and empty envelopes succeed as empty feeds. An opener
+ * without a matching close is malformed, including a truncated trailing
+ * envelope after well-formed items would have been readable.
+ */
+function assertClosedEnvelope(xml: string): void {
+  const lower = xml.toLowerCase();
+  for (const tag of ["rss", "feed"] as const) {
+    const start = findTagOpen(lower, xml, tag, 0);
+    if (start === -1) continue;
+
+    const openEnd = xml.indexOf(">", start);
+    if (openEnd === -1) {
+      throw new XmlParseError("MALFORMED", `unclosed <${tag} opener`);
+    }
+    // Self-closing envelope is a valid empty feed.
+    if (xml[openEnd - 1] === "/") return;
+    const closeAt = lower.indexOf(`</${tag}>`, openEnd);
+    if (closeAt === -1) {
+      throw new XmlParseError("MALFORMED", `unclosed <${tag}> envelope`);
+    }
+    return;
+  }
+}
+
+/** Finds the next real open tag for `tag` at or after cursor, refusing prefix matches like `<items>` for `item`. */
+function findTagOpen(lower: string, xml: string, tag: string, cursor: number): number {
+  let searchFrom = cursor;
+  while (searchFrom < lower.length) {
+    const at = lower.indexOf(`<${tag}`, searchFrom);
+    if (at === -1) return -1;
+    const boundary = xml[at + tag.length + 1];
+    if (boundary === undefined || /[\s>/]/.test(boundary)) return at;
+    searchFrom = at + 1;
+  }
+  return -1;
+}
+
+/**
+ * Slices out the inner content of each `<tag ...>...</tag>` for any of the
+ * given tags, capped at maxItems and scanning linearly so a pathological feed
+ * cannot cause quadratic blowup. Recognized item/entry openers never fail
+ * silently: an opener without `>`, or without a matching close, throws
+ * MALFORMED so a truncated document cannot return a valid-looking partial
+ * array.
+ */
 function extractBlocks(xml: string, tagNames: readonly string[], maxItems: number): string[] {
   const blocks: string[] = [];
   const lower = xml.toLowerCase();
@@ -107,27 +159,27 @@ function extractBlocks(xml: string, tagNames: readonly string[], maxItems: numbe
     let start = -1;
     let matchedTag = "";
     for (const tag of tagNames) {
-      const at = lower.indexOf(`<${tag}`, cursor);
+      const at = findTagOpen(lower, xml, tag, cursor);
       if (at !== -1 && (start === -1 || at < start)) {
-        // Confirm a real tag boundary, so `<items>` never matches `item`.
-        const boundary = xml[at + tag.length + 1];
-        if (boundary === undefined || /[\s>/]/.test(boundary)) {
-          start = at;
-          matchedTag = tag;
-        }
+        start = at;
+        matchedTag = tag;
       }
     }
     if (start === -1) break;
 
     const openEnd = xml.indexOf(">", start);
-    if (openEnd === -1) break;
+    if (openEnd === -1) {
+      throw new XmlParseError("MALFORMED", `unclosed <${matchedTag} opener`);
+    }
     // A self-closing `<entry/>` carries no content, skip past it.
     if (xml[openEnd - 1] === "/") {
       cursor = openEnd + 1;
       continue;
     }
     const closeAt = lower.indexOf(`</${matchedTag}>`, openEnd);
-    if (closeAt === -1) break;
+    if (closeAt === -1) {
+      throw new XmlParseError("MALFORMED", `unclosed <${matchedTag}> element`);
+    }
     blocks.push(xml.slice(openEnd + 1, closeAt));
     cursor = closeAt + matchedTag.length + 3;
   }
@@ -181,10 +233,12 @@ function extractCategories(block: string, maxCategories: number, maxTextLength: 
   return found;
 }
 
-/** Unwraps CDATA, strips all remaining markup, decodes the five predefined and numeric entities in one pass, collapses whitespace, and truncates. */
+/** Unwraps CDATA, replaces remaining markup with whitespace so token boundaries survive, decodes the five predefined and numeric entities in one pass, collapses spacing, and truncates. */
 function decodeText(raw: string, maxTextLength: number): string {
   const withoutCdata = raw.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1");
-  const withoutTags = withoutCdata.replace(/<[^>]*>/g, "");
+  // Tags become spaces rather than empty so "UTC</small><strong>IDENTIFIED" keeps a
+  // word boundary between the timezone token and the lifecycle marker.
+  const withoutTags = withoutCdata.replace(/<[^>]*>/g, " ");
   const decoded = decodeEntities(withoutTags);
   const collapsed = decoded.replace(/\s+/g, " ").trim();
   return collapsed.length > maxTextLength ? collapsed.slice(0, maxTextLength) : collapsed;

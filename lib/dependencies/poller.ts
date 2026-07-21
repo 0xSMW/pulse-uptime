@@ -1,15 +1,22 @@
 import "server-only";
 
-import { AdapterParseError, resolveAdapter, type AdapterDocument } from "./adapters";
+import { AdapterParseError, resolveAdapter } from "./adapters";
 import { ProviderFetchError, type FetchDocumentResult, type FetchProviderDocumentDeps } from "./fetch";
-import { createProviderDispatcher, fetchProviderDocument } from "./fetch";
+import { createProviderDispatcher } from "./fetch";
+import {
+  collectAdapterDocuments,
+  MAX_DOCUMENTS_PER_CYCLE,
+} from "./document-collector";
 import type { DependencySourceManifest } from "./manifest";
+import { fetchAdapterRequest } from "./source-fetch";
 import type { DependencyAdapterName, NormalizedProviderSnapshot } from "./types";
 
 // Selects due sources, fetches each exactly once per cycle, and drives the
 // adapter registry's two-pass requests()/normalize() protocol. Never touches
 // the database directly: persist.ts owns every write, so a source's poll
 // outcome (snapshot, not-modified, or failure) is handed off whole.
+
+export { MAX_DOCUMENTS_PER_CYCLE };
 
 export interface PollerSourceRow {
   id: string;
@@ -42,7 +49,14 @@ export type PollOutcome =
 export interface PollDueSourcesDeps {
   store: PollerStore;
   persist(outcome: PollOutcome, source: PollerSourceRow, now: Date): Promise<void>;
-  fetchDocument?: (source: PollerSourceRow, request: { url: string; validators?: { etag: string | null; lastModified: string | null }; mode?: "json" | "text" }) => Promise<FetchDocumentResult>;
+  fetchDocument?: (source: PollerSourceRow, request: {
+    url: string;
+    validators?: { etag: string | null; lastModified: string | null };
+    mode?: "json" | "text";
+    documentKind?: string;
+    timeoutMs?: number;
+    deadlineAtMs?: number;
+  }) => Promise<FetchDocumentResult>;
   fetchDeps?: FetchProviderDocumentDeps;
   now?: () => Date;
   concurrency?: number;
@@ -53,12 +67,6 @@ export interface PollDueSourcesResult {
   polled: number;
   notModified: number;
   failed: number;
-}
-
-/** Reads a source's optional per-source body cap out of its config jsonb. The fetch clamps the value into its valid range, so an out-of-range stored value is harmless here. */
-function configuredMaxBodyBytes(config: Record<string, unknown>): number | undefined {
-  const value = config.maxBodyBytes;
-  return typeof value === "number" ? value : undefined;
 }
 
 function toManifestSource(row: PollerSourceRow): DependencySourceManifest {
@@ -76,21 +84,6 @@ function toManifestSource(row: PollerSourceRow): DependencySourceManifest {
     config: row.config,
   };
 }
-
-/**
- * Upper bound on documents fetched for a single source in one poll cycle.
- * The largest legitimate cycle is small: statuspage_v2 fetches 3 (summary,
- * incidents, maintenance), incidentio_compat 2, google_cloud_status and
- * statusio_public 1, and sorry_v1 fetches its components pages, its present
- * and past notice lists, and one detail per unplanned notice, which for a
- * real feed stays in the low tens. 200 leaves several times that headroom
- * while still capping a buggy or hostile feed that emits unique next_page or
- * notice-detail URLs without end, or answers 304 to an unconditional request
- * forever. Hitting the cap fails the source rather than normalizing a
- * truncated snapshot, so a partial fetch never resolves an incident or flips
- * a component from incomplete data.
- */
-export const MAX_DOCUMENTS_PER_CYCLE = 200;
 
 /** Raised when a source's requests() keeps asking for documents past MAX_DOCUMENTS_PER_CYCLE. Carries a code so the failure outcome records the truncation. */
 export class DocumentBudgetExceededError extends Error {
@@ -114,25 +107,13 @@ async function runBounded<T>(items: readonly T[], concurrency: number, worker: (
 }
 
 /**
- * Drives one source's fetch/normalize cycle. Calls the adapter's requests()
- * repeatedly, each time handing back every document fetched so far, until it
- * returns nothing new: this is what lets sorry_v1 paginate components and
- * notices, and fetch one detail document per present notice, without the
- * poller knowing anything about Postmark's API shape. The primary "current"
- * document is always fetched with the source's stored conditional validators,
- * so a 304 stays possible. A 304 on the primary short-circuits the whole cycle
- * only when the primary is the source's one required document: then its
- * secondaries are all optional and enrich state the primary already carries,
- * so an unchanged primary means an unchanged source. statuspage_v2's
- * summary.json enumerates every active incident inline, so a summary 304 means
- * no incident resolved and the cached snapshot still holds. When the source
- * has a required secondary the primary cannot stand in for it, so the primary
- * is fetched without validators to force a full 200 and every document is
- * fetched: sorry_v1's notice lists hold independent state an unchanged
- * components page says nothing about, and normalize() runs on real content,
- * applying its documented fallback for any optional secondary that is absent.
- * A per-cycle document budget bounds pagination so a feed that emits fresh
- * follow-up URLs without end cannot starve the other due sources.
+ * Drives one source's fetch/normalize cycle through the shared document
+ * collector. The primary "current" document is fetched with stored validators
+ * when it is the source's one required document, so a 304 short-circuits the
+ * whole cycle. Optional secondary fetch failures are skipped so normalize()
+ * can apply its documented fallback. A document-cap incomplete result becomes
+ * DocumentBudgetExceededError so a partial fetch never resolves an incident
+ * from truncated data.
  */
 async function pollOneSource(
   source: PollerSourceRow,
@@ -143,83 +124,57 @@ async function pollOneSource(
   const manifestSource = toManifestSource(source);
 
   try {
-    const documents: AdapterDocument[] = [];
-    let cacheEtag = source.etag;
-    let cacheLastModified = source.lastModified;
-    let fetchedDocumentCount = 0;
+    // The primary "current" document stands in for the whole source on a 304
+    // only when it is the source's one required document. A required secondary
+    // holds independent state the primary cannot vouch for.
+    const primaryStandsAlone = adapter.requests(manifestSource, undefined)
+      .filter((request) => request.optional !== true).length <= 1;
 
-    // The primary "current" document is always fetched with stored validators,
-    // and stands in for the whole source on a 304 only when it is the source's
-    // one required document. A required secondary holds independent state the
-    // primary cannot vouch for, so a source that has one fetches the primary
-    // without validators to force a full 200 and fetches every secondary too:
-    // sorry_v1's notice lists carry a notice that ended, which an unchanged
-    // components page never reveals. An optional secondary only enriches state
-    // the primary already carries inline, so it never blocks the 304 fast path:
-    // statuspage_v2's summary.json enumerates every active incident inline, so
-    // a summary 304 means nothing resolved and normalize() need not run.
-    const primaryStandsAlone = adapter.requests(manifestSource, undefined).filter((request) => request.optional !== true).length <= 1;
+    const collected = await collectAdapterDocuments({
+      adapter,
+      source: manifestSource,
+      maxDocuments: MAX_DOCUMENTS_PER_CYCLE,
+      skipOptionalFetchErrors: true,
+      primaryStandsAlone,
+      primaryValidators: primaryStandsAlone
+        ? { etag: source.etag, lastModified: source.lastModified }
+        : undefined,
+      fetchDocument: (request, options) => fetchDocument(source, {
+        url: request.url,
+        validators: options.validators,
+        mode: request.mode,
+        documentKind: request.kind,
+        deadlineAtMs: options.deadlineAtMs,
+      }),
+    });
 
-    // Optional secondary documents whose fetch failed this cycle. They are held
-    // out of subsequent request rounds so the cycle can complete, and normalize()
-    // applies its documented fallback for each absent document.
-    const skippedOptionalUrls = new Set<string>();
-
-    while (true) {
-      const requests = adapter.requests(manifestSource, documents.length > 0 ? documents : undefined);
-      const pending = requests.filter(
-        (request) => !documents.some((document) => document.url === request.url) && !skippedOptionalUrls.has(request.url),
-      );
-      if (pending.length === 0) break;
-
-      for (const request of pending) {
-        // Fail before the fetch once the budget is spent, so a feed that
-        // paginates forever is truncated into a recorded failure instead of
-        // running until maxDuration and starving the other due sources.
-        if (fetchedDocumentCount >= MAX_DOCUMENTS_PER_CYCLE) {
-          throw new DocumentBudgetExceededError(source.id, MAX_DOCUMENTS_PER_CYCLE);
-        }
-        fetchedDocumentCount += 1;
-
-        const isPrimaryDocument = documents.length === 0 && primaryStandsAlone;
-        const validators = isPrimaryDocument ? { etag: source.etag, lastModified: source.lastModified } : undefined;
-
-        let result: FetchDocumentResult;
-        try {
-          result = await fetchDocument(source, { url: request.url, validators, mode: request.mode });
-        } catch (error) {
-          // A fetch failure on an optional document never fails the source. It is
-          // skipped and the cycle continues on the primary summary that already
-          // succeeded. A required document's fetch error still propagates to the
-          // outer catch, carrying its retry-after for failure backoff.
-          if (request.optional === true && error instanceof ProviderFetchError) {
-            skippedOptionalUrls.add(request.url);
-            continue;
-          }
-          throw error;
-        }
-
-        if (result.status === "not_modified") {
-          if (request.kind === "current" && isPrimaryDocument) {
-            return { sourceId: source.id, kind: "not_modified", etag: result.etag, lastModified: result.lastModified };
-          }
-          continue;
-        }
-
-        documents.push({ kind: request.kind, url: request.url, json: result.json, text: result.text });
-        // Validators are replayed only against the first document of the next
-        // cycle, so only its own etag/lastModified may be persisted here.
-        // Capturing a later document's validators would let a stale-by-then
-        // 304 on the first document short-circuit the whole cycle.
-        if (documents.length === 1) {
-          cacheEtag = result.etag ?? cacheEtag;
-          cacheLastModified = result.lastModified ?? cacheLastModified;
-        }
-      }
+    if (collected.status === "not_modified") {
+      return {
+        sourceId: source.id,
+        kind: "not_modified",
+        etag: collected.etag,
+        lastModified: collected.lastModified,
+      };
     }
 
-    const snapshot = adapter.normalize({ source: manifestSource, documents, observedAt: now.toISOString() });
-    return { sourceId: source.id, kind: "snapshot", snapshot, etag: cacheEtag, lastModified: cacheLastModified };
+    if (collected.status === "incomplete") {
+      // Cap (or deadline, unused in normal polling) never normalizes a partial
+      // snapshot. Fail the source with the recorded budget code.
+      throw new DocumentBudgetExceededError(source.id, MAX_DOCUMENTS_PER_CYCLE);
+    }
+
+    const snapshot = adapter.normalize({
+      source: manifestSource,
+      documents: collected.documents,
+      observedAt: now.toISOString(),
+    });
+    return {
+      sourceId: source.id,
+      kind: "snapshot",
+      snapshot,
+      etag: collected.cacheEtag ?? source.etag,
+      lastModified: collected.cacheLastModified ?? source.lastModified,
+    };
   } catch (error) {
     const retryAfterMs = error instanceof ProviderFetchError ? error.retryAfterMs : null;
     const normalized = error instanceof ProviderFetchError || error instanceof AdapterParseError
@@ -242,11 +197,25 @@ export async function pollDueSources(deps: PollDueSourcesDeps): Promise<PollDueS
   // owns it and closes it in the finally. An injected fetchDocument owns
   // fetching entirely, so none is created.
   const dispatcher = deps.fetchDocument || sources.length === 0 ? null : createProviderDispatcher(deps.fetchDeps);
+  // Default path goes through source-fetch so body caps, mode, and documentKind
+  // match catalog revalidation. Injected fetchDocument owns fetching entirely.
   const fetchDocument = deps.fetchDocument
-    ?? ((source, request) => fetchProviderDocument(
-      { id: source.id, allowedHosts: source.allowedHosts, maxBodyBytes: configuredMaxBodyBytes(source.config) },
-      request,
-      { ...deps.fetchDeps, dispatcher: dispatcher ?? undefined },
+    ?? ((source, request) => fetchAdapterRequest(
+      source,
+      {
+        kind: request.documentKind === "incidents" || request.documentKind === "maintenance"
+          ? request.documentKind
+          : "current",
+        url: request.url,
+        mode: request.mode,
+      },
+      {
+        ...deps.fetchDeps,
+        dispatcher: dispatcher ?? undefined,
+        validators: request.validators,
+        timeoutMs: request.timeoutMs,
+        deadlineAtMs: request.deadlineAtMs,
+      },
     ));
 
   let polled = 0;

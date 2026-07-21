@@ -119,10 +119,12 @@ describe("awsHealthAdapter.normalize: incident shape", () => {
   });
 
   it("only lists currently-impacted service ids on the incident, excluding a recovered one", () => {
-    expect(incident.componentIds).toContain("ec2-us-east-1");
-    expect(incident.componentIds).toContain("s3-us-east-1");
-    expect(incident.componentIds).toContain("lambda-us-east-1");
-    expect(incident.componentIds).not.toContain("dynamodb-us-east-1");
+    expect(incident.scope.kind).toBe("components");
+    if (incident.scope.kind !== "components") throw new Error("expected components scope");
+    expect(incident.scope.componentIds).toContain("ec2-us-east-1");
+    expect(incident.scope.componentIds).toContain("s3-us-east-1");
+    expect(incident.scope.componentIds).toContain("lambda-us-east-1");
+    expect(incident.scope.componentIds).not.toContain("dynamodb-us-east-1");
   });
 
   it("derives stable event_log update identities from their timestamps, idempotent across polls", () => {
@@ -170,9 +172,12 @@ describe("awsHealthAdapter.normalize: latest-per-service reduction", () => {
     expect(snapshot.components["s3-us-east-1"]).toMatchObject({ state: "OUTAGE" });
   });
 
-  it("excludes the recovered service from the incident componentIds while keeping the still-degraded one", () => {
-    expect(snapshot.incidents[0].componentIds).not.toContain("cloudfront");
-    expect(snapshot.incidents[0].componentIds).toContain("s3-us-east-1");
+  it("excludes the recovered service from the incident component scope while keeping the still-degraded one", () => {
+    const scope = snapshot.incidents[0].scope;
+    expect(scope.kind).toBe("components");
+    if (scope.kind !== "components") throw new Error("expected components scope");
+    expect(scope.componentIds).not.toContain("cloudfront");
+    expect(scope.componentIds).toContain("s3-us-east-1");
   });
 
   it("keeps the worse of two concurrent events touching one service", () => {

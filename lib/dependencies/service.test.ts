@@ -35,6 +35,7 @@ const DETAIL = { id: "dep-1", presetId: "vercel_runtime", state: "OPERATIONAL" }
 function fakeStore(overrides: Partial<DependenciesStore> = {}): DependenciesStore {
   return {
     loadPreset: vi.fn(),
+    loadDiscoveredScopeOptions: vi.fn().mockResolvedValue([]),
     loadRecentStateForCatalogScope: vi.fn().mockResolvedValue(null),
     insertDependency: vi.fn().mockResolvedValue(true),
     touchSourceNextPoll: vi.fn(),
@@ -127,21 +128,78 @@ describe("addDependency validation matrix", () => {
       loadPreset: vi.fn().mockResolvedValue(preset({
         scope: { kind: "discovered_children", groupId: "group-1", required: true },
       })),
+      loadDiscoveredScopeOptions: vi.fn().mockResolvedValue([
+        { scopeId: "us-region", label: "US", available: true },
+      ]),
     });
     await expect(addDependency({ presetId: "supabase_database" }, { store, now: () => NOW }))
       .rejects.toMatchObject({ code: "SCOPE_REQUIRED" });
   });
 
-  it("accepts any non-empty scopeId for a discovered_children scope (discovery not yet wired in this phase)", async () => {
+  it("rejects an arbitrary scopeId that is not in the discovered option set", async () => {
     const store = fakeStore({
       loadPreset: vi.fn().mockResolvedValue(preset({
         scope: { kind: "discovered_children", groupId: "group-1", required: true },
       })),
+      loadDiscoveredScopeOptions: vi.fn().mockResolvedValue([
+        { scopeId: "us-region", label: "US", available: true },
+      ]),
+    });
+    await expect(addDependency({ presetId: "supabase_database", scopeId: "made-up" }, { store, now: () => NOW }))
+      .rejects.toMatchObject({ code: "INVALID_SCOPE" });
+  });
+
+  it("rejects a discovered scopeId when options have not been materialised yet", async () => {
+    const store = fakeStore({
+      loadPreset: vi.fn().mockResolvedValue(preset({
+        scope: { kind: "discovered_children", groupId: "group-1", required: true },
+      })),
+      loadDiscoveredScopeOptions: vi.fn().mockResolvedValue([]),
+    });
+    await expect(addDependency({ presetId: "supabase_database", scopeId: "us-region" }, { store, now: () => NOW }))
+      .rejects.toMatchObject({ code: "SCOPE_OPTIONS_UNAVAILABLE" });
+  });
+
+  it("rejects a discovered scopeId that is no longer available", async () => {
+    const store = fakeStore({
+      loadPreset: vi.fn().mockResolvedValue(preset({
+        scope: { kind: "discovered_children", groupId: "group-1", required: true },
+      })),
+      loadDiscoveredScopeOptions: vi.fn().mockResolvedValue([
+        { scopeId: "us-region", label: "US", available: false },
+        { scopeId: "eu-region", label: "EU", available: true },
+      ]),
+    });
+    await expect(addDependency({ presetId: "supabase_database", scopeId: "us-region" }, { store, now: () => NOW }))
+      .rejects.toMatchObject({ code: "SCOPE_NO_LONGER_AVAILABLE" });
+  });
+
+  it("accepts a discovered scopeId that is present and available", async () => {
+    const store = fakeStore({
+      loadPreset: vi.fn().mockResolvedValue(preset({
+        scope: { kind: "discovered_children", groupId: "group-1", required: true },
+      })),
+      loadDiscoveredScopeOptions: vi.fn().mockResolvedValue([
+        { scopeId: "us-region", label: "US", available: true },
+      ]),
     });
     await addDependency({ presetId: "supabase_database", scopeId: "us-region" }, { store, now: () => NOW, newId: () => "id" });
     expect(store.insertDependency).toHaveBeenCalledWith(expect.objectContaining({
       dependency: expect.objectContaining({ scopeId: "us-region" }),
     }));
+  });
+
+  it("allows an unscoped install for optional discovered_locations", async () => {
+    const store = fakeStore({
+      loadPreset: vi.fn().mockResolvedValue(preset({
+        scope: { kind: "discovered_locations", required: false },
+      })),
+    });
+    await addDependency({ presetId: "google_cloud_run" }, { store, now: () => NOW, newId: () => "id" });
+    expect(store.insertDependency).toHaveBeenCalledWith(expect.objectContaining({
+      dependency: expect.objectContaining({ scopeId: null }),
+    }));
+    expect(store.loadDiscoveredScopeOptions).not.toHaveBeenCalled();
   });
 });
 

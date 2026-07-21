@@ -36,7 +36,18 @@ describe("loadCatalogManifest", () => {
   it("ships schemaVersion 1 and the expected catalog version", () => {
     const manifest = loadCatalogManifest();
     expect(manifest.schemaVersion).toBe(1);
-    expect(manifest.catalogVersion).toBe("2026-07-20.2");
+    expect(manifest.catalogVersion).toBe("2026-07-20.3");
+  });
+
+  it("declares incidentInventory for every incident_feed source", () => {
+    const manifest = loadCatalogManifest();
+    const feeds = manifest.sources.filter((source) => source.adapter === "incident_feed");
+    expect(feeds.length).toBeGreaterThanOrEqual(2);
+    for (const source of feeds) {
+      expect(["active_only", "rolling_history"]).toContain(source.config.incidentInventory);
+    }
+    expect(manifest.sources.find((source) => source.id === "azure")?.config.incidentInventory).toBe("active_only");
+    expect(manifest.sources.find((source) => source.id === "openrouter")?.config.incidentInventory).toBe("rolling_history");
   });
 
   it("includes every launch-ready provider from the registry", () => {
@@ -202,9 +213,12 @@ describe("catalogManifestSchema adapter names", () => {
   it("accepts the four provider-agent adapter names ahead of their modules", () => {
     const manifest = base();
     for (const adapter of ["aws_health", "nextdata_embedded", "incident_feed", "auth0_status"]) {
+      const source = adapter === "incident_feed"
+        ? { ...manifest.sources[0], adapter, config: { ...manifest.sources[0].config, incidentInventory: "active_only" } }
+        : { ...manifest.sources[0], adapter };
       const withAdapter = {
         ...manifest,
-        sources: [{ ...manifest.sources[0], adapter }, ...manifest.sources.slice(1)],
+        sources: [source, ...manifest.sources.slice(1)],
       };
       expect(() => catalogManifestSchema.parse(withAdapter)).not.toThrow();
     }
@@ -217,5 +231,42 @@ describe("catalogManifestSchema adapter names", () => {
       sources: [{ ...manifest.sources[0], adapter: "made_up_adapter" }, ...manifest.sources.slice(1)],
     };
     expect(() => catalogManifestSchema.parse(broken)).toThrow();
+  });
+});
+
+describe("catalogManifestSchema incident_feed inventory", () => {
+  const base = () => loadCatalogManifest();
+
+  it("rejects an incident_feed source that omits incidentInventory", () => {
+    const manifest = base();
+    const azure = manifest.sources.find((source) => source.id === "azure")!;
+    const { incidentInventory: _dropped, ...configWithout } = azure.config as { incidentInventory?: string } & Record<string, unknown>;
+    void _dropped;
+    const broken = {
+      ...manifest,
+      sources: manifest.sources.map((source) =>
+        source.id === "azure" ? { ...source, config: configWithout } : source,
+      ),
+    };
+    expect(() => catalogManifestSchema.parse(broken)).toThrow(/incidentInventory/);
+  });
+
+  it("rejects an unknown incidentInventory value", () => {
+    const manifest = base();
+    const broken = {
+      ...manifest,
+      sources: manifest.sources.map((source) =>
+        source.id === "azure" ? { ...source, config: { ...source.config, incidentInventory: "guessed" } } : source,
+      ),
+    };
+    expect(() => catalogManifestSchema.parse(broken)).toThrow(/incidentInventory/);
+  });
+
+  it("does not require incidentInventory on non-incident_feed adapters", () => {
+    const manifest = base();
+    const vercel = manifest.sources.find((source) => source.id === "vercel")!;
+    expect(vercel.adapter).not.toBe("incident_feed");
+    expect(vercel.config.incidentInventory).toBeUndefined();
+    expect(() => catalogManifestSchema.parse(manifest)).not.toThrow();
   });
 });

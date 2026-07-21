@@ -45,6 +45,51 @@ export const DEFAULT_MAX_BODY_BYTES = 512 * 1024;
 /** Hard ceiling on any source's configured body cap, 4 MB. Manifest validation rejects a larger maxBodyBytes and the fetch clamps defensively. */
 export const MAX_BODY_BYTES_CEILING = 4 * 1024 * 1024;
 
+/**
+ * Authoritative match scope for a normalized provider incident. Empty
+ * component arrays have no standalone meaning: adapters must pick one of
+ * these three kinds explicitly.
+ *
+ * - components: provider identified affected components (nonempty ids)
+ * - source: provider source-wide incident (matches every installed dep while active)
+ * - unmapped: real incident whose scope is unavailable (preserve existing matches only)
+ */
+export type IncidentMatchScope =
+  | { kind: "components"; componentIds: readonly string[] }
+  | { kind: "source" }
+  | { kind: "unmapped" };
+
+/** Nonempty component-scoped incident. Throws when ids is empty. */
+export function componentIncidentScope(ids: readonly string[]): IncidentMatchScope {
+  if (ids.length === 0) {
+    throw new Error("componentIncidentScope requires at least one component id");
+  }
+  return { kind: "components", componentIds: [...ids] };
+}
+
+/** Provider-declared whole-page / source-wide incident. */
+export function sourceIncidentScope(): IncidentMatchScope {
+  return { kind: "source" };
+}
+
+/** Real incident whose affected scope is unavailable. */
+export function unmappedIncidentScope(): IncidentMatchScope {
+  return { kind: "unmapped" };
+}
+
+/**
+ * Structured-component convenience: nonempty ids become components scope,
+ * empty becomes unmapped. Never invents source-wide from an empty list.
+ */
+export function scopeFromComponentIds(ids: readonly string[]): IncidentMatchScope {
+  return ids.length > 0 ? componentIncidentScope(ids) : unmappedIncidentScope();
+}
+
+/** Component ids carried by a components-scoped incident, else empty. */
+export function componentIdsFromScope(scope: IncidentMatchScope): readonly string[] {
+  return scope.kind === "components" ? scope.componentIds : [];
+}
+
 /** Every adapter returns the same normalized value, per the source adapters contract. */
 export type NormalizedProviderSnapshot = {
   sourceId: string;
@@ -80,7 +125,11 @@ export type NormalizedProviderSnapshot = {
     resolvedAt: string | null;
     updatedAt: string;
     canonicalUrl: string | null;
-    componentIds: string[];
+    /**
+     * Authoritative match scope. Storage derives component association rows
+     * only when kind is "components". Empty component arrays are not a signal.
+     */
+    scope: IncidentMatchScope;
     updates: Array<{
       externalId: string;
       state: string;
@@ -138,8 +187,107 @@ export type ScopeOption = { id: string; label: string };
  * upstream group at catalog-validation time (Supabase compute regions,
  * Upstash regional group). `discovered_locations` is Google's optional
  * location filter, sourced from the product's affected-locations data.
+ *
+ * The raw union stays internal to the catalog manifest and store. Public
+ * catalog API responses expose the resolved ScopeSelection model instead.
  */
 export type DependencyScope =
   | { kind: "required_options"; options: ScopeOption[] }
   | { kind: "discovered_children"; groupId: string; required: boolean }
   | { kind: "discovered_locations"; required: boolean };
+
+/** One selectable scope option returned by the catalog API. */
+export type ScopeSelectionOption = { id: string; label: string; available: boolean };
+
+/**
+ * Resolved scope selection for install UI and addDependency validation.
+ * Static options come from the manifest. Discovered options come from
+ * dependency_discovered_scope_options after a complete directory sync.
+ */
+export type ScopeSelection = {
+  required: boolean;
+  allowsUnscoped: boolean;
+  status: "static" | "ready" | "pending" | "unavailable";
+  options: ScopeSelectionOption[];
+};
+
+/** One child or location option observed in a complete source directory. */
+export type CatalogDirectoryOption = {
+  id: string;
+  label: string;
+  metadata?: Record<string, unknown>;
+};
+
+/**
+ * Full component directory from a complete source fetch. complete is true only
+ * when every required page was fetched and parsed. Incomplete fetches must not
+ * produce a directory (return null instead) so availability is never revised
+ * from a partial page set.
+ */
+export type CatalogComponentDirectory = {
+  componentIds: ReadonlySet<string>;
+  /** Parent group id -> child components for discovered_children scopes. */
+  childrenByParent: ReadonlyMap<string, readonly CatalogDirectoryOption[]>;
+  /** Product id -> locations for discovered_locations scopes. */
+  locationsByProduct: ReadonlyMap<string, readonly CatalogDirectoryOption[]>;
+  complete: boolean;
+  /**
+   * False for incident-only feeds that publish no per-component inventory.
+   * Their presets select synthetic component ids, so component-id drift
+   * checking never applies to them.
+   */
+  tracksComponents: boolean;
+};
+
+/** Empty complete directory with only the given component ids. */
+export function catalogDirectoryFromComponentIds(
+  ids: Iterable<string>,
+): CatalogComponentDirectory {
+  return {
+    componentIds: new Set(ids),
+    childrenByParent: new Map(),
+    locationsByProduct: new Map(),
+    complete: true,
+    tracksComponents: true,
+  };
+}
+
+/**
+ * Builds the public scopeSelection from a stored scope contract and any
+ * discovered options. discovered null or [] means discovery has not produced
+ * rows yet (pending). Rows with none available means unavailable.
+ */
+export function resolveScopeSelection(
+  scope: DependencyScope | null,
+  discovered: ReadonlyArray<{ id: string; label: string; available: boolean }> | null,
+): ScopeSelection | null {
+  if (!scope) return null;
+  if (scope.kind === "required_options") {
+    return {
+      required: true,
+      allowsUnscoped: false,
+      status: "static",
+      options: scope.options.map((option) => ({ id: option.id, label: option.label, available: true })),
+    };
+  }
+  const required = scope.required;
+  const options = (discovered ?? []).map((option) => ({
+    id: option.id,
+    label: option.label,
+    available: option.available,
+  }));
+  if (options.length === 0) {
+    return {
+      required,
+      allowsUnscoped: !required,
+      status: "pending",
+      options: [],
+    };
+  }
+  return {
+    required,
+    allowsUnscoped: !required,
+    status: options.some((option) => option.available) ? "ready" : "unavailable",
+    options,
+  };
+}

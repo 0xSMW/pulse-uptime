@@ -5,7 +5,29 @@
 
 import { providerIncidentStates } from "@/lib/db/schema";
 
-import type { AdapterDocument, AdapterDocumentKind } from "./index";
+import type { DependencySourceManifest } from "../manifest";
+import type { CatalogComponentDirectory, NormalizedProviderSnapshot } from "../types";
+import { catalogDirectoryFromComponentIds } from "../types";
+
+import type { AdapterDocument, AdapterDocumentKind, NormalizeInput } from "./index";
+
+/**
+ * Default directory builder for adapters whose normalize() output is a complete
+ * component map with no group or location structure. Statuspage overrides this
+ * with richer group parsing. Kept in shared so adapters can import it without
+ * a circular dependency through the registry index.
+ */
+export function catalogDirectoryFromNormalize(
+  adapter: { normalize(input: NormalizeInput): NormalizedProviderSnapshot },
+  input: { source: DependencySourceManifest; documents: AdapterDocument[] },
+): CatalogComponentDirectory {
+  const snapshot = adapter.normalize({
+    source: input.source,
+    documents: input.documents,
+    observedAt: new Date(0).toISOString(),
+  });
+  return catalogDirectoryFromComponentIds(Object.keys(snapshot.components));
+}
 
 const MAX_BODY_BYTES = 4096;
 
@@ -32,6 +54,28 @@ export function requireProviderIncidentState(value: string, sourceId: string): (
     throw new AdapterParseError("UNKNOWN_STATUS", `${sourceId}: unrecognized incident state "${value}"`);
   }
   return value;
+}
+
+/** Terminal lifecycle values: the incident is over and must not color an active component. */
+export function isTerminalIncidentState(state: string): boolean {
+  return state === "resolved" || state === "completed" || state === "false_alarm";
+}
+
+/**
+ * resolvedAt for a normalized incident. Active (non-terminal) always null.
+ * Terminal uses the explicit resolution timestamp when present, otherwise the
+ * provider update timestamp, ordered at or after startedAt so a provider that
+ * publishes resolution before start never trips the resolution-order check.
+ */
+export function terminalResolvedAt(input: {
+  state: string;
+  startedAt: string;
+  explicitResolvedAt?: string | null;
+  providerUpdatedAt: string;
+}): string | null {
+  if (!isTerminalIncidentState(input.state)) return null;
+  const candidate = input.explicitResolvedAt ?? input.providerUpdatedAt;
+  return new Date(candidate) < new Date(input.startedAt) ? input.startedAt : candidate;
 }
 
 /** Strips tags, decodes the handful of entities providers actually use, collapses whitespace, and caps to 4 KB. */

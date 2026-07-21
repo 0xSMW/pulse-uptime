@@ -3,10 +3,25 @@ import { randomUUID } from "node:crypto";
 import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 
 import type { Database, DatabaseTransaction } from "@/lib/db/client";
-import { dependencies, dependencyCatalog, dependencySources, dependencyState, dependencyStateIntervals } from "@/lib/db/schema";
+import {
+  dependencies,
+  dependencyCatalog,
+  dependencyDiscoveredScopeOptions,
+  dependencySources,
+  dependencyState,
+  dependencyStateIntervals,
+} from "@/lib/db/schema";
 
 import { loadCatalogManifest, type CatalogManifest, type DependencyPresetManifest, type DependencySourceManifest } from "./manifest";
-import type { DependencyFidelity, DependencyScope, DependencySelector } from "./types";
+import type {
+  CatalogComponentDirectory,
+  CatalogDirectoryOption,
+  DependencyFidelity,
+  DependencyScope,
+  DependencySelector,
+} from "./types";
+
+export type { CatalogComponentDirectory } from "./types";
 
 // -- syncCatalog -------------------------------------------------------------
 //
@@ -330,17 +345,23 @@ export function createSqlCatalogSyncStore(db: Database): CatalogSyncStore {
 // responds but is missing an ID disables only the affected preset and flips
 // its installed dependencies to UNKNOWN. Preset IDs are the only durable
 // identity per the catalog contract, so drift detection never matches by name.
+//
+// A complete directory also materialises discovered scope options for presets
+// with discovered_children or discovered_locations. Failed/incomplete fetches
+// leave availability untouched.
 
-/** The set of upstream IDs (components, products, or containers) a source's feed currently exposes. */
-export interface CatalogComponentDirectory {
-  componentIds: ReadonlySet<string>;
-}
-
-export type FetchSourceComponents = (source: {
-  id: string;
-  adapter: string;
-  currentUrl: string;
+export type FetchCatalogDirectory = (args: {
+  source: {
+    id: string;
+    adapter: string;
+    currentUrl: string;
+  };
+  deadlineAtMs?: number;
+  nowMs?: () => number;
 }) => Promise<CatalogComponentDirectory | null>;
+
+/** @deprecated Prefer FetchCatalogDirectory. Alias kept while call sites migrate. */
+export type FetchSourceComponents = FetchCatalogDirectory;
 
 interface EnabledSourceRow {
   id: string;
@@ -356,6 +377,16 @@ interface PresetRow {
   enabled: boolean;
 }
 
+export type DiscoveredScopeKind = "discovered_child" | "discovered_location";
+
+export type ObservedScopeOption = {
+  scopeId: string;
+  label: string;
+  scopeKind: DiscoveredScopeKind;
+  parentExternalId: string | null;
+  metadata?: Record<string, unknown>;
+};
+
 export interface CatalogReconcileExecutor {
   /** Enabled presets plus drift-disabled ones (validationError set) for the source, so a preset frozen by transient drift can re-enable once its ids return. A manifest-shipped disabled preset (no validationError) is not loaded. */
   loadPresetsForSource(sourceId: string): Promise<PresetRow[]>;
@@ -365,6 +396,13 @@ export interface CatalogReconcileExecutor {
   reEnablePreset(presetId: string, validatedAt: Date): Promise<void>;
   disablePreset(presetId: string, validatedAt: Date, error: string): Promise<void>;
   flipDependenciesToUnknown(catalogId: string, observedAt: Date): Promise<number>;
+  /**
+   * Transactional scope option sync for one catalog preset. Upserts observed
+   * options as available with refreshed label and last_seen_at, and marks any
+   * previously stored option not in observed as available=false. The observedAt
+   * timestamp is the consistency boundary for unavailable marks.
+   */
+  syncDiscoveredScopeOptions(catalogId: string, observed: readonly ObservedScopeOption[], observedAt: Date): Promise<void>;
 }
 
 export interface CatalogReconcileStore {
@@ -375,7 +413,13 @@ export interface CatalogReconcileStore {
 
 export interface ReconcileCatalogDeps {
   store: CatalogReconcileStore;
-  fetchSourceComponents: FetchSourceComponents;
+  /** Live complete directory fetcher. Null means feed failure: no availability changes. */
+  fetchCatalogDirectory: FetchCatalogDirectory;
+  /**
+   * @deprecated Prefer fetchCatalogDirectory. When only this is set, it is used
+   * as the directory fetcher so older call sites keep working during rename.
+   */
+  fetchSourceComponents?: FetchCatalogDirectory;
   now?: () => Date;
   /** Monotonic epoch-ms clock, injected so a test can drive the deadline. Defaults to Date.now. */
   nowMs?: () => number;
@@ -410,16 +454,130 @@ function selectorRequiredIds(selector: DependencySelector): string[] {
  * returns UNKNOWN for an install scoped to a now-absent container, while
  * installs scoped to still-present regions keep polling healthy. Only
  * statically known selector ids are checked here. discovered-children and
- * discovered-locations scopes are validated when their children are fetched.
+ * discovered-locations scopes materialise options from the directory below.
  */
 function missingIds(preset: PresetRow, known: ReadonlySet<string>): string[] {
   return selectorRequiredIds(preset.selector).filter((id) => !known.has(id));
+}
+
+function mapOptions(
+  options: readonly CatalogDirectoryOption[],
+  scopeKind: DiscoveredScopeKind,
+  parentExternalId: string | null,
+): ObservedScopeOption[] {
+  return options.map((option) => ({
+    scopeId: option.id,
+    label: option.label,
+    scopeKind,
+    parentExternalId,
+    metadata: option.metadata,
+  }));
+}
+
+/**
+ * Observed scope options for one preset drawn from a complete directory.
+ * discovered_children resolves against childrenByParent[groupId].
+ * discovered_locations resolves against locationsByProduct[productId].
+ * Returns null when the preset has no discovered scope contract.
+ */
+export function observedScopeOptionsForPreset(
+  preset: Pick<PresetRow, "selector" | "scope">,
+  directory: CatalogComponentDirectory,
+): ObservedScopeOption[] | null {
+  const scope = preset.scope;
+  if (!scope) return null;
+  if (scope.kind === "discovered_children") {
+    const children = directory.childrenByParent.get(scope.groupId) ?? [];
+    return mapOptions(children, "discovered_child", scope.groupId);
+  }
+  if (scope.kind === "discovered_locations") {
+    const productId = preset.selector.kind === "google_product" ? preset.selector.productId : null;
+    const locations = productId ? (directory.locationsByProduct.get(productId) ?? []) : [];
+    return mapOptions(locations, "discovered_location", productId);
+  }
+  return null;
+}
+
+/**
+ * Pure plan for one catalog_id's discovered scope rows. Tests assert the
+ * upsert/unavailable split without a database. observedAt is the consistency
+ * boundary: unobserved prior rows become available=false at that timestamp.
+ */
+export function planDiscoveredScopeSync(
+  prior: ReadonlyArray<{ scopeId: string }>,
+  observed: readonly ObservedScopeOption[],
+  observedAt: Date,
+): {
+  upserts: Array<ObservedScopeOption & { available: true; lastSeenAt: Date }>;
+  unavailableScopeIds: string[];
+  observedAt: Date;
+} {
+  const observedIds = new Set(observed.map((option) => option.scopeId));
+  return {
+    upserts: observed.map((option) => ({ ...option, available: true as const, lastSeenAt: observedAt })),
+    unavailableScopeIds: prior.map((row) => row.scopeId).filter((scopeId) => !observedIds.has(scopeId)),
+    observedAt,
+  };
+}
+
+/**
+ * Transactional materialisation of discovered scope options for one preset.
+ * Call only after a complete directory fetch. Failed/timeout paths must not
+ * invoke this so prior availability is preserved.
+ */
+export async function syncDiscoveredScopeOptionsSql(
+  tx: DatabaseTransaction,
+  catalogId: string,
+  observed: readonly ObservedScopeOption[],
+  observedAt: Date,
+): Promise<void> {
+  const prior = await tx.select({ scopeId: dependencyDiscoveredScopeOptions.scopeId })
+    .from(dependencyDiscoveredScopeOptions)
+    .where(eq(dependencyDiscoveredScopeOptions.catalogId, catalogId));
+  const plan = planDiscoveredScopeSync(prior, observed, observedAt);
+
+  for (const option of plan.upserts) {
+    await tx.insert(dependencyDiscoveredScopeOptions).values({
+      catalogId,
+      scopeId: option.scopeId,
+      label: option.label,
+      scopeKind: option.scopeKind,
+      parentExternalId: option.parentExternalId,
+      available: true,
+      firstSeenAt: observedAt,
+      lastSeenAt: observedAt,
+      metadata: option.metadata ?? null,
+    }).onConflictDoUpdate({
+      target: [dependencyDiscoveredScopeOptions.catalogId, dependencyDiscoveredScopeOptions.scopeId],
+      set: {
+        label: option.label,
+        scopeKind: option.scopeKind,
+        parentExternalId: option.parentExternalId,
+        available: true,
+        lastSeenAt: observedAt,
+        metadata: option.metadata ?? null,
+      },
+    });
+  }
+
+  if (plan.unavailableScopeIds.length > 0) {
+    await tx.update(dependencyDiscoveredScopeOptions)
+      .set({ available: false })
+      .where(and(
+        eq(dependencyDiscoveredScopeOptions.catalogId, catalogId),
+        inArray(dependencyDiscoveredScopeOptions.scopeId, plan.unavailableScopeIds),
+      ));
+  }
 }
 
 export async function reconcileCatalog(deps: ReconcileCatalogDeps): Promise<ReconcileCatalogSummary> {
   const now = deps.now ?? (() => new Date());
   const nowMs = deps.nowMs ?? Date.now;
   const deadlineAtMs = deps.deadlineAtMs ?? Infinity;
+  const fetchDirectory = deps.fetchCatalogDirectory ?? deps.fetchSourceComponents;
+  if (!fetchDirectory) {
+    throw new Error("reconcileCatalog requires fetchCatalogDirectory");
+  }
   const sources = await deps.store.loadEnabledSources();
 
   // Fetch each enabled source's component directory with no transaction open.
@@ -435,7 +593,13 @@ export async function reconcileCatalog(deps: ReconcileCatalogDeps): Promise<Reco
   const directories = new Map<string, CatalogComponentDirectory | null>();
   for (const source of sources) {
     if (nowMs() >= deadlineAtMs) break;
-    directories.set(source.id, await deps.fetchSourceComponents(source));
+    // Per-source collection inherits the remaining maintenance slice so a slow
+    // paginated feed cannot overrun the reserved catalog window.
+    directories.set(source.id, await fetchDirectory({
+      source,
+      deadlineAtMs,
+      nowMs,
+    }));
     processed.push(source);
   }
 
@@ -446,11 +610,15 @@ export async function reconcileCatalog(deps: ReconcileCatalogDeps): Promise<Reco
   // One short write transaction per processed source. Network already happened
   // above, so each transaction only issues local writes, and a failure
   // isolates to its own source instead of discarding every source's validation.
+  // Directory data and scope option availability commit only after a complete
+  // directory was produced, so the sync timestamp is the consistency boundary.
   for (const source of processed) {
     const directory = directories.get(source.id) ?? null;
     const perSource = await deps.store.transaction(async (tx) => {
       const validatedAt = now();
-      if (!directory) {
+      if (!directory || !directory.complete) {
+        // Incomplete or failed fetch: record feed error when null, and never
+        // revise discovered scope availability from a partial page set.
         await tx.recordSourceValidation(source.id, validatedAt, "FEED_UNREACHABLE");
         return { validated: 0, disabled: [] as string[], unknown: 0 };
       }
@@ -461,7 +629,9 @@ export async function reconcileCatalog(deps: ReconcileCatalogDeps): Promise<Reco
       let unknown = 0;
       const presets = await tx.loadPresetsForSource(source.id);
       for (const preset of presets) {
-        const missing = missingIds(preset, directory.componentIds);
+        const missing = directory.tracksComponents
+          ? missingIds(preset, directory.componentIds)
+          : [];
         if (missing.length > 0) {
           // An already drift-disabled preset whose ids are still missing
           // stays disabled untouched, so its installs are not re-flipped.
@@ -480,6 +650,14 @@ export async function reconcileCatalog(deps: ReconcileCatalogDeps): Promise<Reco
           await tx.reEnablePreset(preset.id, validatedAt);
         }
         validated += 1;
+
+        // Materialise discovered scope options only for presets whose core
+        // selector ids are present. The complete directory is the sole source
+        // of truth for availability this pass.
+        const observed = observedScopeOptionsForPreset(preset, directory);
+        if (observed) {
+          await tx.syncDiscoveredScopeOptions(preset.id, observed, validatedAt);
+        }
       }
       return { validated, disabled, unknown };
     });
@@ -515,6 +693,8 @@ export function createSqlCatalogReconcileStore(db: Database): CatalogReconcileSt
       },
       disablePreset: (presetId, validatedAt, error) => disablePresetSql(tx, presetId, validatedAt, error),
       flipDependenciesToUnknown: (catalogId, observedAt) => flipDependenciesToUnknownSql(tx, catalogId, observedAt),
+      syncDiscoveredScopeOptions: (catalogId, observed, observedAt) =>
+        syncDiscoveredScopeOptionsSql(tx, catalogId, observed, observedAt),
     })),
   };
 }

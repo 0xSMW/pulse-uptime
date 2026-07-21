@@ -68,9 +68,14 @@ describe("parseFeed RSS and Atom", () => {
     });
   });
 
-  it("strips markup and collapses whitespace inside text fields", () => {
+  it("replaces markup with whitespace so token boundaries survive, then collapses spacing", () => {
     const feed = "<rss><channel><item><description>line one\n\n  line   two<script>x</script></description></item></channel></rss>";
-    expect(parseFeed(feed)[0].description).toBe("line one line twox");
+    expect(parseFeed(feed)[0].description).toBe("line one line two x");
+  });
+
+  it("keeps a word boundary between adjacent tags so lifecycle markers stay separate from timestamps", () => {
+    const feed = `<rss><channel><item><description><![CDATA[<small>Jul 15, 09:15 UTC</small><br/><strong>IDENTIFIED</strong> - cause found]]></description></item></channel></rss>`;
+    expect(parseFeed(feed)[0].description).toBe("Jul 15, 09:15 UTC IDENTIFIED - cause found");
   });
 });
 
@@ -126,5 +131,78 @@ describe("parseFeed hardening", () => {
     const feed = "<rss><channel><item><title>&#65;&#x42; &#0; &#1114113;</title></item></channel></rss>";
     // 65 -> A, 0x42 -> B, and the invalid code points stay literal.
     expect(parseFeed(feed)[0].title).toBe("AB &#0; &#1114113;");
+  });
+});
+
+describe("parseFeed structural validation", () => {
+  it("throws MALFORMED when an <item opener has no closing >", () => {
+    // No '>' after the item opener at all. The RSS envelope is already closed so
+    // the failure is attributed to the item, not the envelope.
+    const feed = "<rss><channel></channel></rss><item";
+    expect(() => parseFeed(feed)).toThrow(XmlParseError);
+    try {
+      parseFeed(feed);
+    } catch (error) {
+      expect((error as XmlParseError).code).toBe("MALFORMED");
+      expect((error as XmlParseError).message).toMatch(/unclosed <item opener/);
+    }
+  });
+
+  it("throws MALFORMED when an open item has no matching close", () => {
+    const feed = "<rss><channel><item><title>truncated</title></channel></rss>";
+    expect(() => parseFeed(feed)).toThrow(XmlParseError);
+    try {
+      parseFeed(feed);
+    } catch (error) {
+      expect((error as XmlParseError).code).toBe("MALFORMED");
+      expect((error as XmlParseError).message).toMatch(/unclosed <item>/);
+    }
+  });
+
+  it("fails the entire document when a valid item is followed by a truncated item", () => {
+    const feed = `<rss><channel>
+      <item><title>complete</title><guid>1</guid></item>
+      <item><title>truncated
+    </channel></rss>`;
+    expect(() => parseFeed(feed)).toThrow(XmlParseError);
+    try {
+      parseFeed(feed);
+    } catch (error) {
+      expect((error as XmlParseError).code).toBe("MALFORMED");
+    }
+  });
+
+  it("throws MALFORMED when <rss> has no closing envelope", () => {
+    const feed = "<rss><channel><item><title>ok</title></item></channel>";
+    expect(() => parseFeed(feed)).toThrow(XmlParseError);
+    try {
+      parseFeed(feed);
+    } catch (error) {
+      expect((error as XmlParseError).code).toBe("MALFORMED");
+      expect((error as XmlParseError).message).toMatch(/unclosed <rss>/);
+    }
+  });
+
+  it("throws MALFORMED when <feed> has no closing envelope", () => {
+    const feed = "<feed><entry><title>ok</title></entry>";
+    expect(() => parseFeed(feed)).toThrow(XmlParseError);
+    try {
+      parseFeed(feed);
+    } catch (error) {
+      expect((error as XmlParseError).code).toBe("MALFORMED");
+      expect((error as XmlParseError).message).toMatch(/unclosed <feed>/);
+    }
+  });
+
+  it("returns an empty successful feed for a valid empty RSS envelope", () => {
+    expect(parseFeed("<rss><channel></channel></rss>")).toEqual([]);
+  });
+
+  it("returns an empty successful feed for a valid empty Atom envelope", () => {
+    expect(parseFeed('<feed xmlns="http://www.w3.org/2005/Atom"></feed>')).toEqual([]);
+  });
+
+  it("returns an empty successful feed for a self-closing RSS envelope", () => {
+    expect(parseFeed("<rss/>")).toEqual([]);
   });
 });

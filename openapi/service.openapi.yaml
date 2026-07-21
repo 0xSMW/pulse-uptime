@@ -3683,62 +3683,45 @@
           "meta": {"$ref": "#/components/schemas/Meta"}
         }
       },
-      "DependencyScope": {
-        "description": "A preset's scope requirement. required_options ships a fixed validated list; discovered_children and discovered_locations carry their own required flag.",
-        "oneOf": [
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["kind", "options"],
-            "properties": {
-              "kind": {"const": "required_options"},
-              "options": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": ["id", "label"],
-                  "properties": {
-                    "id": {"type": "string"},
-                    "label": {"type": "string"}
-                  }
-                }
+      "DependencyScopeSelection": {
+        "description": "Resolved scope selection for install. Static options come from the manifest. Discovered options come from dependency_discovered_scope_options after a complete directory sync. Manifest-level scope unions stay internal.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["required", "allowsUnscoped", "status", "options"],
+        "properties": {
+          "required": {"type": "boolean"},
+          "allowsUnscoped": {"type": "boolean"},
+          "status": {
+            "type": "string",
+            "enum": ["static", "ready", "pending", "unavailable"]
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "label", "available"],
+              "properties": {
+                "id": {"type": "string"},
+                "label": {"type": "string"},
+                "available": {"type": "boolean"}
               }
             }
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["kind", "groupId", "required"],
-            "properties": {
-              "kind": {"const": "discovered_children"},
-              "groupId": {"type": "string"},
-              "required": {"type": "boolean"}
-            }
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["kind", "required"],
-            "properties": {
-              "kind": {"const": "discovered_locations"},
-              "required": {"type": "boolean"}
-            }
           }
-        ]
+        }
       },
       "DependencyCatalogPreset": {
         "type": "object",
         "additionalProperties": true,
-        "required": ["id", "name", "provider", "description", "scope", "sourceScopeNote", "fidelity", "enabled", "validated", "installed"],
+        "required": ["id", "name", "provider", "description", "scopeSelection", "sourceScopeNote", "fidelity", "enabled", "validated", "installed"],
         "properties": {
           "id": {"type": "string"},
           "name": {"type": "string"},
           "provider": {"type": "string"},
           "description": {"type": "string"},
-          "scope": {
+          "scopeSelection": {
             "oneOf": [
-              {"$ref": "#/components/schemas/DependencyScope"},
+              {"$ref": "#/components/schemas/DependencyScopeSelection"},
               {"type": "null"}
             ]
           },
@@ -4381,7 +4364,8 @@
               {
                 "type": "object",
                 "required": [
-                  "token"
+                  "token",
+                  "expiryClamped"
                 ],
                 "properties": {
                   "token": {

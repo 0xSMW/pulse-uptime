@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { DependencyCatalogCategory, DependencyCatalogPreset } from "@/lib/dependencies/queries";
+import type { ScopeSelection } from "@/lib/dependencies/types";
 import { cn } from "@/lib/utils";
 
 // Category slugs come from lib/db/schema.ts's dependencyCategories const.
@@ -24,6 +25,12 @@ const categoryLabels: Record<string, string> = {
   payments: "Payments and communication",
   developer: "Developer infrastructure",
 };
+
+/**
+ * Select value for the optional unscoped choice. Radix Select rejects empty
+ * strings, so the UI stores this sentinel and maps it to scopeId null.
+ */
+export const ALL_LOCATIONS_VALUE = "__all_locations__";
 
 export function categoryLabel(category: string): string {
   return categoryLabels[category] ?? category;
@@ -51,6 +58,89 @@ export function filterCatalogCategories(
     .filter((category) => category.presets.length > 0);
 }
 
+export type SelectedScopeResult =
+  | { ready: true; scopeId: string | null }
+  | { ready: false };
+
+/**
+ * Resolves the install scope for a preset from the user's select state.
+ * Static and discovered scopeSelection share this path. Returns ready:false
+ * when install must not proceed (missing required choice, pending discovery,
+ * unavailable options, or an unavailable selected option).
+ */
+export function selectedScopeForPreset(
+  preset: Pick<DependencyCatalogPreset, "scopeSelection">,
+  selectionByPreset: Readonly<Record<string, string>>,
+  presetId: string,
+): SelectedScopeResult {
+  const selection = preset.scopeSelection;
+  if (!selection) return { ready: true, scopeId: null };
+
+  const raw = selectionByPreset[presetId];
+
+  // Optional unscoped installs match the server: null scopeId is valid without
+  // waiting for discovery. A concrete location still needs a ready option list.
+  if (selection.allowsUnscoped) {
+    if (raw === undefined || raw === ALL_LOCATIONS_VALUE) {
+      return { ready: true, scopeId: null };
+    }
+    if (selection.status === "pending" || selection.status === "unavailable") {
+      return { ready: false };
+    }
+    const option = selection.options.find((entry) => entry.id === raw);
+    if (!option || !option.available) return { ready: false };
+    return { ready: true, scopeId: option.id };
+  }
+
+  if (selection.status === "pending" || selection.status === "unavailable") {
+    return { ready: false };
+  }
+
+  // status is static | ready: options come from the catalog (static) or a
+  // completed discovery pass (ready).
+  if (!raw || raw === ALL_LOCATIONS_VALUE) {
+    // Required scope with no available option chosen yet.
+    return { ready: false };
+  }
+
+  const option = selection.options.find((entry) => entry.id === raw);
+  if (!option || !option.available) return { ready: false };
+  return { ready: true, scopeId: option.id };
+}
+
+/**
+ * Catalog-data message when discovery is not ready for install. Empty when
+ * the selector can render. Short warning copy only, per Agents.md.
+ * Optional unscoped presets do not need discovery to complete.
+ */
+export function scopeDiscoveryMessage(selection: ScopeSelection | null): string {
+  if (!selection) return "";
+  if (selection.allowsUnscoped) return "";
+  if (selection.status === "pending") return "Catalog data not ready";
+  if (selection.status === "unavailable") return "Catalog scopes unavailable";
+  return "";
+}
+
+/** Whether the compact scope Select should render for this selection. */
+export function showsScopeSelector(selection: ScopeSelection | null): boolean {
+  return selection !== null && (selection.status === "static" || selection.status === "ready");
+}
+
+/**
+ * Controlled Select value for a preset. Optional scopes default to the
+ * All locations sentinel so the control shows a real choice at rest.
+ */
+export function scopeSelectValue(
+  selection: ScopeSelection,
+  selectionByPreset: Readonly<Record<string, string>>,
+  presetId: string,
+): string | undefined {
+  const raw = selectionByPreset[presetId];
+  if (raw) return raw;
+  if (selection.allowsUnscoped) return ALL_LOCATIONS_VALUE;
+  return undefined;
+}
+
 function rowKey(presetId: string, scopeId: string | null): string {
   return `${presetId}|${scopeId ?? ""}`;
 }
@@ -58,8 +148,10 @@ function rowKey(presetId: string, scopeId: string | null): string {
 function addErrorMessage(error: unknown): string {
   if (error instanceof SettingsApiError) {
     if (error.code === "DEPENDENCY_EXISTS") return "Already added";
-    if (error.code === "SCOPE_REQUIRED") return "Select a region";
-    if (error.code === "INVALID_SCOPE") return "Choose a valid region";
+    if (error.code === "SCOPE_REQUIRED") return "Select a scope";
+    if (error.code === "INVALID_SCOPE") return "Choose a valid scope";
+    if (error.code === "SCOPE_OPTIONS_UNAVAILABLE") return "Catalog data not ready";
+    if (error.code === "SCOPE_NO_LONGER_AVAILABLE") return "Scope no longer available";
     if (error.code === "PRESET_UNAVAILABLE") return "Not available right now";
   }
   return messageForError(error);
@@ -71,7 +163,7 @@ export function AddDependencySheet({ open, onClose }: { open: boolean; onClose: 
   const [loadError, setLoadError] = useState("");
   const [categories, setCategories] = useState<DependencyCatalogCategory[]>([]);
   const [query, setQuery] = useState("");
-  const [regionByPreset, setRegionByPreset] = useState<Record<string, string>>({});
+  const [scopeByPreset, setScopeByPreset] = useState<Record<string, string>>({});
   const [addedKeys, setAddedKeys] = useState<Set<string>>(new Set());
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
@@ -134,11 +226,6 @@ export function AddDependencySheet({ open, onClose }: { open: boolean; onClose: 
     }
   }
 
-  function selectedScopeFor(preset: DependencyCatalogPreset): string | null {
-    if (preset.scope?.kind !== "required_options") return null;
-    return regionByPreset[preset.id] ?? null;
-  }
-
   function handleInputKey(event: ReactKeyboardEvent<HTMLInputElement>) {
     if (event.key === "ArrowDown") {
       event.preventDefault();
@@ -150,11 +237,12 @@ export function AddDependencySheet({ open, onClose }: { open: boolean; onClose: 
       event.preventDefault();
       const preset = visiblePresets[activeIndex];
       if (!preset) return;
-      const scopeId = selectedScopeFor(preset);
-      const needsScope = preset.scope?.kind === "required_options";
-      if (needsScope && !scopeId) return;
-      if (isAdded(preset, scopeId)) return;
-      void addPreset(preset, scopeId);
+      // Same gate as the Add button: never POST an incomplete scope request.
+      const resolved = selectedScopeForPreset(preset, scopeByPreset, preset.id);
+      if (!resolved.ready) return;
+      if (!preset.enabled || preset.hasValidationError) return;
+      if (isAdded(preset, resolved.scopeId)) return;
+      void addPreset(preset, resolved.scopeId);
     }
   }
 
@@ -199,19 +287,23 @@ export function AddDependencySheet({ open, onClose }: { open: boolean; onClose: 
                   {category.presets.map((preset) => {
                     const index = visiblePresets.indexOf(preset);
                     const active = index === activeIndex;
-                    const needsScope = preset.scope?.kind === "required_options";
-                    const selectedScope = needsScope ? regionByPreset[preset.id] ?? "" : "";
-                    const scopeId = needsScope ? (selectedScope || null) : null;
-                    const added = isAdded(preset, scopeId);
+                    const selection = preset.scopeSelection;
+                    const resolved = selectedScopeForPreset(preset, scopeByPreset, preset.id);
+                    const scopeId = resolved.ready ? resolved.scopeId : null;
+                    const added = resolved.ready ? isAdded(preset, scopeId) : false;
                     const key = rowKey(preset.id, scopeId);
                     const busy = busyKey === key;
                     const rowError = rowErrors[key];
+                    const discoveryMessage = scopeDiscoveryMessage(selection);
                     // Matches the server install gate, which accepts a
                     // never-validated preset and rejects only a disabled one or
                     // one with a recorded validationError. Validation is drift
                     // detection against the shipped catalog, not pre-clearance,
-                    // so it is not required to add.
-                    const canAdd = preset.enabled && !preset.hasValidationError && (!needsScope || Boolean(selectedScope));
+                    // so it is not required to add. Scope readiness is the W7
+                    // client-side gate over scopeSelection.
+                    const canAdd =
+                      preset.enabled && !preset.hasValidationError && resolved.ready;
+                    const showSelector = showsScopeSelector(selection);
                     return (
                       <div
                         key={preset.id}
@@ -233,17 +325,28 @@ export function AddDependencySheet({ open, onClose }: { open: boolean; onClose: 
                             </div>
                           </div>
                           <div className="flex shrink-0 items-center gap-2">
-                            {needsScope && preset.scope?.kind === "required_options" ? (
+                            {showSelector && selection ? (
                               <Select
-                                value={selectedScope || undefined}
-                                onValueChange={(value) => setRegionByPreset((current) => ({ ...current, [preset.id]: value }))}
+                                value={scopeSelectValue(selection, scopeByPreset, preset.id)}
+                                onValueChange={(value) =>
+                                  setScopeByPreset((current) => ({ ...current, [preset.id]: value }))
+                                }
                               >
-                                <SelectTrigger aria-label={`Region for ${preset.name}`} className="h-8 w-[150px] text-xs">
-                                  <SelectValue placeholder="Region" />
+                                <SelectTrigger aria-label={`Scope for ${preset.name}`} className="h-8 w-[150px] text-xs">
+                                  <SelectValue placeholder="Scope" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {preset.scope.options.map((option) => (
-                                    <SelectItem key={option.id} value={option.id}>{option.label}</SelectItem>
+                                  {selection.allowsUnscoped ? (
+                                    <SelectItem value={ALL_LOCATIONS_VALUE}>All locations</SelectItem>
+                                  ) : null}
+                                  {selection.options.map((option) => (
+                                    <SelectItem
+                                      key={option.id}
+                                      value={option.id}
+                                      disabled={!option.available}
+                                    >
+                                      {option.label}
+                                    </SelectItem>
                                   ))}
                                 </SelectContent>
                               </Select>
@@ -253,12 +356,18 @@ export function AddDependencySheet({ open, onClose }: { open: boolean; onClose: 
                               size="sm"
                               variant={added ? "secondary" : "primary"}
                               disabled={added || busy || !canAdd}
-                              onClick={() => void addPreset(preset, scopeId)}
+                              onClick={() => {
+                                if (!resolved.ready) return;
+                                void addPreset(preset, resolved.scopeId);
+                              }}
                             >
                               {added ? "Added" : busy ? "Adding…" : "Add"}
                             </Button>
                           </div>
                         </div>
+                        {discoveryMessage ? (
+                          <p className="mt-1 max-w-[320px] text-xs text-[var(--fg-faint)]">{discoveryMessage}</p>
+                        ) : null}
                         {preset.sourceScopeNote ? (
                           <p className="mt-1 max-w-[320px] text-xs text-[var(--fg-faint)]">{preset.sourceScopeNote}</p>
                         ) : null}

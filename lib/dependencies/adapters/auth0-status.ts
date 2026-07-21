@@ -18,9 +18,19 @@ import { z } from "zod";
 
 import type { DependencySourceManifest } from "../manifest";
 import type { NormalizedProviderSnapshot } from "../types";
+import { scopeFromComponentIds } from "../types";
 
-import type { AdapterDocument, AdapterRequestDescriptor, DependencyAdapter, NormalizeInput } from "./index";
-import { AdapterParseError, documentsOfKind, latestTimestamp, requireIsoTimestamp, requireProviderIncidentState } from "./shared";
+import type { AdapterDocument, AdapterRequestDescriptor, CatalogDirectoryInput, DependencyAdapter, NormalizeInput } from "./index";
+import { catalogDirectoryFromNormalize } from "./shared";
+import {
+  AdapterParseError,
+  documentsOfKind,
+  isTerminalIncidentState,
+  latestTimestamp,
+  requireIsoTimestamp,
+  requireProviderIncidentState,
+  terminalResolvedAt,
+} from "./shared";
 
 type ComponentState = "OPERATIONAL" | "DEGRADED" | "OUTAGE" | "MAINTENANCE";
 
@@ -151,6 +161,10 @@ export const auth0StatusAdapter: DependencyAdapter = {
     return [{ kind: "current", url: source.currentUrl, optional: false, mode: "text" }];
   },
 
+  catalogDirectory(input: CatalogDirectoryInput) {
+    return catalogDirectoryFromNormalize(auth0StatusAdapter, input);
+  },
+
   normalize(input: NormalizeInput): NormalizedProviderSnapshot {
     const { source, documents, observedAt } = input;
     const sourceId = source.id;
@@ -183,9 +197,15 @@ export const auth0StatusAdapter: DependencyAdapter = {
         // nor color the public component state.
         if (incident.isPrivate) continue;
 
-        const contribution = incidentComponentState(incident);
-        if (STATE_SEVERITY[contribution] > STATE_SEVERITY[state]) state = contribution;
+        // Map provider state before region severity so a terminal entry
+        // (resolved, completed, false_alarm, postmortem→resolved) never
+        // colors an active component. Postmortem folds to resolved first.
+        const mappedState = mapIncidentStatus(incident.status, sourceId);
         regionUpdatedAt = latestTimestamp([regionUpdatedAt, incident.updated_at]);
+        if (!isTerminalIncidentState(mappedState)) {
+          const contribution = incidentComponentState(incident);
+          if (STATE_SEVERITY[contribution] > STATE_SEVERITY[state]) state = contribution;
+        }
 
         const bucket = isMaintenance(incident) ? maintenancesById : incidentsById;
         const existing = bucket.get(incident.id);
@@ -213,24 +233,35 @@ export const auth0StatusAdapter: DependencyAdapter = {
       const { incident } = entry;
       const state = mapIncidentStatus(incident.status, sourceId);
       const updatedAt = requireIsoTimestamp(incident.updated_at, sourceId, "incident.updated_at");
+      const startedAt = requireIsoTimestamp(incidentStartedAt(incident), sourceId, "incident.startedAt");
+      const explicitResolvedAt = incident.resolved_at
+        ? requireIsoTimestamp(incident.resolved_at, sourceId, "incident.resolved_at")
+        : null;
       return {
         externalId: incident.id,
         title: incident.name,
         state,
         impact: incident.impact,
-        startedAt: requireIsoTimestamp(incidentStartedAt(incident), sourceId, "incident.startedAt"),
-        resolvedAt: incident.resolved_at ? requireIsoTimestamp(incident.resolved_at, sourceId, "incident.resolved_at") : null,
+        startedAt,
+        resolvedAt: terminalResolvedAt({
+          state,
+          startedAt,
+          explicitResolvedAt,
+          providerUpdatedAt: updatedAt,
+        }),
         updatedAt,
         canonicalUrl: null,
-        componentIds: entry.regions,
+        scope: scopeFromComponentIds(entry.regions),
         // The active payload carries no update history, so a single synthetic
         // update surfaces the structured authenticationAffected and impact
         // fields that the flat incident record has no dedicated slot for.
+        // createdAt is the stable incident start; updatedAt tracks the latest
+        // provider timestamp so mutable upserts advance correctly.
         updates: [{
           externalId: `${incident.id}:active`,
           state,
           bodyText: `Authentication affected: ${entry.authenticationAffected ? "yes" : "no"}. Impact: ${incident.impact}.`,
-          createdAt: updatedAt,
+          createdAt: startedAt,
           updatedAt,
         }],
       };

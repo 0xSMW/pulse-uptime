@@ -63,6 +63,24 @@ describe("DigitalOcean preset component selection against the live feed", () => 
     expect(snapshot.components["d2m7jh32j7z1"]).toBeDefined();
   });
 
+  it("builds a complete catalog directory with childrenByParent for Droplets and Managed Databases", () => {
+    const directory = statuspageV2Adapter.catalogDirectory({
+      source,
+      documents: [currentDoc(operational)],
+    });
+    expect(directory.complete).toBe(true);
+    expect(directory.componentIds.has("4rgs7bbljl8d")).toBe(true);
+    expect(directory.componentIds.has("kl8qv98c9brp")).toBe(true);
+
+    const dropletChildren = directory.childrenByParent.get("4rgs7bbljl8d") ?? [];
+    const databaseChildren = directory.childrenByParent.get("kl8qv98c9brp") ?? [];
+    expect(dropletChildren.map((child) => child.id)).toContain("kkg2cfkqkwj1");
+    expect(dropletChildren.find((child) => child.id === "kkg2cfkqkwj1")?.label).toBe("FRA1");
+    expect(databaseChildren.map((child) => child.id)).toContain("d2m7jh32j7z1");
+    expect(dropletChildren.length).toBeGreaterThan(1);
+    expect(databaseChildren.length).toBeGreaterThan(1);
+  });
+
   it("maps a degraded group rollup onto DEGRADED", () => {
     const degraded = JSON.parse(JSON.stringify(operational));
     const droplets = degraded.components.find((component: { id: string }) => component.id === "4rgs7bbljl8d");

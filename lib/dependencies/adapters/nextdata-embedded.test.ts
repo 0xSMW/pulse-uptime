@@ -102,7 +102,7 @@ describe("nextdataEmbeddedAdapter.normalize operational", () => {
     const incident = snapshot.incidents[0];
     expect(incident.state).toBe("resolved");
     expect(incident.resolvedAt).toBe("2026-07-10T09:30:00+00:00");
-    expect(incident.componentIds).toEqual(["91"]);
+    expect(incident.scope).toEqual({ kind: "components", componentIds: ["91"] });
     expect(incident.canonicalUrl).toBe("https://status.hetzner.com/");
     expect(incident.updates.map((update) => update.state)).toEqual(["in_progress", "resolved"]);
   });
@@ -129,15 +129,49 @@ describe("nextdataEmbeddedAdapter.normalize active incident", () => {
   });
 
   it("maps a plain Hetzner update note onto monitoring", () => {
-    const outage = snapshot.incidents.find((incident) => incident.componentIds.includes("91"))!;
+    const outage = snapshot.incidents.find((incident) =>
+      incident.scope.kind === "components" && incident.scope.componentIds.includes("91"),
+    )!;
     expect(outage.state).toBe("in_progress");
     expect(outage.updates.map((update) => update.state)).toEqual(["identified", "monitoring"]);
   });
 
   it("keeps the maintenance-type item out of incidents and in maintenances", () => {
-    expect(snapshot.incidents.every((incident) => !incident.componentIds.includes("36"))).toBe(true);
+    expect(snapshot.incidents.every((incident) =>
+      !(incident.scope.kind === "components" && incident.scope.componentIds.includes("36")),
+    )).toBe(true);
     const maintenance = snapshot.maintenances.find((entry) => entry.componentIds.includes("36"))!;
     expect(maintenance.state).toBe("in_progress");
+  });
+});
+
+describe("nextdataEmbeddedAdapter.normalize terminal resolution", () => {
+  it("sets resolvedAt from endTime for a resolved history item", () => {
+    const snapshot = normalize(readFixture("operational.html"));
+    const incident = snapshot.incidents[0];
+    expect(incident.state).toBe("resolved");
+    expect(incident.resolvedAt).toBe("2026-07-10T09:30:00+00:00");
+    expect(incident.startedAt).toBe("2026-07-10T08:00:00+00:00");
+  });
+
+  it("keeps an active outage unresolved even when timestamps are present", () => {
+    const snapshot = normalize(readFixture("active-incident.html"));
+    const outage = snapshot.incidents.find((entry) =>
+      entry.scope.kind === "components" && entry.scope.componentIds.includes("91"),
+    )!;
+    expect(outage.state).toBe("in_progress");
+    expect(outage.resolvedAt).toBeNull();
+  });
+
+  it("falls back to updatedAt when a terminal item has no endTime", () => {
+    const html = readFixture("operational.html").replace(
+      '"endTime":"2026-07-10T09:30:00+00:00"',
+      '"endTime":null',
+    );
+    const snapshot = normalize(html);
+    const incident = snapshot.incidents[0];
+    expect(incident.state).toBe("resolved");
+    expect(incident.resolvedAt).toBe("2026-07-10T09:30:00+00:00");
   });
 });
 

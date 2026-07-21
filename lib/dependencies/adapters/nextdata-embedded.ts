@@ -12,14 +12,17 @@ import { z } from "zod";
 
 import type { DependencySourceManifest } from "../manifest";
 import type { NormalizedProviderSnapshot } from "../types";
+import { scopeFromComponentIds } from "../types";
 
-import type { AdapterDocument, AdapterRequestDescriptor, DependencyAdapter, NormalizeInput } from "./index";
+import type { AdapterDocument, AdapterRequestDescriptor, CatalogDirectoryInput, DependencyAdapter, NormalizeInput } from "./index";
+import { catalogDirectoryFromNormalize } from "./shared";
 import {
   AdapterParseError,
   documentsOfKind,
   isProviderIncidentState,
   latestTimestamp,
   requireIsoTimestamp,
+  terminalResolvedAt,
   toBoundedPlainText,
 } from "./shared";
 
@@ -201,6 +204,10 @@ export const nextdataEmbeddedAdapter: DependencyAdapter = {
     return [{ kind: "current", url: source.currentUrl, optional: false, mode: "text" }];
   },
 
+  catalogDirectory(input: CatalogDirectoryInput) {
+    return catalogDirectoryFromNormalize(nextdataEmbeddedAdapter, input);
+  },
+
   normalize(input: NormalizeInput): NormalizedProviderSnapshot {
     const { source, documents, observedAt } = input;
     const html = requireText(documentsOfKind(documents, "current")[0], source.id);
@@ -307,10 +314,19 @@ function mapIncident(
 ): NormalizedProviderSnapshot["incidents"][number] {
   const sourceId = source.id;
   const title = firstNonEmpty(item.titleEn, item.titleDe) ?? `Hetzner ${item.incidentType} notice`;
+  // Compute started/updated once so terminal resolution ordering reuses the
+  // same anchors the rest of the row stores.
   const startedAt = requireIsoTimestamp(item.startTime ?? item.createdAt, sourceId, "incident.startTime");
-  const resolvedAt = mappedState === "resolved" && item.endTime
-    ? requireIsoTimestamp(item.endTime, sourceId, "incident.endTime")
-    : null;
+  const updatedAt = requireIsoTimestamp(item.updatedAt, sourceId, "incident.updatedAt");
+  const explicitEnd = item.endTime ? requireIsoTimestamp(item.endTime, sourceId, "incident.endTime") : null;
+  // Terminal states close via endTime, falling back to updatedAt, always at or
+  // after startedAt. Active states stay unresolved even when endTime is set.
+  const resolvedAt = terminalResolvedAt({
+    state: mappedState,
+    startedAt,
+    explicitResolvedAt: explicitEnd,
+    providerUpdatedAt: updatedAt,
+  });
   return {
     externalId: String(item.id),
     title,
@@ -318,12 +334,13 @@ function mapIncident(
     impact: null,
     startedAt,
     resolvedAt,
-    updatedAt: requireIsoTimestamp(item.updatedAt, sourceId, "incident.updatedAt"),
+    updatedAt,
     // Hetzner has no working per-incident permalink (the /incidents/{id} route
     // 404s), so the canonical link is the status page itself, which lists the
     // active incident inline and stays on an allowed host.
     canonicalUrl: source.statusPageUrl,
-    componentIds: systemId ? [systemId] : [],
+    // systemId absent means the incident has no component relation to match.
+    scope: scopeFromComponentIds(systemId ? [systemId] : []),
     updates: item.incidentUpdates.map((update) => ({
       externalId: String(update.id),
       state: mapIncidentState(update.incidentState, sourceId),

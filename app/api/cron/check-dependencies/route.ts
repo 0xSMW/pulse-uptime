@@ -1,8 +1,9 @@
+import { runDependencyCron } from "@/lib/dependencies/runtime";
+import { getPulseReleaseId } from "@/lib/release/id";
 import {
   CRON_RESPONSE_HEADERS,
   isAuthorizedCronRequest,
 } from "@/lib/scheduler/authentication";
-import { runDependencyCron } from "@/lib/dependencies/runtime";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,12 +17,18 @@ export async function GET(request: Request): Promise<Response> {
     });
   }
   const startedAt = Date.now();
-  console.info(JSON.stringify({ event: "cron.started", jobName: "check-dependencies" }));
+  const releaseId = getPulseReleaseId();
+  console.info(JSON.stringify({
+    event: "cron.started",
+    jobName: "check-dependencies",
+    releaseId,
+  }));
   const result = await runDependencyCron();
   const failed = result.status === "failed";
   console[failed ? "error" : "info"](JSON.stringify({
     event: failed ? "cron.failed" : "cron.completed",
     jobName: "check-dependencies",
+    releaseId,
     status: result.status,
     ...(result.status === "failed" ? { errorCode: result.error } : {}),
     ...(result.status !== "lease-held" ? { runId: result.runId } : {}),

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogVersion": "2026-07-20.2",
+  "catalogVersion": "2026-07-20.3",
   "sources": [
     {
       "id": "openai",
@@ -53,7 +53,7 @@
       "activePollSeconds": 120,
       "staleAfterSeconds": 900,
       "fidelity": "incident_only",
-      "config": {}
+      "config": { "incidentInventory": "active_only" }
     },
     {
       "id": "vercel",
@@ -240,7 +240,7 @@
       "activePollSeconds": 120,
       "staleAfterSeconds": 900,
       "fidelity": "incident_only",
-      "config": {}
+      "config": { "incidentInventory": "rolling_history" }
     },
     {
       "id": "twilio",

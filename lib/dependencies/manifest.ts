@@ -153,6 +153,22 @@ function validateManifestInvariants(
         });
       }
     }
+
+    // incident_feed sources must declare how their inventory works so the
+    // adapter can set incidentsComplete honestly. active_only means a
+    // successful snapshot lists every open incident (absence closes).
+    // rolling_history means the feed is a window that can drop a still-open
+    // incident, so absence is never resolution.
+    if (source.adapter === "incident_feed") {
+      const inventory = source.config.incidentInventory;
+      if (inventory !== "active_only" && inventory !== "rolling_history") {
+        context.addIssue({
+          code: "custom",
+          message: 'config.incidentInventory is required for incident_feed and must be "active_only" or "rolling_history"',
+          path: ["sources", index, "config", "incidentInventory"],
+        });
+      }
+    }
   });
 
   const presetIds = new Set<string>();

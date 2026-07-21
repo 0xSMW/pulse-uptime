@@ -7,9 +7,16 @@
 import { z } from "zod";
 
 import type { DependencySourceManifest } from "../manifest";
-import type { NormalizedProviderSnapshot } from "../types";
+import type { CatalogComponentDirectory, CatalogDirectoryOption, NormalizedProviderSnapshot } from "../types";
+import { scopeFromComponentIds } from "../types";
 
-import type { AdapterDocument, AdapterRequestDescriptor, DependencyAdapter, NormalizeInput } from "./index";
+import type {
+  AdapterDocument,
+  AdapterRequestDescriptor,
+  CatalogDirectoryInput,
+  DependencyAdapter,
+  NormalizeInput,
+} from "./index";
 import { AdapterParseError, documentsOfKind, latestTimestamp, requireIsoTimestamp, requireJson, requireProviderIncidentState, toBoundedPlainText } from "./shared";
 
 const componentSchema = z.object({
@@ -17,6 +24,11 @@ const componentSchema = z.object({
   name: z.string().min(1),
   status: z.string(),
   updated_at: z.string().nullable().optional(),
+  // Group membership retained for catalog directory discovery. Poll normalize
+  // ignores these fields. group is true on the parent rollup component.
+  group: z.boolean().optional(),
+  group_id: z.string().min(1).nullable().optional(),
+  components: z.array(z.string().min(1)).optional(),
 });
 
 const incidentUpdateSchema = z.object({
@@ -130,7 +142,7 @@ function mapIncident(incident: Incident, source: { id: string; statusPageUrl: st
     resolvedAt: incident.resolved_at ? requireIsoTimestamp(incident.resolved_at, sourceId, "incident.resolved_at") : null,
     updatedAt: requireIsoTimestamp(incident.updated_at, sourceId, "incident.updated_at"),
     canonicalUrl: incidentPermalink(source.statusPageUrl, incident.id),
-    componentIds: incident.components.map((component) => component.id),
+    scope: scopeFromComponentIds(incident.components.map((component) => component.id)),
     updates: incident.incident_updates.map((update) => ({
       externalId: update.id,
       state: requireProviderIncidentState(normalizeIncidentOrMaintenanceStatus(update.status), sourceId),
@@ -163,6 +175,63 @@ function findDocument(documents: AdapterDocument[], kind: "current" | "incidents
   return documentsOfKind(documents, kind)[0];
 }
 
+/**
+ * Builds childrenByParent from Statuspage summary components. Children are
+ * components that declare group_id, keyed by that parent. A group's own
+ * `components` membership list is retained only as metadata when present.
+ */
+export function statuspageCatalogDirectory(summaryComponents: ReadonlyArray<{
+  id: string;
+  name: string;
+  group?: boolean;
+  group_id?: string | null;
+  components?: string[];
+}>): CatalogComponentDirectory {
+  const componentIds = new Set<string>();
+  const childrenByParent = new Map<string, CatalogDirectoryOption[]>();
+  const membershipByParent = new Map<string, string[]>();
+
+  for (const component of summaryComponents) {
+    componentIds.add(component.id);
+    if (component.group && component.components) {
+      membershipByParent.set(component.id, [...component.components]);
+    }
+    if (component.group_id) {
+      const list = childrenByParent.get(component.group_id) ?? [];
+      list.push({
+        id: component.id,
+        label: component.name,
+        metadata: { groupId: component.group_id },
+      });
+      childrenByParent.set(component.group_id, list);
+    }
+  }
+
+  // Prefer group_id edges. When a parent lists members but no child carried
+  // group_id (unusual Statuspage shape), fall back to membership ids with
+  // labels resolved from the component map.
+  const labelById = new Map(summaryComponents.map((component) => [component.id, component.name]));
+  for (const [parentId, memberIds] of membershipByParent) {
+    if (childrenByParent.has(parentId)) continue;
+    childrenByParent.set(
+      parentId,
+      memberIds.map((id) => ({
+        id,
+        label: labelById.get(id) ?? id,
+        metadata: { groupId: parentId, fromMembership: true },
+      })),
+    );
+  }
+
+  return {
+    componentIds,
+    childrenByParent,
+    locationsByProduct: new Map(),
+    complete: true,
+    tracksComponents: true,
+  };
+}
+
 export const statuspageV2Adapter: DependencyAdapter = {
   requests(source: DependencySourceManifest): AdapterRequestDescriptor[] {
     const requests: AdapterRequestDescriptor[] = [{ kind: "current", url: source.currentUrl, optional: false }];
@@ -177,6 +246,17 @@ export const statuspageV2Adapter: DependencyAdapter = {
       optional: true,
     });
     return requests;
+  },
+
+  catalogDirectory(input: CatalogDirectoryInput): CatalogComponentDirectory {
+    const currentDocument = findDocument(input.documents, "current");
+    const summary = parseJson(
+      summaryDocSchema,
+      requireJson(currentDocument, input.source.id, "summary"),
+      input.source.id,
+      "summary.json",
+    );
+    return statuspageCatalogDirectory(summary.components);
   },
 
   normalize(input: NormalizeInput): NormalizedProviderSnapshot {

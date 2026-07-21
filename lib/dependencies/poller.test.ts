@@ -435,6 +435,104 @@ describe("pollDueSources orchestration", () => {
     }
   });
 
+  it("skips an optional incident document whose body stream times out and still yields a snapshot from the required summary", async () => {
+    // A body-stream UND_ERR_BODY_TIMEOUT surfaces as ProviderFetchError TIMEOUT
+    // with stage body. On an optional document the poller skips it and continues
+    // with the required summary, matching production optional-document fallback.
+    const persist = vi.fn();
+    const row = sourceRow();
+    const fetchDocument = vi.fn(async (source: PollerSourceRow, request: { url: string }) => {
+      if (request.url === anthropicManifestSource.incidentsUrl) {
+        throw new ProviderFetchError("TIMEOUT", "anthropic: response body timed out", null, null, {
+          sourceId: "anthropic",
+          documentKind: "incidents",
+          url: request.url,
+          stage: "body",
+        });
+      }
+      return anthropicFetchDocument(anthropicOperational)(source, request);
+    });
+    const result = await pollDueSources({
+      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      fetchDocument,
+      persist,
+      now: () => NOW,
+    });
+    expect(result).toEqual({ sourcesDue: 1, polled: 1, notModified: 0, failed: 0 });
+    const [outcome] = persist.mock.calls[0] as [PollOutcome];
+    expect(outcome.kind).toBe("snapshot");
+    if (outcome.kind === "snapshot") {
+      expect(outcome.snapshot.components["k8w3r06qmzrp"].state).toBe("OPERATIONAL");
+    }
+  });
+
+  it("fails the whole source with TIMEOUT when a required document's body stream times out", async () => {
+    const persist = vi.fn();
+    const row = sourceRow();
+    const fetchDocument = vi.fn(async (_source: PollerSourceRow, request: { url: string }) => {
+      if (request.url === anthropicManifestSource.currentUrl) {
+        throw new ProviderFetchError("TIMEOUT", "anthropic: response body timed out", null, null, {
+          sourceId: "anthropic",
+          documentKind: "current",
+          url: request.url,
+          stage: "body",
+        });
+      }
+      throw new Error(`unexpected url ${request.url}`);
+    });
+    const result = await pollDueSources({
+      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      fetchDocument,
+      persist,
+      now: () => NOW,
+    });
+    expect(result).toEqual({ sourcesDue: 1, polled: 0, notModified: 0, failed: 1 });
+    const [outcome] = persist.mock.calls[0] as [PollOutcome];
+    expect(outcome.kind).toBe("failure");
+    if (outcome.kind === "failure") {
+      expect(outcome.error).toBeInstanceOf(ProviderFetchError);
+      expect((outcome.error as ProviderFetchError).code).toBe("TIMEOUT");
+      expect((outcome.error as ProviderFetchError).stage).toBe("body");
+    }
+  });
+
+  it("fails the poll on a truncated RSS item so prior incident state is preserved", async () => {
+    // A truncated trailing <item> is MALFORMED. The incident_feed adapter turns
+    // that into AdapterParseError, and the poller records failure rather than
+    // normalizing a partial item list that would look like a clean resolution.
+    const openrouterSource = manifest.sources.find((source) => source.id === "openrouter")!;
+    const row = rowFromManifest(openrouterSource);
+    const truncated = `<?xml version="1.0"?>
+<rss version="2.0"><channel>
+  <item>
+    <title>Active outage</title>
+    <guid>incident-active</guid>
+    <description>IDENTIFIED - investigating</description>
+  </item>
+  <item>
+    <title>Truncated later item
+</channel></rss>`;
+    const persist = vi.fn();
+    const fetchDocument = vi.fn(async () => ({
+      status: "ok" as const,
+      statusCode: 200,
+      text: truncated,
+      etag: null,
+      lastModified: null,
+    }));
+    const result = await pollDueSources({
+      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      fetchDocument,
+      persist,
+      now: () => NOW,
+    });
+    expect(result).toEqual({ sourcesDue: 1, polled: 0, notModified: 0, failed: 1 });
+    const [outcome] = persist.mock.calls[0] as [PollOutcome];
+    expect(outcome.kind).toBe("failure");
+    // Failure outcome means persist does not apply a snapshot, so prior incident
+    // rows stay as they were for this source.
+  });
+
   it("bounds a feed that paginates without end, failing the source with a recorded budget code", async () => {
     const componentsUrl = postmarkManifestSource.config.componentsUrl as string;
     const postmarkRow = rowFromManifest(postmarkManifestSource);
