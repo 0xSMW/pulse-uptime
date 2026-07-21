@@ -157,6 +157,9 @@ describe("queryExecutor", () => {
   })
 
   it("clamps non-positive statement_timeout to 1 ms", async () => {
+    // Fake timers keep the 1 ms wall clock deadline from expiring mid test
+    // on a slow runner, the clamp is observable without racing it.
+    vi.useFakeTimers()
     reservedUnsafe.mockResolvedValue([])
 
     await queryExecutor.withStatementTimeout(0, async (query) => {
