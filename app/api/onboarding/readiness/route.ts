@@ -3,7 +3,7 @@ import { NextResponse } from "next/server"
 import { enforceRateLimit, sourceIpKey } from "@/lib/api/rate-limit"
 import { abortSignalForDeadline } from "@/lib/async/deadline"
 import { hasAdministrator } from "@/lib/auth/service"
-import { getCurrentSession } from "@/lib/auth/session"
+import { authenticateCurrentSession } from "@/lib/auth/session"
 import {
   getOnboardingReadiness,
   ONBOARDING_READINESS_TIMEOUT_MS,
@@ -22,7 +22,7 @@ export async function GET(request: Request) {
   // onboarding may drive it — anonymous callers are switched off, which removes the
   // unauthenticated post-bootstrap side-effect path while keeping the onboarding flow
   // (which can navigate back to this step after the account is created) working.
-  if ((await hasAdministrator()) && !(await getCurrentSession())) {
+  if ((await hasAdministrator()) && !(await authenticateCurrentSession())) {
     return NextResponse.json(
       { error: "Onboarding is already complete" },
       { status: 410, headers: { "Cache-Control": "no-store" } }

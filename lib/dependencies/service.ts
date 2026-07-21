@@ -18,7 +18,7 @@ import {
 import { backfillResolvedIncidentMatches } from "./persist"
 import {
   listDependenciesForDashboard,
-  getDependencyDetail as queryDependencyDetail,
+  findDependencyDetail as queryDependencyDetail,
   listCatalog as queryListCatalog,
 } from "./queries"
 import type { DependencyScope, DependencyState } from "./types"

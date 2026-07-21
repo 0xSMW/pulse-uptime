@@ -338,7 +338,7 @@ export interface DependencyDetail {
 // Accepts a handle so a caller inside a transaction (addDependency) can read
 // its own uncommitted insert back on the same connection, instead of a pooled
 // connection that would not see it yet under READ COMMITTED.
-export async function getDependencyDetail(
+export async function findDependencyDetail(
   id: string,
   handle: DatabaseHandle = db
 ): Promise<DependencyDetail | null> {

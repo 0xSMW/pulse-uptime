@@ -9,7 +9,7 @@ import {
 const validValues: MonitorEditValues = {
   name: "Public API",
   url: "https://api.example.com/health",
-  group: "Core",
+  groupId: null,
   method: "GET",
   intervalMinutes: "1",
   timeoutMs: "8000",
@@ -61,7 +61,7 @@ describe("validateMonitorEdit", () => {
   it("identifies errors hidden inside advanced settings", () => {
     expect(
       hasAdvancedMonitorEditErrors({
-        recipients: "Enter one valid email per line",
+        recipients: "Enter valid email addresses",
       })
     ).toBe(true)
     expect(

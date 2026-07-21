@@ -7,7 +7,7 @@ vi.mock("@/lib/api/middleware", () => ({
   isApiResponse: (value: unknown) => value instanceof Response,
 }))
 vi.mock("@/lib/auth/session", () => ({
-  getCurrentSession: vi.fn(),
+  authenticateCurrentSession: vi.fn(),
   expiredSessionCookie: vi.fn(() => ({
     name: "__Host-pulse_session",
     value: "",
@@ -25,7 +25,10 @@ vi.mock("@/lib/api/account", async (importOriginal) => ({
 
 import { AccountServiceError, changeAccountPassword } from "@/lib/api/account"
 import { type ApiContext, authorize } from "@/lib/api/middleware"
-import { expiredSessionCookie, getCurrentSession } from "@/lib/auth/session"
+import {
+  authenticateCurrentSession,
+  expiredSessionCookie,
+} from "@/lib/auth/session"
 
 import { POST } from "./route"
 
@@ -59,7 +62,7 @@ function passwordRequest(body: unknown) {
 
 beforeEach(() => {
   vi.mocked(authorize).mockResolvedValue(humanContext)
-  vi.mocked(getCurrentSession).mockResolvedValue(session)
+  vi.mocked(authenticateCurrentSession).mockResolvedValue(session)
   vi.mocked(changeAccountPassword).mockReset()
 })
 

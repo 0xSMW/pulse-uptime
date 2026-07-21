@@ -33,7 +33,7 @@ export interface IncidentEvent {
 
 /**
  * Neutral timing context from an installed dependency's provider incident,
- * per Docs/DEPENDENCY-MONITORING.md "Incident correlation". Timing and
+ * per Docs/Specs/DEPENDENCY-MONITORING.md "Incident correlation". Timing and
  * source only, never a causal claim.
  */
 export interface DependencyIncidentOverlap {

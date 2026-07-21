@@ -7,9 +7,9 @@ import {
   timezoneOffsetLabel,
 } from "@/lib/status-page/display"
 import {
+  REPORT_STATUS_LABELS,
   type ReportUpdateStatus,
-  reportStatusLabels,
-} from "@/lib/status-page/reports-display"
+} from "@/lib/status-reports/domain"
 
 import { loadPublicReportUpdates } from "./load-public-report-updates"
 
@@ -79,7 +79,7 @@ export function PublicReportUpdates({
             />
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
               <h3 className="font-semibold text-[13px]">
-                {reportStatusLabels[update.status]}
+                {REPORT_STATUS_LABELS[update.status]}
               </h3>
               <time
                 className="font-data text-[var(--fg-faint)] text-xs"

@@ -275,11 +275,11 @@ export function createConfigurationService(
           currentConfig.configVersion + 1
         )
         const now = new Date()
-        if (plan.destructiveApprovalRequired) {
+        if (plan.tripwireApprovalRequired) {
           await tx.insertApproval({
             id: crypto.randomUUID(),
             targetConfigHash: plan.targetConfigHash,
-            action: "bulk_archive",
+            action: "destructive_config_change",
             createdByPrincipal: input.principalKey,
             createdAt: now,
             expiresAt: new Date(now.getTime() + 10 * 60_000),

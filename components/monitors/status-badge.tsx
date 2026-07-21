@@ -1,16 +1,16 @@
 import {
-  type MonitorState,
   StatusDot,
   stateLabels,
+  type VisibleMonitorState,
 } from "@/components/monitors/status-dot"
 import { cn } from "@/lib/utils"
 
-interface StatusBadgeProps {
-  state: MonitorState
+export interface StatusBadgeProps {
+  state: VisibleMonitorState
   className?: string
 }
 
-const badgeStyles: Record<MonitorState, string> = {
+const badgeStyles: Record<VisibleMonitorState, string> = {
   UP: "bg-[var(--up-bg)] text-[var(--up-text)]",
   VERIFYING_DOWN: "bg-[var(--verifying-bg)] text-[var(--verifying-text)]",
   VERIFYING_UP: "bg-[var(--verifying-bg)] text-[var(--verifying-text)]",

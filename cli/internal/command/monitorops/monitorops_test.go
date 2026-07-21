@@ -247,13 +247,13 @@ func TestGetRendersRuntimeState(t *testing.T) {
 	}
 }
 
-func TestDeleteRequiresYesWhenNoninteractive(t *testing.T) {
+func TestArchiveRequiresYesWhenNoninteractive(t *testing.T) {
 	called := false
 	d := Dependencies{Client: clientFunc(func(context.Context, Request) error { called = true; return nil }), Format: func() string { return "json" }, NewID: func() (string, error) { return "key", nil }}
 	cmd := NewGroup(d)
 	cmd.SilenceErrors = true
 	cmd.SilenceUsage = true
-	cmd.SetArgs([]string{"delete", "api"})
+	cmd.SetArgs([]string{"archive", "api"})
 	err := cmd.Execute()
 	var ce *Error
 	if !errors.As(err, &ce) || ce.Exit != ExitInvalidInput {
@@ -261,6 +261,24 @@ func TestDeleteRequiresYesWhenNoninteractive(t *testing.T) {
 	}
 	if called {
 		t.Fatal("API called")
+	}
+}
+
+func TestArchiveIsCanonicalAndDeleteIsHiddenDeprecatedAlias(t *testing.T) {
+	cmd := NewGroup(Dependencies{})
+	archive, _, err := cmd.Find([]string{"archive"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleteAlias, _, err := cmd.Find([]string{"delete"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archive.Hidden || archive.Deprecated != "" {
+		t.Fatalf("archive metadata = hidden:%v deprecated:%q", archive.Hidden, archive.Deprecated)
+	}
+	if !deleteAlias.Hidden || deleteAlias.Deprecated == "" {
+		t.Fatalf("delete metadata = hidden:%v deprecated:%q", deleteAlias.Hidden, deleteAlias.Deprecated)
 	}
 }
 

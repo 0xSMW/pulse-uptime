@@ -2,7 +2,7 @@ import { apiError } from "@/lib/api/envelopes"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
 import { routeError, success } from "@/lib/api/route"
 import { hasScope } from "@/lib/api/scopes"
-import { getMonitorLive } from "@/lib/reporting/queries/monitors"
+import { findMonitorLive } from "@/lib/reporting/queries/monitors"
 
 // Live summary for the open monitor page. The dashboard session resolves as a
 // human principal through authorize, the same path the other monitor reads use.
@@ -18,7 +18,7 @@ export async function GET(
   }
   try {
     const includeIncidents = hasScope(context.principal, "incidents:read")
-    const live = await getMonitorLive((await params).monitorId, {
+    const live = await findMonitorLive((await params).monitorId, {
       includeIncidents,
     })
     if (!live) {

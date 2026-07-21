@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { parseMonitorRecipients } from "@/lib/monitoring/recipients"
+
 import {
   hasAdvancedMonitorFormErrors,
   isPublicMonitorUrl,
   type MonitorFormValues,
   monitorSheetActionLabels,
-  parseRecipients,
   validateMonitorForm,
 } from "./monitor-sheet"
 import {
@@ -70,7 +71,7 @@ describe("Settings form helpers", () => {
 
   it("parses newline and comma separated recipients", () => {
     expect(
-      parseRecipients("a@example.com\nb@example.com, c@example.com")
+      parseMonitorRecipients("a@example.com\nb@example.com, c@example.com")
     ).toEqual(["a@example.com", "b@example.com", "c@example.com"])
   })
 

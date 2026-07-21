@@ -17,7 +17,10 @@
 import { z } from "zod"
 
 import type { DependencySourceManifest } from "../manifest"
-import type { NormalizedProviderSnapshot } from "../types"
+import type {
+  NormalizedProviderSnapshot,
+  ProviderComponentState,
+} from "../types"
 import { scopeFromComponentIds } from "../types"
 
 import type {
@@ -37,8 +40,6 @@ import {
   requireProviderIncidentState,
   terminalResolvedAt,
 } from "./shared"
-
-type ComponentState = "OPERATIONAL" | "DEGRADED" | "OUTAGE" | "MAINTENANCE"
 
 const incidentSchema = z
   .object({
@@ -84,7 +85,7 @@ type Auth0Incident = z.infer<typeof incidentSchema>
 
 // worst_of ordering per the selector contract: OUTAGE beats DEGRADED beats
 // MAINTENANCE beats OPERATIONAL.
-const STATE_SEVERITY: Record<ComponentState, number> = {
+const STATE_SEVERITY: Record<ProviderComponentState, number> = {
   OPERATIONAL: 0,
   MAINTENANCE: 1,
   DEGRADED: 2,
@@ -116,7 +117,9 @@ function isMaintenance(incident: Auth0Incident): boolean {
 // severity for unplanned incidents. An active incident with an unrecognized or
 // "none" impact still reads as DEGRADED rather than operational, so an
 // in-progress incident is never shown green.
-function incidentComponentState(incident: Auth0Incident): ComponentState {
+function incidentComponentState(
+  incident: Auth0Incident
+): ProviderComponentState {
   if (isMaintenance(incident)) {
     return "MAINTENANCE"
   }
@@ -235,7 +238,7 @@ export const auth0StatusAdapter: DependencyAdapter = {
     const allUpdatedAts: string[] = []
 
     for (const region of regions) {
-      let state: ComponentState = "OPERATIONAL"
+      let state: ProviderComponentState = "OPERATIONAL"
       let regionUpdatedAt: string | null = null
 
       for (const incident of region.response.incidents) {

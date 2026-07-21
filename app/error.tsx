@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from "react"
 
-import { type MonitorState, StatusDot } from "@/components/monitors/status-dot"
+import {
+  StatusDot,
+  type VisibleMonitorState,
+} from "@/components/monitors/status-dot"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 
@@ -31,7 +34,7 @@ const COPY: Record<Diagnosis, { title: string; body: string }> = {
   },
 }
 
-const DOT_STATE: Record<Diagnosis, MonitorState> = {
+const DOT_STATE: Record<Diagnosis, VisibleMonitorState> = {
   checking: "VERIFYING_DOWN",
   offline: "PENDING",
   server: "DOWN",

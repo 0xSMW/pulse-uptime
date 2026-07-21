@@ -3,9 +3,10 @@
 import {
   approveDeviceAuthorization,
   denyDeviceAuthorization,
-  getPendingDeviceAuthorization,
+  expireStaleDeviceAuthorizations,
+  findPendingDeviceAuthorization,
 } from "@/lib/api/device-authorization"
-import { getCurrentSession } from "@/lib/auth/session"
+import { authenticateCurrentSession } from "@/lib/auth/session"
 import { parseUserCodeInput } from "@/lib/cli-authorization/user-code"
 
 export interface AuthorizationRequestView {
@@ -25,7 +26,7 @@ export type AuthorizationActionResult =
   | { ok: false; message: string; signedOut?: boolean }
 
 function presentRequest(
-  request: Awaited<ReturnType<typeof getPendingDeviceAuthorization>>
+  request: Awaited<ReturnType<typeof findPendingDeviceAuthorization>>
 ): AuthorizationRequestView | null {
   if (!request) {
     return null
@@ -50,13 +51,15 @@ export async function lookupAuthorization(
     return parsed
   }
 
-  const session = await getCurrentSession()
+  const session = await authenticateCurrentSession()
   if (!session) {
     return { ok: false, signedOut: true, message: "Sign in to continue" }
   }
 
+  const now = new Date()
+  await expireStaleDeviceAuthorizations(parsed.code, now)
   const request = presentRequest(
-    await getPendingDeviceAuthorization(parsed.code)
+    await findPendingDeviceAuthorization(parsed.code, now)
   )
   return request
     ? { ok: true, request }
@@ -66,7 +69,7 @@ export async function lookupAuthorization(
 export async function approveAuthorization(
   userCode: string
 ): Promise<AuthorizationActionResult> {
-  const session = await getCurrentSession()
+  const session = await authenticateCurrentSession()
   if (!session) {
     return { ok: false, signedOut: true, message: "Sign in to continue" }
   }
@@ -87,7 +90,7 @@ export async function approveAuthorization(
 export async function denyAuthorization(
   userCode: string
 ): Promise<AuthorizationActionResult> {
-  const session = await getCurrentSession()
+  const session = await authenticateCurrentSession()
   if (!session) {
     return { ok: false, signedOut: true, message: "Sign in to continue" }
   }

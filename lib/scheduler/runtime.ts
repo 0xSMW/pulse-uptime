@@ -45,7 +45,9 @@ async function readDesiredFromEdgeConfig(): Promise<unknown> {
   }
 }
 
-async function loadAcceptedConfiguration(now: Date): Promise<MonitoringConfig> {
+async function reconcileRuntimeConfiguration(
+  now: Date
+): Promise<MonitoringConfig> {
   const desired = await readDesiredFromEdgeConfig()
   return acceptDesiredConfiguration(desired, now)
 }
@@ -63,7 +65,7 @@ export async function runMonitoringCron() {
     runs: createSqlCronRunStore(queryExecutor),
     releaseId: requirePulseReleaseId(),
     async loadConfig(now) {
-      activeConfig = await loadAcceptedConfiguration(now)
+      activeConfig = await reconcileRuntimeConfiguration(now)
       const states = await db.select().from(monitorState)
       stateSnapshots = new Map(states.map((state) => [state.monitorId, state]))
       return activeConfig

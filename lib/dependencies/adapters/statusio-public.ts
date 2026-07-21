@@ -9,7 +9,10 @@
 import { z } from "zod"
 
 import type { DependencySourceManifest } from "../manifest"
-import type { NormalizedProviderSnapshot } from "../types"
+import type {
+  NormalizedProviderSnapshot,
+  ProviderComponentState,
+} from "../types"
 
 import type {
   AdapterRequestDescriptor,
@@ -48,10 +51,11 @@ const statusDocSchema = z
   })
   .strict()
 
-type ComponentState = "OPERATIONAL" | "DEGRADED" | "OUTAGE" | "MAINTENANCE"
-
 /** Status.io's complete public documented vocabulary. Anything else fails parsing so a drifted mapping never mislabels a component. */
-function mapStatusioStatus(status: string, sourceId: string): ComponentState {
+function mapStatusioStatus(
+  status: string,
+  sourceId: string
+): ProviderComponentState {
   switch (status) {
     case "Operational":
       return "OPERATIONAL"

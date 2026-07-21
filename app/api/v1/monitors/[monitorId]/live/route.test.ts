@@ -7,12 +7,12 @@ vi.mock("@/lib/api/middleware", () => ({
   isApiResponse: (value: unknown) => value instanceof Response,
 }))
 vi.mock("@/lib/reporting/queries/monitors", () => ({
-  getMonitorLive: vi.fn(),
+  findMonitorLive: vi.fn(),
 }))
 
 import { type ApiContext, authorize } from "@/lib/api/middleware"
 import type { ApiScope } from "@/lib/api/scopes"
-import { getMonitorLive } from "@/lib/reporting/queries/monitors"
+import { findMonitorLive } from "@/lib/reporting/queries/monitors"
 
 import { GET } from "./route"
 
@@ -64,7 +64,7 @@ function request() {
 
 beforeEach(() => {
   vi.mocked(authorize).mockReset()
-  vi.mocked(getMonitorLive).mockReset().mockResolvedValue(live)
+  vi.mocked(findMonitorLive).mockReset().mockResolvedValue(live)
 })
 
 describe("GET /api/v1/monitors/{monitorId}/live", () => {
@@ -72,7 +72,7 @@ describe("GET /api/v1/monitors/{monitorId}/live", () => {
     vi.mocked(authorize).mockResolvedValue(context(["monitors:read"]))
     const response = await GET(request(), params)
     expect(response.status).toBe(200)
-    expect(getMonitorLive).toHaveBeenCalledWith("site-home", {
+    expect(findMonitorLive).toHaveBeenCalledWith("site-home", {
       includeIncidents: false,
     })
   })
@@ -83,7 +83,7 @@ describe("GET /api/v1/monitors/{monitorId}/live", () => {
     )
     const response = await GET(request(), params)
     expect(response.status).toBe(200)
-    expect(getMonitorLive).toHaveBeenCalledWith("site-home", {
+    expect(findMonitorLive).toHaveBeenCalledWith("site-home", {
       includeIncidents: true,
     })
   })
@@ -92,14 +92,14 @@ describe("GET /api/v1/monitors/{monitorId}/live", () => {
     vi.mocked(authorize).mockResolvedValue(new Response(null, { status: 403 }))
     const response = await GET(request(), params)
     expect(response.status).toBe(403)
-    expect(getMonitorLive).not.toHaveBeenCalled()
+    expect(findMonitorLive).not.toHaveBeenCalled()
   })
 
   it("is 404 when the monitor does not exist", async () => {
     vi.mocked(authorize).mockResolvedValue(
       context(["monitors:read", "incidents:read"])
     )
-    vi.mocked(getMonitorLive).mockResolvedValue(null)
+    vi.mocked(findMonitorLive).mockResolvedValue(null)
     const response = await GET(request(), params)
     expect(response.status).toBe(404)
   })

@@ -41,7 +41,11 @@ export async function POST(request: Request) {
       }),
     })
     return apiJson(
-      objectEnvelope("CliSessionRevocation", result.body, context.requestId),
+      objectEnvelope(
+        "CliInstallationRevocation",
+        result.body,
+        context.requestId
+      ),
       { status: result.status }
     )
   } catch (error) {

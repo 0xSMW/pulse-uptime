@@ -4,13 +4,13 @@ import { cookies } from "next/headers"
 import { cache } from "react"
 
 import { digestSessionToken, SESSION_COOKIE_NAME } from "./credentials"
-import { findSessionByDigest, type HumanSession } from "./service"
+import { authenticateSessionByDigest, type HumanSession } from "./service"
 
 // cache(): layouts and data islands within one request share a single lookup.
-export const getCurrentSession = cache(
+export const authenticateCurrentSession = cache(
   async (): Promise<HumanSession | null> => {
     const token = (await cookies()).get(SESSION_COOKIE_NAME)?.value
-    return token ? findSessionByDigest(digestSessionToken(token)) : null
+    return token ? authenticateSessionByDigest(digestSessionToken(token)) : null
   }
 )
 

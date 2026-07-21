@@ -5,7 +5,7 @@ vi.mock("@/lib/db/client", () => ({
   db: { transaction: vi.fn(), update: vi.fn() },
 }))
 vi.mock("./queries", () => ({
-  getDependencyDetail: vi.fn(),
+  findDependencyDetail: vi.fn(),
   listCatalog: vi.fn(),
   listDependenciesForDashboard: vi.fn(),
 }))
@@ -41,7 +41,7 @@ const DETAIL = {
   id: "dep-1",
   presetId: "vercel_runtime",
   state: "OPERATIONAL",
-} as unknown as ReturnType<typeof queries.getDependencyDetail>
+} as unknown as ReturnType<typeof queries.findDependencyDetail>
 
 function fakeStore(
   overrides: Partial<DependenciesStore> = {}
@@ -75,7 +75,7 @@ function preset(
 }
 
 beforeEach(() => {
-  vi.mocked(queries.getDependencyDetail)
+  vi.mocked(queries.findDependencyDetail)
     .mockReset()
     .mockResolvedValue(DETAIL as never)
   vi.mocked(queries.listCatalog).mockReset()
@@ -434,7 +434,7 @@ describe("addDependency duplicates and defaults", () => {
         dependency: expect.objectContaining({ id: "op-123" }),
       })
     )
-    expect(queries.getDependencyDetail).toHaveBeenCalledWith("op-123", db)
+    expect(queries.findDependencyDetail).toHaveBeenCalledWith("op-123", db)
   })
 
   it("reads the detail back on the same transaction handle the insert ran on, not the pooled db", async () => {
@@ -448,8 +448,8 @@ describe("addDependency duplicates and defaults", () => {
     expect(store.insertDependency).toHaveBeenCalledWith(
       expect.objectContaining({ handle: tx })
     )
-    expect(queries.getDependencyDetail).toHaveBeenCalledWith("id", tx)
-    expect(queries.getDependencyDetail).not.toHaveBeenCalledWith("id", db)
+    expect(queries.findDependencyDetail).toHaveBeenCalledWith("id", tx)
+    expect(queries.findDependencyDetail).not.toHaveBeenCalledWith("id", db)
   })
 
   it("returns the freshly built detail projection, not a bespoke shape", async () => {
@@ -480,7 +480,7 @@ describe("read wrappers", () => {
   })
 
   it("requireDependencyDetail throws DEPENDENCY_NOT_FOUND when the query finds nothing", async () => {
-    vi.mocked(queries.getDependencyDetail).mockResolvedValue(null)
+    vi.mocked(queries.findDependencyDetail).mockResolvedValue(null)
     await expect(requireDependencyDetail("missing")).rejects.toMatchObject({
       code: "DEPENDENCY_NOT_FOUND",
     })
@@ -531,7 +531,7 @@ describe("patchDependency", () => {
       tx
     )
     expect(store.patchNotifications).toHaveBeenCalledWith("dep-1", false, tx)
-    expect(queries.getDependencyDetail).toHaveBeenCalledWith("dep-1", tx)
+    expect(queries.findDependencyDetail).toHaveBeenCalledWith("dep-1", tx)
   })
 })
 
@@ -612,7 +612,7 @@ describe("retryDependencyBackfill", () => {
     await expect(
       retryDependencyBackfill("dep-1", { store })
     ).rejects.toMatchObject({ code: "DEPENDENCY_NOT_FOUND" })
-    expect(queries.getDependencyDetail).not.toHaveBeenCalled()
+    expect(queries.findDependencyDetail).not.toHaveBeenCalled()
   })
 
   it("re-runs the backfill and returns the refreshed detail with the mark cleared", async () => {
@@ -632,7 +632,7 @@ describe("retryDependencyBackfill", () => {
     const tx = { transaction: vi.fn(), update: vi.fn() } as unknown as typeof db
     await retryDependencyBackfill("dep-1", { store }, tx)
     expect(store.retryBackfill).toHaveBeenCalledWith("dep-1", tx)
-    expect(queries.getDependencyDetail).toHaveBeenCalledWith("dep-1", tx)
+    expect(queries.findDependencyDetail).toHaveBeenCalledWith("dep-1", tx)
   })
 })
 

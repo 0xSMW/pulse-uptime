@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation"
 import { safeReturnTo } from "@/lib/auth/return-to"
-import { getCurrentSession } from "@/lib/auth/session"
+import { authenticateCurrentSession } from "@/lib/auth/session"
 import { db } from "@/lib/db/client"
 import { adminUsers } from "@/lib/db/schema"
 
@@ -20,7 +20,7 @@ export default async function LoginPage({
   if (!admins.length) {
     redirect("/onboarding")
   }
-  const session = await getCurrentSession()
+  const session = await authenticateCurrentSession()
   if (session) {
     redirect(session.onboardingCompletedAt ? returnTo : "/onboarding")
   }

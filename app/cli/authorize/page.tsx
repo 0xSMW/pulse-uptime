@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
 
-import { getCurrentSession } from "@/lib/auth/session"
+import { authenticateCurrentSession } from "@/lib/auth/session"
 import { lookupAuthorization } from "./actions"
 import { AuthorizationFlow } from "./authorization-flow"
 import styles from "./authorize.module.css"
@@ -14,7 +14,7 @@ export default async function CliAuthorizePage({
   const params = await searchParams
   const initialCode =
     typeof params.user_code === "string" ? params.user_code : ""
-  const session = await getCurrentSession()
+  const session = await authenticateCurrentSession()
   if (!session) {
     const destination = initialCode
       ? `/cli/authorize?user_code=${encodeURIComponent(initialCode)}`

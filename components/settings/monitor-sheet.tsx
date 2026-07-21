@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { parseMonitorRecipients } from "@/lib/monitoring/recipients"
 import { isPublicHttpUrl } from "@/lib/net/public-url"
 import { GroupDialog } from "./group-dialog"
 import {
@@ -109,13 +110,6 @@ function valuesFor(monitor: EditableMonitor | null): MonitorFormValues {
   }
 }
 
-export function parseRecipients(value: string): string[] {
-  return value
-    .split(/\r?\n|,/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-}
-
 export function isPublicMonitorUrl(value: string): boolean {
   return isPublicHttpUrl(value)
 }
@@ -183,13 +177,18 @@ export function validateMonitorForm(
   ) {
     errors.recoveryThreshold = "Enter 1–5"
   }
-  const recipients = parseRecipients(values.recipientsText)
+  const recipients = parseMonitorRecipients(values.recipientsText)
   if (recipients.length > 20) {
     errors.recipientsText = "Use no more than 20 addresses"
   } else if (
     recipients.some((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
   ) {
     errors.recipientsText = "Enter valid email addresses"
+  } else if (
+    new Set(recipients.map((recipient) => recipient.toLowerCase())).size !==
+    recipients.length
+  ) {
+    errors.recipientsText = "Remove duplicate recipients"
   }
   return errors
 }
@@ -409,7 +408,7 @@ export function MonitorSheet({
       },
       failureThreshold: values.failureThreshold,
       recoveryThreshold: values.recoveryThreshold,
-      recipients: parseRecipients(values.recipientsText),
+      recipients: parseMonitorRecipients(values.recipientsText),
     }
     try {
       if (monitor) {

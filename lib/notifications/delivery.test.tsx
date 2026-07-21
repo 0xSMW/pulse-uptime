@@ -228,7 +228,9 @@ describe("outbox delivery", () => {
     const logs: DeliveryLogEntry[] = []
     const sender: NotificationSender = {
       async send() {
-        throw new NotificationProviderError("rate_limit_exceeded", true)
+        throw new NotificationProviderError("rate_limit_exceeded", {
+          retryable: true,
+        })
       },
     }
     const result = await deliverPendingNotifications({
@@ -248,12 +250,16 @@ describe("outbox delivery", () => {
   it("marks permanent errors and exhausted retries dead", async () => {
     const permanent: NotificationSender = {
       async send() {
-        throw new NotificationProviderError("invalid_from_address", false)
+        throw new NotificationProviderError("invalid_from_address", {
+          retryable: false,
+        })
       },
     }
     const exhausted: NotificationSender = {
       async send() {
-        throw new NotificationProviderError("internal_server_error", true)
+        throw new NotificationProviderError("internal_server_error", {
+          retryable: true,
+        })
       },
     }
     const permanentResult = await deliverPendingNotifications({
@@ -480,7 +486,9 @@ describe("outbox delivery", () => {
     const sender: NotificationSender = {
       async send(_message, idempotencyKey) {
         if (idempotencyKey === "key-provider-fail") {
-          throw new NotificationProviderError("rate_limit_exceeded", true)
+          throw new NotificationProviderError("rate_limit_exceeded", {
+            retryable: true,
+          })
         }
         return { providerMessageId: "email-ok" }
       },
@@ -514,7 +522,9 @@ describe("outbox delivery", () => {
   it("records a permanent provider error as dead without treating mark-failed success as infrastructure", async () => {
     const permanent: NotificationSender = {
       async send() {
-        throw new NotificationProviderError("invalid_from_address", false)
+        throw new NotificationProviderError("invalid_from_address", {
+          retryable: false,
+        })
       },
     }
     const result = await deliverPendingNotifications({

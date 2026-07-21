@@ -71,7 +71,7 @@ describe("configuration service seams", () => {
     const request: ConfigurationApplyRequest = {
       ...plan,
       targetConfig,
-      allowDelete: false,
+      allowDestructiveChanges: false,
     }
 
     const operation = await service.apply({
@@ -196,7 +196,7 @@ describe("default database store operation projection", () => {
         targetConfigHash: "target-hash",
         planHash: "plan-hash",
         targetConfig: { version: 2, settings: {}, groups: [], monitors: [] },
-        allowDelete: false,
+        allowDestructiveChanges: false,
       },
     })
 

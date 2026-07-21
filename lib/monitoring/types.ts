@@ -1,15 +1,19 @@
 import type { CheckErrorCode } from "@/lib/checker/types"
 import type { monitorStates } from "@/lib/db/schema"
 
-export type MonitorStateName = (typeof monitorStates)[number]
+export type MonitorState = (typeof monitorStates)[number]
 
-export type MonitorState =
-  | "UP"
-  | "VERIFYING_DOWN"
-  | "VERIFYING_UP"
-  | "DOWN"
-  | "PENDING"
-  | "PAUSED"
+export type VisibleMonitorState = Exclude<MonitorState, "ARCHIVED">
+
+export const MONITOR_STATE_ORDER = [
+  "DOWN",
+  "VERIFYING_DOWN",
+  "VERIFYING_UP",
+  "PENDING",
+  "UP",
+  "PAUSED",
+  "ARCHIVED",
+] as const satisfies readonly MonitorState[]
 
 export interface TimelineBucket {
   state: "up" | "down" | "verifying" | "paused" | "no-data"
@@ -33,7 +37,7 @@ export interface HealthWarning {
 
 export interface MonitorStateSnapshot {
   monitorId: string
-  state: MonitorStateName
+  state: MonitorState
   consecutiveFailures: number
   consecutiveSuccesses: number
   activatedAt: Date | null
@@ -82,7 +86,7 @@ export type IncidentIntent =
   | null
 
 export interface StateTransition {
-  previousState: MonitorStateName
+  previousState: MonitorState
   state: MonitorStateSnapshot
   changed: boolean
   incident: IncidentIntent
@@ -106,14 +110,3 @@ export interface ScheduledCheck {
   recoveryThreshold: number
   recipients: string[]
 }
-
-export type ProcessCheckResult =
-  | { status: "duplicate"; monitorId: string; scheduledAt: Date }
-  | {
-      status: "processed"
-      monitorId: string
-      previousState: MonitorStateName
-      state: MonitorStateName
-      incidentId: string | null
-      event: "incident.opened" | "incident.resolved" | null
-    }

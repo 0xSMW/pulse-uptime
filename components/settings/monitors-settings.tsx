@@ -3,7 +3,10 @@
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
-import { type MonitorState, StatusDot } from "@/components/monitors/status-dot"
+import {
+  StatusDot,
+  type VisibleMonitorState,
+} from "@/components/monitors/status-dot"
 import { GroupDialog } from "@/components/settings/group-dialog"
 import {
   type EditableMonitor,
@@ -21,7 +24,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 
 export interface MonitorSettingsData {
-  monitors: Array<EditableMonitor & { state: MonitorState }>
+  monitors: Array<EditableMonitor & { state: VisibleMonitorState }>
   groups: SettingsGroup[]
   userAgent: string
 }

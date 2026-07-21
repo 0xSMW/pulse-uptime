@@ -49,10 +49,12 @@ export interface ConfigurationPlan {
   planHash: string
   targetConfig: DeclarativeConfig
   diff: ConfigurationDiff
-  destructiveApprovalRequired: boolean
+  tripwireApprovalRequired: boolean
+  destructiveConsentRequired: boolean
   destructiveChange: DestructiveChangeEvaluation
-  // Authoritative allowDelete requirement. Archiving any monitor or any
-  // tripwire-flagged destructive change both demand explicit allowDelete.
+  /** @deprecated Use tripwireApprovalRequired. */
+  destructiveApprovalRequired: boolean
+  /** @deprecated Use destructiveConsentRequired. */
   allowDeleteRequired: boolean
 }
 
@@ -237,8 +239,12 @@ export function createConfigurationPlan(
     planHash,
     targetConfig,
     diff,
-    destructiveApprovalRequired: destructiveChange.required,
+    tripwireApprovalRequired: destructiveChange.required,
+    destructiveConsentRequired:
+      diff.archives.length > 0 || destructiveChange.required,
     destructiveChange,
+    // Compatibility aliases for clients on the previous vocabulary.
+    destructiveApprovalRequired: destructiveChange.required,
     allowDeleteRequired: diff.archives.length > 0 || destructiveChange.required,
   }
 }

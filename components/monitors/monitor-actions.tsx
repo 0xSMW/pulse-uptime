@@ -20,6 +20,11 @@ import {
   useState,
 } from "react"
 
+import { GroupDialog } from "@/components/settings/group-dialog"
+import {
+  type SettingsGroup,
+  sortSettingsGroups,
+} from "@/components/settings/settings-api"
 import { Button } from "@/components/ui/button"
 import {
   Collapsible,
@@ -35,12 +40,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { parseMonitorRecipients } from "@/lib/monitoring/recipients"
 import { isPublicHttpUrl } from "@/lib/net/public-url"
 
 export interface EditableMonitor {
   id: string
   name: string
   url: string
+  groupId: string | null
   group: string | null
   method: string
   enabled: boolean
@@ -62,7 +69,7 @@ type MutationState =
 export interface MonitorEditValues {
   name: string
   url: string
-  group: string
+  groupId: string | null
   method: "GET" | "HEAD"
   intervalMinutes: string
   timeoutMs: string
@@ -97,7 +104,7 @@ function initialValues(monitor: EditableMonitor): MonitorEditValues {
   return {
     name: monitor.name,
     url: monitor.url,
-    group: monitor.group ?? "",
+    groupId: monitor.groupId,
     method: monitor.method === "HEAD" ? "HEAD" : "GET",
     intervalMinutes: String(monitor.intervalMinutes),
     timeoutMs: String(monitor.timeoutMs),
@@ -115,11 +122,7 @@ export function validateMonitorEdit(
 ): MonitorEditErrors {
   const errors: MonitorEditErrors = {}
   const name = values.name.trim()
-  const group = values.group.trim()
-  const recipients = values.recipients
-    .split("\n")
-    .map((value) => value.trim())
-    .filter(Boolean)
+  const recipients = parseMonitorRecipients(values.recipients)
 
   if (!name) {
     errors.name = "Enter a monitor name"
@@ -131,9 +134,6 @@ export function validateMonitorEdit(
     errors.url = "Enter a public HTTP or HTTPS URL"
   }
 
-  if (group.length > 50) {
-    errors.group = "Use 50 characters or fewer"
-  }
   if (!["1", "5", "10", "15"].includes(values.intervalMinutes)) {
     errors.intervalMinutes = "Choose 1, 5, 10, or 15 minutes"
   }
@@ -188,7 +188,7 @@ export function validateMonitorEdit(
   if (recipients.length > 20) {
     errors.recipients = "Use no more than 20 recipients"
   } else if (recipients.some((recipient) => !emailPattern.test(recipient))) {
-    errors.recipients = "Enter one valid email per line"
+    errors.recipients = "Enter valid email addresses"
   } else if (
     new Set(recipients.map((recipient) => recipient.toLowerCase())).size !==
     recipients.length
@@ -383,7 +383,13 @@ function HeaderIconAction({
   )
 }
 
-export function MonitorActions({ monitor }: { monitor: EditableMonitor }) {
+export function MonitorActions({
+  monitor,
+  groups,
+}: {
+  monitor: EditableMonitor
+  groups: readonly SettingsGroup[]
+}) {
   const router = useRouter()
   const [editOpen, setEditOpen] = useState(false)
   const [action, setAction] = useState<MutationState>({ status: "idle" })
@@ -472,6 +478,7 @@ export function MonitorActions({ monitor }: { monitor: EditableMonitor }) {
       </div>
       {editOpen ? (
         <MonitorEditSheet
+          groups={groups}
           monitor={monitor}
           onArchived={() => router.push("/")}
           onClose={() => setEditOpen(false)}
@@ -546,7 +553,13 @@ export function MonitorRunTestButton({
   )
 }
 
-export function MonitorEditButton({ monitor }: { monitor: EditableMonitor }) {
+export function MonitorEditButton({
+  monitor,
+  groups,
+}: {
+  monitor: EditableMonitor
+  groups: readonly SettingsGroup[]
+}) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   return (
@@ -556,6 +569,7 @@ export function MonitorEditButton({ monitor }: { monitor: EditableMonitor }) {
       </Button>
       {open ? (
         <MonitorEditSheet
+          groups={groups}
           monitor={monitor}
           onArchived={() => router.push("/")}
           onClose={() => setOpen(false)}
@@ -567,10 +581,12 @@ export function MonitorEditButton({ monitor }: { monitor: EditableMonitor }) {
 
 function MonitorEditSheet({
   monitor,
+  groups,
   onClose,
   onArchived,
 }: {
   monitor: EditableMonitor
+  groups: readonly SettingsGroup[]
   onClose: () => void
   onArchived: () => void
 }) {
@@ -580,6 +596,8 @@ function MonitorEditSheet({
   const [errors, setErrors] = useState<MonitorEditErrors>({})
   const [state, setState] = useState<MutationState>({ status: "idle" })
   const [archiveOpen, setArchiveOpen] = useState(false)
+  const [createGroupOpen, setCreateGroupOpen] = useState(false)
+  const [availableGroups, setAvailableGroups] = useState(() => [...groups])
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const formRef = useRef<HTMLFormElement>(null)
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -620,10 +638,7 @@ function MonitorEditSheet({
       return
     }
     setState({ status: "loading", message: "Saving…" })
-    const recipients = values.recipients
-      .split("\n")
-      .map((value) => value.trim())
-      .filter(Boolean)
+    const recipients = parseMonitorRecipients(values.recipients)
     try {
       const response = await mutateMonitor(
         `/api/v1/monitors/${encodeURIComponent(monitor.id)}`,
@@ -633,7 +648,7 @@ function MonitorEditSheet({
           body: JSON.stringify({
             name: values.name.trim(),
             url: values.url,
-            group: values.group.trim() || null,
+            groupId: values.groupId,
             method: values.method,
             intervalMinutes: Number(values.intervalMinutes),
             timeoutMs: Number(values.timeoutMs),
@@ -716,13 +731,52 @@ function MonitorEditSheet({
               onChange={(value) => update("url", value)}
               value={values.url}
             />
-            <TextField
-              error={errors.group}
-              id="monitor-group"
-              label="Group"
-              onChange={(value) => update("group", value)}
-              value={values.group}
-            />
+            <div>
+              {/* biome-ignore lint/a11y/noLabelWithoutControl: linked to the Select via aria-labelledby on its trigger */}
+              <label
+                className="mb-1.5 block font-medium text-sm"
+                id="monitor-group-label"
+              >
+                Group
+              </label>
+              {availableGroups.length === 0 ? (
+                <Button
+                  className="w-full"
+                  onClick={() => setCreateGroupOpen(true)}
+                  type="button"
+                  variant="secondary"
+                >
+                  Create Group
+                </Button>
+              ) : (
+                <Select
+                  onValueChange={(value) => {
+                    if (value === "__create__") {
+                      setCreateGroupOpen(true)
+                    } else {
+                      update(
+                        "groupId",
+                        value === "__ungrouped__" ? null : value
+                      )
+                    }
+                  }}
+                  value={values.groupId ?? "__ungrouped__"}
+                >
+                  <SelectTrigger aria-labelledby="monitor-group-label">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__ungrouped__">Ungrouped</SelectItem>
+                    {sortSettingsGroups(availableGroups).map((group) => (
+                      <SelectItem key={group.id} value={group.id}>
+                        {group.name}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="__create__">Create group</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
             <SelectField
               id="monitor-method"
               label="Method"
@@ -871,6 +925,20 @@ function MonitorEditSheet({
           </div>
         </form>
       </ModalFrame>
+      {createGroupOpen ? (
+        <GroupDialog
+          onClose={() => setCreateGroupOpen(false)}
+          onSaved={(group) => {
+            setAvailableGroups((current) => [
+              ...current.filter((item: SettingsGroup) => item.id !== group.id),
+              group,
+            ])
+            update("groupId", group.id)
+            setCreateGroupOpen(false)
+          }}
+          open
+        />
+      ) : null}
       {archiveOpen ? (
         <ArchiveDialog
           monitor={monitor}

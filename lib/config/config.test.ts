@@ -8,14 +8,14 @@ import {
   createMonitorWithDefaults,
   DEFAULT_MONITOR_VALUES,
   type DeclarativeConfig,
-  type DestructiveApproval,
+  type DestructiveChangeApproval,
   evaluateConfigurationAcceptance,
   evaluateDestructiveChange,
   exportDeclarativeConfig,
   hashCanonical,
   hashDeclarativeConfig,
   hashMonitoringConfig,
-  isValidDestructiveApproval,
+  isValidDestructiveChangeApproval,
   type LegacyMonitorConfig,
   type MonitorConfig,
   type MonitoringConfig,
@@ -492,8 +492,8 @@ describe("acceptance, approvals, and fallback", () => {
     const desired = validateMonitoringConfig(runtime([], 2))
     const snapshot = { config: current, hash: hashMonitoringConfig(current) }
     const targetConfigHash = hashMonitoringConfig(desired)
-    const approval: DestructiveApproval = {
-      action: "bulk_archive",
+    const approval: DestructiveChangeApproval = {
+      action: "destructive_config_change",
       targetConfigHash,
       expiresAt: new Date(now.getTime() + 60_000),
       consumedAt: null,
@@ -502,21 +502,21 @@ describe("acceptance, approvals, and fallback", () => {
       evaluateConfigurationAcceptance(desired, snapshot, { approval, now })
     ).toMatchObject({ status: "accepted", approvalConsumed: true })
     expect(
-      isValidDestructiveApproval(
+      isValidDestructiveChangeApproval(
         { ...approval, targetConfigHash: "sha256:wrong" },
         targetConfigHash,
         now
       )
     ).toBe(false)
     expect(
-      isValidDestructiveApproval(
+      isValidDestructiveChangeApproval(
         { ...approval, expiresAt: now },
         targetConfigHash,
         now
       )
     ).toBe(false)
     expect(
-      isValidDestructiveApproval(
+      isValidDestructiveChangeApproval(
         { ...approval, consumedAt: now },
         targetConfigHash,
         now
@@ -547,13 +547,27 @@ describe("pure apply preconditions", () => {
     targetConfigHash: plan.targetConfigHash,
     planHash: plan.planHash,
     targetConfig: target,
-    allowDelete: true,
+    allowDestructiveChanges: true,
   }
 
   it("recomputes and returns the authoritative plan", () => {
     const result = validateApplyPreconditions({
       ifMatch: `"${baseConfigHash}"`,
       request,
+      currentConfig: current,
+      currentConfigHash: baseConfigHash,
+    })
+    expect(result.diff.archives.map(({ id }) => id)).toEqual(["web"])
+  })
+
+  it("accepts the deprecated allowDelete compatibility field", () => {
+    const result = validateApplyPreconditions({
+      ifMatch: baseConfigHash,
+      request: {
+        ...request,
+        allowDestructiveChanges: undefined,
+        allowDelete: true,
+      },
       currentConfig: current,
       currentConfigHash: baseConfigHash,
     })
@@ -572,7 +586,20 @@ describe("pure apply preconditions", () => {
       "PLAN_HASH_MISMATCH",
       { request: { ...request, planHash: "sha256:forged" } },
     ],
-    ["DELETE_NOT_ALLOWED", { request: { ...request, allowDelete: false } }],
+    [
+      "DESTRUCTIVE_CONSENT_CONFLICT",
+      {
+        request: {
+          ...request,
+          allowDestructiveChanges: true,
+          allowDelete: false,
+        },
+      },
+    ],
+    [
+      "DESTRUCTIVE_CONSENT_REQUIRED",
+      { request: { ...request, allowDestructiveChanges: false } },
+    ],
   ])("rejects %s", (code, override) => {
     try {
       validateApplyPreconditions({
@@ -601,8 +628,8 @@ describe("pure apply preconditions", () => {
   })
 })
 
-describe("authoritative allowDelete requirement", () => {
-  it("requires allowDelete for a destructive change that archives no monitors", () => {
+describe("authoritative destructive consent requirement", () => {
+  it("requires destructive consent for a destructive change that archives no monitors", () => {
     const active = Array.from({ length: 6 }, (_, index) =>
       monitor(`site${index}`)
     )
@@ -614,15 +641,15 @@ describe("authoritative allowDelete requirement", () => {
     const plan = createConfigurationPlan(current, target, { baseConfigHash })
 
     expect(plan.diff.archives).toHaveLength(0)
-    expect(plan.destructiveApprovalRequired).toBe(true)
-    expect(plan.allowDeleteRequired).toBe(true)
+    expect(plan.tripwireApprovalRequired).toBe(true)
+    expect(plan.destructiveConsentRequired).toBe(true)
 
     const request = {
       baseConfigHash,
       targetConfigHash: plan.targetConfigHash,
       planHash: plan.planHash,
       targetConfig: target,
-      allowDelete: false,
+      allowDestructiveChanges: false,
     }
     try {
       validateApplyPreconditions({
@@ -634,11 +661,13 @@ describe("authoritative allowDelete requirement", () => {
       throw new Error("Expected rejection")
     } catch (error) {
       expect(error).toBeInstanceOf(ConfigApplyError)
-      expect((error as ConfigApplyError).code).toBe("DELETE_NOT_ALLOWED")
+      expect((error as ConfigApplyError).code).toBe(
+        "DESTRUCTIVE_CONSENT_REQUIRED"
+      )
     }
   })
 
-  it("does not require allowDelete for a non-destructive, non-archiving change", () => {
+  it("does not require destructive consent for a non-destructive, non-archiving change", () => {
     const current = validateDeclarativeConfig(document([monitor("api")]))
     const target = validateDeclarativeConfig(
       document([monitor("api", { timeoutMs: 9000 })])
@@ -646,6 +675,6 @@ describe("authoritative allowDelete requirement", () => {
     const plan = createConfigurationPlan(current, target, {
       baseConfigHash: hashDeclarativeConfig(current),
     })
-    expect(plan.allowDeleteRequired).toBe(false)
+    expect(plan.destructiveConsentRequired).toBe(false)
   })
 })

@@ -17,9 +17,9 @@ import {
 
 import { DependencyStatusDot } from "@/components/dependencies/dependency-status"
 import {
-  type MonitorState,
   StatusDot,
   stateLabels,
+  type VisibleMonitorState,
 } from "@/components/monitors/status-dot"
 import type { DependencyState } from "@/lib/dependencies/types"
 import { formatDuration, formatLatency } from "@/lib/reporting/format"
@@ -28,7 +28,7 @@ import { cn } from "@/lib/utils"
 export interface PaletteMonitor {
   id: string
   name: string
-  state: MonitorState
+  state: VisibleMonitorState
   latestLatencyMs: number | null
 }
 
@@ -56,7 +56,7 @@ interface PaletteItem {
   hint: string
   href: string
   external?: boolean
-  state?: MonitorState
+  state?: VisibleMonitorState
   dependencyState?: DependencyState
   pending?: boolean
   down?: boolean

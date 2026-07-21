@@ -65,12 +65,13 @@ function normalizeUserCode(value: string): string {
     : compact
 }
 
-export async function getPendingDeviceAuthorization(
+export async function expireStaleDeviceAuthorizations(
   userCode: string,
-  now = new Date()
-): Promise<PendingDeviceAuthorization | null> {
+  now = new Date(),
+  handle: DatabaseHandle = db
+): Promise<void> {
   const normalized = normalizeUserCode(userCode)
-  await db
+  await handle
     .update(deviceAuthorizations)
     .set({ state: "expired" })
     .where(
@@ -80,7 +81,15 @@ export async function getPendingDeviceAuthorization(
         lte(deviceAuthorizations.expiresAt, now)
       )
     )
-  const [row] = await db
+}
+
+export async function findPendingDeviceAuthorization(
+  userCode: string,
+  now = new Date(),
+  handle: DatabaseHandle = db
+): Promise<PendingDeviceAuthorization | null> {
+  const normalized = normalizeUserCode(userCode)
+  const [row] = await handle
     .select({
       id: deviceAuthorizations.id,
       userCode: deviceAuthorizations.userCode,

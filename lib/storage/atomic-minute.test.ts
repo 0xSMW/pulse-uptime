@@ -52,7 +52,11 @@ describe("atomic completed minute persistence", () => {
             errorMessage: "HTTP 503",
             failureThreshold: 1,
             recoveryThreshold: 2,
-            recipients: ["Ops@example.com", "ops@example.com"],
+            recipients: [
+              "Ops@example.com",
+              "ops@example.com",
+              "owner@example.com",
+            ],
           },
         ],
       }
@@ -61,6 +65,14 @@ describe("atomic completed minute persistence", () => {
     expect(PERSIST_ATOMIC_MINUTE_SQL).not.toContain("check_results")
     expect(PERSIST_ATOMIC_MINUTE_SQL).toContain("cross join batch_insert")
     expect(PERSIST_ATOMIC_MINUTE_SQL).toContain("pulse_assert_equal")
+    expect(PERSIST_ATOMIC_MINUTE_SQL).toContain(
+      "occurrence_count = monitor_exceptions.occurrence_count + 1"
+    )
+    expect(PERSIST_ATOMIC_MINUTE_SQL).toContain("first_seen_at = least")
+    expect(PERSIST_ATOMIC_MINUTE_SQL).toContain("last_seen_at = greatest")
+    expect(PERSIST_ATOMIC_MINUTE_SQL).toContain(
+      "from jsonb_to_recordset($17::text::jsonb)"
+    )
     expect(PERSIST_ATOMIC_MINUTE_SQL.trim().toLowerCase()).not.toMatch(
       /returning\s+\w+\s*$/
     )
@@ -78,7 +90,29 @@ describe("atomic completed minute persistence", () => {
     }
     const values = query.mock.calls[0]![1]
     expect(JSON.parse(String(values[11]))).toHaveLength(1)
-    expect(JSON.parse(String(values[14]))).toHaveLength(1)
+    const outbox = JSON.parse(String(values[14])) as Array<{
+      recipient: string
+      idempotencyKey: string
+      payload: {
+        type: string
+        monitorName: string
+        startedAt: string
+        cause: string
+      }
+    }>
+    expect(outbox.map((row) => row.recipient)).toEqual([
+      "ops@example.com",
+      "owner@example.com",
+    ])
+    expect(outbox.every((row) => row.idempotencyKey.includes("/opened/"))).toBe(
+      true
+    )
+    expect(outbox[0]?.payload).toMatchObject({
+      type: "incident.opened",
+      monitorName: "API",
+      startedAt: at.toISOString(),
+      cause: "HTTP 503",
+    })
     expect(JSON.parse(String(values[15]))[0]?.payload).toMatchObject({
       errorMessage: "HTTP 503",
     })
@@ -132,6 +166,43 @@ describe("atomic completed minute persistence", () => {
     expect(query).not.toHaveBeenCalled()
   })
 
+  it("rejects completed checks whose monitor state is missing", async () => {
+    const query = vi.fn()
+    await expect(
+      persistAtomicMinute(
+        { query },
+        {
+          scheduledMinute: at,
+          configVersion: 1,
+          monitorIds: ["api"],
+          expectedMonitorIds: ["api"],
+          results: [
+            {
+              monitorId: "api",
+              monitorName: "API",
+              checkedAt: at,
+              successful: true,
+              statusCode: 204,
+              latencyMs: 20,
+              effectiveUrl: null,
+              redirectCount: 0,
+              resolvedAddress: null,
+              errorCode: null,
+              errorMessage: null,
+              failureThreshold: 2,
+              recoveryThreshold: 2,
+              recipients: [],
+            },
+          ],
+          states: new Map(),
+          schedulerStartedAt: at,
+          schedulerCompletedAt: at,
+        }
+      )
+    ).rejects.toThrow("Monitor state not found: api")
+    expect(query).not.toHaveBeenCalled()
+  })
+
   it("records expected missing checks as gaps without state mutations", async () => {
     const query = vi.fn().mockResolvedValue([])
     await persistAtomicMinute(
@@ -151,6 +222,53 @@ describe("atomic completed minute persistence", () => {
     expect(JSON.parse(String(values[10]))).toEqual([])
     expect(JSON.parse(String(values[16]))).toMatchObject([
       { eventType: "scheduler_gap" },
+    ])
+  })
+
+  it("sorts monitor ids and preserves packed gap telemetry", async () => {
+    const query = vi.fn().mockResolvedValue([])
+    await persistAtomicMinute(
+      { query },
+      {
+        scheduledMinute: new Date("2026-07-18T03:15:00Z"),
+        configVersion: 4,
+        monitorIds: ["b", "a"],
+        expectedMonitorIds: ["b", "a"],
+        results: [
+          {
+            monitorId: "b",
+            monitorName: "B",
+            checkedAt: at,
+            successful: true,
+            statusCode: 204,
+            latencyMs: 42,
+            effectiveUrl: null,
+            redirectCount: 0,
+            resolvedAddress: null,
+            errorCode: null,
+            errorMessage: null,
+            failureThreshold: 2,
+            recoveryThreshold: 2,
+            recipients: [],
+          },
+        ],
+        states: new Map([["b", { ...state, monitorId: "b" }]]),
+        schedulerStartedAt: new Date("2026-07-18T03:15:01Z"),
+        schedulerCompletedAt: new Date("2026-07-18T03:15:04Z"),
+      }
+    )
+    const values = query.mock.calls[0]![1]
+    expect(JSON.parse(String(values[3]))).toEqual(["a", "b"])
+    expect(values[4]).toBe("03")
+    expect(values[5]).toBe("02")
+    expect(values[6]).toBe("00")
+    expect(values[7]).toBe("ffffffff0000002a")
+    expect(JSON.parse(String(values[16]))).toMatchObject([
+      {
+        monitorId: "a",
+        eventType: "scheduler_gap",
+        errorCode: "SCHEDULED_CHECK_MISSING",
+      },
     ])
   })
 

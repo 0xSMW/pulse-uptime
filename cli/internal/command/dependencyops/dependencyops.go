@@ -207,7 +207,7 @@ func newListCommand(d Dependencies) *cobra.Command {
 	var cursor string
 	var all bool
 	cmd := &cobra.Command{Use: "list", Short: "List installed dependencies", Args: cobra.NoArgs, Annotations: annotations("dependencies:read"), RunE: func(cmd *cobra.Command, _ []string) error {
-		doc, err := List(cmd.Context(), d.Client, limit, cursor, all || machine(d.Format()))
+		doc, err := List(cmd.Context(), d.Client, ListOptions{Limit: limit, Cursor: cursor, All: all, Machine: machine(d.Format())})
 		if err != nil {
 			return d.MapError(err)
 		}
@@ -323,19 +323,26 @@ const (
 	maxListBytes   = 64 << 20
 )
 
-func List(ctx context.Context, client Client, limit int, cursor string, auto bool) (ListEnvelope, error) {
-	if limit < 0 {
+type ListOptions struct {
+	Limit   int
+	Cursor  string
+	All     bool
+	Machine bool
+}
+
+func List(ctx context.Context, client Client, options ListOptions) (ListEnvelope, error) {
+	if options.Limit < 0 {
 		return ListEnvelope{}, invalid("--limit cannot be negative")
 	}
 	q := url.Values{}
-	if cursor != "" {
-		q.Set("cursor", cursor)
+	if options.Cursor != "" {
+		q.Set("cursor", options.Cursor)
 	}
-	remaining := limit
+	remaining := options.Limit
 	result := ListEnvelope{APIVersion: "v1", Kind: "DependencyList", Data: make([]json.RawMessage, 0)}
 	seen := map[string]struct{}{}
-	if cursor != "" {
-		seen[cursor] = struct{}{}
+	if options.Cursor != "" {
+		seen[options.Cursor] = struct{}{}
 	}
 	totalBytes := 0
 	for pages := 0; ; pages++ {
@@ -383,7 +390,7 @@ func List(ctx context.Context, client Client, limit int, cursor string, auto boo
 				break
 			}
 		}
-		if !auto || page.Meta.NextCursor == nil || *page.Meta.NextCursor == "" {
+		if !(options.All || options.Machine) || page.Meta.NextCursor == nil || *page.Meta.NextCursor == "" {
 			break
 		}
 		next := *page.Meta.NextCursor

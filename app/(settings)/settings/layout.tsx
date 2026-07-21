@@ -4,7 +4,7 @@ import { AutoRefresh } from "@/components/dashboard/auto-refresh"
 import { TimezoneServerSync } from "@/components/dashboard/timezone-provider"
 import { SettingsDirtyProvider } from "@/components/settings/settings-dirty"
 import { SettingsSidebar } from "@/components/settings/settings-sidebar"
-import { getCurrentSession } from "@/lib/auth/session"
+import { authenticateCurrentSession } from "@/lib/auth/session"
 
 export const dynamic = "force-dynamic"
 
@@ -13,7 +13,7 @@ export default async function SettingsLayout({
 }: {
   children: React.ReactNode
 }) {
-  const session = await getCurrentSession()
+  const session = await authenticateCurrentSession()
   if (!session) {
     redirect("/onboarding")
   }

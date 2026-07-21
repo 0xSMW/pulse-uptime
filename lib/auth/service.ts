@@ -428,10 +428,14 @@ export function shouldRefreshLastSeen(
   )
 }
 
+interface HumanSessionRecord extends HumanSession {
+  lastSeenAt: Date | null
+}
+
 export async function findSessionByDigest(
   digest: Buffer,
   now = new Date()
-): Promise<HumanSession | null> {
+): Promise<HumanSessionRecord | null> {
   const [row] = await db
     .select({
       sessionId: humanSessions.id,
@@ -452,37 +456,51 @@ export async function findSessionByDigest(
       )
     )
     .limit(1)
-  if (!row) {
-    return null
+  return row ?? null
+}
+
+export async function recordHumanSessionActivity(
+  sessionId: string,
+  lastSeenAt: Date | null,
+  now = new Date()
+): Promise<void> {
+  if (!shouldRefreshLastSeen(lastSeenAt, now)) {
+    return
   }
-  const { lastSeenAt, ...session } = row
-  // The app-level check is only a fast path to skip the write entirely. The
-  // staleness predicate rides in the UPDATE's WHERE clause so concurrent
-  // bursts collapse under the row lock instead of each re-writing lastSeenAt.
-  if (shouldRefreshLastSeen(lastSeenAt, now)) {
-    const cutoff = new Date(now.getTime() - LAST_SEEN_REFRESH_SECONDS * 1000)
-    const touch = () =>
-      db
-        .update(humanSessions)
-        .set({ lastSeenAt: now })
-        .where(
-          and(
-            eq(humanSessions.id, row.sessionId),
-            or(
-              isNull(humanSessions.lastSeenAt),
-              lt(humanSessions.lastSeenAt, cutoff)
-            )
+  const cutoff = new Date(now.getTime() - LAST_SEEN_REFRESH_SECONDS * 1000)
+  const record = () =>
+    db
+      .update(humanSessions)
+      .set({ lastSeenAt: now })
+      .where(
+        and(
+          eq(humanSessions.id, sessionId),
+          or(
+            isNull(humanSessions.lastSeenAt),
+            lt(humanSessions.lastSeenAt, cutoff)
           )
         )
-    try {
-      // Off the render critical path. The Security page tolerates a refresh
-      // that lands after the response, only the minute-level bound matters.
-      after(touch)
-    } catch {
-      // after() requires a request scope; direct callers (tests) update inline.
-      await touch()
-    }
+      )
+  try {
+    // Off the render critical path. The Security page tolerates a refresh
+    // that lands after the response, only the minute-level bound matters.
+    after(record)
+  } catch {
+    // after() requires a request scope; direct callers (tests) update inline.
+    await record()
   }
+}
+
+export async function authenticateSessionByDigest(
+  digest: Buffer,
+  now = new Date()
+): Promise<HumanSession | null> {
+  const record = await findSessionByDigest(digest, now)
+  if (!record) {
+    return null
+  }
+  const { lastSeenAt, ...session } = record
+  await recordHumanSessionActivity(session.sessionId, lastSeenAt, now)
   return session
 }
 

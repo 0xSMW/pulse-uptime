@@ -2309,11 +2309,11 @@
     },
     "/api/v1/cli-auth/revoke": {
       "post": {
-        "operationId": "revokeCliSession",
+        "operationId": "revokeCliInstallation",
         "tags": [
           "CLI authorization"
         ],
-        "summary": "Revoke CLI session",
+        "summary": "Revoke CLI installation credentials",
         "security": [
           {
             "bearerAuth": []
@@ -2329,11 +2329,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Mutation completed",
+            "description": "Installation credentials revoked",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ActionEnvelope"
+                  "$ref": "#/components/schemas/CliInstallationRevocationEnvelope"
                 }
               }
             }
@@ -4097,6 +4097,81 @@
           }
         }
       },
+      "DestructiveChangeReason": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "previousActiveCount"],
+            "properties": {
+              "type": {"const": "all-active-monitors-removed"},
+              "previousActiveCount": {"type": "integer", "minimum": 0}
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "removedCount", "threshold"],
+            "properties": {
+              "type": {"const": "removed-monitor-count"},
+              "removedCount": {"type": "integer", "minimum": 0},
+              "threshold": {"type": "integer", "const": 5}
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "removedCount",
+              "previousActiveCount",
+              "percentage",
+              "threshold"
+            ],
+            "properties": {
+              "type": {"const": "removed-monitor-percentage"},
+              "removedCount": {"type": "integer", "minimum": 0},
+              "previousActiveCount": {"type": "integer", "minimum": 0},
+              "percentage": {"type": "number", "minimum": 0},
+              "threshold": {"type": "integer", "const": 20}
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "group", "previousActiveCount"],
+            "properties": {
+              "type": {"const": "active-group-removed"},
+              "group": {"type": "string"},
+              "previousActiveCount": {"type": "integer", "minimum": 0}
+            }
+          }
+        ]
+      },
+      "DestructiveChangeEvaluation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "required",
+          "previousActiveCount",
+          "candidateActiveCount",
+          "removedActiveMonitorIds",
+          "reasons"
+        ],
+        "properties": {
+          "required": {"type": "boolean"},
+          "previousActiveCount": {"type": "integer", "minimum": 0},
+          "candidateActiveCount": {"type": "integer", "minimum": 0},
+          "removedActiveMonitorIds": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "reasons": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/DestructiveChangeReason"}
+          }
+        }
+      },
       "ConfigurationPlan": {
         "type": "object",
         "additionalProperties": false,
@@ -4105,7 +4180,9 @@
           "targetConfigHash",
           "planHash",
           "diff",
-          "destructiveApprovalRequired"
+          "tripwireApprovalRequired",
+          "destructiveConsentRequired",
+          "destructiveChange"
         ],
         "properties": {
           "baseConfigHash": {
@@ -4227,8 +4304,26 @@
               }
             }
           },
+          "tripwireApprovalRequired": {
+            "type": "boolean",
+            "description": "Whether runtime acceptance requires a short-lived tripwire approval."
+          },
+          "destructiveConsentRequired": {
+            "type": "boolean",
+            "description": "Whether applying this plan requires explicit operator consent."
+          },
+          "destructiveChange": {
+            "$ref": "#/components/schemas/DestructiveChangeEvaluation"
+          },
           "destructiveApprovalRequired": {
-            "type": "boolean"
+            "type": "boolean",
+            "deprecated": true,
+            "description": "Deprecated alias for tripwireApprovalRequired."
+          },
+          "allowDeleteRequired": {
+            "type": "boolean",
+            "deprecated": true,
+            "description": "Deprecated alias for destructiveConsentRequired."
           }
         }
       },
@@ -4262,8 +4357,19 @@
           "baseConfigHash",
           "targetConfigHash",
           "planHash",
-          "targetConfig",
-          "allowDelete"
+          "targetConfig"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "allowDestructiveChanges"
+            ]
+          },
+          {
+            "required": [
+              "allowDelete"
+            ]
+          }
         ],
         "properties": {
           "baseConfigHash": {
@@ -4278,8 +4384,14 @@
           "targetConfig": {
             "$ref": "#/components/schemas/Configuration"
           },
+          "allowDestructiveChanges": {
+            "type": "boolean",
+            "description": "Explicit consent to apply the plan when destructiveConsentRequired is true."
+          },
           "allowDelete": {
-            "type": "boolean"
+            "type": "boolean",
+            "deprecated": true,
+            "description": "Deprecated alias for allowDestructiveChanges. When both fields are sent, their values must agree."
           }
         }
       },
@@ -5265,6 +5377,39 @@
             "items": {"$ref": "#/components/schemas/StatusReportUpdate"}
           },
           "meta": {"$ref": "#/components/schemas/ListMeta"}
+        }
+      },
+      "CliInstallationRevocationEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "apiVersion",
+          "kind",
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "const": "CliInstallationRevocation"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "revoked"
+            ],
+            "properties": {
+              "revoked": {
+                "type": "boolean"
+              }
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
         }
       },
       "ActionEnvelope": {

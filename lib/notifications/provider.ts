@@ -13,12 +13,15 @@ export interface NotificationSender {
 }
 
 export class NotificationProviderError extends Error {
+  readonly retryable: boolean
+
   constructor(
     readonly code: string,
-    readonly retryable: boolean
+    options: { retryable: boolean }
   ) {
     super(code)
     this.name = "NotificationProviderError"
+    this.retryable = options.retryable
   }
 }
 
@@ -38,7 +41,9 @@ export function createResendSender(options: {
   if (!(options.apiKey && options.from)) {
     return {
       async send() {
-        throw new NotificationProviderError("email_not_configured", false)
+        throw new NotificationProviderError("email_not_configured", {
+          retryable: false,
+        })
       },
     }
   }
@@ -50,14 +55,14 @@ export function createResendSender(options: {
         { idempotencyKey }
       )
       if (response.error) {
-        throw new NotificationProviderError(
-          response.error.name,
-          RETRYABLE_CODES.has(response.error.name) ||
+        throw new NotificationProviderError(response.error.name, {
+          retryable:
+            RETRYABLE_CODES.has(response.error.name) ||
             response.error.statusCode === 408 ||
             response.error.statusCode === 429 ||
             (response.error.statusCode !== null &&
-              response.error.statusCode >= 500)
-        )
+              response.error.statusCode >= 500),
+        })
       }
       return { providerMessageId: response.data.id }
     },

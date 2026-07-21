@@ -1,4 +1,9 @@
 import { describe, expect, it } from "vitest"
+import {
+  REPORT_STATUS_LABELS,
+  type ReportImpact,
+  type ReportType,
+} from "@/lib/status-reports/domain"
 
 import {
   deriveOverallState,
@@ -7,19 +12,16 @@ import {
   type PublicReportEntry,
   promotedIncidentIds,
   publicReportPhase,
-  type ReportImpact,
-  type ReportKind,
   reportBannerTier,
   reportDurationSeconds,
   reportImpactLabels,
-  reportStatusLabels,
   statusReportUrl,
 } from "./reports-display"
 
 function report(
   overrides: {
     id?: string
-    type?: ReportKind
+    type?: ReportType
     originIncidentId?: string | null
     affected?: Array<{
       monitorId: string
@@ -329,8 +331,8 @@ describe("permalink helpers", () => {
   })
 
   it("labels every update status and impact", () => {
-    expect(reportStatusLabels.in_progress).toBe("In progress")
-    expect(reportStatusLabels.investigating).toBe("Investigating")
+    expect(REPORT_STATUS_LABELS.in_progress).toBe("In progress")
+    expect(REPORT_STATUS_LABELS.investigating).toBe("Investigating")
     expect(reportImpactLabels.down).toBe("Down")
   })
 

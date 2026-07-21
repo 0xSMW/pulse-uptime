@@ -105,7 +105,7 @@ export async function mutateConfig(
       await tx.insert(configChangeApprovals).values({
         id: randomUUID(),
         targetConfigHash: hash,
-        action: "bulk_archive",
+        action: "destructive_config_change",
         createdByPrincipal: principalKey,
         createdAt: now,
         expiresAt: new Date(now.getTime() + 600_000),

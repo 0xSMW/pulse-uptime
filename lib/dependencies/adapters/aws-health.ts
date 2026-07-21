@@ -11,7 +11,10 @@
 import { z } from "zod"
 
 import type { DependencySourceManifest } from "../manifest"
-import type { NormalizedProviderSnapshot } from "../types"
+import type {
+  NormalizedProviderSnapshot,
+  ProviderComponentState,
+} from "../types"
 import { scopeFromComponentIds } from "../types"
 
 import type {
@@ -28,9 +31,7 @@ import {
   toBoundedPlainText,
 } from "./shared"
 
-type ComponentState = "OPERATIONAL" | "DEGRADED" | "OUTAGE" | "MAINTENANCE"
-
-const SEVERITY_RANK: Record<ComponentState, number> = {
+const SEVERITY_RANK: Record<ProviderComponentState, number> = {
   OPERATIONAL: 0,
   MAINTENANCE: 1,
   DEGRADED: 2,
@@ -45,7 +46,7 @@ const SEVERITY_RANK: Record<ComponentState, number> = {
 function statusCodeToState(
   code: string,
   sourceId: string
-): ComponentState | null {
+): ProviderComponentState | null {
   switch (code) {
     case "0":
       return null

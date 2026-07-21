@@ -15,7 +15,10 @@ import {
   MonitorRunTestButton,
 } from "@/components/monitors/monitor-actions"
 import { StatusBadge } from "@/components/monitors/status-badge"
-import { type MonitorState, StatusDot } from "@/components/monitors/status-dot"
+import {
+  StatusDot,
+  type VisibleMonitorState,
+} from "@/components/monitors/status-dot"
 import {
   TimelineBar,
   type TimelineBucket,
@@ -24,6 +27,7 @@ import {
   type MonitorLiveStatus,
   useMonitorLive,
 } from "@/components/monitors/use-monitor-live"
+import type { SettingsGroup } from "@/components/settings/settings-api"
 import { buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -48,12 +52,13 @@ export interface MonitorDetailData {
   name: string
   url: string
   method: string
+  groupId: string | null
   group: string | null
   enabled: boolean
   intervalMinutes: number
   timeoutMs: number
   recipients: string[]
-  state: MonitorState
+  state: VisibleMonitorState
   intervalSeconds: number
   timeoutSeconds: number
   expectedStatusMin: number
@@ -350,8 +355,10 @@ function SetupStat() {
 
 export function MonitorDetail({
   monitor: snapshot,
+  groups,
 }: {
   monitor: MonitorDetailData
+  groups: readonly SettingsGroup[]
 }) {
   const { resolvedTimeZone } = useTimezone()
   const live = useMonitorLive(snapshot.id, {
@@ -466,7 +473,7 @@ export function MonitorDetail({
               <ExternalLink aria-hidden className="size-3 shrink-0" />
             </div>
           </div>
-          <MonitorActions monitor={monitor} />
+          <MonitorActions groups={groups} monitor={monitor} />
         </div>
       </header>
 
@@ -524,7 +531,7 @@ export function MonitorDetail({
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <MonitorRunTestButton monitor={monitor} />
-            <MonitorEditButton monitor={monitor} />
+            <MonitorEditButton groups={groups} monitor={monitor} />
           </div>
         </div>
       ) : null}
@@ -773,7 +780,7 @@ export function MonitorDetail({
       <Card>
         <CardHeader className="flex-row items-center justify-between gap-4">
           <CardTitle>Configuration</CardTitle>
-          <MonitorEditButton monitor={monitor} />
+          <MonitorEditButton groups={groups} monitor={monitor} />
         </CardHeader>
         <CardContent>
           <dl className="grid gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">

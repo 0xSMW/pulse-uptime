@@ -146,7 +146,7 @@ export const queryCases: QueryCase[] = [
     name: "monitor-identity-lookup",
     description:
       "Single monitor identity lookup by primary key, joined to current state.",
-    source: "lib/reporting/queries/monitors.ts:getMonitorIdentity",
+    source: "lib/reporting/queries/monitors.ts:findMonitorIdentity",
     mutating: false,
     build: (conn, ctx) =>
       toSQL(
@@ -192,7 +192,7 @@ export const queryCases: QueryCase[] = [
             ? "Monitor detail page 15m-resolution rollup scan over the actual 7-day window fetchRollups() issues; production derives its 24h view in-memory from this superset instead of querying it separately."
             : `Monitor detail page rollup series at ${resolution} resolution over a ${window.label} window.`,
         source:
-          "lib/reporting/queries/monitors.ts:fetchRollups call sites in getMonitorDetail and getMonitorLive",
+          "lib/reporting/queries/monitors.ts:fetchRollups call sites in findMonitorDetail and findMonitorLive",
         mutating: false,
         build: (conn: GatedConnection, ctx: SampleContext) => {
           const end = new Date(ctx.now)
@@ -236,7 +236,7 @@ export const queryCases: QueryCase[] = [
   {
     name: "monitor-detail-recent-incidents",
     description: "Most recent 5 incidents for a single monitor's detail page.",
-    source: "lib/reporting/queries/monitors.ts:getMonitorDetail",
+    source: "lib/reporting/queries/monitors.ts:findMonitorDetail",
     mutating: false,
     build: (conn, ctx) => {
       // Use the seeded incident owner when available.
@@ -254,7 +254,7 @@ export const queryCases: QueryCase[] = [
   {
     name: "monitor-detail-accepted-config",
     description: "Latest accepted monitoring config snapshot lookup.",
-    source: "lib/reporting/queries/monitors.ts:getMonitorDetail",
+    source: "lib/reporting/queries/monitors.ts:findMonitorDetail",
     mutating: false,
     build: (conn) =>
       toSQL(
@@ -346,7 +346,7 @@ export const queryCases: QueryCase[] = [
   {
     name: "incident-detail-lookup",
     description: "Single incident detail row, joined to monitor name.",
-    source: "lib/reporting/queries/incidents.ts:getIncidentDetail",
+    source: "lib/reporting/queries/incidents.ts:findIncidentDetail",
     mutating: false,
     build: (conn, ctx) =>
       toSQL(
@@ -378,7 +378,7 @@ export const queryCases: QueryCase[] = [
     name: "incident-detail-notifications",
     description:
       "Notification timeline rows for a single incident's detail page.",
-    source: "lib/reporting/queries/incidents.ts:getIncidentDetail",
+    source: "lib/reporting/queries/incidents.ts:findIncidentDetail",
     mutating: false,
     build: (conn, ctx) =>
       toSQL(

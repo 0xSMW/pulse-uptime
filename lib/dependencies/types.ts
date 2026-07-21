@@ -27,6 +27,8 @@ export type DependencyState =
   | "MAINTENANCE"
   | "UNKNOWN"
 
+export type ProviderComponentState = Exclude<DependencyState, "UNKNOWN">
+
 /**
  * Fidelity tier of a source or preset. "component" is the default: the feed
  * carries per-component operational state Pulse can normalize into a status
@@ -126,7 +128,7 @@ export interface NormalizedProviderSnapshot {
   components: Record<
     string,
     {
-      state: "OPERATIONAL" | "DEGRADED" | "OUTAGE" | "MAINTENANCE"
+      state: ProviderComponentState
       updatedAt: string | null
     }
   >

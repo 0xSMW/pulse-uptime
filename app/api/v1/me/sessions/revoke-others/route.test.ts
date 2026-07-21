@@ -6,7 +6,7 @@ vi.mock("@/lib/api/middleware", () => ({
   authorize: vi.fn(),
   isApiResponse: (value: unknown) => value instanceof Response,
 }))
-vi.mock("@/lib/auth/session", () => ({ getCurrentSession: vi.fn() }))
+vi.mock("@/lib/auth/session", () => ({ authenticateCurrentSession: vi.fn() }))
 vi.mock("@/lib/api/account", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/account")>()),
   revokeOtherAccountSessions: vi.fn(),
@@ -14,7 +14,7 @@ vi.mock("@/lib/api/account", async (importOriginal) => ({
 
 import { revokeOtherAccountSessions } from "@/lib/api/account"
 import { type ApiContext, authorize } from "@/lib/api/middleware"
-import { getCurrentSession } from "@/lib/auth/session"
+import { authenticateCurrentSession } from "@/lib/auth/session"
 
 import { POST } from "./route"
 
@@ -48,7 +48,7 @@ function revokeOthersRequest() {
 
 beforeEach(() => {
   vi.mocked(authorize).mockResolvedValue(humanContext)
-  vi.mocked(getCurrentSession).mockResolvedValue(session)
+  vi.mocked(authenticateCurrentSession).mockResolvedValue(session)
   vi.mocked(revokeOtherAccountSessions).mockReset()
 })
 

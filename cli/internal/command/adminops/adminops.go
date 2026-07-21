@@ -128,45 +128,60 @@ func NewAuthCommand(d Dependencies) *cobra.Command {
 		value := map[string]any{"apiVersion": "v1", "kind": "AuthStatus", "data": session}
 		return render(d, value, "table")
 	}}
+	cmd.AddCommand(newUnlinkCommand(d, "unlink", false), newUnlinkCommand(d, "logout", true), status)
+	return cmd
+}
+
+func newUnlinkCommand(d Dependencies, use string, deprecated bool) *cobra.Command {
 	var yes bool
-	logout := &cobra.Command{Use: "logout", Short: "Remove a linked session", Args: cobra.NoArgs, Annotations: annotations("authenticated"), RunE: func(cmd *cobra.Command, _ []string) error {
-		if d.Sessions == nil {
-			return unavailable()
-		}
-		session, err := d.Sessions.Current(cmd.Context())
-		if err != nil {
-			return err
-		}
-		if !session.Authenticated {
-			return render(d, map[string]any{"apiVersion": "v1", "kind": "Logout", "data": map[string]any{"loggedOut": false}}, "table")
-		}
-		if session.Source == "environment" || session.Source == "stdin" {
-			return invalid("temporary tokens cannot be logged out; remove the token from the current invocation")
-		}
-		if !yes {
-			if !d.StdinTTY {
-				return invalid("noninteractive logout requires --yes")
+	cmd := &cobra.Command{
+		Use:         use,
+		Short:       "Unlink this installation and revoke its credentials",
+		Args:        cobra.NoArgs,
+		Annotations: annotations("authenticated"),
+		Hidden:      deprecated,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if d.Sessions == nil {
+				return unavailable()
 			}
-			fmt.Fprint(d.Err, "Log out this installation? [y/N] ")
-			line, _ := bufio.NewReader(d.In).ReadString('\n')
-			if strings.ToLower(strings.TrimSpace(line)) != "y" {
-				return invalid("logout canceled")
+			session, err := d.Sessions.Current(cmd.Context())
+			if err != nil {
+				return err
 			}
-		}
-		if d.Client == nil {
-			return unavailable()
-		}
-		var ignored map[string]any
-		if _, err := d.Client.Do(cmd.Context(), http.MethodPost, "/api/v1/cli-auth/revoke", map[string]any{}, nil, &ignored); err != nil {
-			return err
-		}
-		if err := d.Sessions.Clear(cmd.Context()); err != nil {
-			return err
-		}
-		return render(d, map[string]any{"apiVersion": "v1", "kind": "Logout", "data": map[string]any{"loggedOut": true}}, "table")
-	}}
-	logout.Flags().BoolVar(&yes, "yes", false, "Confirm logout")
-	cmd.AddCommand(logout, status)
+			if !session.Authenticated {
+				return render(d, map[string]any{"apiVersion": "v1", "kind": "CliInstallationRevocation", "data": map[string]any{"revoked": false}}, "table")
+			}
+			if session.Source == "environment" || session.Source == "stdin" {
+				return invalid("temporary tokens cannot be unlinked; remove the token from the current invocation")
+			}
+			if !yes {
+				if !d.StdinTTY {
+					return invalid("noninteractive unlink requires --yes")
+				}
+				fmt.Fprint(d.Err, "Unlink this installation and revoke its credentials? [y/N] ")
+				line, _ := bufio.NewReader(d.In).ReadString('\n')
+				answer := strings.ToLower(strings.TrimSpace(line))
+				if answer != "y" && answer != "yes" {
+					return invalid("unlink canceled")
+				}
+			}
+			if d.Client == nil {
+				return unavailable()
+			}
+			var result map[string]any
+			if _, err := d.Client.Do(cmd.Context(), http.MethodPost, "/api/v1/cli-auth/revoke", map[string]any{}, nil, &result); err != nil {
+				return err
+			}
+			if err := d.Sessions.Clear(cmd.Context()); err != nil {
+				return err
+			}
+			return render(d, result, "table")
+		},
+	}
+	if deprecated {
+		cmd.Deprecated = "use auth unlink"
+	}
+	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm unlinking and credential revocation")
 	return cmd
 }
 

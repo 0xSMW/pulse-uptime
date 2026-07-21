@@ -2,7 +2,7 @@ import { DependencyPanelRow } from "@/components/dependencies/dependency-row"
 import { listDependenciesForDashboard } from "@/lib/dependencies/queries"
 
 // Server component: hidden entirely when no dependencies exist, per
-// Docs/DEPENDENCY-MONITORING.md "Overview". No uptime percentage anywhere,
+// Docs/Specs/DEPENDENCY-MONITORING.md "Overview". No uptime percentage anywhere,
 // since provider status criteria are subjective and cannot support a
 // trustworthy cross-provider availability calculation.
 export async function DependencyPanel() {

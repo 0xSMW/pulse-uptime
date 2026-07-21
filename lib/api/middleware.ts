@@ -3,7 +3,7 @@ import "server-only"
 import { mutationOriginAllowed } from "@/lib/auth/origin"
 
 import { apiError, requestIdFrom } from "./envelopes"
-import { type Principal, resolvePrincipal } from "./principal"
+import { authenticatePrincipal, type Principal } from "./principal"
 import {
   AUTHENTICATED_MUTATION_LIMIT,
   AUTHENTICATED_READ_LIMIT,
@@ -23,7 +23,7 @@ export async function authorize(
   options: { scope?: ApiScope; rateLimit?: RateLimitPolicy | false } = {}
 ): Promise<ApiContext | Response> {
   const requestId = requestIdFrom(request)
-  const principal = await resolvePrincipal(request)
+  const principal = await authenticatePrincipal(request)
   if (!principal) {
     const response = apiError(
       requestId,

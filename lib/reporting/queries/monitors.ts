@@ -12,6 +12,7 @@ import {
   monitorState,
 } from "@/lib/db/schema"
 import { listOverlappingDependencyIncidents } from "@/lib/dependencies/overlap"
+import type { VisibleMonitorState } from "@/lib/monitoring/types"
 import {
   RECENT_MINUTE_CHECK_TAIL_COUNTS_SQL,
   RECENT_MINUTE_CHECKS_SQL,
@@ -136,7 +137,7 @@ function fetchRollups(
 
 // Load identity without rollups. React cache shares the indexed lookup between
 // the page shell and detail island for each request.
-export const getMonitorIdentity = cache(async (id: string) => {
+export const findMonitorIdentity = cache(async (id: string) => {
   const [monitor] = await db
     .select({
       id: monitorRegistry.id,
@@ -159,11 +160,12 @@ export const getMonitorIdentity = cache(async (id: string) => {
   if (!monitor || monitor.state === "ARCHIVED") {
     return null
   }
-  return { ...monitor, state: monitor.state ?? ("PENDING" as const) }
+  const state: VisibleMonitorState = monitor.state ?? "PENDING"
+  return { ...monitor, state }
 })
 
 export type MonitorIdentity = NonNullable<
-  Awaited<ReturnType<typeof getMonitorIdentity>>
+  Awaited<ReturnType<typeof findMonitorIdentity>>
 >
 
 interface RecentMinuteCheckRow {
@@ -270,8 +272,8 @@ export async function getRawTailCounts(
   }
 }
 
-export async function getMonitorDetail(id: string) {
-  const monitor = await getMonitorIdentity(id)
+export async function findMonitorDetail(id: string) {
+  const monitor = await findMonitorIdentity(id)
   if (!monitor) {
     return null
   }
@@ -558,12 +560,12 @@ export async function getMonitorDetail(id: string) {
 // fields carry incident detail, so a caller without incidents:read receives a
 // null latestIncident and an empty recentIncidents and the query never reads
 // the incidents table. Dashboard sessions hold both scopes and see them.
-export async function getMonitorLive(
+export async function findMonitorLive(
   id: string,
   options: { includeIncidents?: boolean } = {}
 ): Promise<MonitorLiveData | null> {
   const includeIncidents = options.includeIncidents ?? true
-  const monitor = await getMonitorIdentity(id)
+  const monitor = await findMonitorIdentity(id)
   if (!monitor) {
     return null
   }

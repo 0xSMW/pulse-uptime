@@ -3,9 +3,10 @@ import { Suspense } from "react"
 
 import { MonitorDetail } from "@/components/monitors/monitor-detail"
 import { MonitorDetailSkeleton } from "@/components/monitors/monitor-detail-skeleton"
+import { listGroups } from "@/lib/api/groups"
 import {
-  getMonitorDetail,
-  getMonitorIdentity,
+  findMonitorDetail,
+  findMonitorIdentity,
 } from "@/lib/reporting/queries/monitors"
 
 export default async function MonitorDetailPage({
@@ -16,7 +17,7 @@ export default async function MonitorDetailPage({
   const { monitorId } = await params
   // One sub-ms lookup gates 404 and paints the real header; the seven-query
   // detail payload streams in behind it.
-  const identity = await getMonitorIdentity(monitorId)
+  const identity = await findMonitorIdentity(monitorId)
   if (!identity) {
     notFound()
   }
@@ -29,9 +30,12 @@ export default async function MonitorDetailPage({
 }
 
 async function MonitorDetailIsland({ monitorId }: { monitorId: string }) {
-  const monitor = await getMonitorDetail(monitorId)
+  const [monitor, groups] = await Promise.all([
+    findMonitorDetail(monitorId),
+    listGroups(),
+  ])
   if (!monitor) {
     notFound()
   }
-  return <MonitorDetail monitor={monitor} />
+  return <MonitorDetail groups={groups} monitor={monitor} />
 }

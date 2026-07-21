@@ -1,5 +1,4 @@
 import { and, desc, eq, gt, isNull } from "drizzle-orm"
-import { findAccountProfile } from "@/lib/api/account"
 import { normalizeScopes, resolveScopeProfile } from "@/lib/api/scopes"
 import { getStatusPageConfig } from "@/lib/api/status-page-config"
 import { parseUserAgent } from "@/lib/auth/user-agent"
@@ -104,10 +103,6 @@ export async function getNotificationSettings() {
     defaultRecipients: config?.settings.defaultRecipients ?? [],
     sender: process.env.RESEND_FROM_EMAIL?.trim() || null,
   }
-}
-
-export async function getAccountSettings(userId: string) {
-  return findAccountProfile(userId)
 }
 
 const sessionColumns = {

@@ -6,7 +6,7 @@ import {
   clientIpFromHeaders,
   login,
 } from "@/lib/auth/service"
-import { getCurrentSession, sessionCookie } from "@/lib/auth/session"
+import { authenticateCurrentSession, sessionCookie } from "@/lib/auth/session"
 
 export async function POST(request: Request) {
   if (!mutationOriginAllowed(request)) {
@@ -14,7 +14,7 @@ export async function POST(request: Request) {
   }
   try {
     const body = await request.json()
-    const current = await getCurrentSession()
+    const current = await authenticateCurrentSession()
     const result = await login({
       email: String(body.email ?? ""),
       password: String(body.password ?? ""),

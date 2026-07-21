@@ -26,6 +26,7 @@ import type {
   DependencyState,
   IncidentMatchScope,
   NormalizedProviderSnapshot,
+  ProviderComponentState,
 } from "./types"
 import { componentIdsFromScope } from "./types"
 
@@ -37,10 +38,9 @@ import { componentIdsFromScope } from "./types"
 // NOTHING) or conditional-on-change, so repeated polls of unchanged upstream
 // data append nothing: the concurrency and idempotency tests lean on this.
 
-type ComponentishState = "OPERATIONAL" | "DEGRADED" | "OUTAGE" | "MAINTENANCE"
 type NormalizedIncident = NormalizedProviderSnapshot["incidents"][number]
 
-const STATE_RANK: Record<ComponentishState, number> = {
+const STATE_RANK: Record<ProviderComponentState, number> = {
   OPERATIONAL: 0,
   MAINTENANCE: 1,
   DEGRADED: 2,
@@ -49,8 +49,8 @@ const STATE_RANK: Record<ComponentishState, number> = {
 const BACKOFF_MINUTES = [5, 15, 30]
 
 export function worstOf(
-  states: readonly ComponentishState[]
-): ComponentishState {
+  states: readonly ProviderComponentState[]
+): ProviderComponentState {
   if (states.length === 0) {
     return "OPERATIONAL"
   }
@@ -67,8 +67,8 @@ export function worstOf(
  */
 export function combinedComponentStates(
   snapshot: NormalizedProviderSnapshot
-): Map<string, ComponentishState> {
-  const map = new Map<string, ComponentishState>()
+): Map<string, ProviderComponentState> {
+  const map = new Map<string, ProviderComponentState>()
   for (const [id, component] of Object.entries(snapshot.components)) {
     map.set(id, component.state)
   }
@@ -162,7 +162,7 @@ export function matchingIdsForSelector(
 export function resolveDependencyState(
   selector: DependencySelector,
   scopeId: string | null,
-  combined: ReadonlyMap<string, ComponentishState>,
+  combined: ReadonlyMap<string, ProviderComponentState>,
   snapshot: NormalizedProviderSnapshot
 ): DependencyState {
   const fallback = (): DependencyState =>
@@ -190,7 +190,7 @@ export function resolveDependencyState(
   }
 
   const ids = matchingIdsForSelector(selector, scopeId)
-  const states: ComponentishState[] = []
+  const states: ProviderComponentState[] = []
   for (const id of ids) {
     const state = combined.get(id)
     if (state) {

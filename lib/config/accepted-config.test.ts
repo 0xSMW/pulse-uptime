@@ -37,7 +37,7 @@ function fakeExecutor(rows: unknown[]) {
   return { executor: { select: () => chain } as never, captured }
 }
 
-describe("readAcceptedSnapshot", () => {
+describe("findAcceptedSnapshot", () => {
   it("returns null when no accepted row exists (find), and throws (require)", async () => {
     const { executor } = fakeExecutor([])
     await expect(findAcceptedSnapshot(executor)).resolves.toBeNull()

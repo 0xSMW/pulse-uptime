@@ -10,7 +10,8 @@ export type ConfigApplyErrorCode =
   | "CONFIG_VERSION_CONFLICT"
   | "TARGET_CONFIG_HASH_MISMATCH"
   | "PLAN_HASH_MISMATCH"
-  | "DELETE_NOT_ALLOWED"
+  | "DESTRUCTIVE_CONSENT_CONFLICT"
+  | "DESTRUCTIVE_CONSENT_REQUIRED"
 
 export class ConfigApplyError extends Error {
   constructor(
@@ -27,7 +28,9 @@ export interface ConfigurationApplyRequest {
   targetConfigHash: string
   planHash: string
   targetConfig: unknown
-  allowDelete: boolean
+  allowDestructiveChanges?: boolean
+  /** @deprecated Use allowDestructiveChanges. */
+  allowDelete?: boolean
 }
 
 export interface ApplyPreconditionInput {
@@ -90,10 +93,22 @@ export function validateApplyPreconditions(
       "Plan hash does not match the authoritative plan"
     )
   }
-  if (authoritative.allowDeleteRequired && !request.allowDelete) {
+  if (
+    request.allowDestructiveChanges !== undefined &&
+    request.allowDelete !== undefined &&
+    request.allowDestructiveChanges !== request.allowDelete
+  ) {
     throw new ConfigApplyError(
-      "DELETE_NOT_ALLOWED",
-      "allowDelete is required to archive monitors or apply destructive changes"
+      "DESTRUCTIVE_CONSENT_CONFLICT",
+      "allowDestructiveChanges and allowDelete must agree when both are sent"
+    )
+  }
+  const allowsDestructiveChanges =
+    request.allowDestructiveChanges ?? request.allowDelete ?? false
+  if (authoritative.destructiveConsentRequired && !allowsDestructiveChanges) {
+    throw new ConfigApplyError(
+      "DESTRUCTIVE_CONSENT_REQUIRED",
+      "allowDestructiveChanges is required for this configuration plan"
     )
   }
   return authoritative

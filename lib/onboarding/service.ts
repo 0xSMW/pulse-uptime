@@ -299,7 +299,10 @@ function createDatabaseStore(
 
 const defaultStore = createDatabaseStore()
 
-async function getOnboardingState(userId: string, store = defaultStore) {
+export async function findOnboardingState(
+  userId: string,
+  store = defaultStore
+) {
   return store.readProgress(userId)
 }
 
@@ -331,7 +334,7 @@ export async function moveBack(userId: string, step: "monitor" | "verify") {
 }
 
 export async function verifyDraft(userId: string) {
-  const state = await getOnboardingState(userId)
+  const state = await findOnboardingState(userId)
   if (!state?.draftMonitor) {
     throw new OnboardingError("INVALID_DRAFT", "Add your website first")
   }

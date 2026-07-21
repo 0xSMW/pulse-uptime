@@ -13,7 +13,10 @@
 import { z } from "zod"
 
 import type { DependencySourceManifest } from "../manifest"
-import type { NormalizedProviderSnapshot } from "../types"
+import type {
+  NormalizedProviderSnapshot,
+  ProviderComponentState,
+} from "../types"
 import { scopeFromComponentIds } from "../types"
 
 import type {
@@ -103,10 +106,11 @@ const noticeDetailDocSchema = z
   })
   .strict()
 
-type ComponentState = "OPERATIONAL" | "DEGRADED" | "MAINTENANCE"
-
 /** Sorry's complete component vocabulary per the doc: operational, degraded, under_maintenance. */
-function mapComponentState(state: string, sourceId: string): ComponentState {
+function mapComponentState(
+  state: string,
+  sourceId: string
+): ProviderComponentState {
   switch (state) {
     case "operational":
       return "OPERATIONAL"

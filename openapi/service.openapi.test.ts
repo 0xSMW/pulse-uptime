@@ -178,6 +178,22 @@ describe("committed OpenAPI v1 source", () => {
     expect(monitorFields.groupId).toMatchObject({ minLength: 3, maxLength: 64 })
     expect(diff.settingsChanged!.type).toBe("array")
     expect(diff.groupCreates!.type).toBe("array")
+    expect(plan.tripwireApprovalRequired!.type).toBe("boolean")
+    expect(plan.destructiveConsentRequired!.type).toBe("boolean")
+    expect(plan.destructiveChange!.$ref).toBe(
+      "#/components/schemas/DestructiveChangeEvaluation"
+    )
+    expect(plan.destructiveApprovalRequired!.deprecated).toBe(true)
+    expect(plan.allowDeleteRequired!.deprecated).toBe(true)
+    const applyRequest = schemas.ConfigurationApplyRequest as {
+      anyOf: Array<{ required: string[] }>
+      properties: Record<string, Record<string, unknown>>
+    }
+    expect(applyRequest.anyOf).toEqual([
+      { required: ["allowDestructiveChanges"] },
+      { required: ["allowDelete"] },
+    ])
+    expect(applyRequest.properties.allowDelete!.deprecated).toBe(true)
     expect(schemas.Configuration!.properties).toMatchObject({
       version: { const: 2 },
       groups: { maxItems: 100 },
@@ -265,6 +281,18 @@ describe("committed OpenAPI v1 source", () => {
     expect(deviceToken.properties.data.properties.token.writeOnly).not.toBe(
       true
     )
+    const revoke = document.paths["/api/v1/cli-auth/revoke"]!
+      .post as Operation & {
+      operationId: string
+      responses: Record<
+        string,
+        { content: Record<string, { schema: { $ref: string } }> }
+      >
+    }
+    expect(revoke.operationId).toBe("revokeCliInstallation")
+    expect(
+      revoke.responses["200"]!.content["application/json"]!.schema.$ref
+    ).toBe("#/components/schemas/CliInstallationRevocationEnvelope")
     const responses = (
       document as unknown as {
         components: { responses: Record<string, { headers?: unknown }> }

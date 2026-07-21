@@ -130,7 +130,7 @@ func TestListRejectsRepeatingCursor(t *testing.T) {
 		setListResult(t, r.Result, []string{`{"id":"dep-1"}`}, &cycle)
 		return nil
 	})
-	_, err := List(context.Background(), client, 0, "", true)
+	_, err := List(context.Background(), client, ListOptions{Machine: true})
 	if err == nil {
 		t.Fatal("expected a repeating cursor to be rejected")
 	}
@@ -226,7 +226,7 @@ func TestListEmptyDataSerializesAsArray(t *testing.T) {
 		setListResult(t, r.Result, nil, nil)
 		return nil
 	})
-	doc, err := List(context.Background(), client, 0, "", true)
+	doc, err := List(context.Background(), client, ListOptions{Machine: true})
 	if err != nil {
 		t.Fatal(err)
 	}

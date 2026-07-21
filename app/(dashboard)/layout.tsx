@@ -6,7 +6,7 @@ import { SettingsReturnTracker } from "@/components/dashboard/settings-return-tr
 import { TimezoneServerSync } from "@/components/dashboard/timezone-provider"
 import { TopNav } from "@/components/dashboard/top-nav"
 import { findAccountProfile } from "@/lib/api/account"
-import { getCurrentSession } from "@/lib/auth/session"
+import { authenticateCurrentSession } from "@/lib/auth/session"
 import { listDependenciesForDashboard } from "@/lib/dependencies/queries"
 import { listCommandPaletteMonitors } from "@/lib/monitoring/queries"
 import { listCommandPaletteIncidents } from "@/lib/reporting/queries/incidents"
@@ -20,7 +20,7 @@ export default async function DashboardLayout({
 }) {
   // The session check must complete before children render; otherwise
   // protected content could stream to unauthenticated clients.
-  const session = await getCurrentSession()
+  const session = await authenticateCurrentSession()
   if (!session) {
     redirect("/onboarding")
   }

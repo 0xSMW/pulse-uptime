@@ -7,7 +7,7 @@ import { StatusUnavailableNotice } from "@/components/status-page/status-unavail
 import { renderRestrictedMarkdown } from "@/lib/markdown/restricted"
 import { formatDuration } from "@/lib/reporting/format"
 import {
-  getPublicReportDetail,
+  findPublicReport,
   getStatusFaviconDataUri,
   getStatusPageDisplayConfig,
 } from "@/lib/reporting/queries/status"
@@ -21,8 +21,8 @@ import {
   type ReportPhase,
   reportDurationSeconds,
   reportImpactLabels,
-  reportStatusLabels,
 } from "@/lib/status-page/reports-display"
+import { REPORT_STATUS_LABELS } from "@/lib/status-reports/domain"
 
 // The page people refresh compulsively mid-incident: ISR at the same
 // cadence as /status, plus the revalidatePath calls on every report mutation.
@@ -39,8 +39,8 @@ export async function generateMetadata({
   // Report lookup first: unknown ids and drafts 404 without paying for the
   // config read or the favicon bytes. A database-unavailable read is neither
   // of those. It falls through to the default page name below.
-  const report = await getPublicReportDetail(reportId)
-  if (report === null) {
+  const result = await findPublicReport(reportId)
+  if (result.status === "not_found") {
     notFound()
   }
   const [config, favicon] = await Promise.all([
@@ -50,9 +50,9 @@ export async function generateMetadata({
   return {
     title: {
       absolute:
-        report === "unavailable"
+        result.status === "unavailable"
           ? config.name
-          : `${report.title} — ${config.name}`,
+          : `${result.report.title} — ${config.name}`,
     },
     robots: { index: true, follow: true },
     ...(favicon ? { icons: { icon: favicon } } : {}),
@@ -68,13 +68,13 @@ const phaseLabels: Record<ReportPhase, string> = {
 
 export default async function PublicReportPage({ params }: ReportPageProps) {
   const { reportId } = await params
-  const report = await getPublicReportDetail(reportId)
-  if (report === null) {
+  const result = await findPublicReport(reportId)
+  if (result.status === "not_found") {
     notFound()
   }
   const config = await getStatusPageDisplayConfig()
 
-  if (report === "unavailable") {
+  if (result.status === "unavailable") {
     return (
       <main className="mx-auto w-full max-w-[720px] px-4 pt-12 pb-16 sm:px-6">
         <Link
@@ -91,6 +91,7 @@ export default async function PublicReportPage({ params }: ReportPageProps) {
     )
   }
 
+  const report = result.report
   const zone = timezoneDisplay(config.timezone)
   const phase = publicReportPhase(report, new Date())
   const typeLabel = report.type === "maintenance" ? "Maintenance" : "Incident"
@@ -117,7 +118,7 @@ export default async function PublicReportPage({ params }: ReportPageProps) {
         <p className="font-medium text-[var(--fg-faint)] text-xs uppercase tracking-wide">
           {typeLabel} ·{" "}
           {phase === "ongoing"
-            ? reportStatusLabels[report.currentStatus]
+            ? REPORT_STATUS_LABELS[report.currentStatus]
             : phaseLabels[phase]}
         </p>
         <h1 className="font-semibold text-base tracking-[-0.32px]">

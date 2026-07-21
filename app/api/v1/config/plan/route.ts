@@ -33,7 +33,12 @@ export async function POST(request: Request) {
           targetConfigHash: plan.targetConfigHash,
           planHash: plan.planHash,
           diff: plan.diff,
-          destructiveApprovalRequired: plan.destructiveApprovalRequired,
+          tripwireApprovalRequired: plan.tripwireApprovalRequired,
+          destructiveConsentRequired: plan.destructiveConsentRequired,
+          destructiveChange: plan.destructiveChange,
+          // Compatibility aliases for clients on the previous vocabulary.
+          destructiveApprovalRequired: plan.tripwireApprovalRequired,
+          allowDeleteRequired: plan.destructiveConsentRequired,
         },
         context.requestId
       )

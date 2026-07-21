@@ -9,8 +9,8 @@ import { MonitorApiError, setMonitorEnabled } from "./monitors"
 import { routeError } from "./route"
 
 /** Shared status map for the monitors route family. */
-function monitorErrorStatus(code: MonitorApiError["code"]): number {
-  return code === "MONITOR_NOT_FOUND"
+export function monitorErrorStatus(code: MonitorApiError["code"]): number {
+  return code === "MONITOR_NOT_FOUND" || code === "GROUP_NOT_FOUND"
     ? 404
     : code === "MONITOR_EXISTS"
       ? 409
@@ -44,7 +44,7 @@ export function monitorError(
   return null
 }
 
-// MONITOR_NOT_FOUND/MONITOR_EXISTS/INVALID_REQUEST are deterministic outcomes
+// MONITOR_NOT_FOUND/GROUP_NOT_FOUND/MONITOR_EXISTS/INVALID_REQUEST are deterministic outcomes
 // of the request, not proof it never ran, so store them as the operation's
 // own completed response instead of letting them roll back the transaction.
 // A stale-window retry would otherwise rerun the mutation against whatever
@@ -59,7 +59,7 @@ export function storedMonitorError(
     return null
   }
   const status =
-    error.code === "MONITOR_NOT_FOUND"
+    error.code === "MONITOR_NOT_FOUND" || error.code === "GROUP_NOT_FOUND"
       ? 404
       : error.code === "MONITOR_EXISTS"
         ? 409

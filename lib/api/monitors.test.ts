@@ -126,6 +126,20 @@ describe("monitor API request parsing", () => {
     ).toThrow()
   })
 
+  it("rejects an unknown legacy group name instead of creating it", () => {
+    expect(() =>
+      parseCreateMonitor(
+        {
+          id: "site-unknown-group",
+          name: "Unknown group",
+          url: "https://unknown.example.com",
+          group: "Productionn",
+        },
+        [{ id: "production", name: "Production" }]
+      )
+    ).toThrowError(expect.objectContaining({ code: "GROUP_NOT_FOUND" }))
+  })
+
   it("accepts an explicit null groupId to clear but rejects an empty string", () => {
     const groups = [{ id: "production", name: "Production" }]
     const monitor = parseCreateMonitor(
@@ -213,6 +227,37 @@ describe("clear then reassign a group through updateMonitor", () => {
       groupId: "production",
       group: "Production",
     })
+  })
+})
+
+describe("legacy group assignment", () => {
+  it("leaves configuration unchanged when the legacy name is unknown", async () => {
+    const groups = [{ id: "production", name: "Production" }]
+    const monitor = parseCreateMonitor(
+      {
+        id: "site-grp",
+        name: "Grouped",
+        url: "https://grouped.example.com",
+        groupId: "production",
+      },
+      groups
+    )
+    const config = {
+      schemaVersion: 2,
+      configVersion: 1,
+      settings: {},
+      groups,
+      monitors: [monitor],
+    }
+    vi.mocked(mutateConfig).mockImplementationOnce((async (
+      _principalKey: string,
+      mutator: (value: unknown) => unknown
+    ) => mutator(config)) as never)
+
+    await expect(
+      updateMonitor("site-grp", { group: "Productionn" }, "human:1")
+    ).rejects.toMatchObject({ code: "GROUP_NOT_FOUND" })
+    expect(config.groups).toEqual(groups)
   })
 })
 

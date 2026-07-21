@@ -20,6 +20,7 @@ type call struct {
 type fakeTransport struct {
 	calls []call
 	etag  string
+	plan  Plan
 }
 
 func (f *fakeTransport) Do(_ context.Context, method, path string, body any, headers http.Header, out any) (http.Header, error) {
@@ -39,7 +40,16 @@ func (f *fakeTransport) Do(_ context.Context, method, path string, body any, hea
 	case "/api/v1/config/plan":
 		target := out.(*planEnvelope)
 		target.APIVersion, target.Kind = "v1", "ConfigurationPlan"
-		target.Data = Plan{BaseConfigHash: "sha256:base", TargetConfigHash: "sha256:target", PlanHash: "sha256:plan"}
+		target.Data = f.plan
+		if target.Data.BaseConfigHash == "" {
+			target.Data.BaseConfigHash = "sha256:base"
+		}
+		if target.Data.TargetConfigHash == "" {
+			target.Data.TargetConfigHash = "sha256:target"
+		}
+		if target.Data.PlanHash == "" {
+			target.Data.PlanHash = "sha256:plan"
+		}
 	case "/api/v1/config/apply":
 		target := out.(*map[string]any)
 		*target = map[string]any{"apiVersion": "v1", "kind": "ConfigurationOperation", "data": map[string]any{"id": "op", "state": "written"}}
@@ -75,6 +85,99 @@ func TestApplyCarriesPlanMetadataAndIfMatch(t *testing.T) {
 		if body[key] != want {
 			t.Errorf("%s = %v", key, body[key])
 		}
+	}
+	if body["allowDestructiveChanges"] != false || body["allowDelete"] != false {
+		t.Fatalf("compatibility consent fields = %#v", body)
+	}
+}
+
+func TestApplyRequiresExplicitConsentForTripwireOnlyPlan(t *testing.T) {
+	client := &fakeTransport{plan: Plan{
+		TripwireApprovalRequired:   true,
+		DestructiveConsentRequired: true,
+		DestructiveChange: DestructiveChange{Reasons: []DestructiveChangeReason{{
+			Type:                "all-active-monitors-removed",
+			PreviousActiveCount: 3,
+		}}},
+	}}
+	cmd := NewCommand(Dependencies{
+		Client:   client,
+		In:       strings.NewReader(validConfig()),
+		Out:      io.Discard,
+		StdinTTY: false,
+		Output:   func(string) string { return "json" },
+	})
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	cmd.SetArgs([]string{"apply", "--file", "-", "--no-wait"})
+	err := cmd.Execute()
+	var got *Error
+	if !errors.As(err, &got) || got.Code != "INVALID_ARGUMENT" || !strings.Contains(got.Message, "--allow-destructive") {
+		t.Fatalf("error = %#v", err)
+	}
+	if len(client.calls) != 2 {
+		t.Fatalf("calls = %d, want plan only", len(client.calls))
+	}
+}
+
+func TestApplySendsNewAndCompatibilityConsentFields(t *testing.T) {
+	client := &fakeTransport{plan: Plan{DestructiveConsentRequired: true}}
+	cmd := NewCommand(Dependencies{
+		Client:   client,
+		In:       strings.NewReader(validConfig()),
+		Out:      io.Discard,
+		StdinTTY: false,
+		Output:   func(string) string { return "json" },
+	})
+	cmd.SetArgs([]string{"apply", "--file", "-", "--allow-destructive", "--yes", "--no-wait"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	body := client.calls[2].body.(map[string]any)
+	if body["allowDestructiveChanges"] != true || body["allowDelete"] != true {
+		t.Fatalf("consent fields = %#v", body)
+	}
+}
+
+func TestApplyExplainsTripwireReasonsBeforeInteractiveConsent(t *testing.T) {
+	client := &fakeTransport{plan: Plan{
+		DestructiveConsentRequired: true,
+		DestructiveChange: DestructiveChange{Reasons: []DestructiveChangeReason{{
+			Type:                "removed-monitor-percentage",
+			RemovedCount:        2,
+			PreviousActiveCount: 4,
+			Percentage:          50,
+		}}},
+	}}
+	var prompts bytes.Buffer
+	cmd := NewCommand(Dependencies{
+		Client:   client,
+		In:       strings.NewReader("yes\n"),
+		Out:      io.Discard,
+		Err:      &prompts,
+		StdinTTY: true,
+		Output:   func(string) string { return "json" },
+		OpenFile: func(string) (io.ReadCloser, error) {
+			return io.NopCloser(strings.NewReader(validConfig())), nil
+		},
+	})
+	cmd.SetArgs([]string{"apply", "--file", "config.yaml", "--no-wait"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prompts.String(), "2 of 4 active monitors would be removed (50.0%)") {
+		t.Fatalf("prompt = %q", prompts.String())
+	}
+}
+
+func TestAllowDeleteFlagRemainsHiddenAndDeprecated(t *testing.T) {
+	cmd := NewCommand(Dependencies{})
+	apply, _, err := cmd.Find([]string{"apply"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	flag := apply.Flags().Lookup("allow-delete")
+	if flag == nil || !flag.Hidden || flag.Deprecated == "" {
+		t.Fatalf("allow-delete flag = %#v", flag)
 	}
 }
 

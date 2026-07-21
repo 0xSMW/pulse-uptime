@@ -1,9 +1,8 @@
 import Link from "next/link"
-
 import {
-  type MonitorState,
   StatusDot,
   stateLabels,
+  type VisibleMonitorState,
 } from "@/components/monitors/status-dot"
 import {
   TimelineBar,
@@ -27,10 +26,10 @@ import {
   type PublicReportsView,
   reportBannerTier,
   reportDurationSeconds,
-  reportStatusLabels,
   statusReportUrl,
 } from "@/lib/status-page/reports-display"
 import type { StatusPageNavLink } from "@/lib/status-page/schema"
+import { REPORT_STATUS_LABELS } from "@/lib/status-reports/domain"
 
 import { OverallBanner } from "./overall-banner"
 import styles from "./status-page.module.css"
@@ -72,7 +71,7 @@ export interface PublicStatusData {
     monitors: Array<{
       id: string
       name: string
-      state: MonitorState
+      state: VisibleMonitorState
       uptime: number | null
       timeline: TimelineBucket[]
     }>
@@ -189,7 +188,7 @@ const reportCardTints: Record<"outage" | "degraded" | "maintenance", string> = {
 
 const reportTierDots: Record<
   "outage" | "degraded" | "maintenance",
-  MonitorState
+  VisibleMonitorState
 > = {
   outage: "DOWN",
   degraded: "VERIFYING_DOWN",
@@ -254,7 +253,7 @@ function OngoingReports({
                 </h3>
               </div>
               <span className="font-medium text-[var(--fg-muted)] text-xs">
-                {reportStatusLabels[report.currentStatus]}
+                {REPORT_STATUS_LABELS[report.currentStatus]}
               </span>
             </div>
             {report.latestUpdate ? (

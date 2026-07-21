@@ -23,7 +23,7 @@ func TestListRejectsRepeatingCursor(t *testing.T) {
 		doc.Meta.NextCursor = &cycle
 		return nil
 	})
-	_, err := List(context.Background(), client, 0, "", true)
+	_, err := List(context.Background(), client, ListOptions{Machine: true})
 	if err == nil {
 		t.Fatal("expected a repeating cursor to be rejected")
 	}
@@ -48,7 +48,7 @@ func TestListMachinePaginationPreservesCursorAndOrder(t *testing.T) {
 		}
 		return nil
 	})
-	doc, err := List(context.Background(), client, 0, "start", true)
+	doc, err := List(context.Background(), client, ListOptions{Cursor: "start", Machine: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestListEmptyDataSerializesAsArray(t *testing.T) {
 		doc.Kind = "IncidentList"
 		return nil
 	})
-	doc, err := List(context.Background(), client, 0, "", true)
+	doc, err := List(context.Background(), client, ListOptions{Machine: true})
 	if err != nil {
 		t.Fatal(err)
 	}

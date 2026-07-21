@@ -1,4 +1,4 @@
-import type { MonitorState } from "@/components/monitors/status-dot"
+import type { VisibleMonitorState } from "@/components/monitors/status-dot"
 import {
   impactOptions,
   isResolvingStatus,
@@ -77,7 +77,9 @@ export type ReportListState = "all" | "draft" | "ongoing" | "resolved"
 export type ReportListType = "all" | "incident" | "maintenance"
 
 /** Maps a report's current status onto the house StatusDot vocabulary. */
-export function reportDotState(status: ReportUpdateStatus): MonitorState {
+export function reportDotState(
+  status: ReportUpdateStatus
+): VisibleMonitorState {
   switch (status) {
     case "investigating":
     case "identified":

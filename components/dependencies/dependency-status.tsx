@@ -58,7 +58,7 @@ export interface DependencyStatusDotProps {
   "aria-hidden"?: boolean
 }
 
-// Decision 5, Docs/DEPENDENCY-MONITORING.md "Implementation plan": dependency
+// Decision 5, Docs/Specs/DEPENDENCY-MONITORING.md "Implementation plan": dependency
 // states reuse the existing color tokens, no new colors introduced. Color
 // communicates state only, so MAINTENANCE and UNKNOWN both render neutral
 // rather than inventing a sixth visual state.

@@ -3,7 +3,7 @@ import "server-only"
 import { and, eq, gt, isNull, lt, or } from "drizzle-orm"
 import { after } from "next/server"
 
-import { getCurrentSession } from "@/lib/auth/session"
+import { authenticateCurrentSession } from "@/lib/auth/session"
 import { db } from "@/lib/db/client"
 import { apiTokens, cliInstallations, cliSessions } from "@/lib/db/schema"
 
@@ -54,21 +54,21 @@ export interface PrincipalStore {
     digest: Buffer,
     now: Date
   ) => Promise<CliSessionPrincipal | null>
-  touchApiToken: (id: string, now: Date) => Promise<void>
-  touchCliSession: (
+  recordApiTokenUse: (id: string, now: Date) => Promise<void>
+  recordCliSessionUse: (
     id: string,
     installationId: string,
     now: Date
   ) => Promise<void>
 }
 
-type HumanSession = Awaited<ReturnType<typeof getCurrentSession>>
+type HumanSession = Awaited<ReturnType<typeof authenticateCurrentSession>>
 
-export async function resolvePrincipal(
+export async function authenticatePrincipal(
   request: Request,
   dependencies: {
     store?: PrincipalStore
-    getHumanSession?: () => Promise<HumanSession>
+    authenticateHumanSession?: () => Promise<HumanSession>
     now?: () => Date
   } = {}
 ): Promise<Principal | null> {
@@ -77,7 +77,9 @@ export async function resolvePrincipal(
     if (request.headers.has("authorization")) {
       return null
     }
-    const session = await (dependencies.getHumanSession ?? getCurrentSession)()
+    const session = await (
+      dependencies.authenticateHumanSession ?? authenticateCurrentSession
+    )()
     return session
       ? {
           type: "human",
@@ -93,13 +95,13 @@ export async function resolvePrincipal(
   const digest = digestBearerToken(raw)
   const apiToken = await store.findApiToken(digest, now)
   if (apiToken) {
-    await deferTouch(() => store.touchApiToken(apiToken.id, now))
+    await deferTouch(() => store.recordApiTokenUse(apiToken.id, now))
     return apiToken
   }
   const cliSession = await store.findCliSession(digest, now)
   if (cliSession) {
     await deferTouch(() =>
-      store.touchCliSession(cliSession.id, cliSession.installation.id, now)
+      store.recordCliSessionUse(cliSession.id, cliSession.installation.id, now)
     )
     return cliSession
   }
@@ -183,7 +185,7 @@ const databasePrincipalStore: PrincipalStore = {
       : null
   },
 
-  async touchApiToken(id, now) {
+  async recordApiTokenUse(id, now) {
     await db
       .update(apiTokens)
       .set({ lastUsedAt: now })
@@ -203,7 +205,7 @@ const databasePrincipalStore: PrincipalStore = {
       )
   },
 
-  async touchCliSession(id, installationId, now) {
+  async recordCliSessionUse(id, installationId, now) {
     const staleBefore = new Date(now.getTime() - LAST_USED_WRITE_INTERVAL_MS)
     await Promise.all([
       db

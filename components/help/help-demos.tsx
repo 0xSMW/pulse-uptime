@@ -7,7 +7,10 @@ import { IncidentStatus } from "@/components/incidents/incident-status"
 import { NotificationSummary } from "@/components/incidents/notification-summary"
 import type { IncidentEvent } from "@/components/incidents/types"
 import { StatusBadge } from "@/components/monitors/status-badge"
-import { type MonitorState, StatusDot } from "@/components/monitors/status-dot"
+import {
+  StatusDot,
+  type VisibleMonitorState,
+} from "@/components/monitors/status-dot"
 import {
   TimelineBar,
   type TimelineBucket,
@@ -19,7 +22,7 @@ import { cn } from "@/lib/utils"
 
 // Fixture data only — no production monitors, emails, tokens, or incidents.
 
-const badgeStates: MonitorState[] = [
+const badgeStates: VisibleMonitorState[] = [
   "PENDING",
   "UP",
   "VERIFYING_DOWN",
@@ -91,7 +94,7 @@ function MonitorRowDemo() {
   )
 }
 
-function MonitorStatesDemo() {
+function VisibleMonitorStatesDemo() {
   return (
     <ul className="flex flex-wrap items-center gap-2.5">
       {badgeStates.map((state) => (
@@ -391,7 +394,7 @@ export const helpDemos: Record<
   },
   "monitor-states": {
     label: "Badges for every monitor state",
-    Demo: MonitorStatesDemo,
+    Demo: VisibleMonitorStatesDemo,
   },
   "check-settings": {
     label: "Check settings for one monitor",

@@ -1,16 +1,15 @@
 import { redirect } from "next/navigation"
 
 import { AccountSettings } from "@/components/settings/account-settings"
-import { getCurrentSession } from "@/lib/auth/session"
-import { getAccountSettings } from "@/lib/reporting/queries/settings"
+import { findAccountProfile } from "@/lib/api/account"
+import { authenticateCurrentSession } from "@/lib/auth/session"
 
 export default async function AccountSettingsPage() {
-  const session = await getCurrentSession()
+  const session = await authenticateCurrentSession()
   if (!session) {
     redirect("/onboarding")
   }
-  const data = await getAccountSettings(session.userId)
-  // biome-ignore lint/suspicious/noUnnecessaryConditions: findAccountProfile returns null for an unknown user id
+  const data = await findAccountProfile(session.userId)
   if (!data) {
     redirect("/onboarding")
   }

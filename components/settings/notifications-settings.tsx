@@ -31,7 +31,7 @@ interface ConfigurationPlan {
   baseConfigHash: string
   targetConfigHash: string
   planHash: string
-  destructiveApprovalRequired: boolean
+  destructiveConsentRequired: boolean
 }
 interface ConfigurationOperation {
   id: string
@@ -170,7 +170,7 @@ export function NotificationsSettings({
             targetConfigHash: planned.data.targetConfigHash,
             planHash: planned.data.planHash,
             targetConfig,
-            allowDelete: false,
+            allowDestructiveChanges: false,
           }),
         },
         true

@@ -23,7 +23,7 @@ type SnapshotReader = typeof db
 // so a persisted configHash that no longer matches its configJson is rejected
 // rather than trusted. Missing accepted row returns null. A present but invalid
 // or hash-mismatched row throws.
-async function readAcceptedSnapshot(
+export async function findAcceptedSnapshot(
   executor: SnapshotReader = db
 ): Promise<AcceptedSnapshot | null> {
   const [row] = await executor
@@ -50,16 +50,10 @@ async function readAcceptedSnapshot(
   return { config, hash: row.configHash, acceptedAt: row.acceptedAt ?? null }
 }
 
-export async function findAcceptedSnapshot(
-  executor: SnapshotReader = db
-): Promise<AcceptedSnapshot | null> {
-  return readAcceptedSnapshot(executor)
-}
-
 export async function requireAcceptedSnapshot(
   executor: SnapshotReader = db
 ): Promise<AcceptedSnapshot> {
-  const snapshot = await readAcceptedSnapshot(executor)
+  const snapshot = await findAcceptedSnapshot(executor)
   if (!snapshot) {
     throw new Error("No accepted monitoring configuration is available")
   }
