@@ -20,6 +20,7 @@
       "!!drizzle",
       "!!cli",
       "!!pnpm-lock.yaml",
+      "!!next-env.d.ts",
       "!!app/cli/authorize/authorization-flow.tsx"
     ]
   },
