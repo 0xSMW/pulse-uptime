@@ -81,14 +81,14 @@ type Envelope struct {
 
 func NewTokenCommand(d Dependencies) *cobra.Command {
 	d = defaults(d)
-	cmd := &cobra.Command{Use: "token", Short: "Manage scoped API tokens", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
+	cmd := &cobra.Command{Use: "token", Aliases: []string{"tokens"}, Short: "Manage scoped API tokens", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
 	cmd.AddCommand(tokenCreate(d), tokenList(d), tokenRevoke(d))
 	return cmd
 }
 
 func NewNotificationCommand(d Dependencies) *cobra.Command {
 	d = defaults(d)
-	cmd := &cobra.Command{Use: "notification", Short: "Manage notifications", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
+	cmd := &cobra.Command{Use: "notification", Aliases: []string{"notifications"}, Short: "Manage notifications", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
 	var recipient string
 	test := &cobra.Command{Use: "test", Short: "Send a test notification", Args: cobra.NoArgs, Annotations: annotations("notifications:test"), RunE: func(cmd *cobra.Command, _ []string) error {
 		if d.Client == nil {
@@ -136,6 +136,7 @@ func newUnlinkCommand(d Dependencies) *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{
 		Use:         "unlink",
+		Aliases:     []string{"logout"},
 		Short:       "Unlink this installation and revoke its credentials",
 		Args:        cobra.NoArgs,
 		Annotations: annotations("authenticated"),
@@ -207,7 +208,7 @@ func NewVersionCommand(d Dependencies) *cobra.Command {
 func tokenCreate(d Dependencies) *cobra.Command {
 	var name, expires string
 	var scopes []string
-	cmd := &cobra.Command{Use: "create", Short: "Create a scoped token", Args: cobra.NoArgs, Annotations: annotations("tokens:manage"), RunE: func(cmd *cobra.Command, _ []string) error {
+	cmd := &cobra.Command{Use: "create", Aliases: []string{"add", "new"}, Short: "Create a scoped token", Args: cobra.NoArgs, Annotations: annotations("tokens:manage"), RunE: func(cmd *cobra.Command, _ []string) error {
 		if strings.TrimSpace(name) == "" {
 			return invalid("--name is required")
 		}
@@ -259,7 +260,7 @@ func tokenList(d Dependencies) *cobra.Command {
 	var cursor string
 	var limit int
 	var all bool
-	cmd := &cobra.Command{Use: "list", Short: "List scoped tokens", Args: cobra.NoArgs, Annotations: annotations("tokens:manage"), RunE: func(cmd *cobra.Command, _ []string) error {
+	cmd := &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List scoped tokens", Args: cobra.NoArgs, Annotations: annotations("tokens:manage"), RunE: func(cmd *cobra.Command, _ []string) error {
 		if d.Client == nil {
 			return unavailable()
 		}
@@ -353,7 +354,7 @@ func validateTokenID(id string) error {
 
 func tokenRevoke(d Dependencies) *cobra.Command {
 	var yes bool
-	cmd := &cobra.Command{Use: "revoke <token-id>", Short: "Revoke a scoped token", Args: cobra.ExactArgs(1), Annotations: annotations("tokens:manage"), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "revoke <token-id>", Aliases: []string{"rm", "delete", "remove"}, Short: "Revoke a scoped token", Args: cobra.ExactArgs(1), Annotations: annotations("tokens:manage"), RunE: func(cmd *cobra.Command, args []string) error {
 		if err := validateTokenID(args[0]); err != nil {
 			return err
 		}

@@ -168,7 +168,7 @@ type Catalog struct {
 
 func NewGroup(d Dependencies) *cobra.Command {
 	d = defaults(d)
-	group := &cobra.Command{Use: "dependency", Short: "Manage third-party dependencies", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
+	group := &cobra.Command{Use: "dependency", Aliases: []string{"dependencies", "dep", "deps"}, Short: "Manage third-party dependencies", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
 	group.AddCommand(newCatalogCommand(d), newListCommand(d), newGetCommand(d), newAddCommand(d), newBackfillCommand(d), newRemoveCommand(d))
 	return group
 }
@@ -206,7 +206,7 @@ func newListCommand(d Dependencies) *cobra.Command {
 	var limit int
 	var cursor string
 	var all bool
-	cmd := &cobra.Command{Use: "list", Short: "List installed dependencies", Args: cobra.NoArgs, Annotations: annotations("dependencies:read"), RunE: func(cmd *cobra.Command, _ []string) error {
+	cmd := &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List installed dependencies", Args: cobra.NoArgs, Annotations: annotations("dependencies:read"), RunE: func(cmd *cobra.Command, _ []string) error {
 		doc, err := List(cmd.Context(), d.Client, ListOptions{Limit: limit, Cursor: cursor, All: all, Machine: machine(d.Format())})
 		if err != nil {
 			return d.MapError(err)
@@ -220,7 +220,7 @@ func newListCommand(d Dependencies) *cobra.Command {
 }
 
 func newGetCommand(d Dependencies) *cobra.Command {
-	return &cobra.Command{Use: "get <id>", Short: "Get dependency detail", Args: cobra.ExactArgs(1), Annotations: annotations("dependencies:read"), RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "get <id>", Aliases: []string{"show", "info"}, Short: "Get dependency detail", Args: cobra.ExactArgs(1), Annotations: annotations("dependencies:read"), RunE: func(cmd *cobra.Command, args []string) error {
 		if strings.TrimSpace(args[0]) == "" {
 			return invalid("dependency id is required")
 		}
@@ -235,7 +235,7 @@ func newGetCommand(d Dependencies) *cobra.Command {
 func newAddCommand(d Dependencies) *cobra.Command {
 	var scope string
 	var noNotifications bool
-	cmd := &cobra.Command{Use: "add <presetId>", Short: "Add a dependency", Args: cobra.ExactArgs(1), Annotations: annotations("dependencies:write"), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "add <presetId>", Aliases: []string{"create", "new"}, Short: "Add a dependency", Args: cobra.ExactArgs(1), Annotations: annotations("dependencies:write"), RunE: func(cmd *cobra.Command, args []string) error {
 		body := map[string]any{"presetId": args[0]}
 		if scope != "" {
 			body["scopeId"] = scope
@@ -281,7 +281,7 @@ func newBackfillCommand(d Dependencies) *cobra.Command {
 
 func newRemoveCommand(d Dependencies) *cobra.Command {
 	var yes bool
-	cmd := &cobra.Command{Use: "remove <id>", Short: "Remove a dependency", Args: cobra.ExactArgs(1), Annotations: annotations("dependencies:write"), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "remove <id>", Aliases: []string{"rm", "delete"}, Short: "Remove a dependency", Args: cobra.ExactArgs(1), Annotations: annotations("dependencies:write"), RunE: func(cmd *cobra.Command, args []string) error {
 		if strings.TrimSpace(args[0]) == "" {
 			return invalid("dependency id is required")
 		}

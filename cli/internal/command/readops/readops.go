@@ -68,13 +68,13 @@ type Incident struct {
 
 func NewIncidentGroup(d Dependencies) *cobra.Command {
 	d = defaults(d)
-	g := &cobra.Command{Use: "incident", Short: "Inspect incidents", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error { return c.Help() }}
+	g := &cobra.Command{Use: "incident", Aliases: []string{"incidents"}, Short: "Inspect incidents", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error { return c.Help() }}
 	g.AddCommand(newList(d), newGet(d))
 	return g
 }
 func NewStatusCommand(d Dependencies) *cobra.Command {
 	d = defaults(d)
-	return &cobra.Command{Use: "status", Short: "Show public service status", Args: cobra.NoArgs, Annotations: annotations("status:read"), RunE: func(c *cobra.Command, _ []string) error {
+	return &cobra.Command{Use: "status", Aliases: []string{"st"}, Short: "Show public service status", Args: cobra.NoArgs, Annotations: annotations("status:read"), RunE: func(c *cobra.Command, _ []string) error {
 		var doc Envelope
 		if err := d.Client.Do(c.Context(), Request{Method: http.MethodGet, Path: "/api/v1/status", Result: &doc}); err != nil {
 			return d.MapError(err)
@@ -102,7 +102,7 @@ func newList(d Dependencies) *cobra.Command {
 	var limit int
 	var cursor string
 	var all bool
-	cmd := &cobra.Command{Use: "list", Short: "List incidents", Args: cobra.NoArgs, Annotations: annotations("incidents:read"), RunE: func(c *cobra.Command, _ []string) error {
+	cmd := &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List incidents", Args: cobra.NoArgs, Annotations: annotations("incidents:read"), RunE: func(c *cobra.Command, _ []string) error {
 		doc, err := List(c.Context(), d.Client, ListOptions{Limit: limit, Cursor: cursor, All: all, Machine: machine(d.Format())})
 		if err != nil {
 			return d.MapError(err)
@@ -115,7 +115,7 @@ func newList(d Dependencies) *cobra.Command {
 	return cmd
 }
 func newGet(d Dependencies) *cobra.Command {
-	return &cobra.Command{Use: "get <id>", Short: "Get an incident", Args: cobra.ExactArgs(1), Annotations: annotations("incidents:read"), RunE: func(c *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "get <id>", Aliases: []string{"show", "info"}, Short: "Get an incident", Args: cobra.ExactArgs(1), Annotations: annotations("incidents:read"), RunE: func(c *cobra.Command, args []string) error {
 		if strings.TrimSpace(args[0]) == "" {
 			return invalid("incident id is required")
 		}

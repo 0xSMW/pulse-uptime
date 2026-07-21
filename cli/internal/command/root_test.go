@@ -19,6 +19,7 @@ import (
 	"github.com/0xSMW/pulse-uptime/cli/internal/auth"
 	"github.com/0xSMW/pulse-uptime/cli/internal/buildinfo"
 	"github.com/0xSMW/pulse-uptime/cli/internal/config"
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
 
@@ -532,4 +533,69 @@ func execute(t *testing.T, args ...string) (int, string, string) {
 	app := New(Options{In: strings.NewReader(""), Out: &stdout, Err: &stderr, ConfigPath: t.TempDir() + "/missing.yaml"})
 	code := app.Execute(args)
 	return code, stdout.String(), stderr.String()
+}
+
+func TestRootVersionFlagPrintsLocalVersion(t *testing.T) {
+	for _, flag := range []string{"--version", "-v"} {
+		code, stdout, stderr := execute(t, flag)
+		if code != 0 || stderr != "" {
+			t.Fatalf("%s: code=%d stderr=%q", flag, code, stderr)
+		}
+		want := "pulsectl version " + buildinfo.Version + "\n"
+		if stdout != want {
+			t.Fatalf("%s printed %q, want %q", flag, stdout, want)
+		}
+	}
+}
+
+func TestAliasesResolveToCanonicalCommands(t *testing.T) {
+	root := New(Options{}).Root()
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"whoami"}, "pulsectl me"},
+		{[]string{"st"}, "pulsectl status"},
+		{[]string{"monitors", "ls"}, "pulsectl monitor list"},
+		{[]string{"mon", "rm"}, "pulsectl monitor archive"},
+		{[]string{"deps", "show"}, "pulsectl dependency get"},
+		{[]string{"incidents", "ls"}, "pulsectl incident list"},
+		{[]string{"reports", "new"}, "pulsectl report create"},
+		{[]string{"tokens", "delete"}, "pulsectl token revoke"},
+		{[]string{"ctx", "get"}, "pulsectl context show"},
+		{[]string{"auth", "logout"}, "pulsectl auth unlink"},
+		{[]string{"statuspage", "update"}, "pulsectl status-page set"},
+		{[]string{"groups", "add"}, "pulsectl group create"},
+	}
+	for _, tc := range cases {
+		target, _, err := root.Find(tc.args)
+		if err != nil {
+			t.Fatalf("%v did not resolve: %v", tc.args, err)
+		}
+		if got := target.CommandPath(); got != tc.want {
+			t.Fatalf("%v resolved to %q, want %q", tc.args, got, tc.want)
+		}
+	}
+}
+
+// TestNoSiblingAliasCollisions sweeps the whole tree and asserts every name
+// and alias is claimed by exactly one child within each parent, so a new
+// alias can never silently shadow a sibling command.
+func TestNoSiblingAliasCollisions(t *testing.T) {
+	root := New(Options{}).Root()
+	var visit func(cmd *cobra.Command)
+	visit = func(cmd *cobra.Command) {
+		claimed := map[string]string{}
+		for _, child := range cmd.Commands() {
+			for _, token := range append([]string{child.Name()}, child.Aliases...) {
+				if owner, ok := claimed[token]; ok {
+					t.Errorf("%s: %q is claimed by both %q and %q", cmd.CommandPath(), token, owner, child.Name())
+					continue
+				}
+				claimed[token] = child.Name()
+			}
+			visit(child)
+		}
+	}
+	visit(root)
 }

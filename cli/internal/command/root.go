@@ -158,6 +158,10 @@ func (a *App) newRoot() *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		Args:          cobra.NoArgs,
+		// Version enables cobra's --version flag and its -v shorthand on the
+		// root. It prints the same local version the version subcommand
+		// reports as cliVersion, without any server call.
+		Version: buildinfo.Version,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return a.rootHelp(cmd.OutOrStdout())
 		},
@@ -179,6 +183,7 @@ func (a *App) newRoot() *cobra.Command {
 	root.SetOut(a.opts.Out)
 	root.SetErr(a.opts.Err)
 	root.CompletionOptions.DisableDefaultCmd = true
+	root.SetVersionTemplate("pulsectl version {{.Version}}\n")
 	root.PersistentFlags().StringVar(&a.contextName, "context", "", "Use a named context")
 	root.PersistentFlags().StringVar(&a.server, "server", "", "Use a service URL")
 	root.PersistentFlags().StringVarP(&a.format, "output", "o", "", "Output format: table, json, jsonl, yaml, or tsv")
@@ -220,6 +225,7 @@ func (a *App) meCommand() *cobra.Command {
 	var noBrowser bool
 	cmd := &cobra.Command{
 		Use:         "me",
+		Aliases:     []string{"whoami"},
 		Short:       "Show the current authenticated user or link this installation",
 		Long:        "Show the current identity. In an interactive unauthenticated session, create or activate the selected context, authorize this installation, and store the approved credential. Token and noninteractive invocations remain read-only.",
 		Args:        cobra.NoArgs,

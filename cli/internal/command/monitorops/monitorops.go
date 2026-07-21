@@ -144,7 +144,7 @@ type WatchEvent struct {
 
 func NewGroup(d Dependencies) *cobra.Command {
 	d = defaults(d)
-	group := &cobra.Command{Use: "monitor", Short: "Manage endpoint monitors", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
+	group := &cobra.Command{Use: "monitor", Aliases: []string{"monitors", "mon"}, Short: "Manage endpoint monitors", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
 	group.AddCommand(newListCommand(d), newGetCommand(d), newCreateCommand(d), newUpdateCommand(d), newActionCommand(d, "pause"), newActionCommand(d, "resume"), newArchiveCommand(d), newActionCommand(d, "test"), newWatchCommand(d))
 	return group
 }
@@ -189,7 +189,7 @@ func defaults(d Dependencies) Dependencies {
 func newListCommand(d Dependencies) *cobra.Command {
 	var o ListOptions
 	var enabled, disabled bool
-	cmd := &cobra.Command{Use: "list", Short: "List monitors", Args: cobra.NoArgs, Annotations: annotations("monitors:read"), RunE: func(cmd *cobra.Command, _ []string) error {
+	cmd := &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List monitors", Args: cobra.NoArgs, Annotations: annotations("monitors:read"), RunE: func(cmd *cobra.Command, _ []string) error {
 		if cmd.Flags().Changed("group") && cmd.Flags().Changed("group-id") {
 			return invalid("--group and --group-id cannot be combined")
 		}
@@ -226,7 +226,7 @@ func newListCommand(d Dependencies) *cobra.Command {
 
 func newGetCommand(d Dependencies) *cobra.Command {
 	var flagID string
-	cmd := &cobra.Command{Use: "get [id]", Short: "Get a monitor", Args: cobra.MaximumNArgs(1), Annotations: annotations("monitors:read"), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "get [id]", Aliases: []string{"show", "info"}, Short: "Get a monitor", Args: cobra.MaximumNArgs(1), Annotations: annotations("monitors:read"), RunE: func(cmd *cobra.Command, args []string) error {
 		id, err := exactMonitorID(args, flagID)
 		if err != nil {
 			return err
@@ -258,7 +258,7 @@ const (
 
 func newCreateCommand(d Dependencies) *cobra.Command {
 	var f editFlags
-	cmd := &cobra.Command{Use: "create", Short: "Create a monitor", Args: cobra.NoArgs, Annotations: annotations("monitors:write"), RunE: func(cmd *cobra.Command, _ []string) error {
+	cmd := &cobra.Command{Use: "create", Aliases: []string{"add", "new"}, Short: "Create a monitor", Args: cobra.NoArgs, Annotations: annotations("monitors:write"), RunE: func(cmd *cobra.Command, _ []string) error {
 		if f.id == "" || f.name == "" || f.targetURL == "" {
 			return invalid("--id, --name, and --url are required")
 		}
@@ -277,7 +277,7 @@ func newCreateCommand(d Dependencies) *cobra.Command {
 
 func newUpdateCommand(d Dependencies) *cobra.Command {
 	var f editFlags
-	cmd := &cobra.Command{Use: "update <id>", Short: "Update a monitor", Args: cobra.ExactArgs(1), Annotations: annotations("monitors:write"), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "update <id>", Aliases: []string{"edit", "set"}, Short: "Update a monitor", Args: cobra.ExactArgs(1), Annotations: annotations("monitors:write"), RunE: func(cmd *cobra.Command, args []string) error {
 		id, err := exactMonitorID(args, "")
 		if err != nil {
 			return err
@@ -444,7 +444,10 @@ func newActionCommand(d Dependencies, action string) *cobra.Command {
 func newArchiveCommand(d Dependencies) *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{
-		Use:         "archive <id>",
+		Use: "archive <id>",
+		// Archival is the monitor removal operation, it issues a DELETE and
+		// sits behind the same confirmation gate under every alias.
+		Aliases:     []string{"delete", "rm", "remove"},
 		Short:       "Archive a monitor",
 		Args:        cobra.ExactArgs(1),
 		Annotations: annotations("monitors:write"),

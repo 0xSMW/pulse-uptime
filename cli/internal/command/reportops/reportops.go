@@ -137,8 +137,9 @@ var impacts = []string{"down", "degraded", "maintenance"}
 func NewGroup(d Dependencies) *cobra.Command {
 	d = defaults(d)
 	group := &cobra.Command{
-		Use:   "report",
-		Short: "Manage status page reports",
+		Use:     "report",
+		Aliases: []string{"reports"},
+		Short:   "Manage status page reports",
 		Long: "Author, publish, and maintain incident and maintenance reports shown on the\n" +
 			"public status page. Reports start as drafts or publish on creation, carry a\n" +
 			"timeline of updates, and list the monitors they affect.",
@@ -197,6 +198,7 @@ func newListCommand(d Dependencies) *cobra.Command {
 	var asJSON bool
 	cmd := &cobra.Command{
 		Use:         "list",
+		Aliases:     []string{"ls"},
 		Short:       "List status reports",
 		Long:        "List status reports, newest first. Filter drafts, ongoing, or resolved\nreports with --state and incidents or maintenance windows with --type.",
 		Args:        cobra.NoArgs,
@@ -232,6 +234,7 @@ func newGetCommand(d Dependencies) *cobra.Command {
 	var asJSON bool
 	cmd := &cobra.Command{
 		Use:         "get <id>",
+		Aliases:     []string{"show", "info"},
 		Short:       "Show a status report",
 		Long:        "Show one status report with its update timeline and affected monitors.",
 		Args:        cobra.ExactArgs(1),
@@ -258,6 +261,7 @@ func newCreateCommand(d Dependencies) *cobra.Command {
 	var draft bool
 	cmd := &cobra.Command{
 		Use:         "create",
+		Aliases:     []string{"add", "new"},
 		Short:       "Create a status report",
 		Long:        "Create an incident or maintenance report with its first update. Reports\npublish immediately unless --draft is given. Read the update body from\n--message, or --message-file (use - for stdin).",
 		Args:        cobra.NoArgs,
@@ -329,6 +333,7 @@ func newUpdateCommand(d Dependencies) *cobra.Command {
 	var affected []string
 	cmd := &cobra.Command{
 		Use:         "update <id>",
+		Aliases:     []string{"edit", "set"},
 		Short:       "Edit a status report",
 		Long:        "Edit a report's title, window, or affected monitors. --affected replaces\nthe full affected set. Use report post to add timeline updates.",
 		Args:        cobra.ExactArgs(1),
@@ -472,6 +477,7 @@ func newDeleteCommand(d Dependencies) *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{
 		Use:         "delete <id>",
+		Aliases:     []string{"rm", "remove"},
 		Short:       "Delete a status report",
 		Long:        "Delete a report and its updates. Published reports disappear from the\npublic status page. This cannot be undone.",
 		Args:        cobra.ExactArgs(1),

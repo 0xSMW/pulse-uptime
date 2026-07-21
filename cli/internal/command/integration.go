@@ -240,7 +240,7 @@ func (a *App) authGroup() *cobra.Command {
 }
 
 func (a *App) contextGroup() *cobra.Command {
-	group := &cobra.Command{Use: "context", Short: "Manage service contexts", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
+	group := &cobra.Command{Use: "context", Aliases: []string{"contexts", "ctx"}, Short: "Manage service contexts", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
 	group.AddCommand(a.contextAddCommand(), a.contextListCommand(), a.contextShowCommand(), a.contextUseCommand(), a.contextRemoveCommand())
 	return group
 }
@@ -249,7 +249,7 @@ func (a *App) contextAddCommand() *cobra.Command {
 	var server, format string
 	var timeout time.Duration
 	var activate, force bool
-	cmd := &cobra.Command{Use: "add <name>", Short: "Add a context", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "add <name>", Aliases: []string{"create", "new"}, Short: "Add a context", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if server == "" {
 			return cliError(ExitInvalidInput, "INVALID_ARGUMENT", "--url is required")
 		}
@@ -278,7 +278,7 @@ func (a *App) contextAddCommand() *cobra.Command {
 }
 
 func (a *App) contextListCommand() *cobra.Command {
-	return &cobra.Command{Use: "list", Short: "List contexts", Args: cobra.NoArgs, RunE: func(_ *cobra.Command, _ []string) error {
+	return &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List contexts", Args: cobra.NoArgs, RunE: func(_ *cobra.Command, _ []string) error {
 		path, _ := a.configPath()
 		f, err := config.Load(path)
 		if err != nil {
@@ -293,7 +293,7 @@ func (a *App) contextListCommand() *cobra.Command {
 }
 
 func (a *App) contextShowCommand() *cobra.Command {
-	return &cobra.Command{Use: "show [name]", Short: "Show a context", Args: cobra.MaximumNArgs(1), RunE: func(_ *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "show [name]", Aliases: []string{"get", "info"}, Short: "Show a context", Args: cobra.MaximumNArgs(1), RunE: func(_ *cobra.Command, args []string) error {
 		path, _ := a.configPath()
 		f, err := config.Load(path)
 		if err != nil {
@@ -329,7 +329,7 @@ func (a *App) contextUseCommand() *cobra.Command {
 }
 
 func (a *App) contextRemoveCommand() *cobra.Command {
-	return &cobra.Command{Use: "remove <name>", Short: "Remove a context", Args: cobra.ExactArgs(1), RunE: func(_ *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "remove <name>", Aliases: []string{"rm", "delete"}, Short: "Remove a context", Args: cobra.ExactArgs(1), RunE: func(_ *cobra.Command, args []string) error {
 		path, _ := a.configPath()
 		f, err := config.Load(path)
 		if err != nil {
