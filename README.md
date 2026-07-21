@@ -1,6 +1,6 @@
 # Pulse Uptime
 
-<img width="1159" height="808" alt="image" src="https://github.com/user-attachments/assets/083d419c-3380-4685-b49e-1c660f0e4360" />
+<img width="1077" height="854" alt="image" src="https://github.com/user-attachments/assets/4f4e48da-eb1c-49a7-a9f5-a70e408c4c97" />
 
 Pulse Uptime is a production-grade service for monitoring public HTTP and HTTPS endpoints. It runs entirely on Vercel with a compact dashboard, a stable API, and outage detection that stays correct when scheduled checks overlap, retry, or fail.
 
