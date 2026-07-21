@@ -41,7 +41,17 @@ export function MonitorsSettings({ data }: { data: MonitorSettingsData }) {
   const [monitorSheet, setMonitorSheet] = useState<
     EditableMonitor | "new" | null
   >(null)
-  const [groups, setGroups] = useState(() => sortSettingsGroups(data.groups))
+  // data.groups stays authoritative. The sorted list is optimistic overlay
+  // state so mutations can reflect instantly, but it resets to the server
+  // value whenever data.groups changes, so a router.refresh() from any path
+  // (including this component's own handlers) never leaves it stale.
+  const serverGroups = sortSettingsGroups(data.groups)
+  const [groups, setGroups] = useState(serverGroups)
+  const [groupsSource, setGroupsSource] = useState(data.groups)
+  if (groupsSource !== data.groups) {
+    setGroupsSource(data.groups)
+    setGroups(serverGroups)
+  }
   const [groupDialog, setGroupDialog] = useState<SettingsGroup | "new" | null>(
     null
   )

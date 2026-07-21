@@ -30,7 +30,6 @@ const valid: MonitorFormValues = {
   expectedStatusMax: 399,
   failureThreshold: 2,
   recoveryThreshold: 2,
-  recipients: [],
   recipientsText: "ops@example.com",
 }
 

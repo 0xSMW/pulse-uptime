@@ -2,7 +2,7 @@
 
 import { Activity, Archive, ChevronDown, Pause, Play } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { Fragment, useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Collapsible,
@@ -44,7 +44,13 @@ export interface EditableMonitor {
   recipients: string[]
 }
 
-export type MonitorFormValues = Omit<EditableMonitor, "id" | "group"> & {
+// recipientsText is the single source for recipients while editing. The form
+// parses it back to a list only on submit, so the raw EditableMonitor
+// recipients array is not carried in form state.
+export type MonitorFormValues = Omit<
+  EditableMonitor,
+  "id" | "group" | "recipients"
+> & {
   recipientsText: string
 }
 export type MonitorFormErrors = Partial<Record<keyof MonitorFormValues, string>>
@@ -79,7 +85,6 @@ const emptyValues: MonitorFormValues = {
   expectedStatusMax: 399,
   failureThreshold: 2,
   recoveryThreshold: 2,
-  recipients: [],
   recipientsText: "",
   enabled: true,
 }
@@ -100,7 +105,6 @@ function valuesFor(monitor: EditableMonitor | null): MonitorFormValues {
     expectedStatusMax: monitor.expectedStatusMax,
     failureThreshold: monitor.failureThreshold,
     recoveryThreshold: monitor.recoveryThreshold,
-    recipients: monitor.recipients,
     recipientsText: monitor.recipients.join("\n"),
   }
 }
@@ -503,6 +507,7 @@ export function MonitorSheet({
   const inputClass =
     "h-10 w-full rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-3 text-[13px]"
   const [testLabel, toggleLabel, archiveLabel] = monitorSheetActionLabels(
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: monitor is null when creating a new monitor
     monitor?.enabled ?? true
   )
   const actionBusyDescription = "Another monitor action is in progress"
@@ -590,6 +595,7 @@ export function MonitorSheet({
             ) : null}
           </label>
           <div>
+            {/* biome-ignore lint/a11y/noLabelWithoutControl: linked to the Select via aria-labelledby on its trigger */}
             <label
               className="mb-1.5 block font-medium text-[13px]"
               id="monitor-group-label"
@@ -631,6 +637,7 @@ export function MonitorSheet({
             )}
           </div>
           <div>
+            {/* biome-ignore lint/a11y/noLabelWithoutControl: linked to the Select via aria-labelledby on its trigger */}
             <label
               className="mb-1.5 block font-medium text-[13px]"
               id="monitor-method-label"
@@ -654,6 +661,7 @@ export function MonitorSheet({
             </Select>
           </div>
           <div>
+            {/* biome-ignore lint/a11y/noLabelWithoutControl: linked to the Select via aria-labelledby on its trigger */}
             <label
               className="mb-1.5 block font-medium text-[13px]"
               id="monitor-interval-label"

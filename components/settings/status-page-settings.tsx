@@ -503,6 +503,7 @@ function ImageUploadZone({
         <div className="flex min-w-0 items-center gap-3">
           {previewUrl ? (
             // eslint-disable-next-line @next/next/no-img-element -- uploaded bytes, not an optimizable static asset
+            // biome-ignore lint/correctness/useImageSize: uploaded logo of unknown intrinsic size, css object-contain bounds the preview
             <img
               alt=""
               aria-hidden
@@ -620,14 +621,15 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
   const dirty = !documentsEqual(draft, saved)
   useDirtyGuard("status-page", dirty)
 
+  // Latest-value refs for the mount-only revalidation effect below. Written
+  // during render, never read during render, so the effect's async callback
+  // always sees the current draft, saved, and etag when its fetch resolves.
   const draftRef = useRef(draft)
   const savedRef = useRef(saved)
   const etagRef = useRef(etag)
-  useEffect(() => {
-    draftRef.current = draft
-    savedRef.current = saved
-    etagRef.current = etag
-  })
+  draftRef.current = draft
+  savedRef.current = saved
+  etagRef.current = etag
 
   // A remount can hydrate from a cached snapshot (client router cache,
   // prefetched payload, bfcache) whose etag is stale. Saving with that etag
@@ -931,11 +933,13 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
               <div
                 aria-label="Announcement preview"
                 className="rounded-[8px] border border-[var(--border)] bg-[var(--chip-bg)] p-4"
+                role="group"
               >
                 <div className="space-y-2 text-[13px] leading-[19px]">
                   {announcementPreview
                     .split(/\n[\t ]*\n+/)
                     .map((paragraph, index) => (
+                      // biome-ignore lint/suspicious/noArrayIndexKey: static preview split re-rendered wholesale on every edit
                       <p className="whitespace-pre-wrap" key={index}>
                         {paragraph.trim()}
                       </p>
@@ -1173,6 +1177,7 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
                   {draft.navLinks.map((link, index) => (
                     <div
                       className="flex flex-wrap items-center gap-2"
+                      // biome-ignore lint/suspicious/noArrayIndexKey: editable rows have no stable id, controlled inputs bind by position
                       key={index}
                     >
                       <Input

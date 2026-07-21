@@ -25,10 +25,16 @@ vi.mock("next/navigation", () => ({
 // `open` attribute/property, which jsdom's generic boolean-attribute
 // reflection already handles once set.
 beforeEach(() => {
-  Element.prototype.scrollIntoView ??= () => {}
+  Element.prototype.scrollIntoView ??= () => {
+    // jsdom stub
+  }
   Element.prototype.hasPointerCapture ??= () => false
-  Element.prototype.setPointerCapture ??= () => {}
-  Element.prototype.releasePointerCapture ??= () => {}
+  Element.prototype.setPointerCapture ??= () => {
+    // jsdom stub
+  }
+  Element.prototype.releasePointerCapture ??= () => {
+    // jsdom stub
+  }
   HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
     this.setAttribute("open", "")
   }
@@ -43,17 +49,15 @@ function isDialogOpen(): boolean {
 }
 
 import { TimezoneProvider } from "@/components/dashboard/timezone-provider"
-import { ReportEditor, type ReportEditorMonitor } from "./report-editor"
 import {
-  isReportEditorDirty,
-  setReportEditorDirty,
+  ReportEditor,
+  type ReportEditorMonitor,
   UNSAVED_CHANGES_MESSAGE,
-} from "./report-editor-dirty"
+} from "./report-editor"
 import type { ReportData } from "./report-status"
 
 afterEach(() => {
   cleanup()
-  setReportEditorDirty(false)
   vi.unstubAllGlobals()
   vi.clearAllMocks()
   vi.restoreAllMocks()
@@ -559,7 +563,7 @@ describe("ReportEditor edit mode", () => {
 })
 
 describe("ReportEditor unsaved-changes protection", () => {
-  it("disables Save Changes until basics change, then tracks dirty state", () => {
+  it("disables Save Changes until basics change", () => {
     renderEditor(report)
     expect(
       (
@@ -568,11 +572,9 @@ describe("ReportEditor unsaved-changes protection", () => {
         }) as HTMLButtonElement
       ).disabled
     ).toBe(true)
-    expect(isReportEditorDirty()).toBe(false)
     fireEvent.change(screen.getByLabelText("Title"), {
       target: { value: "Retitled report" },
     })
-    expect(isReportEditorDirty()).toBe(true)
     expect(
       (
         screen.getByRole("button", {
@@ -583,7 +585,6 @@ describe("ReportEditor unsaved-changes protection", () => {
     fireEvent.change(screen.getByLabelText("Title"), {
       target: { value: report.title },
     })
-    expect(isReportEditorDirty()).toBe(false)
     expect(
       (
         screen.getByRole("button", {
@@ -593,41 +594,44 @@ describe("ReportEditor unsaved-changes protection", () => {
     ).toBe(true)
   })
 
-  it("tracks dirty state for the start time", () => {
+  it("guards navigation once the start time changes", () => {
     renderEditor(report)
+    const addSpy = vi.spyOn(window, "addEventListener")
     fireEvent.change(screen.getByLabelText("Starts at"), {
       target: { value: "2026-07-10T08:00" },
     })
-    expect(isReportEditorDirty()).toBe(true)
+    expect(addSpy).toHaveBeenCalledWith("beforeunload", expect.any(Function))
   })
 
-  it("tracks dirty state for composer text", () => {
+  it("guards and clears as composer text changes", () => {
     renderEditor(report)
-    expect(isReportEditorDirty()).toBe(false)
+    const addSpy = vi.spyOn(window, "addEventListener")
     fireEvent.change(screen.getByLabelText("New update"), {
       target: { value: "Draft in progress" },
     })
-    expect(isReportEditorDirty()).toBe(true)
+    expect(addSpy).toHaveBeenCalledWith("beforeunload", expect.any(Function))
+    const removeSpy = vi.spyOn(window, "removeEventListener")
     fireEvent.change(screen.getByLabelText("New update"), {
       target: { value: "" },
     })
-    expect(isReportEditorDirty()).toBe(false)
+    expect(removeSpy).toHaveBeenCalledWith("beforeunload", expect.any(Function))
   })
 
-  it("tracks dirty state for an open update edit and clears on cancel", () => {
+  it("guards an open update edit and clears on cancel", () => {
     renderEditor(report)
     const row = screen.getByText("Watching recovery.").closest("li")!
     fireEvent.click(within(row).getByRole("button", { name: "Edit" }))
-    expect(isReportEditorDirty()).toBe(false)
+    const addSpy = vi.spyOn(window, "addEventListener")
     fireEvent.change(
       screen.getByLabelText("Update", { selector: "#edit-markdown-u1" }),
       {
         target: { value: "Changed body." },
       }
     )
-    expect(isReportEditorDirty()).toBe(true)
+    expect(addSpy).toHaveBeenCalledWith("beforeunload", expect.any(Function))
+    const removeSpy = vi.spyOn(window, "removeEventListener")
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
-    expect(isReportEditorDirty()).toBe(false)
+    expect(removeSpy).toHaveBeenCalledWith("beforeunload", expect.any(Function))
   })
 
   it("registers a beforeunload guard while dirty", () => {
@@ -737,7 +741,9 @@ describe("ReportEditor unsaved-changes protection", () => {
 
   it("completes the exit with history.go(-2) after confirming Discard on popstate", () => {
     renderEditor(report)
-    const goSpy = vi.spyOn(window.history, "go").mockImplementation(() => {})
+    const goSpy = vi.spyOn(window.history, "go").mockImplementation(() => {
+      // block real navigation
+    })
     fireEvent.change(screen.getByLabelText("Title"), {
       target: { value: "Retitled report" },
     })

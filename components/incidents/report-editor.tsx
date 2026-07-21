@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 
 import { useNavigationGuard } from "@/components/navigation/use-navigation-guard"
 import {
@@ -32,10 +32,6 @@ import {
   ReportStatusChip,
   ReportTypeChip,
 } from "./report-badges"
-import {
-  setReportEditorDirty,
-  UNSAVED_CHANGES_MESSAGE,
-} from "./report-editor-dirty"
 import { messageForReportError } from "./report-errors"
 import {
   BEFORE_START_COPY,
@@ -81,6 +77,9 @@ interface Message {
 
 const textareaClass =
   "w-full resize-y rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-3 py-2 font-data text-[13px] aria-invalid:border-[var(--down-text)]"
+
+export const UNSAVED_CHANGES_MESSAGE =
+  "You have unsaved changes that will be lost. Leave this report?"
 
 function initialImpacts(
   report: ReportData | null
@@ -154,33 +153,21 @@ export function ReportEditor({
   const affectedDirty =
     impactSignature(impacts) !== impactSignature(baseline.impacts)
   const composerDirty = composerMarkdown.trim() !== ""
-  const editingDirty = useMemo(() => {
-    if (!editing) {
-      return false
-    }
-    const original = report?.updates.find((update) => update.id === editing.id)
-    if (!original) {
-      return true
-    }
-    return (
-      editing.status !== original.status ||
-      editing.markdown !== original.markdown ||
-      editing.publishedAt !== toDatetimeLocal(original.publishedAt)
-    )
-  }, [editing, report])
+  const editingOriginal =
+    editing && report?.updates.find((update) => update.id === editing.id)
+  const editingDirty = editing
+    ? !editingOriginal ||
+      editing.status !== editingOriginal.status ||
+      editing.markdown !== editingOriginal.markdown ||
+      editing.publishedAt !== toDatetimeLocal(editingOriginal.publishedAt)
+    : false
   const dirty = basicsDirty || affectedDirty || composerDirty || editingDirty
 
   // Unsaved-changes protection: the editor lives outside the settings shell,
   // so it mounts its own navigation guard (beforeunload, Back/Forward, and
   // any link click document-wide: this also covers the back link and the
-  // incidents tabs, which no longer need their own confirm). The
-  // module-level store still tracks the raw flag for anything else that
-  // wants to read it (see report-editor-dirty.ts). The guard's dialog must
-  // be rendered below for the modal to appear.
-  useEffect(() => {
-    setReportEditorDirty(dirty)
-  }, [dirty])
-  useEffect(() => () => setReportEditorDirty(false), [])
+  // incidents tabs, which no longer need their own confirm). The guard's
+  // dialog must be rendered below for the modal to appear.
   const guardDialog = useNavigationGuard(dirty, {
     title: "Discard unsaved changes?",
     description: UNSAVED_CHANGES_MESSAGE,
@@ -645,6 +632,7 @@ export function ReportEditor({
                 />
               </Field>
               <div className="grid gap-2">
+                {/* biome-ignore lint/a11y/noLabelWithoutControl: linked to the Select via aria-labelledby on its trigger */}
                 <label
                   className="font-medium text-[var(--fg)] text-sm leading-5"
                   id="report-type-label"
@@ -715,6 +703,7 @@ export function ReportEditor({
               <div className="space-y-4">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="grid gap-2">
+                    {/* biome-ignore lint/a11y/noLabelWithoutControl: linked to the Select via aria-labelledby on its trigger */}
                     <label
                       className="font-medium text-[var(--fg)] text-sm leading-5"
                       id="composer-status-label"
@@ -812,6 +801,7 @@ export function ReportEditor({
                           <div className="space-y-3">
                             <div className="grid gap-4 sm:grid-cols-2">
                               <div className="grid gap-2">
+                                {/* biome-ignore lint/a11y/noLabelWithoutControl: linked to the Select via aria-labelledby on its trigger */}
                                 <label
                                   className="font-medium text-[13px]"
                                   id={`edit-status-label-${update.id}`}
