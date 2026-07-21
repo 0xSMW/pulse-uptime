@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 import { transitionMonitor } from "./state-machine"
 import type {
   CheckTransitionEvent,
-  MonitorStateName,
+  MonitorState,
   MonitorStateSnapshot,
 } from "./types"
 
@@ -11,7 +11,7 @@ const epoch = new Date("2026-01-01T00:00:00.000Z")
 const minute = (value: number) => new Date(epoch.getTime() + value * 60_000)
 
 function state(
-  name: MonitorStateName,
+  name: MonitorState,
   overrides: Partial<MonitorStateSnapshot> = {}
 ): MonitorStateSnapshot {
   return {

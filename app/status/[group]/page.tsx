@@ -3,7 +3,7 @@ import { notFound } from "next/navigation"
 
 import { StatusPageContent } from "@/components/status-page/status-page-content"
 import {
-  getPublicStatus,
+  findPublicGroupStatus,
   getStatusFaviconDataUri,
   getStatusPageDisplayConfig,
 } from "@/lib/reporting/queries/status"
@@ -30,7 +30,7 @@ export default async function PublicGroupStatusPage({
   params,
 }: GroupPageProps) {
   const { group } = await params
-  const data = await getPublicStatus(group)
+  const data = await findPublicGroupStatus(group)
 
   if (!data) {
     notFound()

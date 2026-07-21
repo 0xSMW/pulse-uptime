@@ -328,10 +328,219 @@ describe("performMaintenance", () => {
       enforceTelemetryRetention: count("telemetry", 999),
     } as unknown as MaintenanceStore
     const summary = await performSweep(store, new Date("2026-07-18T03:15:00Z"))
-    expect(summary).toEqual({ expired: 15 })
+    expect(summary).toEqual({
+      expired: 15,
+      categories: {
+        rateLimit: 3,
+        apiIdempotency: 2,
+        deviceMark: 1,
+        deviceDelete: 4,
+        configApprovals: 5,
+      },
+    })
     // Heavy retention operations are never touched by the frequent sweep.
     expect(calls).not.toContain("checks")
     expect(calls).not.toContain("telemetry")
+  })
+
+  it("performSweep fair rounds: permanent rate-limit backlog still runs later categories", async () => {
+    const order: string[] = []
+    let clock = 0
+    // Rate-limit always returns a full batch. Under sequential drain it would
+    // monopolize the window. Fair rounds give each category one batch first.
+    const rate = vi.fn(async () => {
+      order.push("rate")
+      clock += 100
+      return 10_000
+    })
+    const partial = (name: string, value: number) => async () => {
+      order.push(name)
+      clock += 100
+      return value
+    }
+    const summary = await performSweep(
+      {
+        expireRateLimitBuckets: rate,
+        expireApiIdempotency: partial("idempotency", 7),
+        markDeviceAuthorizationsExpired: partial("device-mark", 2),
+        deleteExpiredDeviceAuthorizations: partial("device-delete", 3),
+        expireConfigApprovals: partial("approvals", 4),
+      } as unknown as MaintenanceStore,
+      new Date("2026-07-18T03:15:00Z"),
+      {
+        nowMs: () => clock,
+        // Enough for one full fair round (5 x 100ms) plus a second rate batch,
+        // then remaining drops below MIN_RETENTION_BATCH_MS.
+        deadlineAtMs: 650,
+      }
+    )
+    // First round visits every category before rate-limit can loop again.
+    expect(order.slice(0, 5)).toEqual([
+      "rate",
+      "idempotency",
+      "device-mark",
+      "device-delete",
+      "approvals",
+    ])
+    // Later categories ran despite permanent rate-limit backlog.
+    expect(summary.categories.apiIdempotency).toBe(7)
+    expect(summary.categories.deviceMark).toBe(2)
+    expect(summary.categories.deviceDelete).toBe(3)
+    expect(summary.categories.configApprovals).toBe(4)
+    expect(summary.categories.rateLimit).toBeGreaterThanOrEqual(10_000)
+    expect(summary.expired).toBe(
+      summary.categories.rateLimit +
+        summary.categories.apiIdempotency +
+        summary.categories.deviceMark +
+        summary.categories.deviceDelete +
+        summary.categories.configApprovals
+    )
+  })
+
+  it("performSweep passes remaining budget into every store operation", async () => {
+    const remainingSeen: number[] = []
+    const track =
+      () =>
+      async (...args: unknown[]) => {
+        const remainingMs = args.at(-1)
+        expect(typeof remainingMs).toBe("number")
+        remainingSeen.push(remainingMs as number)
+        return 1
+      }
+    await performSweep(
+      {
+        expireRateLimitBuckets: track(),
+        expireApiIdempotency: track(),
+        markDeviceAuthorizationsExpired: track(),
+        deleteExpiredDeviceAuthorizations: track(),
+        expireConfigApprovals: track(),
+      } as unknown as MaintenanceStore,
+      new Date(),
+      { nowMs: () => 0, deadlineAtMs: 5000 }
+    )
+    expect(remainingSeen).toHaveLength(5)
+    expect(remainingSeen.every((ms) => ms > 0 && ms <= 5000)).toBe(true)
+  })
+
+  it("performSweep cancels a slow category via remaining budget and continues others", async () => {
+    const timeout = Object.assign(
+      new Error("canceling statement due to statement timeout"),
+      { code: "57014" }
+    )
+    const order: string[] = []
+    let clock = 0
+    let rateLimitBudgetMs = 0
+    const summary = await performSweep(
+      {
+        expireRateLimitBuckets: async (
+          _now: Date,
+          _limit: number,
+          remainingMs?: number
+        ) => {
+          order.push("rate")
+          rateLimitBudgetMs = remainingMs ?? 0
+          clock += rateLimitBudgetMs
+          throw timeout
+        },
+        expireApiIdempotency: async () => {
+          order.push("idempotency")
+          return 5
+        },
+        markDeviceAuthorizationsExpired: async () => {
+          order.push("device-mark")
+          return 1
+        },
+        deleteExpiredDeviceAuthorizations: async () => {
+          order.push("device-delete")
+          return 2
+        },
+        expireConfigApprovals: async () => {
+          order.push("approvals")
+          return 3
+        },
+      } as unknown as MaintenanceStore,
+      new Date(),
+      { nowMs: () => clock, deadlineAtMs: 5000 }
+    )
+    // The first category can consume only its fair share. Later categories
+    // retain enough budget to run in the same pass.
+    expect(rateLimitBudgetMs).toBe(1000)
+    expect(order).toEqual([
+      "rate",
+      "idempotency",
+      "device-mark",
+      "device-delete",
+      "approvals",
+    ])
+    expect(summary.categories.rateLimit).toBe(0)
+    expect(summary.categories.apiIdempotency).toBe(5)
+    expect(summary.expired).toBe(11)
+  })
+
+  it("performSweep starts no batch after the deadline", async () => {
+    const calls: string[] = []
+    // Deadline already spent: canStart(MIN_RETENTION_BATCH_MS) is false.
+    const summary = await performSweep(
+      {
+        expireRateLimitBuckets: async () => {
+          calls.push("rate")
+          return 1
+        },
+        expireApiIdempotency: async () => {
+          calls.push("idempotency")
+          return 1
+        },
+        markDeviceAuthorizationsExpired: async () => {
+          calls.push("device-mark")
+          return 1
+        },
+        deleteExpiredDeviceAuthorizations: async () => {
+          calls.push("device-delete")
+          return 1
+        },
+        expireConfigApprovals: async () => {
+          calls.push("approvals")
+          return 1
+        },
+      } as unknown as MaintenanceStore,
+      new Date(),
+      { nowMs: () => 1000, deadlineAtMs: 1000 }
+    )
+    expect(calls).toEqual([])
+    expect(summary.expired).toBe(0)
+    expect(summary.categories).toEqual({
+      rateLimit: 0,
+      apiIdempotency: 0,
+      deviceMark: 0,
+      deviceDelete: 0,
+      configApprovals: 0,
+    })
+  })
+
+  it("performSweep does not start another batch once remaining budget is below the minimum", async () => {
+    let clock = 0
+    const rate = vi.fn(async () => {
+      // First batch burns almost the whole window.
+      clock = 900
+      return 10_000
+    })
+    const others = vi.fn(async () => 1)
+    await performSweep(
+      {
+        expireRateLimitBuckets: rate,
+        expireApiIdempotency: others,
+        markDeviceAuthorizationsExpired: others,
+        deleteExpiredDeviceAuthorizations: others,
+        expireConfigApprovals: others,
+      } as unknown as MaintenanceStore,
+      new Date(),
+      // After rate runs, remaining is 100ms < MIN_RETENTION_BATCH_MS (250).
+      { nowMs: () => clock, deadlineAtMs: 1000 }
+    )
+    // Rate advances clock mid-round. Remaining 100 < 250, so no later category
+    // and no second round may start.
+    expect(rate).toHaveBeenCalledTimes(1)
+    expect(others).not.toHaveBeenCalled()
   })
 
   it("stops after the first failed task", async () => {

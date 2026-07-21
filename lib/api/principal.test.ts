@@ -5,7 +5,7 @@ const { afterMock } = vi.hoisted(() => ({ afterMock: vi.fn() }))
 vi.mock("server-only", () => ({}))
 vi.mock("next/server", () => ({ after: afterMock }))
 
-import { type PrincipalStore, resolvePrincipal } from "./principal"
+import { authenticatePrincipal, type PrincipalStore } from "./principal"
 import { digestBearerToken } from "./tokens"
 
 beforeEach(() => {
@@ -20,18 +20,18 @@ function store(overrides: Partial<PrincipalStore> = {}): PrincipalStore {
   return {
     findApiToken: vi.fn().mockResolvedValue(null),
     findCliSession: vi.fn().mockResolvedValue(null),
-    touchApiToken: vi.fn().mockResolvedValue(undefined),
-    touchCliSession: vi.fn().mockResolvedValue(undefined),
+    recordApiTokenUse: vi.fn().mockResolvedValue(undefined),
+    recordCliSessionUse: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   }
 }
 
 describe("principal resolution", () => {
   it("grants every administrator scope to a valid human session", async () => {
-    const principal = await resolvePrincipal(
+    const principal = await authenticatePrincipal(
       new Request("https://pulse.test/api/v1/me"),
       {
-        getHumanSession: async () => ({
+        authenticateHumanSession: async () => ({
           sessionId: "ses_human",
           userId: "usr_1",
           email: "admin@example.com",
@@ -61,7 +61,7 @@ describe("principal resolution", () => {
     const principalStore = store({
       findApiToken: vi.fn().mockResolvedValue(apiToken),
     })
-    const principal = await resolvePrincipal(
+    const principal = await authenticatePrincipal(
       new Request("https://pulse.test/api/v1/me", {
         headers: { Authorization: "Bearer pulse_live_secret" },
       }),
@@ -74,7 +74,7 @@ describe("principal resolution", () => {
       now
     )
     expect(principalStore.findCliSession).not.toHaveBeenCalled()
-    expect(principalStore.touchApiToken).toHaveBeenCalledWith("tok_1", now)
+    expect(principalStore.recordApiTokenUse).toHaveBeenCalledWith("tok_1", now)
   })
 
   it("resolves linked CLI metadata and rejects malformed bearer auth", async () => {
@@ -97,7 +97,7 @@ describe("principal resolution", () => {
       findCliSession: vi.fn().mockResolvedValue(cliSession),
     })
     await expect(
-      resolvePrincipal(
+      authenticatePrincipal(
         new Request("https://pulse.test/api/v1/me", {
           headers: { Authorization: "Bearer pulse_cli_secret" },
         }),
@@ -105,11 +105,11 @@ describe("principal resolution", () => {
       )
     ).resolves.toEqual(cliSession)
     await expect(
-      resolvePrincipal(
+      authenticatePrincipal(
         new Request("https://pulse.test/api/v1/me", {
           headers: { Authorization: "Basic secret" },
         }),
-        { store: principalStore, getHumanSession: vi.fn() }
+        { store: principalStore, authenticateHumanSession: vi.fn() }
       )
     ).resolves.toBeNull()
   })
@@ -122,7 +122,7 @@ describe("principal touch deferral", () => {
     afterMock.mockImplementation((callback: () => unknown) => {
       deferredCallback = callback
     })
-    const touchApiToken = vi.fn(
+    const recordApiTokenUse = vi.fn(
       () =>
         new Promise<void>((resolve) => {
           releaseTouch = resolve
@@ -138,10 +138,10 @@ describe("principal touch deferral", () => {
     }
     const principalStore = store({
       findApiToken: vi.fn().mockResolvedValue(apiToken),
-      touchApiToken,
+      recordApiTokenUse,
     })
 
-    const principal = await resolvePrincipal(
+    const principal = await authenticatePrincipal(
       new Request("https://pulse.test/api/v1/me", {
         headers: { Authorization: "Bearer pulse_live_secret" },
       }),
@@ -151,10 +151,10 @@ describe("principal touch deferral", () => {
     // Principal resolution only registers the deferred touch callback.
     expect(principal).toEqual(apiToken)
     expect(afterMock).toHaveBeenCalledTimes(1)
-    expect(touchApiToken).not.toHaveBeenCalled()
+    expect(recordApiTokenUse).not.toHaveBeenCalled()
 
     const settled = deferredCallback?.()
-    expect(touchApiToken).toHaveBeenCalledWith("tok_1", now)
+    expect(recordApiTokenUse).toHaveBeenCalledWith("tok_1", now)
     releaseTouch()
     await settled
   })
@@ -164,7 +164,7 @@ describe("principal touch deferral", () => {
     afterMock.mockImplementation((callback: () => unknown) => {
       deferredCallback = callback
     })
-    const touchCliSession = vi.fn().mockResolvedValue(undefined)
+    const recordCliSessionUse = vi.fn().mockResolvedValue(undefined)
     const cliSession = {
       type: "cli_session" as const,
       id: "ses_1",
@@ -182,10 +182,10 @@ describe("principal touch deferral", () => {
     }
     const principalStore = store({
       findCliSession: vi.fn().mockResolvedValue(cliSession),
-      touchCliSession,
+      recordCliSessionUse,
     })
 
-    const principal = await resolvePrincipal(
+    const principal = await authenticatePrincipal(
       new Request("https://pulse.test/api/v1/me", {
         headers: { Authorization: "Bearer pulse_cli_secret" },
       }),
@@ -193,10 +193,10 @@ describe("principal touch deferral", () => {
     )
 
     expect(principal).toEqual(cliSession)
-    expect(touchCliSession).not.toHaveBeenCalled()
+    expect(recordCliSessionUse).not.toHaveBeenCalled()
 
     await deferredCallback?.()
-    expect(touchCliSession).toHaveBeenCalledWith(
+    expect(recordCliSessionUse).toHaveBeenCalledWith(
       "ses_1",
       "ins_1",
       expect.any(Date)
@@ -208,7 +208,7 @@ describe("principal touch deferral", () => {
     afterMock.mockImplementation((callback: () => unknown) => {
       deferredCallback = callback
     })
-    const touchApiToken = vi
+    const recordApiTokenUse = vi
       .fn()
       .mockRejectedValue(new Error("connection reset"))
     const apiToken = {
@@ -220,11 +220,11 @@ describe("principal touch deferral", () => {
     }
     const principalStore = store({
       findApiToken: vi.fn().mockResolvedValue(apiToken),
-      touchApiToken,
+      recordApiTokenUse,
     })
 
     await expect(
-      resolvePrincipal(
+      authenticatePrincipal(
         new Request("https://pulse.test/api/v1/me", {
           headers: { Authorization: "Bearer pulse_live_secret" },
         }),
@@ -236,7 +236,7 @@ describe("principal touch deferral", () => {
   })
 
   it("falls back to an inline, awaited touch when after() has no request scope", async () => {
-    const touchApiToken = vi
+    const recordApiTokenUse = vi
       .fn()
       .mockRejectedValue(new Error("connection reset"))
     const apiToken = {
@@ -248,11 +248,11 @@ describe("principal touch deferral", () => {
     }
     const principalStore = store({
       findApiToken: vi.fn().mockResolvedValue(apiToken),
-      touchApiToken,
+      recordApiTokenUse,
     })
 
     await expect(
-      resolvePrincipal(
+      authenticatePrincipal(
         new Request("https://pulse.test/api/v1/me", {
           headers: { Authorization: "Bearer pulse_live_secret" },
         }),
@@ -260,6 +260,6 @@ describe("principal touch deferral", () => {
       )
     ).resolves.toEqual(apiToken)
 
-    expect(touchApiToken).toHaveBeenCalled()
+    expect(recordApiTokenUse).toHaveBeenCalled()
   })
 })

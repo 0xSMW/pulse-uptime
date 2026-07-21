@@ -4,7 +4,7 @@ import type { HealthWarning } from "@/lib/monitoring/types"
 // Operator view of the scheduler-loop health on the System settings screen. It
 // renders the same warnings the dashboard banner raises (stale, failing) so a
 // broken monitoring loop is visible here too, and stays quiet when healthy.
-export function MonitoringHealthCard({
+export function MonitoringLoopCard({
   warnings,
 }: {
   warnings: HealthWarning[]

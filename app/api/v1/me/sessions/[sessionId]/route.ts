@@ -2,7 +2,7 @@ import { AccountServiceError, revokeAccountSession } from "@/lib/api/account"
 import { apiError, apiJson, objectEnvelope } from "@/lib/api/envelopes"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
 import { routeError } from "@/lib/api/route"
-import { getCurrentSession } from "@/lib/auth/session"
+import { authenticateCurrentSession } from "@/lib/auth/session"
 import { isUuid } from "@/lib/ids/uuid"
 
 export async function DELETE(
@@ -21,7 +21,7 @@ export async function DELETE(
       "Account settings require a dashboard session"
     )
   }
-  const session = await getCurrentSession()
+  const session = await authenticateCurrentSession()
   if (!session) {
     return apiError(
       context.requestId,

@@ -72,7 +72,7 @@ describe("configuration source fallback", () => {
       now: new Date("2026-07-18T04:00:00Z"),
       approval: {
         targetConfigHash: unapproved.candidateHash,
-        action: "bulk_archive",
+        action: "destructive_config_change",
         expiresAt: new Date("2026-07-18T04:10:00Z"),
         consumedAt: null,
       },

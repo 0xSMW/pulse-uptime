@@ -35,7 +35,8 @@ import {
 } from "@/lib/status-reports/queries"
 
 import {
-  getPublicReportDetail,
+  findPublicGroupStatus,
+  findPublicReport,
   getPublicStatus,
   getStatusFaviconDataUri,
   getStatusPageDisplayConfig,
@@ -190,7 +191,7 @@ describe("getPublicStatus", () => {
     )
     dbMock.select.mockReturnValue(selectChain(connectionError("ECONNREFUSED")))
 
-    const data = await getPublicStatus("some-group")
+    const data = await findPublicGroupStatus("some-group")
 
     expect(data).not.toBeNull()
     expect(data!.unavailable).toBe(true)
@@ -260,7 +261,7 @@ describe("getPublicStatus", () => {
     vi.mocked(getStatusPageConfig).mockResolvedValue(resolvedConfig())
     dbMock.select.mockReturnValue(selectChain([]))
 
-    const data = await getPublicStatus("unknown-group")
+    const data = await findPublicGroupStatus("unknown-group")
     expect(data).toBeNull()
   })
 
@@ -301,7 +302,7 @@ describe("getPublicStatus", () => {
       resolved: [],
     })
 
-    const data = await getPublicStatus("core")
+    const data = await findPublicGroupStatus("core")
 
     expect(data).not.toBeNull()
     expect(data!.groups).toEqual([])
@@ -360,7 +361,7 @@ describe("getPublicStatus", () => {
             ),
     }))
 
-    const data = await getPublicStatus("core")
+    const data = await findPublicGroupStatus("core")
 
     expect(getPublicReports).toHaveBeenCalledWith(undefined, {
       monitorIds: [],
@@ -416,7 +417,7 @@ describe("getPublicStatus", () => {
       resolved: [],
     })
 
-    const data = await getPublicStatus("cafe")
+    const data = await findPublicGroupStatus("cafe")
 
     // The fetch passes the slug down, so the SQL prefilter can resolve it to
     // every snapshotted spelling instead of comparing live names raw.
@@ -430,7 +431,7 @@ describe("getPublicStatus", () => {
     ])
   })
 
-  it("still returns null for an unknown group even when other groups have published reports", async () => {
+  it("returns no group status for an unknown group even when other groups have published reports", async () => {
     vi.mocked(getStatusPageConfig).mockResolvedValue(resolvedConfig())
     dbMock.select.mockReturnValue(selectChain([]))
     vi.mocked(getPublicReports).mockResolvedValue({
@@ -462,7 +463,7 @@ describe("getPublicStatus", () => {
       ],
     })
 
-    const data = await getPublicStatus("core")
+    const data = await findPublicGroupStatus("core")
     expect(data).toBeNull()
   })
 
@@ -480,7 +481,7 @@ describe("getPublicStatus", () => {
       .mockReturnValueOnce(selectChain([])) // current incidents
       .mockReturnValueOnce(selectChain([])) // recent incidents
 
-    await getPublicStatus("core")
+    await findPublicGroupStatus("core")
     expect(getPublicReports).toHaveBeenCalledWith(undefined, {
       monitorIds: ["mon-1"],
       groupSlug: "core",
@@ -749,24 +750,28 @@ describe("getPublicStatus", () => {
   })
 })
 
-describe("getPublicReportDetail", () => {
+describe("findPublicReport", () => {
   it('returns the distinct "unavailable" sentinel (not null) on an ECONNREFUSED-shaped error', async () => {
     vi.mocked(requireStatusReport).mockRejectedValue(
       connectionError("ECONNREFUSED")
     )
-    await expect(getPublicReportDetail("report-1")).resolves.toBe("unavailable")
+    await expect(findPublicReport("report-1")).resolves.toEqual({
+      status: "unavailable",
+    })
   })
 
   it("still returns null (404) for an unknown report id", async () => {
     vi.mocked(requireStatusReport).mockRejectedValue(
       new StatusReportError("REPORT_NOT_FOUND", "not found")
     )
-    await expect(getPublicReportDetail("report-1")).resolves.toBeNull()
+    await expect(findPublicReport("report-1")).resolves.toEqual({
+      status: "not_found",
+    })
   })
 
   it("rethrows a plain app error", async () => {
     vi.mocked(requireStatusReport).mockRejectedValue(new TypeError("boom"))
-    await expect(getPublicReportDetail("report-1")).rejects.toThrow(TypeError)
+    await expect(findPublicReport("report-1")).rejects.toThrow(TypeError)
   })
 })
 

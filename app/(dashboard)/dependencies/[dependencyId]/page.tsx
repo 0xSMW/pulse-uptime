@@ -3,7 +3,7 @@ import { Suspense } from "react"
 
 import { DependencyDetail } from "@/components/dependencies/dependency-detail"
 import { DependencyDetailSkeleton } from "@/components/dependencies/dependency-detail-skeleton"
-import { getDependencyDetail } from "@/lib/dependencies/queries"
+import { findDependencyDetail } from "@/lib/dependencies/queries"
 
 export default async function DependencyDetailPage({
   params,
@@ -23,7 +23,7 @@ async function DependencyDetailIsland({
 }: {
   dependencyId: string
 }) {
-  const dependency = await getDependencyDetail(dependencyId)
+  const dependency = await findDependencyDetail(dependencyId)
   if (!dependency) {
     notFound()
   }

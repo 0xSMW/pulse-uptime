@@ -11,6 +11,7 @@ import {
 import type {
   DependencyIncidentPayload,
   DependencyRecoveryPayload,
+  ProviderUpdateQuote,
 } from "./types"
 
 // -- Dependency notifications -------------------------------------------
@@ -39,6 +40,8 @@ interface DependencyNotificationInput {
   state: string
   canonicalUrl: string | null
   providerTimestamp: string
+  /** Latest provider update quoted in the email, null when the incident has no update text. */
+  latestUpdate: ProviderUpdateQuote | null
   recipients: readonly string[]
 }
 
@@ -55,6 +58,11 @@ export async function enqueueDependencyNotifications(
     return 0
   }
 
+  // The payload schema keeps latestUpdate optional, so a null quote is
+  // omitted rather than stored.
+  const latestUpdate = input.latestUpdate
+    ? { latestUpdate: input.latestUpdate }
+    : {}
   const payload: DependencyIncidentPayload | DependencyRecoveryPayload =
     input.event === "incident"
       ? {
@@ -65,6 +73,7 @@ export async function enqueueDependencyNotifications(
           state: input.state,
           canonicalUrl: input.canonicalUrl,
           providerTimestamp: input.providerTimestamp,
+          ...latestUpdate,
         }
       : {
           type: "dependency.recovery",
@@ -74,6 +83,7 @@ export async function enqueueDependencyNotifications(
           state: input.state,
           canonicalUrl: input.canonicalUrl,
           providerTimestamp: input.providerTimestamp,
+          ...latestUpdate,
         }
 
   const rows = recipients.map((recipient) => ({

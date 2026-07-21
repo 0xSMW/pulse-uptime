@@ -9,7 +9,7 @@ import { CardHeading } from "@/components/settings/settings-row"
 import { TokenSheet } from "@/components/settings/token-sheet"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { formatRelativeTime } from "@/lib/reporting/format"
+import { formatCalendarDate, formatRelativeTime } from "@/lib/reporting/format"
 
 export interface AccessSettingsData {
   tokens: Array<{
@@ -54,19 +54,6 @@ function ScopeChips({ scopes }: { scopes: string[] }) {
   )
 }
 
-function formatExpiry(value: string, timeZone: string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.valueOf())) {
-    return "—"
-  }
-  return new Intl.DateTimeFormat("en-US", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone,
-  }).format(date)
-}
-
 export function AccessSettings({ data }: { data: AccessSettingsData }) {
   const router = useRouter()
   const { resolvedTimeZone } = useTimezone()
@@ -82,7 +69,7 @@ export function AccessSettings({ data }: { data: AccessSettingsData }) {
       await apiRequest(
         `/api/v1/tokens/${encodeURIComponent(id)}`,
         { method: "DELETE" },
-        true
+        { mutation: true }
       )
       setRevokeId(null)
       setTokenStatus("Token revoked")
@@ -149,7 +136,7 @@ export function AccessSettings({ data }: { data: AccessSettingsData }) {
                     <ScopeChips scopes={token.scopes} />
                   </td>
                   <td className="whitespace-nowrap px-4 font-data text-[var(--fg-muted)] text-xs">
-                    {formatExpiry(token.expiresAt, resolvedTimeZone)}
+                    {formatCalendarDate(token.expiresAt, resolvedTimeZone)}
                   </td>
                   <td className="whitespace-nowrap px-4 font-data text-[var(--fg-muted)] text-xs max-xl:hidden">
                     {token.lastUsedAt

@@ -10,7 +10,7 @@ import { IncidentTime } from "@/components/incidents/incident-time"
 import { NotificationSummary } from "@/components/incidents/notification-summary"
 import type { IncidentDetail } from "@/components/incidents/types"
 import { WriteReportButton } from "@/components/incidents/write-report-button"
-import { getIncidentDetail } from "@/lib/reporting/queries/incidents"
+import { findIncidentDetail } from "@/lib/reporting/queries/incidents"
 
 export default async function IncidentDetailPage({
   params,
@@ -18,7 +18,7 @@ export default async function IncidentDetailPage({
   params: Promise<{ incidentId: string }>
 }) {
   const { incidentId } = await params
-  const incident: IncidentDetail | null = await getIncidentDetail(incidentId)
+  const incident: IncidentDetail | null = await findIncidentDetail(incidentId)
   if (!incident) {
     notFound()
   }

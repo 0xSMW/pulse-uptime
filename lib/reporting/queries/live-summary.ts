@@ -3,7 +3,7 @@
 // and the polled live payload. No database access lives here, which keeps the
 // payload logic pure and testable.
 
-import type { MonitorState } from "@/lib/monitoring/types"
+import type { VisibleMonitorState } from "@/lib/monitoring/types"
 
 import {
   type AvailabilityRange,
@@ -96,7 +96,7 @@ export interface MonitorLiveData {
   // payload under the next monitor's key across a direct navigation, so the merge
   // applies the live fields only when this id matches the page's monitor.
   id: string
-  state: MonitorState
+  state: VisibleMonitorState
   enabled: boolean
   latestLatencyMs: number | null
   p95LatencyMs: number | null

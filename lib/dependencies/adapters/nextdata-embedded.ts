@@ -11,7 +11,11 @@
 import { z } from "zod"
 
 import type { DependencySourceManifest } from "../manifest"
-import type { NormalizedProviderSnapshot } from "../types"
+import type {
+  NormalizedProviderSnapshot,
+  ProviderComponentState,
+  ProviderIncidentState,
+} from "../types"
 import { scopeFromComponentIds } from "../types"
 
 import type {
@@ -113,12 +117,10 @@ const nextDataSchema = z
   .loose()
 
 type IncidentItem = z.infer<typeof incidentItemSchema>
-type ComponentState = "OPERATIONAL" | "DEGRADED" | "OUTAGE" | "MAINTENANCE"
-
 // worst_of severity ranking, matching the selector aggregation order in
 // types.ts: OUTAGE, then DEGRADED, then MAINTENANCE, then OPERATIONAL. A
 // component with several active incidents keeps the most severe.
-const SEVERITY: Record<ComponentState, number> = {
+const SEVERITY: Record<ProviderComponentState, number> = {
   OPERATIONAL: 0,
   MAINTENANCE: 1,
   DEGRADED: 2,
@@ -126,9 +128,9 @@ const SEVERITY: Record<ComponentState, number> = {
 }
 
 function worseOf(
-  current: ComponentState,
-  candidate: ComponentState
-): ComponentState {
+  current: ProviderComponentState,
+  candidate: ProviderComponentState
+): ProviderComponentState {
   return SEVERITY[candidate] > SEVERITY[current] ? candidate : current
 }
 
@@ -151,7 +153,10 @@ const CLOSED_STATES: ReadonlySet<string> = new Set([
  * A genuinely novel state throws so the source fails loud and keeps its last
  * known state rather than silently mismapping.
  */
-function mapIncidentState(raw: string, sourceId: string): string {
+function mapIncidentState(
+  raw: string,
+  sourceId: string
+): ProviderIncidentState {
   if (raw === "update") {
     return "monitoring"
   }
@@ -171,7 +176,7 @@ function mapIncidentState(raw: string, sourceId: string): string {
  * degrades the component. An unrecognized type degrades rather than throws, so a
  * new advisory category never silences a component or fails the whole source.
  */
-function impactForType(incidentType: string): ComponentState {
+function impactForType(incidentType: string): ProviderComponentState {
   switch (incidentType) {
     case "outage":
       return "OUTAGE"
@@ -313,7 +318,7 @@ export const nextdataEmbeddedAdapter: DependencyAdapter = {
     // operational-unless-referenced rule: the feed carries no per-component
     // status field, so the sole signal is the structured system association on
     // an incident, never its prose.
-    const componentStates: Record<string, ComponentState> = {}
+    const componentStates: Record<string, ProviderComponentState> = {}
     const componentUpdatedAt: Record<string, string | null> = {}
     for (const system of pageProps.systems) {
       const id = String(system.id)
@@ -401,7 +406,7 @@ export const nextdataEmbeddedAdapter: DependencyAdapter = {
 
 function mapIncident(
   item: IncidentItem,
-  mappedState: string,
+  mappedState: ProviderIncidentState,
   systemId: string | null,
   source: { id: string; statusPageUrl: string }
 ): NormalizedProviderSnapshot["incidents"][number] {
@@ -468,7 +473,7 @@ function mapIncident(
 
 function mapMaintenance(
   item: IncidentItem,
-  mappedState: string,
+  mappedState: ProviderIncidentState,
   systemId: string | null,
   sourceId: string
 ): NormalizedProviderSnapshot["maintenances"][number] {

@@ -1,6 +1,4 @@
 import "server-only"
-import { createHash } from "node:crypto"
-
 import { and, sql as drizzleSql, eq, inArray } from "drizzle-orm"
 import { z } from "zod"
 
@@ -16,11 +14,12 @@ import {
 import { type DatabaseHandle, db } from "@/lib/db/client"
 import { monitorRegistry, monitorState } from "@/lib/db/schema"
 import { uptime24hByMonitorId } from "@/lib/monitoring/queries"
+import { MONITOR_STATE_ORDER, type MonitorState } from "@/lib/monitoring/types"
 
 import {
+  applyConfigChange as applyConfigurationChange,
   ConfigMutationError,
   requireAcceptedConfig as loadConfigSnapshot,
-  mutateConfig as mutateConfiguration,
   nextConfig,
 } from "./config-mutation"
 import { decodeCursor, encodeCursor } from "./pagination"
@@ -76,6 +75,7 @@ export class MonitorApiError extends Error {
       | "INVALID_REQUEST"
       | "MONITOR_NOT_FOUND"
       | "MONITOR_EXISTS"
+      | "GROUP_NOT_FOUND"
       | "CONFIGURATION_UNAVAILABLE"
       | "EDGE_CONFIG_UNAVAILABLE",
     message: string
@@ -100,9 +100,11 @@ async function requireAcceptedConfig() {
   }
 }
 
-async function mutateConfig(...args: Parameters<typeof mutateConfiguration>) {
+async function applyConfigChange(
+  ...args: Parameters<typeof applyConfigurationChange>
+) {
   try {
-    return await mutateConfiguration(...args)
+    return await applyConfigurationChange(...args)
   } catch (error) {
     return translateConfigError(error)
   }
@@ -118,13 +120,15 @@ function resolveGroupId(
   if (value.group === undefined || value.group === null) {
     return null
   }
-  return (
-    groups.find(
-      (group) =>
-        group.name.toLocaleLowerCase("en-US") ===
-        value.group!.trim().toLocaleLowerCase("en-US")
-    )?.id ?? null
-  )
+  const groupId = groups.find(
+    (group) =>
+      group.name.toLocaleLowerCase("en-US") ===
+      value.group!.trim().toLocaleLowerCase("en-US")
+  )?.id
+  if (!groupId) {
+    throw new MonitorApiError("GROUP_NOT_FOUND", "Group was not found")
+  }
+  return groupId
 }
 
 export function parseCreateMonitor(
@@ -158,32 +162,6 @@ export function mergeMonitorPatch(
   })
 }
 
-function groupsForLegacyInput(
-  groups: readonly GroupConfig[],
-  input: unknown
-): GroupConfig[] {
-  const parsed = createSchemaBase.partial().safeParse(input)
-  const name = parsed.success ? parsed.data.group : undefined
-  if (
-    name === undefined ||
-    name === null ||
-    groups.some(
-      (group) =>
-        group.name.toLocaleLowerCase("en-US") ===
-        name.toLocaleLowerCase("en-US")
-    )
-  ) {
-    return [...groups]
-  }
-  return [
-    ...groups,
-    {
-      id: `group-${createHash("sha256").update(name.toLocaleLowerCase("en-US")).digest("hex").slice(0, 12)}`,
-      name,
-    },
-  ]
-}
-
 function monitorResponse(
   monitor: MonitorConfig,
   groups: readonly GroupConfig[]
@@ -202,11 +180,10 @@ export async function createMonitor(
   handle: DatabaseHandle = db
 ) {
   let created!: MonitorConfig
-  const result = await mutateConfig(
+  const result = await applyConfigChange(
     principalKey,
     (current) => {
-      const groups = groupsForLegacyInput(current.groups, input)
-      const monitor = parseCreateMonitor(input, groups)
+      const monitor = parseCreateMonitor(input, current.groups)
       created = monitor
       const existing = current.monitors.find((item) => item.id === monitor.id)
       if (existing) {
@@ -219,7 +196,6 @@ export async function createMonitor(
         )
       }
       return nextConfig(current, {
-        groups,
         monitors: [...current.monitors, monitor],
       })
     },
@@ -238,20 +214,18 @@ export async function updateMonitor(
   handle: DatabaseHandle = db
 ) {
   const patch = parsePatchMonitor(input)
-  const result = await mutateConfig(
+  const result = await applyConfigChange(
     principalKey,
     (current) => {
       const existing = current.monitors.find((item) => item.id === id)
       if (!existing) {
         throw new MonitorApiError("MONITOR_NOT_FOUND", "Monitor was not found")
       }
-      const groups = groupsForLegacyInput(current.groups, input)
       const nextPatch =
         patch.group !== undefined || patch.groupId !== undefined
-          ? { ...patch, groupId: resolveGroupId(patch, groups) }
+          ? { ...patch, groupId: resolveGroupId(patch, current.groups) }
           : patch
       return nextConfig(current, {
-        groups,
         monitors: current.monitors.map((item) =>
           item.id === id ? mergeMonitorPatch(item, nextPatch) : item
         ),
@@ -271,7 +245,7 @@ export async function archiveMonitor(
   handle: DatabaseHandle = db
 ) {
   try {
-    await mutateConfig(
+    await applyConfigChange(
       principalKey,
       (current) => {
         if (!current.monitors.some((item) => item.id === id)) {
@@ -316,7 +290,7 @@ export async function setMonitorEnabled(
   principalKey: string,
   handle: DatabaseHandle = db
 ) {
-  const result = await mutateConfig(
+  const result = await applyConfigChange(
     principalKey,
     (current) => {
       if (!current.monitors.some((item) => item.id === id)) {
@@ -366,21 +340,10 @@ export async function requireMonitor(id: string, handle: DatabaseHandle = db) {
     : base
 }
 
-const STATE_ORDER = [
-  "DOWN",
-  "VERIFYING_DOWN",
-  "VERIFYING_UP",
-  "PENDING",
-  "UP",
-  "PAUSED",
-  "ARCHIVED",
-] as const
-type MonitorStateValue = (typeof STATE_ORDER)[number]
-
 export async function listMonitors(options: {
   cursor: string | null
   limit: number
-  state?: MonitorStateValue
+  state?: MonitorState
   group?: string
   groupId?: string
   enabled?: boolean
@@ -460,8 +423,8 @@ export async function listMonitors(options: {
       : sort === "id"
         ? monitor.id
         : String(
-            STATE_ORDER.indexOf(
-              (monitor.state ?? "PENDING") as MonitorStateValue
+            MONITOR_STATE_ORDER.indexOf(
+              (monitor.state ?? "PENDING") as MonitorState
             )
           ).padStart(2, "0") +
           "\0" +

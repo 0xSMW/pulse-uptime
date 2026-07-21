@@ -199,14 +199,15 @@ export async function createApiToken(
 }
 
 export async function listApiTokens(input: {
-  cursor: { sort: string; id: string } | null
+  cursor: { sort: Date; id: string } | null
   limit: number
 }) {
+  // Cursor must be Date+UUID-validated by the route before this store call.
   const predicate = input.cursor
     ? or(
-        lt(apiTokens.createdAt, new Date(input.cursor.sort)),
+        lt(apiTokens.createdAt, input.cursor.sort),
         and(
-          eq(apiTokens.createdAt, new Date(input.cursor.sort)),
+          eq(apiTokens.createdAt, input.cursor.sort),
           lt(apiTokens.id, input.cursor.id)
         )
       )

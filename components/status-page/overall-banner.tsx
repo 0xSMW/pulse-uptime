@@ -1,4 +1,7 @@
-import { type MonitorState, StatusDot } from "@/components/monitors/status-dot"
+import {
+  StatusDot,
+  type VisibleMonitorState,
+} from "@/components/monitors/status-dot"
 import type { PublicOverallState } from "@/lib/status-page/reports-display"
 import { cn } from "@/lib/utils"
 
@@ -6,7 +9,7 @@ type OverallState = PublicOverallState
 
 const presentation: Record<
   OverallState,
-  { label: string; monitorState: MonitorState; className: string }
+  { label: string; monitorState: VisibleMonitorState; className: string }
 > = {
   operational: {
     label: "All Systems Operational",

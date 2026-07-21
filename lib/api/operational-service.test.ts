@@ -45,6 +45,35 @@ describe("operational service seams", () => {
         encodeCursor({ sort: "not-a-date", id: "incident-1" })
       )
     ).toThrow("Cursor is invalid")
+    expect(() =>
+      parseIncidentCursor(
+        encodeCursor({
+          sort: "2026-07-18T00:00:00.000Z",
+          id: "not-a-uuid",
+        })
+      )
+    ).toThrow(OperationalInputError)
+    try {
+      parseIncidentCursor(
+        encodeCursor({
+          sort: "2026-07-18T00:00:00.000Z",
+          id: "not-a-uuid",
+        })
+      )
+      expect.unreachable()
+    } catch (error) {
+      expect(error).toMatchObject({ code: "INVALID_CURSOR" })
+    }
+  })
+
+  it("accepts a valid timestamp+UUID incident cursor without touching storage", () => {
+    const sort = "2026-07-18T12:00:00.000Z"
+    const id = "11111111-1111-4111-8111-111111111111"
+    expect(parseIncidentCursor(encodeCursor({ sort, id }))).toEqual({
+      sort: new Date(sort),
+      id,
+    })
+    expect(parseIncidentCursor(null)).toBeNull()
   })
 
   it("injects private-status retrieval without provider access", async () => {

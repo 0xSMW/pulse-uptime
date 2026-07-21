@@ -16,14 +16,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { parseMonitorRecipients } from "@/lib/monitoring/recipients"
 import { isPublicHttpUrl } from "@/lib/net/public-url"
 import { GroupDialog } from "./group-dialog"
+import { MonitorGroupField } from "./monitor-group-field"
 import {
   apiRequest,
   generatedMonitorId,
   messageForError,
   type SettingsGroup,
-  sortSettingsGroups,
 } from "./settings-api"
 import { Sheet, SheetIconButton } from "./sheet"
 
@@ -109,13 +110,6 @@ function valuesFor(monitor: EditableMonitor | null): MonitorFormValues {
   }
 }
 
-export function parseRecipients(value: string): string[] {
-  return value
-    .split(/\r?\n|,/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-}
-
 export function isPublicMonitorUrl(value: string): boolean {
   return isPublicHttpUrl(value)
 }
@@ -183,13 +177,18 @@ export function validateMonitorForm(
   ) {
     errors.recoveryThreshold = "Enter 1–5"
   }
-  const recipients = parseRecipients(values.recipientsText)
+  const recipients = parseMonitorRecipients(values.recipientsText)
   if (recipients.length > 20) {
     errors.recipientsText = "Use no more than 20 addresses"
   } else if (
     recipients.some((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
   ) {
     errors.recipientsText = "Enter valid email addresses"
+  } else if (
+    new Set(recipients.map((recipient) => recipient.toLowerCase())).size !==
+    recipients.length
+  ) {
+    errors.recipientsText = "Remove duplicate recipients"
   }
   return errors
 }
@@ -409,14 +408,14 @@ export function MonitorSheet({
       },
       failureThreshold: values.failureThreshold,
       recoveryThreshold: values.recoveryThreshold,
-      recipients: parseRecipients(values.recipientsText),
+      recipients: parseMonitorRecipients(values.recipientsText),
     }
     try {
       if (monitor) {
         await apiRequest(
           `/api/v1/monitors/${encodeURIComponent(monitor.id)}`,
           { method: "PATCH", body: JSON.stringify(body) },
-          true
+          { mutation: true }
         )
       } else {
         await apiRequest(
@@ -428,7 +427,7 @@ export function MonitorSheet({
               ...body,
             }),
           },
-          true
+          { mutation: true }
         )
       }
       onMonitorGroupChanged?.(monitor?.groupId ?? null, values.groupId)
@@ -461,7 +460,7 @@ export function MonitorSheet({
       await apiRequest(
         `/api/v1/monitors/${encodeURIComponent(monitor.id)}/${action}`,
         { method: "POST" },
-        true
+        { mutation: true }
       )
       setStatus(
         action === "test"
@@ -488,7 +487,7 @@ export function MonitorSheet({
       await apiRequest(
         `/api/v1/monitors/${encodeURIComponent(monitor.id)}`,
         { method: "DELETE" },
-        true
+        { mutation: true }
       )
       onMonitorGroupChanged?.(monitor.groupId, null)
       setStatus("Monitor archived")
@@ -511,7 +510,6 @@ export function MonitorSheet({
     monitor?.enabled ?? true
   )
   const actionBusyDescription = "Another monitor action is in progress"
-  const sortedGroups = sortSettingsGroups(groups)
   function createdGroup(group: SettingsGroup) {
     onGroupCreated(group)
     set("groupId", group.id)
@@ -594,48 +592,13 @@ export function MonitorSheet({
               </span>
             ) : null}
           </label>
-          <div>
-            {/* biome-ignore lint/a11y/noLabelWithoutControl: linked to the Select via aria-labelledby on its trigger */}
-            <label
-              className="mb-1.5 block font-medium text-[13px]"
-              id="monitor-group-label"
-            >
-              Group
-            </label>
-            {sortedGroups.length === 0 ? (
-              <Button
-                className="w-full"
-                onClick={() => setCreateGroup(true)}
-                variant="secondary"
-              >
-                Create Group
-              </Button>
-            ) : (
-              <Select
-                onValueChange={(value) => {
-                  if (value === "__create__") {
-                    setCreateGroup(true)
-                  } else {
-                    set("groupId", value === "__ungrouped__" ? null : value)
-                  }
-                }}
-                value={values.groupId ?? "__ungrouped__"}
-              >
-                <SelectTrigger aria-labelledby="monitor-group-label">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__ungrouped__">Ungrouped</SelectItem>
-                  {sortedGroups.map((group) => (
-                    <SelectItem key={group.id} value={group.id}>
-                      {group.name}
-                    </SelectItem>
-                  ))}
-                  <SelectItem value="__create__">Create group</SelectItem>
-                </SelectContent>
-              </Select>
-            )}
-          </div>
+          <MonitorGroupField
+            groups={groups}
+            labelClassName="text-[13px]"
+            onChange={(groupId) => set("groupId", groupId)}
+            onCreateGroup={() => setCreateGroup(true)}
+            value={values.groupId}
+          />
           <div>
             {/* biome-ignore lint/a11y/noLabelWithoutControl: linked to the Select via aria-labelledby on its trigger */}
             <label

@@ -2,9 +2,9 @@ import "server-only"
 
 import { randomUUID } from "node:crypto"
 
-import { and, eq, inArray, isNull, sql } from "drizzle-orm"
+import { and, eq, gte, inArray, isNull, sql } from "drizzle-orm"
 
-import type { Database } from "@/lib/db/client"
+import type { Database, DatabaseHandle } from "@/lib/db/client"
 import {
   dependencies,
   dependencyCatalog,
@@ -26,6 +26,7 @@ import type {
   DependencyState,
   IncidentMatchScope,
   NormalizedProviderSnapshot,
+  ProviderComponentState,
 } from "./types"
 import { componentIdsFromScope } from "./types"
 
@@ -37,10 +38,9 @@ import { componentIdsFromScope } from "./types"
 // NOTHING) or conditional-on-change, so repeated polls of unchanged upstream
 // data append nothing: the concurrency and idempotency tests lean on this.
 
-type ComponentishState = "OPERATIONAL" | "DEGRADED" | "OUTAGE" | "MAINTENANCE"
 type NormalizedIncident = NormalizedProviderSnapshot["incidents"][number]
 
-const STATE_RANK: Record<ComponentishState, number> = {
+const STATE_RANK: Record<ProviderComponentState, number> = {
   OPERATIONAL: 0,
   MAINTENANCE: 1,
   DEGRADED: 2,
@@ -49,8 +49,8 @@ const STATE_RANK: Record<ComponentishState, number> = {
 const BACKOFF_MINUTES = [5, 15, 30]
 
 export function worstOf(
-  states: readonly ComponentishState[]
-): ComponentishState {
+  states: readonly ProviderComponentState[]
+): ProviderComponentState {
   if (states.length === 0) {
     return "OPERATIONAL"
   }
@@ -67,8 +67,8 @@ export function worstOf(
  */
 export function combinedComponentStates(
   snapshot: NormalizedProviderSnapshot
-): Map<string, ComponentishState> {
-  const map = new Map<string, ComponentishState>()
+): Map<string, ProviderComponentState> {
+  const map = new Map<string, ProviderComponentState>()
   for (const [id, component] of Object.entries(snapshot.components)) {
     map.set(id, component.state)
   }
@@ -162,7 +162,7 @@ export function matchingIdsForSelector(
 export function resolveDependencyState(
   selector: DependencySelector,
   scopeId: string | null,
-  combined: ReadonlyMap<string, ComponentishState>,
+  combined: ReadonlyMap<string, ProviderComponentState>,
   snapshot: NormalizedProviderSnapshot
 ): DependencyState {
   const fallback = (): DependencyState =>
@@ -190,7 +190,7 @@ export function resolveDependencyState(
   }
 
   const ids = matchingIdsForSelector(selector, scopeId)
-  const states: ComponentishState[] = []
+  const states: ProviderComponentState[] = []
   for (const id of ids) {
     const state = combined.get(id)
     if (state) {
@@ -219,6 +219,187 @@ export function selectorIntersectsIncident(
 ): boolean {
   const ids = new Set(matchingIdsForSelector(selector, scopeId))
   return incidentComponentIds.some((id) => ids.has(id))
+}
+
+/** A stored provider incident considered for install-time backfill, with its component associations already gathered. */
+export interface BackfillIncidentCandidate {
+  incidentId: string
+  componentIds: readonly string[]
+  startedAt: Date
+  resolvedAt: Date | null
+}
+
+/**
+ * Selects which of a source's incidents to link to a freshly installed
+ * dependency so its timeline and incident list show real recent history
+ * instead of a fully grey window. A candidate qualifies only when it is
+ * already resolved, its active window [startedAt, resolvedAt] intersects the
+ * trailing 7 days [windowStart, now], and its component associations intersect
+ * the install's selector.
+ *
+ * Active incidents are deliberately excluded: the install schedules an
+ * immediate poll, and that poll opens their match and fires the opening
+ * notification through the normal transition path. Backfilling them here would
+ * pre-create the match and suppress that notification.
+ *
+ * This is the one place that relaxes the poll path's no-install-time-broaden
+ * rule, and only for resolved component-scoped incidents. Source-wide and
+ * unmapped incidents persist no component rows, so they never intersect and
+ * stay unmatched, exactly as the poll path leaves them for a new install.
+ */
+export function selectBackfillIncidentIds(
+  selector: DependencySelector,
+  scopeId: string | null,
+  candidates: readonly BackfillIncidentCandidate[],
+  windowStart: Date,
+  now: Date
+): string[] {
+  const windowStartMs = windowStart.getTime()
+  const nowMs = now.getTime()
+  const ids: string[] = []
+  for (const candidate of candidates) {
+    if (candidate.resolvedAt === null) {
+      continue
+    }
+    if (
+      candidate.startedAt.getTime() > nowMs ||
+      candidate.resolvedAt.getTime() < windowStartMs
+    ) {
+      continue
+    }
+    if (selectorIntersectsIncident(selector, scopeId, candidate.componentIds)) {
+      ids.push(candidate.incidentId)
+    }
+  }
+  return ids
+}
+
+const BACKFILL_WINDOW_MS = 7 * 86_400_000
+
+/**
+ * Links a newly installed dependency to the source's recent resolved incidents
+ * so its timeline and incident list carry real history from the moment it is
+ * added, rather than a fully grey pre-install window. Runs on the caller's
+ * insert transaction so the matches commit atomically with the dependency.
+ * Returns the number of matches created.
+ *
+ * Only resolved component-scoped incidents in the trailing 7 days that
+ * intersect this install's selector are linked (see selectBackfillIncidentIds).
+ * The match rows are created with ON CONFLICT DO NOTHING and the poll path
+ * never prunes matches, so an immediate first poll neither duplicates nor
+ * removes them.
+ */
+export async function backfillResolvedIncidentMatches(
+  tx: DatabaseHandle,
+  params: {
+    dependencyId: string
+    catalogId: string
+    sourceId: string
+    scopeId: string | null
+    now: Date
+  }
+): Promise<number> {
+  const windowStart = new Date(params.now.getTime() - BACKFILL_WINDOW_MS)
+
+  const [preset] = await tx
+    .select({
+      selector: dependencyCatalog.selector,
+      adapter: dependencySources.adapter,
+    })
+    .from(dependencyCatalog)
+    .innerJoin(
+      dependencySources,
+      eq(dependencySources.id, dependencyCatalog.sourceId)
+    )
+    .where(eq(dependencyCatalog.id, params.catalogId))
+    .limit(1)
+  if (!preset) {
+    return 0
+  }
+  const selector = preset.selector as DependencySelector
+  const adapter = preset.adapter as DependencyAdapterName
+
+  // Resolved incidents in the trailing 7 days joined to their component
+  // associations. A resolved_at >= windowStart comparison also drops open
+  // incidents (null resolved_at never satisfies it), and the inner join drops
+  // source-wide and unmapped incidents, which persist no component rows.
+  const rows = await tx
+    .select({
+      incidentId: providerIncidents.id,
+      startedAt: providerIncidents.startedAt,
+      resolvedAt: providerIncidents.resolvedAt,
+      componentId: providerIncidentComponents.externalComponentId,
+    })
+    .from(providerIncidents)
+    .innerJoin(
+      providerIncidentComponents,
+      eq(providerIncidentComponents.incidentId, providerIncidents.id)
+    )
+    .where(
+      and(
+        eq(providerIncidents.sourceId, params.sourceId),
+        gte(providerIncidents.resolvedAt, windowStart)
+      )
+    )
+  if (rows.length === 0) {
+    return 0
+  }
+
+  const componentsByIncident = new Map<string, string[]>()
+  const metaByIncident = new Map<
+    string,
+    { startedAt: Date; resolvedAt: Date | null }
+  >()
+  for (const row of rows) {
+    const list = componentsByIncident.get(row.incidentId) ?? []
+    list.push(row.componentId)
+    componentsByIncident.set(row.incidentId, list)
+    if (!metaByIncident.has(row.incidentId)) {
+      metaByIncident.set(row.incidentId, {
+        startedAt: row.startedAt,
+        resolvedAt: row.resolvedAt,
+      })
+    }
+  }
+  const candidates: BackfillIncidentCandidate[] = [
+    ...componentsByIncident.entries(),
+  ].map(([incidentId, componentIds]) => {
+    const meta = metaByIncident.get(incidentId)
+    return {
+      incidentId,
+      componentIds,
+      startedAt: meta?.startedAt ?? params.now,
+      resolvedAt: meta?.resolvedAt ?? null,
+    }
+  })
+
+  const matchIds = selectBackfillIncidentIds(
+    selector,
+    params.scopeId,
+    candidates,
+    windowStart,
+    params.now
+  )
+  if (matchIds.length === 0) {
+    return 0
+  }
+
+  const matchKind: "component_match" | "inferred" =
+    associationKindForAdapter(adapter) === "inferred"
+      ? "inferred"
+      : "component_match"
+  await tx
+    .insert(dependencyIncidentMatches)
+    .values(
+      matchIds.map((incidentId) => ({
+        dependencyId: params.dependencyId,
+        incidentId,
+        matchKind,
+        matchedAt: params.now,
+      }))
+    )
+    .onConflictDoNothing()
+  return matchIds.length
 }
 
 /**
@@ -353,13 +534,70 @@ export function notificationKeyExternalId(
     : incidentExternalId
 }
 
-/** Retry-After wins outright when the provider sent one; otherwise the fixed 5/15/30 minute ladder, indexed by how many consecutive failures this is. */
+/** Character cap on a provider update body quoted in a notification payload. */
+export const MAX_UPDATE_QUOTE_LENGTH = 300
+
+/**
+ * The provider update quoted in the notification email in place of the
+ * generic status-feed note. Picks the update with the greatest provider
+ * created timestamp, the same update the dependency detail view renders
+ * last, and carries that timestamp so the email dates the quote the way the
+ * detail view does. Blank bodies never win, bodies are trimmed and capped at
+ * MAX_UPDATE_QUOTE_LENGTH with an ellipsis, and an incident with no usable
+ * update yields null so the email falls back to the generic note.
+ */
+export function latestUpdateQuote(
+  updates: NormalizedIncident["updates"]
+): { body: string; timestamp: string } | null {
+  let latest: NormalizedIncident["updates"][number] | null = null
+  for (const update of updates) {
+    if (update.bodyText.trim().length === 0) {
+      continue
+    }
+    if (
+      latest === null ||
+      new Date(update.createdAt).getTime() >=
+        new Date(latest.createdAt).getTime()
+    ) {
+      latest = update
+    }
+  }
+  if (latest === null) {
+    return null
+  }
+  const body = latest.bodyText.trim()
+  return {
+    // The cut must not split a surrogate pair, a lone surrogate is rejected
+    // by the jsonb payload column and would abort the snapshot transaction.
+    body:
+      body.length > MAX_UPDATE_QUOTE_LENGTH
+        ? `${body
+            .slice(0, MAX_UPDATE_QUOTE_LENGTH)
+            .replace(/[\uD800-\uDBFF]$/, "")}…`
+        : body,
+    timestamp: latest.createdAt,
+  }
+}
+
+/** Upper bound on provider Retry-After delays used for next_poll_at. */
+export const MAX_RETRY_AFTER_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Retry-After wins when it is a finite nonnegative delay at most 24h.
+ * Invalid or oversized values fall through to the fixed 5/15/30 minute ladder,
+ * indexed by how many consecutive failures this is.
+ */
 export function failureDelayMs(
   consecutiveFailures: number,
   retryAfterMs: number | null
 ): number {
-  if (retryAfterMs !== null) {
-    return Math.max(0, retryAfterMs)
+  if (
+    retryAfterMs !== null &&
+    Number.isFinite(retryAfterMs) &&
+    retryAfterMs >= 0 &&
+    retryAfterMs <= MAX_RETRY_AFTER_MS
+  ) {
+    return retryAfterMs
   }
   const index = Math.min(
     Math.max(consecutiveFailures - 1, 0),
@@ -465,6 +703,8 @@ export interface DependencyNotificationInput {
   state: string
   canonicalUrl: string | null
   providerTimestamp: string
+  /** Latest provider update quoted in the email (see latestUpdateQuote), null when none exists. */
+  latestUpdate: { body: string; timestamp: string } | null
   recipients: readonly string[]
 }
 
@@ -645,7 +885,7 @@ async function applyAllOperationalNextPoll(
   }
 }
 
-export async function persistSnapshot(
+export async function applyPollOutcome(
   store: PersistStore,
   outcome: PollOutcome,
   source: PersistSourceRow,
@@ -942,6 +1182,7 @@ export async function persistSnapshot(
             state: nextState,
             canonicalUrl: incident.canonicalUrl,
             providerTimestamp: incident.updatedAt,
+            latestUpdate: latestUpdateQuote(incident.updates),
             recipients: context.defaultRecipients,
           },
           context.now
@@ -1016,6 +1257,9 @@ export async function persistSnapshot(
                 state: resolvedState,
                 canonicalUrl: open.canonicalUrl,
                 providerTimestamp: context.now.toISOString(),
+                // A disappeared incident is absent from the snapshot, so no
+                // update text exists to quote.
+                latestUpdate: null,
                 recipients: context.defaultRecipients,
               },
               context.now
@@ -1390,6 +1634,7 @@ export function createSqlPersistStore(db: Database): PersistStore {
                 state: input.state,
                 canonicalUrl: input.canonicalUrl,
                 providerTimestamp: input.providerTimestamp,
+                latestUpdate: input.latestUpdate,
                 recipients: input.recipients,
               },
               { now }

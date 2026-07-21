@@ -5,7 +5,7 @@ import {
 import { apiError, apiJson, objectEnvelope } from "@/lib/api/envelopes"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
 import { routeError } from "@/lib/api/route"
-import { getCurrentSession } from "@/lib/auth/session"
+import { authenticateCurrentSession } from "@/lib/auth/session"
 
 export async function POST(request: Request) {
   const context = await authorize(request)
@@ -20,7 +20,7 @@ export async function POST(request: Request) {
       "Account settings require a dashboard session"
     )
   }
-  const session = await getCurrentSession()
+  const session = await authenticateCurrentSession()
   if (!session) {
     return apiError(
       context.requestId,

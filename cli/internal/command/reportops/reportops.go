@@ -273,7 +273,7 @@ func newCreateCommand(d Dependencies) *cobra.Command {
 			if err := validStatus(reportType, status); err != nil {
 				return err
 			}
-			markdown, err := readMessage(d, message, messageFile, cmd.Flags().Changed("message"), cmd.Flags().Changed("message-file"), true)
+			markdown, err := readRequiredMessage(d, cmd, message, messageFile)
 			if err != nil {
 				return err
 			}
@@ -395,7 +395,7 @@ func newPostCommand(d Dependencies) *cobra.Command {
 			if err := anyStatus(status); err != nil {
 				return err
 			}
-			markdown, err := readMessage(d, message, messageFile, cmd.Flags().Changed("message"), cmd.Flags().Changed("message-file"), true)
+			markdown, err := readRequiredMessage(d, cmd, message, messageFile)
 			if err != nil {
 				return err
 			}
@@ -441,7 +441,7 @@ func newEditUpdateCommand(d Dependencies) *cobra.Command {
 				body["status"] = status
 			}
 			if cmd.Flags().Changed("message") || cmd.Flags().Changed("message-file") {
-				markdown, err := readMessage(d, message, messageFile, cmd.Flags().Changed("message"), cmd.Flags().Changed("message-file"), true)
+				markdown, err := readRequiredMessage(d, cmd, message, messageFile)
 				if err != nil {
 					return err
 				}
@@ -688,7 +688,9 @@ func idempotencyKey(d Dependencies) (string, error) {
 	return id, nil
 }
 
-func readMessage(d Dependencies, message, file string, messageSet, fileSet, required bool) (string, error) {
+func readRequiredMessage(d Dependencies, cmd *cobra.Command, message, file string) (string, error) {
+	messageSet := cmd.Flags().Changed("message")
+	fileSet := cmd.Flags().Changed("message-file")
 	if messageSet && fileSet {
 		return "", invalid("--message and --message-file cannot be combined")
 	}
@@ -715,10 +717,7 @@ func readMessage(d Dependencies, message, file string, messageSet, fileSet, requ
 		}
 		return message, nil
 	}
-	if required {
-		return "", invalid("--message or --message-file is required")
-	}
-	return "", nil
+	return "", invalid("--message or --message-file is required")
 }
 
 func parseAffected(values []string) ([]map[string]any, error) {

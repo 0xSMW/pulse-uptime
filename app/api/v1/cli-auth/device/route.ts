@@ -37,35 +37,35 @@ export async function POST(request: Request) {
       principalKey: ipKey,
       routeKey: "cli-device-start",
       body: input,
-      work: async ({ operationId, transaction }) =>
-        transaction(async (tx) => {
-          const credential = deriveDeviceCode(
-            credentialDerivationContext({
-              kind: "device-authorization",
-              principalKey: ipKey,
-              idempotencyKey,
-              body: input,
-              operationId,
-            })
-          )
-          const authorization = await startDeviceAuthorization(
-            {
-              ...input,
-              requestIp: validClientIpFromHeaders(request.headers),
-              deviceCredential: credential,
-            },
-            new Date(),
-            tx
-          )
-          return {
-            status: 201,
-            body: {
-              ...authorization,
-              verificationUri,
-              verificationUriComplete: `${verificationUri}?user_code=${encodeURIComponent(authorization.userCode)}`,
-            },
-          }
-        }),
+      mode: "atomic",
+      work: async (tx, { operationId }) => {
+        const credential = deriveDeviceCode(
+          credentialDerivationContext({
+            kind: "device-authorization",
+            principalKey: ipKey,
+            idempotencyKey,
+            body: input,
+            operationId,
+          })
+        )
+        const authorization = await startDeviceAuthorization(
+          {
+            ...input,
+            requestIp: validClientIpFromHeaders(request.headers),
+            deviceCredential: credential,
+          },
+          new Date(),
+          tx
+        )
+        return {
+          status: 201,
+          body: {
+            ...authorization,
+            verificationUri,
+            verificationUriComplete: `${verificationUri}?user_code=${encodeURIComponent(authorization.userCode)}`,
+          },
+        }
+      },
       persistBody: (body) => ({
         userCode: body.userCode,
         expiresIn: body.expiresIn,

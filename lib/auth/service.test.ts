@@ -4,6 +4,7 @@ vi.mock("server-only", () => ({}))
 
 import type { ReadinessReport } from "@/lib/readiness/types"
 
+import { LOGIN_DUMMY_PASSWORD_DIGEST } from "./credentials"
 import {
   type AdminCreationStore,
   clientIpFromHeaders,
@@ -14,6 +15,7 @@ import {
   login,
   loginRateLimitKey,
   shouldRefreshLastSeen,
+  UNKNOWN_LOGIN_EMAIL_BUCKET,
 } from "./service"
 
 function readiness(overrides: Partial<ReadinessReport> = {}): ReadinessReport {
@@ -271,13 +273,15 @@ describe("persistent login rate limiting", () => {
     expect(ipKey).toMatch(/^login-ip:[0-9a-f]+$/)
   })
 
-  it("blocks the sixth attempt from one source IP without account-wide buckets", async () => {
+  it("blocks the sixth attempt from one source IP before the email bucket", async () => {
     const limiter = persistentLimiter()
     const fake = loginStore()
+    const verify = vi.fn(async () => false)
     const dependencies = {
       store: fake.store,
       enforceLimit: limiter.enforce,
       digestKey: deterministicDigest,
+      verify,
       now: () => new Date("2026-07-18T00:01:00Z"),
     }
     for (let attempt = 1; attempt <= 5; attempt += 1) {
@@ -302,12 +306,69 @@ describe("persistent login rate limiting", () => {
         { ...dependencies }
       )
     ).rejects.toMatchObject({ code: "RATE_LIMITED", retryAfterSeconds: 840 })
-    // Unknown emails never create an account-wide bucket: only the IP key is used.
-    expect(new Set(limiter.seenKeys)).toHaveLength(1)
-    expect(limiter.seenKeys.every((key) => key.startsWith("login-ip:"))).toBe(
-      true
+    // IP is checked first on every attempt. Failed attempts also touch one
+    // synthetic email bucket so unknown-address probes stay cardinality-bounded.
+    const unique = new Set(limiter.seenKeys)
+    expect(unique.size).toBe(2)
+    expect([...unique].some((key) => key.startsWith("login-ip:"))).toBe(true)
+    expect([...unique].some((key) => key.startsWith("login-email:"))).toBe(true)
+    // Sixth attempt short-circuits on IP before verify or the email bucket.
+    expect(limiter.seenKeys).toHaveLength(11)
+    expect(verify).toHaveBeenCalledTimes(5)
+  })
+
+  it("equalizes password verify and email-bucket work for known and unknown addresses", async () => {
+    const limiter = persistentLimiter()
+    const known = loginStore({
+      id: "user-1",
+      passwordDigest: "real-digest",
+      onboardingCompletedAt: null,
+    })
+    const unknown = loginStore()
+    const verify = vi.fn(async () => false)
+    const now = () => new Date("2026-07-18T00:01:00Z")
+    const base = {
+      enforceLimit: limiter.enforce,
+      digestKey: deterministicDigest,
+      verify,
+      now,
+    }
+
+    await expect(
+      login(
+        { email: "admin@example.com", password: "wrong", ip: "203.0.113.10" },
+        { ...base, store: known.store }
+      )
+    ).rejects.toMatchObject({ code: "INVALID_LOGIN" })
+    await expect(
+      login(
+        { email: "missing@example.com", password: "wrong", ip: "203.0.113.11" },
+        { ...base, store: unknown.store }
+      )
+    ).rejects.toMatchObject({ code: "INVALID_LOGIN" })
+
+    expect(verify).toHaveBeenCalledTimes(2)
+    expect(verify).toHaveBeenNthCalledWith(1, "real-digest", "wrong")
+    expect(verify).toHaveBeenNthCalledWith(
+      2,
+      LOGIN_DUMMY_PASSWORD_DIGEST,
+      "wrong"
     )
-    expect(limiter.seenKeys).toHaveLength(6)
+
+    const emailKeys = limiter.seenKeys.filter((key) =>
+      key.startsWith("login-email:")
+    )
+    expect(emailKeys).toHaveLength(2)
+    expect(emailKeys[0]).toBe(
+      loginRateLimitKey("email", "admin@example.com", deterministicDigest)
+    )
+    expect(emailKeys[1]).toBe(
+      loginRateLimitKey(
+        "email",
+        UNKNOWN_LOGIN_EMAIL_BUCKET,
+        deterministicDigest
+      )
+    )
   })
 
   it("lets a correct password recover from an unblocked IP after the account bucket is exhausted", async () => {

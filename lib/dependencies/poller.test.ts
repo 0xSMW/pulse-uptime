@@ -12,6 +12,8 @@ import { loadCatalogManifest } from "./manifest"
 import {
   DocumentBudgetExceededError,
   MAX_DOCUMENTS_PER_CYCLE,
+  MIN_SOURCE_START_BUDGET_MS,
+  PollDeadlineExceededError,
   type PollerSourceRow,
   type PollOutcome,
   pollDueSources,
@@ -115,7 +117,7 @@ describe("pollDueSources orchestration", () => {
   it("skips entirely when no source is due", async () => {
     const persist = vi.fn()
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([]) },
       persist,
       now: () => NOW,
     })
@@ -124,6 +126,7 @@ describe("pollDueSources orchestration", () => {
       polled: 0,
       notModified: 0,
       failed: 0,
+      skipped: 0,
     })
     expect(persist).not.toHaveBeenCalled()
   })
@@ -132,7 +135,7 @@ describe("pollDueSources orchestration", () => {
     const persist = vi.fn()
     const row = sourceRow()
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([row]) },
       fetchDocument: anthropicFetchDocument(anthropicOperational),
       persist,
       now: () => NOW,
@@ -142,6 +145,7 @@ describe("pollDueSources orchestration", () => {
       polled: 1,
       notModified: 0,
       failed: 0,
+      skipped: 0,
     })
     expect(persist).toHaveBeenCalledTimes(1)
     const [outcome] = persist.mock.calls[0] as [PollOutcome]
@@ -180,7 +184,7 @@ describe("pollDueSources orchestration", () => {
       }
     )
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([row]) },
       fetchDocument,
       persist,
       now: () => NOW,
@@ -190,6 +194,7 @@ describe("pollDueSources orchestration", () => {
       polled: 0,
       notModified: 1,
       failed: 0,
+      skipped: 0,
     })
     expect(fetchDocument).toHaveBeenCalledTimes(1)
     const [outcome] = persist.mock.calls[0] as [PollOutcome]
@@ -210,7 +215,7 @@ describe("pollDueSources orchestration", () => {
     )
     const result = await pollDueSources({
       store: {
-        listDueSources: vi.fn().mockResolvedValue([failingRow, healthyRow]),
+        claimDueSources: vi.fn().mockResolvedValue([failingRow, healthyRow]),
       },
       fetchDocument,
       persist,
@@ -222,6 +227,7 @@ describe("pollDueSources orchestration", () => {
       polled: 1,
       notModified: 0,
       failed: 1,
+      skipped: 0,
     })
     const outcomes = persist.mock.calls.map((call) => call[0] as PollOutcome)
     expect(
@@ -252,7 +258,7 @@ describe("pollDueSources orchestration", () => {
       }
     )
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([row]) },
       fetchDocument,
       persist,
       now: () => NOW,
@@ -262,6 +268,7 @@ describe("pollDueSources orchestration", () => {
       polled: 1,
       notModified: 0,
       failed: 0,
+      skipped: 0,
     })
     const [outcome] = persist.mock.calls[0] as [PollOutcome]
     expect(outcome.kind).toBe("snapshot")
@@ -295,7 +302,7 @@ describe("pollDueSources orchestration", () => {
       }
     )
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([row]) },
       fetchDocument,
       persist,
       now: () => NOW,
@@ -305,6 +312,7 @@ describe("pollDueSources orchestration", () => {
       polled: 0,
       notModified: 0,
       failed: 1,
+      skipped: 0,
     })
     const [outcome] = persist.mock.calls[0] as [PollOutcome]
     expect(outcome.kind).toBe("failure")
@@ -370,7 +378,7 @@ describe("pollDueSources orchestration", () => {
     )
 
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([postmarkRow]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([postmarkRow]) },
       fetchDocument,
       persist,
       now: () => NOW,
@@ -467,7 +475,7 @@ describe("pollDueSources orchestration", () => {
     )
 
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([postmarkRow]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([postmarkRow]) },
       fetchDocument,
       persist,
       now: () => NOW,
@@ -478,6 +486,7 @@ describe("pollDueSources orchestration", () => {
       polled: 1,
       notModified: 0,
       failed: 0,
+      skipped: 0,
     })
     const componentsCall = fetchDocument.mock.calls.find(
       (call) => (call[1] as { url: string }).url === componentsUrl
@@ -543,7 +552,7 @@ describe("pollDueSources orchestration", () => {
     )
 
     const firstResult = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([row]) },
       fetchDocument: firstCycleFetch,
       persist,
       now: () => NOW,
@@ -553,6 +562,7 @@ describe("pollDueSources orchestration", () => {
       polled: 1,
       notModified: 0,
       failed: 0,
+      skipped: 0,
     })
 
     const [firstOutcome] = persist.mock.calls[0] as [PollOutcome]
@@ -618,7 +628,7 @@ describe("pollDueSources orchestration", () => {
     )
 
     await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([secondRow]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([secondRow]) },
       fetchDocument: secondCycleFetch,
       persist,
       now: () => NOW,
@@ -657,7 +667,7 @@ describe("pollDueSources orchestration", () => {
     )
 
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([row]) },
       fetchDocument,
       persist,
       now: () => NOW,
@@ -668,6 +678,7 @@ describe("pollDueSources orchestration", () => {
       polled: 0,
       notModified: 1,
       failed: 0,
+      skipped: 0,
     })
     expect(fetchDocument).toHaveBeenCalledTimes(1)
     const [outcome] = persist.mock.calls[0] as [PollOutcome]
@@ -745,7 +756,7 @@ describe("pollDueSources orchestration", () => {
     )
 
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([row]) },
       fetchDocument,
       persist,
       now: () => NOW,
@@ -756,6 +767,7 @@ describe("pollDueSources orchestration", () => {
       polled: 1,
       notModified: 0,
       failed: 0,
+      skipped: 0,
     })
     const urlsFetched = new Set(
       fetchDocument.mock.calls.map((call) => (call[1] as { url: string }).url)
@@ -800,7 +812,7 @@ describe("pollDueSources orchestration", () => {
       }
     )
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([row]) },
       fetchDocument,
       persist,
       now: () => NOW,
@@ -810,6 +822,7 @@ describe("pollDueSources orchestration", () => {
       polled: 1,
       notModified: 0,
       failed: 0,
+      skipped: 0,
     })
     const [outcome] = persist.mock.calls[0] as [PollOutcome]
     expect(outcome.kind).toBe("snapshot")
@@ -843,7 +856,7 @@ describe("pollDueSources orchestration", () => {
       }
     )
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([row]) },
       fetchDocument,
       persist,
       now: () => NOW,
@@ -853,6 +866,7 @@ describe("pollDueSources orchestration", () => {
       polled: 0,
       notModified: 0,
       failed: 1,
+      skipped: 0,
     })
     const [outcome] = persist.mock.calls[0] as [PollOutcome]
     expect(outcome.kind).toBe("failure")
@@ -890,7 +904,7 @@ describe("pollDueSources orchestration", () => {
       lastModified: null,
     }))
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([row]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([row]) },
       fetchDocument,
       persist,
       now: () => NOW,
@@ -900,6 +914,7 @@ describe("pollDueSources orchestration", () => {
       polled: 0,
       notModified: 0,
       failed: 1,
+      skipped: 0,
     })
     const [outcome] = persist.mock.calls[0] as [PollOutcome]
     expect(outcome.kind).toBe("failure")
@@ -956,7 +971,7 @@ describe("pollDueSources orchestration", () => {
     )
 
     const result = await pollDueSources({
-      store: { listDueSources: vi.fn().mockResolvedValue([postmarkRow]) },
+      store: { claimDueSources: vi.fn().mockResolvedValue([postmarkRow]) },
       fetchDocument,
       persist,
       now: () => NOW,
@@ -967,6 +982,7 @@ describe("pollDueSources orchestration", () => {
       polled: 0,
       notModified: 0,
       failed: 1,
+      skipped: 0,
     })
     // The cap is enforced: exactly MAX_DOCUMENTS_PER_CYCLE fetches, then the next request throws before fetching.
     expect(fetchDocument).toHaveBeenCalledTimes(MAX_DOCUMENTS_PER_CYCLE)
@@ -979,5 +995,167 @@ describe("pollDueSources orchestration", () => {
       )
       expect(outcome.retryAfterMs).toBeNull()
     }
+  })
+
+  it("forwards deadlineAtMs into every collected document fetch", async () => {
+    const persist = vi.fn()
+    const row = sourceRow()
+    const clock = NOW.getTime()
+    const deadlineAtMs = clock + 40_000
+    const fetchDocument = vi.fn(
+      async (source: PollerSourceRow, request: { url: string }) =>
+        anthropicFetchDocument(anthropicOperational)(source, request)
+    )
+    await pollDueSources({
+      store: { claimDueSources: vi.fn().mockResolvedValue([row]) },
+      fetchDocument,
+      persist,
+      now: () => NOW,
+      nowMs: () => clock,
+      deadlineAtMs,
+    })
+    expect(fetchDocument.mock.calls.length).toBeGreaterThan(0)
+    for (const call of fetchDocument.mock.calls) {
+      expect(call[1]).toMatchObject({ deadlineAtMs })
+    }
+  })
+
+  it("stops starting sources when the min source budget is unavailable and counts them as skipped", async () => {
+    const rows = [
+      sourceRow({ id: "a" }),
+      sourceRow({ id: "b" }),
+      sourceRow({ id: "c" }),
+    ]
+    let clock = 0
+    const deadlineAtMs = 50_000
+    const fetchDocument = vi.fn(
+      async (source: PollerSourceRow, request: { url: string }) =>
+        anthropicFetchDocument(anthropicOperational)(source, request)
+    )
+    // After the first source fully finishes, spend the budget so later claims
+    // see less than MIN_SOURCE_START_BUDGET_MS remaining.
+    const persist = vi.fn(async () => {
+      clock = deadlineAtMs - MIN_SOURCE_START_BUDGET_MS + 1
+    })
+    const result = await pollDueSources({
+      store: { claimDueSources: vi.fn().mockResolvedValue(rows) },
+      fetchDocument,
+      persist,
+      now: () => NOW,
+      nowMs: () => clock,
+      deadlineAtMs,
+      concurrency: 1,
+    })
+    expect(result.sourcesDue).toBe(3)
+    expect(result.polled).toBe(1)
+    expect(result.skipped).toBe(2)
+    expect(result.failed).toBe(0)
+    expect(persist).toHaveBeenCalledTimes(1)
+  })
+
+  it("fails a started source with PollDeadlineExceededError when collection hits the deadline mid-source", async () => {
+    const persist = vi.fn()
+    const row = sourceRow()
+    let clock = 0
+    let fetches = 0
+    const fetchDocument = vi.fn(
+      async (source: PollerSourceRow, request: { url: string }) => {
+        fetches += 1
+        const result = await anthropicFetchDocument(anthropicOperational)(
+          source,
+          request
+        )
+        // After the first document lands, spend the work deadline so the next
+        // collector bound check returns incomplete/deadline.
+        clock = MIN_SOURCE_START_BUDGET_MS + 1
+        return result
+      }
+    )
+    const result = await pollDueSources({
+      store: { claimDueSources: vi.fn().mockResolvedValue([row]) },
+      fetchDocument,
+      persist,
+      now: () => NOW,
+      nowMs: () => clock,
+      deadlineAtMs: MIN_SOURCE_START_BUDGET_MS + 1,
+    })
+    expect(result).toEqual({
+      sourcesDue: 1,
+      polled: 0,
+      notModified: 0,
+      failed: 1,
+      skipped: 0,
+    })
+    expect(fetches).toBe(1)
+    const [outcome] = persist.mock.calls[0] as [PollOutcome]
+    expect(outcome.kind).toBe("failure")
+    if (outcome.kind === "failure") {
+      expect(outcome.error).toBeInstanceOf(PollDeadlineExceededError)
+    }
+  })
+
+  it("stops starting after a persistence error, settles started workers, then throws AggregateError", async () => {
+    const order: string[] = []
+    const rows = [
+      sourceRow({ id: "first" }),
+      sourceRow({ id: "second" }),
+      sourceRow({ id: "third" }),
+    ]
+    const fetchDocument = vi.fn(
+      async (source: PollerSourceRow, request: { url: string }) => {
+        order.push(`fetch:${source.id}`)
+        return anthropicFetchDocument(anthropicOperational)(source, request)
+      }
+    )
+    const persist = vi.fn(async (outcome: PollOutcome) => {
+      order.push(`persist:${outcome.sourceId}`)
+      if (outcome.sourceId === "first") {
+        throw new Error("db write failed")
+      }
+    })
+    await expect(
+      pollDueSources({
+        store: { claimDueSources: vi.fn().mockResolvedValue(rows) },
+        fetchDocument,
+        persist,
+        now: () => NOW,
+        concurrency: 1,
+      })
+    ).rejects.toMatchObject({
+      name: "AggregateError",
+      message: "Dependency source persistence failed",
+    })
+    // Sequential concurrency: first source may fetch several documents, then
+    // fails on persist. stopStarting prevents second and third from starting.
+    expect(order.every((entry) => entry.endsWith(":first"))).toBe(true)
+    expect(order.filter((entry) => entry.startsWith("persist:"))).toEqual([
+      "persist:first",
+    ])
+    expect(order.some((entry) => entry.includes("second"))).toBe(false)
+    expect(order.some((entry) => entry.includes("third"))).toBe(false)
+  })
+
+  it("keeps domain failure path for per-source fetch errors without throwing", async () => {
+    const persist = vi.fn()
+    const result = await pollDueSources({
+      store: { claimDueSources: vi.fn().mockResolvedValue([sourceRow()]) },
+      fetchDocument: vi.fn(async () => {
+        throw new ProviderFetchError(
+          "NETWORK_ERROR",
+          "anthropic: network down",
+          null
+        )
+      }),
+      persist,
+      now: () => NOW,
+    })
+    expect(result).toEqual({
+      sourcesDue: 1,
+      polled: 0,
+      notModified: 0,
+      failed: 1,
+      skipped: 0,
+    })
+    expect(persist).toHaveBeenCalledTimes(1)
   })
 })

@@ -478,7 +478,14 @@ async function loadPublicStatus(group?: string) {
   }
 }
 
-export const getPublicStatus = cache(async (group?: string) => {
+type PublicStatusData = Exclude<
+  Awaited<ReturnType<typeof loadPublicStatus>>,
+  null
+>
+
+async function loadPublicStatusWithFallback(
+  group?: string
+): Promise<PublicStatusData | null> {
   try {
     return await loadPublicStatus(group)
   } catch (error) {
@@ -491,37 +498,47 @@ export const getPublicStatus = cache(async (group?: string) => {
     }
     return degradedPublicStatus()
   }
-})
+}
+
+/** Root public status is always renderable, including during database outages. */
+export const getPublicStatus = cache(
+  async (): Promise<PublicStatusData> =>
+    (await loadPublicStatusWithFallback()) ?? degradedPublicStatus()
+)
+
+/** A group status is absent only when neither live monitors nor reports use the slug. */
+export const findPublicGroupStatus = cache(
+  async (groupSlug: string): Promise<PublicStatusData | null> =>
+    loadPublicStatusWithFallback(groupSlug)
+)
+
+export type PublicReportLookup =
+  | { status: "found"; report: StatusReportData }
+  | { status: "not_found" }
+  | { status: "unavailable" }
 
 /**
- * Single published report for the permalink page. Drafts and unknown
- * ids resolve to null → notFound(). Request-deduped so page + generateMetadata
- * share the read within one revalidation.
- *
- * A `null` return means "not found" (drafts, unknown ids) and should 404. The
- * distinct `"unavailable"` sentinel means the database itself is unreachable
- * or not yet migrated, and the page should render a degraded message instead
- * of 404ing on a report that may well exist.
+ * Finds one published report for the permalink page. Drafts and unknown ids
+ * are explicit not_found results; database failures remain distinguishable so
+ * the public page can render a degraded shell instead of a false 404.
  */
-export const getPublicReportDetail = cache(
-  async (
-    reportId: string
-  ): Promise<StatusReportData | null | "unavailable"> => {
+export const findPublicReport = cache(
+  async (reportId: string): Promise<PublicReportLookup> => {
     try {
       const report = await requireStatusReport(reportId)
       if (!report.publishedAt) {
-        return null
+        return { status: "not_found" }
       }
-      return report
+      return { status: "found", report }
     } catch (error) {
       if (
         error instanceof StatusReportError &&
         error.code === "REPORT_NOT_FOUND"
       ) {
-        return null
+        return { status: "not_found" }
       }
       if (isDatabaseUnavailableError(error)) {
-        return "unavailable"
+        return { status: "unavailable" }
       }
       throw error
     }

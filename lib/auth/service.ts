@@ -17,6 +17,7 @@ import type { ReadinessReport } from "@/lib/readiness/types"
 import {
   createSessionToken,
   hashPassword,
+  LOGIN_DUMMY_PASSWORD_DIGEST,
   normalizeEmail,
   sessionExpiresAt,
   validatePassword,
@@ -274,6 +275,12 @@ export function loginRateLimitKey(
   return `login-${kind}:${digest(`human-login:${kind}:${value}`).toString("hex")}`
 }
 
+/**
+ * Stable principal for the email rate-limit bucket when no account matches.
+ * Keeps failed-probe cardinality at one synthetic key instead of one per address.
+ */
+export const UNKNOWN_LOGIN_EMAIL_BUCKET = "\0pulse-unknown-login"
+
 // Client IP extraction lives in the shared server module. Re-exported so existing
 // auth callers keep importing it from here.
 export { clientIpFromHeaders, firstForwardedIp }
@@ -312,29 +319,32 @@ export async function login(
   const store = dependencies.store ?? databaseLoginStore
   const user = await store.findUser(email)
   const verify = dependencies.verify ?? verifyPassword
-  const credentialsValid = user
-    ? await verify(user.passwordDigest, input.password)
-    : false
+  // Always pay one Argon2 verification so known and unknown addresses have
+  // comparable work. Unknown emails verify against a committed dummy digest.
+  const passwordMatches = await verify(
+    user === null ? LOGIN_DUMMY_PASSWORD_DIGEST : user.passwordDigest,
+    input.password
+  )
 
   // A correct password from an IP that is not blocked always recovers: the
   // account-wide bucket is never a hard pre-verification denial, so a stale email
   // bucket can no longer lock the administrator out of a fresh sign-in.
-  if (!(user && credentialsValid)) {
-    // Only account-wide bucket a known administrator's failed attempts. Unknown
-    // emails add nothing to the IP counter here, keeping bucket cardinality bounded.
-    if (user) {
-      const emailLimit = await limiter(
-        loginRateLimitKey("email", email, digest),
-        LOGIN_RATE_LIMIT_POLICY,
-        now
+  if (!(user && passwordMatches)) {
+    // One email-bucket operation on every failed attempt. Known accounts use
+    // their real email key; unknown addresses share a fixed synthetic key so
+    // probe cardinality stays bounded.
+    const emailBucket = user ? email : UNKNOWN_LOGIN_EMAIL_BUCKET
+    const emailLimit = await limiter(
+      loginRateLimitKey("email", emailBucket, digest),
+      LOGIN_RATE_LIMIT_POLICY,
+      now
+    )
+    if (!emailLimit.allowed) {
+      throw new AuthServiceError(
+        "RATE_LIMITED",
+        "Sign in failed",
+        emailLimit.retryAfterSeconds
       )
-      if (!emailLimit.allowed) {
-        throw new AuthServiceError(
-          "RATE_LIMITED",
-          "Sign in failed",
-          emailLimit.retryAfterSeconds
-        )
-      }
     }
     throw new AuthServiceError("INVALID_LOGIN", "Sign in failed")
   }
@@ -418,10 +428,14 @@ export function shouldRefreshLastSeen(
   )
 }
 
+interface HumanSessionRecord extends HumanSession {
+  lastSeenAt: Date | null
+}
+
 export async function findSessionByDigest(
   digest: Buffer,
   now = new Date()
-): Promise<HumanSession | null> {
+): Promise<HumanSessionRecord | null> {
   const [row] = await db
     .select({
       sessionId: humanSessions.id,
@@ -442,37 +456,51 @@ export async function findSessionByDigest(
       )
     )
     .limit(1)
-  if (!row) {
-    return null
+  return row ?? null
+}
+
+export async function recordHumanSessionActivity(
+  sessionId: string,
+  lastSeenAt: Date | null,
+  now = new Date()
+): Promise<void> {
+  if (!shouldRefreshLastSeen(lastSeenAt, now)) {
+    return
   }
-  const { lastSeenAt, ...session } = row
-  // The app-level check is only a fast path to skip the write entirely. The
-  // staleness predicate rides in the UPDATE's WHERE clause so concurrent
-  // bursts collapse under the row lock instead of each re-writing lastSeenAt.
-  if (shouldRefreshLastSeen(lastSeenAt, now)) {
-    const cutoff = new Date(now.getTime() - LAST_SEEN_REFRESH_SECONDS * 1000)
-    const touch = () =>
-      db
-        .update(humanSessions)
-        .set({ lastSeenAt: now })
-        .where(
-          and(
-            eq(humanSessions.id, row.sessionId),
-            or(
-              isNull(humanSessions.lastSeenAt),
-              lt(humanSessions.lastSeenAt, cutoff)
-            )
+  const cutoff = new Date(now.getTime() - LAST_SEEN_REFRESH_SECONDS * 1000)
+  const record = () =>
+    db
+      .update(humanSessions)
+      .set({ lastSeenAt: now })
+      .where(
+        and(
+          eq(humanSessions.id, sessionId),
+          or(
+            isNull(humanSessions.lastSeenAt),
+            lt(humanSessions.lastSeenAt, cutoff)
           )
         )
-    try {
-      // Off the render critical path. The Security page tolerates a refresh
-      // that lands after the response, only the minute-level bound matters.
-      after(touch)
-    } catch {
-      // after() requires a request scope; direct callers (tests) update inline.
-      await touch()
-    }
+      )
+  try {
+    // Off the render critical path. The Security page tolerates a refresh
+    // that lands after the response, only the minute-level bound matters.
+    after(record)
+  } catch {
+    // after() requires a request scope; direct callers (tests) update inline.
+    await record()
   }
+}
+
+export async function authenticateSessionByDigest(
+  digest: Buffer,
+  now = new Date()
+): Promise<HumanSession | null> {
+  const record = await findSessionByDigest(digest, now)
+  if (!record) {
+    return null
+  }
+  const { lastSeenAt, ...session } = record
+  await recordHumanSessionActivity(session.sessionId, lastSeenAt, now)
   return session
 }
 

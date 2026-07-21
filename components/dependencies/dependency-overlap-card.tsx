@@ -4,7 +4,7 @@ import type { DependencyIncidentOverlap } from "@/components/incidents/types"
 
 /**
  * Neutral timing sentence for one dependency overlap, per
- * Docs/DEPENDENCY-MONITORING.md "Incident correlation": timing and source
+ * Docs/Specs/DEPENDENCY-MONITORING.md "Incident correlation": timing and source
  * only, never a causal conclusion, and never the words "root cause",
  * "caused by", or "confirmed cause". `offsetSeconds` is providerStartedAt
  * minus the monitor incident's openedAt (see lib/dependencies/overlap.ts):

@@ -17,7 +17,7 @@ suite("incident activation gate", () => {
   const client = postgres(databaseUrl!, { max: 1, prepare: false })
 
   let listIncidents: typeof import("./incidents").listIncidents
-  let getIncidentDetail: typeof import("./incidents").getIncidentDetail
+  let findIncidentDetail: typeof import("./incidents").findIncidentDetail
   let listCommandPaletteIncidents: typeof import("./incidents").listCommandPaletteIncidents
   let operationalService: typeof import("@/lib/api/operational-service").operationalService
   let promoteIncident: typeof import("@/lib/api/status-reports").promoteIncident
@@ -171,7 +171,7 @@ suite("incident activation gate", () => {
     // time, so the env var must point at the test database before the dynamic
     // imports below evaluate lib/db/client.ts.
     process.env.DATABASE_URL = databaseUrl
-    ;({ listIncidents, getIncidentDetail, listCommandPaletteIncidents } =
+    ;({ listIncidents, findIncidentDetail, listCommandPaletteIncidents } =
       await import("./incidents"))
     ;({ operationalService } = await import("@/lib/api/operational-service"))
     ;({ promoteIncident, StatusReportError } = await import(
@@ -207,8 +207,8 @@ suite("incident activation gate", () => {
   })
 
   it("resolves a pre-activation incident detail as not found and a post-activation one as present", async () => {
-    expect(await getIncidentDetail(INC_PRE)).toBeNull()
-    expect((await getIncidentDetail(INC_POST))?.id).toBe(INC_POST)
+    expect(await findIncidentDetail(INC_PRE)).toBeNull()
+    expect((await findIncidentDetail(INC_POST))?.id).toBe(INC_POST)
   })
 
   it("gates the incidents API feed the same way", async () => {
@@ -259,7 +259,7 @@ suite("incident activation gate", () => {
       (row) => row.id
     )
     expect(paletteIds).toContain(INC_RECOVER)
-    expect((await getIncidentDetail(INC_RECOVER))?.id).toBe(INC_RECOVER)
+    expect((await findIncidentDetail(INC_RECOVER))?.id).toBe(INC_RECOVER)
     expect((await operationalService.findIncident(INC_RECOVER))?.id).toBe(
       INC_RECOVER
     )

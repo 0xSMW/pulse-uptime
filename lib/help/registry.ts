@@ -449,7 +449,7 @@ const guides: HelpEntry[] = [
     slug: "change-password",
     title: "Change your password",
     summary:
-      "Changing your password signs out every other session automatically, so an exposed credential stops working the moment the new one exists. Passwords must be 12 to 128 characters.",
+      "Changing your password signs out every session automatically, so an exposed credential stops working the moment the new one exists. Passwords must be 12 to 128 characters.",
     steps: [
       "Open Settings → Security.",
       "Enter your current password.",

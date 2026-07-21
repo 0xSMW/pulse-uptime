@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm"
 import { redirect } from "next/navigation"
 
-import { getCurrentSession } from "@/lib/auth/session"
+import { authenticateCurrentSession } from "@/lib/auth/session"
 import { db } from "@/lib/db/client"
 import { adminUsers, onboardingProgress } from "@/lib/db/schema"
 import type { MonitorDraft, OnboardingStep } from "@/lib/onboarding/service"
@@ -19,7 +19,7 @@ export default async function OnboardingPage() {
     return <OnboardingFlow initialStep="readiness" />
   }
 
-  const session = await getCurrentSession()
+  const session = await authenticateCurrentSession()
   if (!session) {
     redirect("/login")
   }
@@ -36,11 +36,13 @@ export default async function OnboardingPage() {
   }
   return (
     <OnboardingFlow
-      alertsDisabled={Boolean(progress?.emailWarningAcknowledged)}
       email={session.email}
       initialDraft={
         (progress?.draftMonitor as MonitorDraft | null) ?? undefined
       }
+      initialEmailWarningAcknowledged={Boolean(
+        progress?.emailWarningAcknowledged
+      )}
       initialStep={(progress?.currentStep as OnboardingStep) || "monitor"}
     />
   )

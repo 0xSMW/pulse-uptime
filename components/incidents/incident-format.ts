@@ -26,18 +26,6 @@ export function formatIncidentTimeOfDay(
   }).format(new Date(value))
 }
 
-// Same calendar day in the DISPLAY timezone, not UTC. Two instants can share
-// a UTC date yet fall on different local days, and vice versa.
-export function sameDayInZone(a: string, b: string, timeZone = "UTC"): boolean {
-  const day = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  })
-  return day.format(new Date(a)) === day.format(new Date(b))
-}
-
 export function formatIncidentDuration(seconds: number): string {
   return formatDuration(Math.max(0, seconds))
 }

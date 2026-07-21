@@ -1,10 +1,39 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
-import { deliverPendingNotifications, retryAt } from "./delivery"
+import {
+  deliverPendingNotifications,
+  NotificationDeliveryInfrastructureError,
+  retryAt,
+} from "./delivery"
 import { createNotificationMessage, incidentUrl } from "./message"
 import { NotificationProviderError, type NotificationSender } from "./provider"
 import type { SqlExecutor } from "./sql"
 import type { ClaimedNotification, DeliveryLogEntry } from "./types"
+
+function deferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
+function claimRowsQueryResult(rows: ClaimedNotification[]) {
+  return rows.map((row) => ({
+    id: row.id,
+    incident_id: row.incidentId,
+    monitor_id: row.monitorId,
+    dependency_id: row.dependencyId,
+    event_type: row.eventType,
+    recipient: row.recipient,
+    idempotency_key: row.idempotencyKey,
+    payload: row.payload,
+    attempt_count: row.attemptCount,
+    claim_token: row.claimToken,
+  }))
+}
 
 function claimed(
   overrides: Partial<ClaimedNotification> = {}
@@ -37,17 +66,7 @@ function dbReturning(
   return {
     async query<T>(text: string): Promise<readonly T[]> {
       if (text.includes("with due as")) {
-        return rows.map((row) => ({
-          id: row.id,
-          incident_id: row.incidentId,
-          monitor_id: row.monitorId,
-          event_type: row.eventType,
-          recipient: row.recipient,
-          idempotency_key: row.idempotencyKey,
-          payload: row.payload,
-          attempt_count: row.attemptCount,
-          claim_token: row.claimToken,
-        })) as T[]
+        return claimRowsQueryResult(rows) as T[]
       }
       return (finalize ? [{ id: "updated" }] : []) as T[]
     },
@@ -121,7 +140,39 @@ describe("notification messages", () => {
     const html = renderToStaticMarkup(message.react)
     expect(html).toContain("Vercel reports Elevated function errors")
     expect(html).toContain("https://www.vercel-status.com/incidents/inc-1")
+    // No latestUpdate in the payload: the generic note is the fallback.
     expect(html).toContain("not an independent Pulse check")
+  })
+
+  it("quotes the incident's latest provider update with its timestamp in place of the generic note", () => {
+    const message = createNotificationMessage(
+      claimed({
+        eventType: "dependency.incident",
+        incidentId: null,
+        monitorId: null,
+        dependencyId: "dep-1",
+        payload: {
+          type: "dependency.incident",
+          dependencyName: "Vercel Runtime",
+          provider: "Vercel",
+          incidentTitle: "Elevated function errors",
+          state: "OUTAGE",
+          canonicalUrl: "https://www.vercel-status.com/incidents/inc-1",
+          providerTimestamp: "Jul 19 at 12:00 UTC",
+          latestUpdate: {
+            body: "We are currently investigating elevated function errors.",
+            timestamp: "Jul 19 at 12:05 UTC",
+          },
+        },
+      }),
+      "https://pulse.example.com"
+    )
+    const html = renderToStaticMarkup(message.react)
+    expect(html).toContain(
+      "We are currently investigating elevated function errors."
+    )
+    expect(html).toContain("Update posted Jul 19 at 12:05 UTC")
+    expect(html).not.toContain("not an independent Pulse check")
   })
 
   it("renders a dependency recovery notification", () => {
@@ -139,14 +190,20 @@ describe("notification messages", () => {
           state: "OPERATIONAL",
           canonicalUrl: null,
           providerTimestamp: "Jul 19 at 12:30 UTC",
+          latestUpdate: {
+            body: "This incident has been resolved.",
+            timestamp: "Jul 19 at 12:28 UTC",
+          },
         },
       }),
       "https://pulse.example.com"
     )
     expect(message.subject).toBe("Vercel Runtime: provider incident resolved")
-    expect(renderToStaticMarkup(message.react)).toContain(
-      "Elevated function errors resolved"
-    )
+    const html = renderToStaticMarkup(message.react)
+    expect(html).toContain("Elevated function errors resolved")
+    expect(html).toContain("This incident has been resolved.")
+    expect(html).toContain("Update posted Jul 19 at 12:28 UTC")
+    expect(html).not.toContain("not an independent Pulse check")
   })
 
   it("rejects a payload whose type does not match its event", () => {
@@ -209,7 +266,9 @@ describe("outbox delivery", () => {
     const logs: DeliveryLogEntry[] = []
     const sender: NotificationSender = {
       async send() {
-        throw new NotificationProviderError("rate_limit_exceeded", true)
+        throw new NotificationProviderError("rate_limit_exceeded", {
+          retryable: true,
+        })
       },
     }
     const result = await deliverPendingNotifications({
@@ -229,12 +288,16 @@ describe("outbox delivery", () => {
   it("marks permanent errors and exhausted retries dead", async () => {
     const permanent: NotificationSender = {
       async send() {
-        throw new NotificationProviderError("invalid_from_address", false)
+        throw new NotificationProviderError("invalid_from_address", {
+          retryable: false,
+        })
       },
     }
     const exhausted: NotificationSender = {
       async send() {
-        throw new NotificationProviderError("internal_server_error", true)
+        throw new NotificationProviderError("internal_server_error", {
+          retryable: true,
+        })
       },
     }
     const permanentResult = await deliverPendingNotifications({
@@ -325,5 +388,195 @@ describe("outbox delivery", () => {
       expect.stringMatching(/event_type = any\(\$4\)/i),
       [now, 50, "claim-1", ["system.alert"]]
     )
+  })
+
+  it("drains a blocked provider send before surfacing bookkeeping failure", async () => {
+    const slow = deferred<{ providerMessageId: string }>()
+    let slowStarted = false
+    let activeSends = 0
+
+    const bookkeep = claimed({
+      id: "n-bookkeep",
+      idempotencyKey: "key-bookkeep",
+      claimToken: "claim-bookkeep",
+    })
+    const blocked = claimed({
+      id: "n-blocked",
+      idempotencyKey: "key-blocked",
+      claimToken: "claim-blocked",
+    })
+    const rows = [bookkeep, blocked]
+
+    const db: SqlExecutor = {
+      async query<T>(
+        text: string,
+        values: readonly unknown[] = []
+      ): Promise<readonly T[]> {
+        if (text.includes("with due as")) {
+          return claimRowsQueryResult(rows) as T[]
+        }
+        // markNotificationSent / markNotificationFailed bind id as $1
+        if (values[0] === "n-bookkeep") {
+          throw new Error("db bookkeeping down")
+        }
+        return [{ id: "updated" }] as T[]
+      },
+    }
+
+    const sender: NotificationSender = {
+      async send(_message, idempotencyKey) {
+        activeSends += 1
+        try {
+          if (idempotencyKey === "key-blocked") {
+            slowStarted = true
+            return await slow.promise
+          }
+          return { providerMessageId: "email-fast" }
+        } finally {
+          activeSends -= 1
+        }
+      },
+    }
+
+    const done = deliverPendingNotifications(
+      {
+        db,
+        sender,
+        appUrl: "https://pulse.example.com",
+        now: () => now,
+        createClaimToken: () => "claim-batch",
+      },
+      { concurrency: 2 }
+    )
+
+    await vi.waitFor(() => {
+      expect(slowStarted).toBe(true)
+    })
+
+    let settled = false
+    void done.then(
+      () => {
+        settled = true
+      },
+      () => {
+        settled = true
+      }
+    )
+    await Promise.resolve()
+    // Sibling still in flight: delivery must not settle early.
+    expect(settled).toBe(false)
+    expect(activeSends).toBe(1)
+
+    slow.resolve({ providerMessageId: "email-slow" })
+
+    await expect(done).rejects.toBeInstanceOf(
+      NotificationDeliveryInfrastructureError
+    )
+    // No background sender activity after the call settles.
+    expect(activeSends).toBe(0)
+    expect(settled).toBe(true)
+
+    const error = await done.catch((reason: unknown) => reason)
+    expect(error).toBeInstanceOf(NotificationDeliveryInfrastructureError)
+    if (!(error instanceof NotificationDeliveryInfrastructureError)) {
+      throw new Error("expected infrastructure error")
+    }
+    expect(error.notificationIds).toEqual(["n-bookkeep"])
+    expect(JSON.stringify(error)).not.toContain("ops@example.com")
+    // Blocked sibling completed bookkeeping after the pool drained.
+    expect(error.summary).toEqual({
+      claimed: 2,
+      sent: 1,
+      failed: 0,
+      dead: 0,
+      lostClaims: 0,
+    })
+  })
+
+  it("keeps recorded provider failures in the summary when another row's bookkeeping fails", async () => {
+    const providerFail = claimed({
+      id: "n-provider-fail",
+      idempotencyKey: "key-provider-fail",
+      claimToken: "claim-provider-fail",
+    })
+    const bookkeepFail = claimed({
+      id: "n-bookkeep",
+      idempotencyKey: "key-bookkeep",
+      claimToken: "claim-bookkeep",
+    })
+    const rows = [providerFail, bookkeepFail]
+
+    const db: SqlExecutor = {
+      async query<T>(
+        text: string,
+        values: readonly unknown[] = []
+      ): Promise<readonly T[]> {
+        if (text.includes("with due as")) {
+          return claimRowsQueryResult(rows) as T[]
+        }
+        if (values[0] === "n-bookkeep") {
+          throw new Error("db bookkeeping down")
+        }
+        return [{ id: "updated" }] as T[]
+      },
+    }
+
+    const sender: NotificationSender = {
+      async send(_message, idempotencyKey) {
+        if (idempotencyKey === "key-provider-fail") {
+          throw new NotificationProviderError("rate_limit_exceeded", {
+            retryable: true,
+          })
+        }
+        return { providerMessageId: "email-ok" }
+      },
+    }
+
+    const error = await deliverPendingNotifications(
+      {
+        db,
+        sender,
+        appUrl: "https://pulse.example.com",
+        now: () => now,
+      },
+      { concurrency: 2 }
+    ).catch((reason: unknown) => reason)
+
+    expect(error).toBeInstanceOf(NotificationDeliveryInfrastructureError)
+    if (!(error instanceof NotificationDeliveryInfrastructureError)) {
+      throw new Error("expected infrastructure error")
+    }
+    expect(error.notificationIds).toEqual(["n-bookkeep"])
+    // Provider failure was recorded via mark-failed (retry path).
+    expect(error.summary).toEqual({
+      claimed: 2,
+      sent: 0,
+      failed: 1,
+      dead: 0,
+      lostClaims: 0,
+    })
+  })
+
+  it("records a permanent provider error as dead without treating mark-failed success as infrastructure", async () => {
+    const permanent: NotificationSender = {
+      async send() {
+        throw new NotificationProviderError("invalid_from_address", {
+          retryable: false,
+        })
+      },
+    }
+    const result = await deliverPendingNotifications({
+      db: dbReturning([claimed()]),
+      sender: permanent,
+      appUrl: "https://pulse.example.com",
+      now: () => now,
+    })
+    expect(result).toEqual({
+      claimed: 1,
+      sent: 0,
+      failed: 0,
+      dead: 1,
+      lostClaims: 0,
+    })
   })
 })

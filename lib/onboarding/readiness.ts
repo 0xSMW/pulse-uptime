@@ -1,21 +1,75 @@
 import "server-only"
 
-import { sql as drizzleSql } from "drizzle-orm"
-
-import { db } from "@/lib/db/client"
-import { adminUsers } from "@/lib/db/schema"
+import {
+  abortSignalForDeadline,
+  deadlineRemainingMs,
+} from "@/lib/async/deadline"
+import type { QueryFn } from "@/lib/db/query-executor"
+import { queryExecutor } from "@/lib/db/query-executor"
 import {
   createDatabaseProbe,
   createEdgeConfigProbe,
   createEmailProbe,
   createVercelProbe,
 } from "@/lib/readiness/probes"
-import { runReadinessChecks, withTimeout } from "@/lib/readiness/service"
-import type { ReadinessResult } from "@/lib/readiness/types"
+import { runReadinessChecks } from "@/lib/readiness/service"
+import type {
+  ReadinessProbeOptions,
+  ReadinessReport,
+} from "@/lib/readiness/types"
 
-const OUTER_TIMEOUT_MS = 9000
+export const ONBOARDING_READINESS_TIMEOUT_MS = 9000
+export const ONBOARDING_READINESS_CACHE_TTL_MS = 30_000
 
-export async function checkOnboardingReadiness() {
+let cachedReport: { expiresAt: number; report: ReadinessReport } | null = null
+let inFlightReport: Promise<ReadinessReport> | null = null
+
+/**
+ * Cached readiness used by the HTTP route. Concurrent cold misses share one
+ * in-flight probe. The shared flight uses a deadline-only abort signal so one
+ * client disconnect cannot cancel peers. Only canContinue reports are cached.
+ */
+export async function getOnboardingReadiness(
+  options: { deadlineAtMs?: number; signal?: AbortSignal; nowMs?: number } = {}
+): Promise<ReadinessReport> {
+  const nowMs = options.nowMs ?? Date.now()
+  if (cachedReport && cachedReport.expiresAt > nowMs) {
+    return cachedReport.report
+  }
+
+  if (!inFlightReport) {
+    // Flight budget is wall-clock only. Callers may pass request.signal for
+    // their own wait cancellation later; the shared probes must not bind to it.
+    const deadlineAtMs =
+      options.deadlineAtMs ?? nowMs + ONBOARDING_READINESS_TIMEOUT_MS
+    const signal = abortSignalForDeadline(deadlineAtMs, nowMs)
+    inFlightReport = syncOnboardingReadiness({ deadlineAtMs, signal })
+      .then((report) => {
+        if (report.canContinue) {
+          cachedReport = {
+            expiresAt: Date.now() + ONBOARDING_READINESS_CACHE_TTL_MS,
+            report,
+          }
+        }
+        return report
+      })
+      .finally(() => {
+        inFlightReport = null
+      })
+  }
+
+  return inFlightReport
+}
+
+/** Absolute deadline + abort bound every provider probe. */
+export async function syncOnboardingReadiness(
+  options: { deadlineAtMs?: number; signal?: AbortSignal } = {}
+): Promise<ReadinessReport> {
+  const deadlineAtMs =
+    options.deadlineAtMs ?? Date.now() + ONBOARDING_READINESS_TIMEOUT_MS
+  const signal = options.signal ?? abortSignalForDeadline(deadlineAtMs)
+  const probeOptions: ReadinessProbeOptions = { deadlineAtMs, signal }
+
   const probes = {
     vercel: createVercelProbe(),
     database: createDatabaseProbe(probeDatabase),
@@ -23,32 +77,24 @@ export async function checkOnboardingReadiness() {
     email: createEmailProbe(),
   }
 
-  return runReadinessChecks(
-    Object.fromEntries(
-      Object.entries(probes).map(([system, probe]) => [
-        system,
-        () =>
-          withTimeout(
-            probe(),
-            OUTER_TIMEOUT_MS,
-            timeoutResult(system as keyof typeof probes)
-          ),
-      ])
-    ) as typeof probes
-  )
+  return runReadinessChecks(probes, probeOptions)
 }
 
-async function probeDatabase() {
-  await db.select({ id: adminUsers.id }).from(adminUsers).limit(1)
+/**
+ * One connection with transaction-local statement_timeout. The temporary
+ * table transaction still rolls back deliberately after the write probe.
+ */
+async function probeDatabase(options: ReadinessProbeOptions): Promise<void> {
+  const remainingMs = deadlineRemainingMs(options.deadlineAtMs)
+  if (remainingMs <= 0 || options.signal.aborted) {
+    throw new Error("READINESS_DEADLINE")
+  }
+
   const rollback = new Error("READINESS_ROLLBACK")
   try {
-    await db.transaction(async (tx) => {
-      await tx.execute(
-        drizzleSql`create temporary table pulse_readiness_probe (id integer) on commit drop`
-      )
-      await tx.execute(
-        drizzleSql`insert into pulse_readiness_probe (id) values (1)`
-      )
+    await queryExecutor.withStatementTimeout(remainingMs, async (query) => {
+      await query("select id from admin_users limit 1", [])
+      await writeTempProbe(query)
       throw rollback
     })
   } catch (error) {
@@ -58,26 +104,21 @@ async function probeDatabase() {
   }
 }
 
-function timeoutResult(
-  system: "vercel" | "database" | "edge" | "email"
-): ReadinessResult {
-  return system === "email"
-    ? {
-        system,
-        state: "warning",
-        code: "EMAIL_TIMEOUT",
-        remediation: "Verify your Resend sender",
-      }
-    : {
-        system,
-        state: "blocked",
-        code: `${system.toUpperCase()}_TIMEOUT`,
-        remediation: remediation[system],
-      }
+async function writeTempProbe(query: QueryFn): Promise<void> {
+  await query(
+    "create temporary table pulse_readiness_probe (id integer) on commit drop",
+    []
+  )
+  await query("insert into pulse_readiness_probe (id) values (1)", [])
 }
 
-const remediation = {
-  vercel: "Complete the Vercel environment setup",
-  database: "Check Neon connectivity and migrations",
-  edge: "Check Edge Config read and write access",
+/** Clears completed cache and any in-flight coalescing. Tests only. */
+export function resetOnboardingReadinessCache(): void {
+  cachedReport = null
+  inFlightReport = null
+}
+
+/** Visible to tests that assert in-flight cleanup. */
+export function getOnboardingReadinessInFlightForTests(): Promise<ReadinessReport> | null {
+  return inFlightReport
 }

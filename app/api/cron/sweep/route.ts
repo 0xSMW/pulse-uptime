@@ -33,7 +33,7 @@ export async function GET(request: Request): Promise<Response> {
     // advanced by the outbox state machine.
     console[loopAlert.unhealthy ? "warn" : "info"](
       JSON.stringify({
-        event: "sweep.completed",
+        event: "cron.completed",
         jobName: "sweep",
         releaseId,
         expired: summary.expired,
@@ -41,7 +41,7 @@ export async function GET(request: Request): Promise<Response> {
         ...(loopAlert.reason ? { monitoringLoopReason: loopAlert.reason } : {}),
         failures: loopAlert.failures,
         enqueued: loopAlert.enqueued,
-        staleClaims: systemAlertDelivery.staleClaimsReconciled,
+        staleClaims: systemAlertDelivery.staleClaims,
         claimed: systemAlertDelivery.claimed,
         sent: systemAlertDelivery.sent,
         failed: systemAlertDelivery.failed,
@@ -57,7 +57,7 @@ export async function GET(request: Request): Promise<Response> {
   } catch (error) {
     console.error(
       JSON.stringify({
-        event: "sweep.failed",
+        event: "cron.failed",
         jobName: "sweep",
         releaseId,
         durationMs: Date.now() - startedAt,

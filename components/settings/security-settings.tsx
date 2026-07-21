@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Field } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { formatRelativeTime } from "@/lib/reporting/format"
+import { formatCalendarDate, formatRelativeTime } from "@/lib/reporting/format"
 
 export interface SecuritySettingsData {
   sessions: Array<{
@@ -38,19 +38,6 @@ export function passwordPolicyError(password: string): string {
     return "Use no more than 128 characters"
   }
   return ""
-}
-
-function formatSignedIn(value: string, timeZone: string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.valueOf())) {
-    return "—"
-  }
-  return new Intl.DateTimeFormat("en-US", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone,
-  }).format(date)
 }
 
 export function SecuritySettings({ data }: { data: SecuritySettingsData }) {
@@ -95,17 +82,10 @@ export function SecuritySettings({ data }: { data: SecuritySettingsData }) {
         method: "POST",
         body: JSON.stringify({ currentPassword, newPassword }),
       })
-      setCurrentPassword("")
-      setNewPassword("")
-      setConfirmPassword("")
-      setPasswordMessage({
-        text: "Password changed. Your other sessions have been signed out.",
-        tone: "info",
-      })
-      router.refresh()
+      // Server revoked every session and expired the cookie. Sign in again.
+      router.push("/login")
     } catch (error) {
       setPasswordMessage({ text: messageForError(error), tone: "error" })
-    } finally {
       setPasswordBusy(false)
     }
   }
@@ -117,7 +97,7 @@ export function SecuritySettings({ data }: { data: SecuritySettingsData }) {
       await apiRequest(
         `/api/v1/me/sessions/${encodeURIComponent(id)}`,
         { method: "DELETE" },
-        true
+        { mutation: true }
       )
       setRevokeId(null)
       setSessionMessage({ text: "Session signed out", tone: "info" })
@@ -136,7 +116,7 @@ export function SecuritySettings({ data }: { data: SecuritySettingsData }) {
       const payload = await apiRequest<{ data?: { revokedCount?: number } }>(
         "/api/v1/me/sessions/revoke-others",
         { method: "POST" },
-        true
+        { mutation: true }
       )
       const count = payload.data?.revokedCount ?? 0
       setRevokeOthers(false)
@@ -164,7 +144,7 @@ export function SecuritySettings({ data }: { data: SecuritySettingsData }) {
         <CardContent className="pt-0">
           <form className="max-w-[640px] space-y-3" onSubmit={changePassword}>
             <p className="text-[13px] text-[var(--fg-muted)]">
-              Changing your password signs out every other session.
+              Changing your password signs out every session
             </p>
             <Field htmlFor="security-current-password" label="Current password">
               <Input
@@ -301,7 +281,7 @@ export function SecuritySettings({ data }: { data: SecuritySettingsData }) {
                       : "—"}
                   </td>
                   <td className="whitespace-nowrap px-4 font-data text-[var(--fg-muted)] text-xs max-lg:hidden">
-                    {formatSignedIn(session.createdAt, resolvedTimeZone)}
+                    {formatCalendarDate(session.createdAt, resolvedTimeZone)}
                   </td>
                   <td className="px-6 text-right">
                     {session.current ? (

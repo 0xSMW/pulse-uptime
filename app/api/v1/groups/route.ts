@@ -34,24 +34,24 @@ export async function POST(request: Request) {
       principalKey: context.principalKey,
       routeKey: "/api/v1/groups",
       body,
-      work: async ({ transaction }) =>
-        transaction(async (tx) => {
-          try {
-            return {
-              status: 201,
-              body: objectEnvelope(
-                "Group",
-                await createGroup(body, context.principalKey, tx),
-                context.requestId
-              ),
-            }
-          } catch (error) {
-            if (error instanceof GroupApiError) {
-              return storedGroupError(error, context.requestId)
-            }
-            throw error
+      mode: "atomic",
+      work: async (tx) => {
+        try {
+          return {
+            status: 201,
+            body: objectEnvelope(
+              "Group",
+              await createGroup(body, context.principalKey, tx),
+              context.requestId
+            ),
           }
-        }),
+        } catch (error) {
+          if (error instanceof GroupApiError) {
+            return storedGroupError(error, context.requestId)
+          }
+          throw error
+        }
+      },
     })
     return apiJson(result.body, { status: result.status })
   } catch (error) {

@@ -6,10 +6,10 @@ vi.mock("@/lib/api/middleware", () => ({
   authorize: vi.fn(),
   isApiResponse: (value: unknown) => value instanceof Response,
 }))
-vi.mock("@/lib/auth/session", () => ({ getCurrentSession: vi.fn() }))
+vi.mock("@/lib/auth/session", () => ({ authenticateCurrentSession: vi.fn() }))
 
 import { type ApiContext, authorize } from "@/lib/api/middleware"
-import { getCurrentSession } from "@/lib/auth/session"
+import { authenticateCurrentSession } from "@/lib/auth/session"
 
 import { DELETE } from "./route"
 
@@ -45,7 +45,7 @@ function revokeRequest(sessionId: string) {
 
 beforeEach(() => {
   vi.mocked(authorize).mockResolvedValue(humanContext)
-  vi.mocked(getCurrentSession).mockResolvedValue(session)
+  vi.mocked(authenticateCurrentSession).mockResolvedValue(session)
 })
 
 describe("DELETE /api/v1/me/sessions/{sessionId}", () => {

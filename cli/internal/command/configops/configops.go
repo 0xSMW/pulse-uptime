@@ -68,11 +68,24 @@ type planEnvelope struct {
 }
 
 type Plan struct {
-	BaseConfigHash              string `json:"baseConfigHash" yaml:"baseConfigHash"`
-	TargetConfigHash            string `json:"targetConfigHash" yaml:"targetConfigHash"`
-	PlanHash                    string `json:"planHash" yaml:"planHash"`
-	Diff                        Diff   `json:"diff" yaml:"diff"`
-	DestructiveApprovalRequired bool   `json:"destructiveApprovalRequired" yaml:"destructiveApprovalRequired"`
+	BaseConfigHash             string            `json:"baseConfigHash" yaml:"baseConfigHash"`
+	TargetConfigHash           string            `json:"targetConfigHash" yaml:"targetConfigHash"`
+	PlanHash                   string            `json:"planHash" yaml:"planHash"`
+	Diff                       Diff              `json:"diff" yaml:"diff"`
+	DestructiveConsentRequired bool              `json:"destructiveConsentRequired" yaml:"destructiveConsentRequired"`
+	DestructiveChange          DestructiveChange `json:"destructiveChange" yaml:"destructiveChange"`
+}
+
+type DestructiveChange struct {
+	Reasons []DestructiveChangeReason `json:"reasons" yaml:"reasons"`
+}
+
+type DestructiveChangeReason struct {
+	Type                string  `json:"type" yaml:"type"`
+	Group               string  `json:"group,omitempty" yaml:"group,omitempty"`
+	RemovedCount        int     `json:"removedCount,omitempty" yaml:"removedCount,omitempty"`
+	PreviousActiveCount int     `json:"previousActiveCount,omitempty" yaml:"previousActiveCount,omitempty"`
+	Percentage          float64 `json:"percentage,omitempty" yaml:"percentage,omitempty"`
 }
 
 type Diff struct {
@@ -211,7 +224,7 @@ func planCommand(d Dependencies) *cobra.Command {
 
 func applyCommand(d Dependencies) *cobra.Command {
 	var file string
-	var yes, allowDelete, wait, noWait bool
+	var yes, allowDestructiveChanges, wait, noWait bool
 	var waitTimeout time.Duration
 	cmd := &cobra.Command{Use: "apply", Short: "Apply a configuration plan", Args: cobra.NoArgs, Annotations: annotationsStdin("config:write", "table,json,yaml"), RunE: func(cmd *cobra.Command, _ []string) error {
 		if wait && noWait {
@@ -226,16 +239,26 @@ func applyCommand(d Dependencies) *cobra.Command {
 			return err
 		}
 		archives := len(planned.Data.Diff.Archives)
-		if archives > 0 && !(allowDelete && yes) {
+		requiresConsent := planned.Data.DestructiveConsentRequired || archives > 0
+		if requiresConsent && !(allowDestructiveChanges && yes) {
 			if !d.StdinTTY {
-				return invalid("destructive apply requires --allow-delete and --yes in noninteractive mode", "")
+				return invalid("destructive apply requires --allow-destructive and --yes in noninteractive mode", "")
 			}
-			fmt.Fprintf(d.Err, "Type %d to approve archiving %d monitors: ", archives, archives)
-			line, _ := bufio.NewReader(d.In).ReadString('\n')
-			if strings.TrimSpace(line) != strconv.Itoa(archives) {
-				return invalid("configuration apply canceled", "archive count did not match")
+			if archives > 0 {
+				fmt.Fprintf(d.Err, "Type %d to approve archiving %d monitors: ", archives, archives)
+				line, _ := bufio.NewReader(d.In).ReadString('\n')
+				if strings.TrimSpace(line) != strconv.Itoa(archives) {
+					return invalid("configuration apply canceled", "archive count did not match")
+				}
+			} else {
+				writeDestructiveChangeReasons(d.Err, planned.Data.DestructiveChange.Reasons)
+				fmt.Fprint(d.Err, "This plan removes active monitoring coverage. Type yes to approve: ")
+				line, _ := bufio.NewReader(d.In).ReadString('\n')
+				if strings.ToLower(strings.TrimSpace(line)) != "yes" {
+					return invalid("configuration apply canceled", "destructive consent was not given")
+				}
 			}
-			allowDelete = true
+			allowDestructiveChanges = true
 			yes = true
 		} else if d.StdinTTY && !yes {
 			fmt.Fprint(d.Err, "Apply this configuration? [y/N] ")
@@ -244,7 +267,13 @@ func applyCommand(d Dependencies) *cobra.Command {
 				return invalid("configuration apply canceled", "")
 			}
 		}
-		request := map[string]any{"baseConfigHash": planned.Data.BaseConfigHash, "targetConfigHash": planned.Data.TargetConfigHash, "planHash": planned.Data.PlanHash, "targetConfig": doc, "allowDelete": allowDelete}
+		request := map[string]any{
+			"baseConfigHash":          planned.Data.BaseConfigHash,
+			"targetConfigHash":        planned.Data.TargetConfigHash,
+			"planHash":                planned.Data.PlanHash,
+			"targetConfig":            doc,
+			"allowDestructiveChanges": allowDestructiveChanges,
+		}
 		headers := make(http.Header)
 		headers.Set("If-Match", strconv.Quote(planned.Data.BaseConfigHash))
 		var operation map[string]any
@@ -265,13 +294,39 @@ func applyCommand(d Dependencies) *cobra.Command {
 	}}
 	cmd.Flags().StringVar(&file, "file", "", "Read configuration from a file or - for stdin")
 	cmd.Flags().BoolVar(&yes, "yes", false, "Approve the planned changes")
-	cmd.Flags().BoolVar(&allowDelete, "allow-delete", false, "Allow monitors to be archived")
+	cmd.Flags().BoolVar(&allowDestructiveChanges, "allow-destructive", false, "Allow the planned destructive configuration changes")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for runtime acceptance")
 	cmd.Flags().BoolVar(&noWait, "no-wait", false, "Return after the write")
 	cmd.Flags().DurationVar(&waitTimeout, "wait-timeout", 15*time.Second, "Complete wait-loop timeout")
 	_ = cmd.MarkFlagRequired("file")
 	cmd.Example = "pulsectl config apply --file monitors.yaml"
 	return cmd
+}
+
+func writeDestructiveChangeReasons(w io.Writer, reasons []DestructiveChangeReason) {
+	for _, reason := range reasons {
+		switch reason.Type {
+		case "all-active-monitors-removed":
+			fmt.Fprintf(w, "- all %d active monitors would be removed\n", reason.PreviousActiveCount)
+		case "removed-monitor-count":
+			fmt.Fprintf(w, "- %d active monitors would be removed\n", reason.RemovedCount)
+		case "removed-monitor-percentage":
+			fmt.Fprintf(
+				w,
+				"- %d of %d active monitors would be removed (%.1f%%)\n",
+				reason.RemovedCount,
+				reason.PreviousActiveCount,
+				reason.Percentage,
+			)
+		case "active-group-removed":
+			fmt.Fprintf(
+				w,
+				"- active group %s would lose all %d monitors\n",
+				reason.Group,
+				reason.PreviousActiveCount,
+			)
+		}
+	}
 }
 
 func schemaCommand(d Dependencies) *cobra.Command {

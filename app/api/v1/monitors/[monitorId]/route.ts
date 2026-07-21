@@ -45,25 +45,25 @@ export async function PATCH(request: Request, { params }: Params) {
       principalKey: context.principalKey,
       routeKey: `/api/v1/monitors/${monitorId}`,
       body,
-      work: async ({ transaction }) =>
-        transaction(async (tx) => {
-          try {
-            return {
-              status: 200,
-              body: objectEnvelope(
-                "Monitor",
-                await updateMonitor(monitorId, body, context.principalKey, tx),
-                context.requestId
-              ),
-            }
-          } catch (error) {
-            const stored = storedMonitorError(error, context.requestId)
-            if (stored) {
-              return stored
-            }
-            throw error
+      mode: "atomic",
+      work: async (tx) => {
+        try {
+          return {
+            status: 200,
+            body: objectEnvelope(
+              "Monitor",
+              await updateMonitor(monitorId, body, context.principalKey, tx),
+              context.requestId
+            ),
           }
-        }),
+        } catch (error) {
+          const stored = storedMonitorError(error, context.requestId)
+          if (stored) {
+            return stored
+          }
+          throw error
+        }
+      },
     })
     return apiJson(result.body, { status: result.status })
   } catch (error) {
@@ -86,25 +86,25 @@ export async function DELETE(request: Request, { params }: Params) {
       principalKey: context.principalKey,
       routeKey: `/api/v1/monitors/${monitorId}`,
       body: {},
-      work: async ({ transaction }) =>
-        transaction(async (tx) => {
-          try {
-            return {
-              status: 200,
-              body: objectEnvelope(
-                "MonitorArchival",
-                await archiveMonitor(monitorId, context.principalKey, tx),
-                context.requestId
-              ),
-            }
-          } catch (error) {
-            const stored = storedMonitorError(error, context.requestId)
-            if (stored) {
-              return stored
-            }
-            throw error
+      mode: "atomic",
+      work: async (tx) => {
+        try {
+          return {
+            status: 200,
+            body: objectEnvelope(
+              "MonitorArchival",
+              await archiveMonitor(monitorId, context.principalKey, tx),
+              context.requestId
+            ),
           }
-        }),
+        } catch (error) {
+          const stored = storedMonitorError(error, context.requestId)
+          if (stored) {
+            return stored
+          }
+          throw error
+        }
+      },
     })
     return apiJson(result.body, { status: result.status })
   } catch (error) {

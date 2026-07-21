@@ -268,6 +268,16 @@ function headerValue(
   return Array.isArray(value) ? value[0] : value
 }
 
+/** Cap accepted Retry-After delays at 24h. Larger or non-finite values are invalid. */
+const MAX_RETRY_AFTER_MS = 24 * 60 * 60 * 1000
+
+function clampRetryAfterMs(ms: number): number | null {
+  if (!(Number.isFinite(ms) && ms >= 0)) {
+    return null
+  }
+  return Math.min(ms, MAX_RETRY_AFTER_MS)
+}
+
 function parseRetryAfterMs(
   value: string | undefined,
   nowMs: number
@@ -277,10 +287,13 @@ function parseRetryAfterMs(
   }
   const seconds = Number(value)
   if (Number.isFinite(seconds)) {
-    return Math.max(0, seconds * 1000)
+    return clampRetryAfterMs(seconds * 1000)
   }
   const dateMs = Date.parse(value)
-  return Number.isNaN(dateMs) ? null : Math.max(0, dateMs - nowMs)
+  if (Number.isNaN(dateMs)) {
+    return null
+  }
+  return clampRetryAfterMs(dateMs - nowMs)
 }
 
 function errorCodeOf(error: unknown): string {

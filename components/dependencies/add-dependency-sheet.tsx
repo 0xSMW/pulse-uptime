@@ -37,7 +37,7 @@ import type { ScopeSelection } from "@/lib/dependencies/types"
 import { cn } from "@/lib/utils"
 
 // Category slugs come from lib/db/schema.ts's dependencyCategories const.
-// Labels mirror the section headings in Docs/DEPENDENCY-MONITORING.md's
+// Labels mirror the section headings in Docs/Specs/DEPENDENCY-MONITORING.md's
 // "Catalog candidates" list.
 const categoryLabels: Record<string, string> = {
   ai: "AI",
@@ -290,7 +290,7 @@ export function AddDependencySheet({
             scopeId ? { presetId: preset.id, scopeId } : { presetId: preset.id }
           ),
         },
-        true
+        { mutation: true }
       )
       setAddedKeys((current) => new Set(current).add(key))
       router.refresh()

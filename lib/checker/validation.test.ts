@@ -4,22 +4,13 @@ import {
   MonitorValidationError,
   parsePublicHttpUrl,
   validateCheckTarget,
-  validateMonitorConfig,
 } from "./validation"
 
-const monitor = {
-  id: "api-main",
-  name: "Main API",
+const target = {
   url: "https://example.com/health",
-  enabled: true,
-  group: null,
   method: "GET",
-  intervalMinutes: 5,
   timeoutMs: 8000,
   expectedStatus: { minimum: 200, maximum: 299 },
-  failureThreshold: 2,
-  recoveryThreshold: 2,
-  recipients: ["ops@example.com"],
 }
 
 describe("URL validation", () => {
@@ -48,47 +39,27 @@ describe("URL validation", () => {
   )
 })
 
-describe("monitor validation", () => {
-  it("accepts a complete monitor", () => {
-    expect(validateMonitorConfig(monitor)).toEqual(monitor)
+describe("check target validation", () => {
+  it("accepts a complete check target", () => {
+    expect(validateCheckTarget(target)).toEqual(target)
   })
 
   it.each([
-    ["bad slug", { id: "UPPER" }],
     ["bad method", { method: "POST" }],
     ["short timeout", { timeoutMs: 999 }],
-    ["bad interval", { intervalMinutes: 2 }],
     [
       "reversed status range",
       { expectedStatus: { minimum: 500, maximum: 200 } },
     ],
-    [
-      "too many recipients",
-      {
-        recipients: Array.from(
-          { length: 21 },
-          (_, index) => `a${index}@example.com`
-        ),
-      },
-    ],
   ])("rejects %s", (_label, change) => {
-    expect(() => validateMonitorConfig({ ...monitor, ...change })).toThrow(
+    expect(() => validateCheckTarget({ ...target, ...change })).toThrow(
       MonitorValidationError
     )
   })
 
   it("strictly rejects unknown configuration fields", () => {
-    expect(() =>
-      validateMonitorConfig({ ...monitor, followRedirects: true })
-    ).toThrow(MonitorValidationError)
-    expect(() =>
-      validateCheckTarget({
-        url: monitor.url,
-        method: monitor.method,
-        timeoutMs: monitor.timeoutMs,
-        expectedStatus: monitor.expectedStatus,
-        extra: true,
-      })
-    ).toThrow(MonitorValidationError)
+    expect(() => validateCheckTarget({ ...target, extra: true })).toThrow(
+      MonitorValidationError
+    )
   })
 })

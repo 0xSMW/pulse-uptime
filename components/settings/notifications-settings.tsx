@@ -31,7 +31,7 @@ interface ConfigurationPlan {
   baseConfigHash: string
   targetConfigHash: string
   planHash: string
-  destructiveApprovalRequired: boolean
+  destructiveConsentRequired: boolean
 }
 interface ConfigurationOperation {
   id: string
@@ -158,7 +158,7 @@ export function NotificationsSettings({
           method: "POST",
           body: JSON.stringify({ baseConfigHash, targetConfig }),
         },
-        true
+        { mutation: true }
       )
       const applied = await apiRequest<ApiEnvelope<ConfigurationOperation>>(
         "/api/v1/config/apply",
@@ -170,10 +170,10 @@ export function NotificationsSettings({
             targetConfigHash: planned.data.targetConfigHash,
             planHash: planned.data.planHash,
             targetConfig,
-            allowDelete: false,
+            allowDestructiveChanges: false,
           }),
         },
-        true
+        { mutation: true }
       )
       setNotificationStatus("Updating configuration…")
       pollOperation(
@@ -203,7 +203,7 @@ export function NotificationsSettings({
             recipients[0] ? { recipient: recipients[0] } : {}
           ),
         },
-        true
+        { mutation: true }
       )
       setNotificationStatus(
         recipients[0]

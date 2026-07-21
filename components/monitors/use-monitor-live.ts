@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 import useSWR from "swr"
-import type { MonitorState } from "@/components/monitors/status-dot"
+import type { VisibleMonitorState } from "@/components/monitors/status-dot"
 import {
   livePollBackoffMs,
   livePollConfigChanged,
@@ -54,7 +54,7 @@ export function useMonitorLive(
   monitorId: string,
   server: {
     phase: MonitorPhase
-    state: MonitorState
+    state: VisibleMonitorState
     rollupVersion: string | null
     acceptedConfigToken: string | null
     windowVersion: string

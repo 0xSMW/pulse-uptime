@@ -33,7 +33,8 @@ export async function POST(request: Request) {
           targetConfigHash: plan.targetConfigHash,
           planHash: plan.planHash,
           diff: plan.diff,
-          destructiveApprovalRequired: plan.destructiveApprovalRequired,
+          destructiveConsentRequired: plan.destructiveConsentRequired,
+          destructiveChange: plan.destructiveChange,
         },
         context.requestId
       )

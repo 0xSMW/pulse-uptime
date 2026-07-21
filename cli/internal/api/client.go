@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -84,7 +85,10 @@ type DebugHook func(DebugEvent)
 type ProgressHook func() (end func())
 
 type Client struct {
-	baseURL string
+	// base is the service origin with its path treated as a directory so
+	// request paths resolve under any mount prefix. Validated in NewClient.
+	base    *url.URL
+	baseErr error
 	token   string
 	agent   string
 	timeout time.Duration
@@ -147,7 +151,30 @@ func NewClient(baseURL, token, userAgent string, timeout time.Duration, hc *http
 	if timeout <= 0 {
 		timeout = 15 * time.Second
 	}
-	return &Client{baseURL: strings.TrimRight(baseURL, "/"), token: token, agent: userAgent, timeout: timeout, http: hc}
+	base, err := parseBaseURL(baseURL)
+	return &Client{base: base, baseErr: err, token: token, agent: userAgent, timeout: timeout, http: hc}
+}
+
+// parseBaseURL validates the service origin once and normalizes its path as a
+// directory so ResolveReference preserves mount prefixes such as /pulse.
+func parseBaseURL(raw string) (*url.URL, error) {
+	base, err := url.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	if base.Scheme != "http" && base.Scheme != "https" {
+		return nil, errors.New("base URL must use http or https")
+	}
+	if base.Host == "" {
+		return nil, errors.New("base URL must include a host")
+	}
+	if !strings.HasSuffix(base.Path, "/") {
+		base.Path += "/"
+	}
+	// Base query and fragment must not leak onto every request.
+	base.RawQuery = ""
+	base.Fragment = ""
+	return base, nil
 }
 
 // SetDebugHook installs an optional secret-safe request observer. Passing nil
@@ -351,16 +378,26 @@ func (c *Client) DoRaw(ctx context.Context, request Request) (*Response, error) 
 }
 
 func (c *Client) buildURL(path string, query url.Values) (string, string, error) {
-	base, err := url.Parse(c.baseURL)
-	if err != nil {
-		return "", "", err
+	if c.baseErr != nil {
+		return "", "", c.baseErr
+	}
+	if c.base == nil {
+		return "", "", errors.New("base URL is not configured")
 	}
 	rel, err := url.Parse(path)
 	if err != nil {
 		return "", "", err
 	}
-	if rel.IsAbs() || rel.Host != "" || rel.User != nil {
+	// Reject absolute and scheme-relative URLs so callers cannot replace
+	// scheme, host, or userinfo through the request path.
+	if rel.IsAbs() || rel.Scheme != "" || rel.Host != "" || rel.User != nil || rel.Opaque != "" {
 		return "", "", errors.New("request path must be relative")
+	}
+	// Root-absolute paths would replace the base path under ResolveReference.
+	// Trim the leading slash so resolution appends under the base directory.
+	rel.Path = strings.TrimPrefix(rel.Path, "/")
+	if rel.RawPath != "" {
+		rel.RawPath = strings.TrimPrefix(rel.RawPath, "/")
 	}
 	merged := rel.Query()
 	for key, values := range query {
@@ -369,8 +406,11 @@ func (c *Client) buildURL(path string, query url.Values) (string, string, error)
 		}
 	}
 	rel.RawQuery = merged.Encode()
-	full := base.ResolveReference(rel)
-	if full.Scheme != base.Scheme || full.Host != base.Host {
+	full := c.base.ResolveReference(rel)
+	if full.Scheme != c.base.Scheme || full.Host != c.base.Host {
+		return "", "", errors.New("request path changed service origin")
+	}
+	if full.User != nil && (c.base.User == nil || full.User.String() != c.base.User.String()) {
 		return "", "", errors.New("request path changed service origin")
 	}
 	safe := *full
@@ -416,8 +456,24 @@ func isMutation(method string) bool {
 	return method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch || method == http.MethodDelete
 }
 
+// maxRetryAfterSeconds is the largest whole-second value that fits in a
+// time.Duration without overflowing when multiplied by time.Second.
+const maxRetryAfterSeconds = int64(math.MaxInt64 / int64(time.Second))
+
 func parseRetryAfter(value string, now time.Time) time.Duration {
-	if seconds, err := strconv.Atoi(value); err == nil && seconds >= 0 {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	// Numeric delta-seconds. Parse as int64 and check the multiply fits
+	// before converting so oversized values never wrap to a negative delay.
+	if seconds, err := strconv.ParseInt(value, 10, 64); err == nil {
+		if seconds < 0 {
+			return 0
+		}
+		if seconds > maxRetryAfterSeconds {
+			return time.Duration(math.MaxInt64)
+		}
 		return time.Duration(seconds) * time.Second
 	}
 	if when, err := http.ParseTime(value); err == nil {

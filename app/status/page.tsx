@@ -23,10 +23,8 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function PublicStatusPage() {
-  // The no-group call never resolves to null: getPublicStatus degrades a DB
-  // failure to a truthy status, and the null return is reachable only on the
-  // group path. DB outages surface through StatusPageContent's degraded shell.
+  // DB outages surface through StatusPageContent's degraded shell.
   const data = await getPublicStatus()
 
-  return <StatusPageContent data={data!} />
+  return <StatusPageContent data={data} />
 }

@@ -728,7 +728,7 @@ async function insertConfigAndOperations(
     {
       id: randomUUID(),
       targetConfigHash: configHash,
-      action: "bulk_archive",
+      action: "destructive_config_change",
       createdByPrincipal: "qh-fixture",
       createdAt: new Date(NOW.getTime() - 1_800_000),
       expiresAt: new Date(NOW.getTime() + 1_800_000),

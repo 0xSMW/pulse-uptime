@@ -1,9 +1,11 @@
 "use client"
 
-import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
-import { type MonitorState, StatusDot } from "@/components/monitors/status-dot"
+import {
+  StatusDot,
+  type VisibleMonitorState,
+} from "@/components/monitors/status-dot"
 import { GroupDialog } from "@/components/settings/group-dialog"
 import {
   type EditableMonitor,
@@ -19,9 +21,10 @@ import {
 import { CardHeading, SettingsRow } from "@/components/settings/settings-row"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { isPlainLeftClick, navigateRow } from "@/components/ui/row-navigation"
 
 export interface MonitorSettingsData {
-  monitors: Array<EditableMonitor & { state: MonitorState }>
+  monitors: Array<EditableMonitor & { state: VisibleMonitorState }>
   groups: SettingsGroup[]
   userAgent: string
 }
@@ -70,7 +73,7 @@ export function MonitorsSettings({ data }: { data: MonitorSettingsData }) {
       await apiRequest(
         `/api/v1/monitors/${encodeURIComponent(monitor.id)}/${action}`,
         { method: "POST" },
-        true
+        { mutation: true }
       )
       setRowStatus(`${monitor.name} ${monitor.enabled ? "paused" : "resumed"}`)
       router.refresh()
@@ -122,7 +125,7 @@ export function MonitorsSettings({ data }: { data: MonitorSettingsData }) {
       await apiRequest(
         `/api/v1/groups/${encodeURIComponent(group.id)}`,
         { method: "DELETE" },
-        true
+        { mutation: true }
       )
       setGroups((current) => current.filter((item) => item.id !== group.id))
       setDeleteGroupId(null)
@@ -173,30 +176,44 @@ export function MonitorsSettings({ data }: { data: MonitorSettingsData }) {
                   Configuration
                 </th>
                 <th className="px-4 font-medium max-lg:hidden">Group</th>
-                <th className="px-4 text-center font-medium">Enabled</th>
-                <th className="px-6 text-right font-medium">
-                  <span className="sr-only">Actions</span>
-                </th>
+                <th className="px-6 text-center font-medium">Enabled</th>
               </tr>
             </thead>
             <tbody>
               {data.monitors.map((monitor) => (
                 <tr
-                  className="h-[60px] border-[var(--border)] border-b last:border-0 hover:bg-[var(--hover)]"
+                  className="h-[60px] cursor-pointer border-[var(--border)] border-b last:border-0 hover:bg-[var(--hover)]"
                   key={monitor.id}
+                  // The whole row opens the edit sheet. navigateRow supplies
+                  // the nested-control guard, its href argument is unused here.
+                  onClick={(event) => {
+                    if (!isPlainLeftClick(event)) {
+                      return
+                    }
+                    navigateRow(event.target, monitor.id, () =>
+                      setMonitorSheet(monitor)
+                    )
+                  }}
                 >
                   <td className="px-6">
                     <div className="flex min-w-0 items-center gap-2.5">
                       <StatusDot state={monitor.state} />
                       <div className="min-w-0">
-                        <p className="font-medium">{monitor.name}</p>
+                        <button
+                          aria-label={`Edit ${monitor.name}`}
+                          className="block text-left font-medium"
+                          onClick={() => setMonitorSheet(monitor)}
+                          type="button"
+                        >
+                          {monitor.name}
+                        </button>
                         <div className="max-w-[360px] truncate font-data text-[var(--fg-faint)] text-xs">
                           {monitor.url}
                         </div>
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 font-data text-[var(--fg-muted)] text-xs max-md:hidden">
+                  <td className="whitespace-nowrap px-4 font-data text-[var(--fg-muted)] text-xs max-md:hidden">
                     {monitorSummary(
                       monitor.method,
                       monitor.intervalMinutes,
@@ -206,7 +223,7 @@ export function MonitorsSettings({ data }: { data: MonitorSettingsData }) {
                   <td className="px-4 text-[var(--fg-muted)] text-xs max-lg:hidden">
                     {monitor.group ?? "Ungrouped"}
                   </td>
-                  <td className="px-4 text-center">
+                  <td className="px-6 text-center">
                     <button
                       aria-checked={monitor.enabled}
                       aria-label={`${monitor.enabled ? "Pause" : "Resume"} ${monitor.name}`}
@@ -221,23 +238,6 @@ export function MonitorsSettings({ data }: { data: MonitorSettingsData }) {
                         className={`absolute top-[3px] size-3 rounded-full ${monitor.enabled ? "left-[19px] bg-[var(--bg)]" : "left-[3px] bg-[var(--fg-muted)]"}`}
                       />
                     </button>
-                  </td>
-                  <td className="px-6 text-right">
-                    <div className="inline-flex items-center gap-1">
-                      <Link
-                        className="inline-flex h-8 items-center rounded-[6px] px-2.5 font-medium text-[13px] text-[var(--fg-muted)] hover:bg-[var(--hover)] hover:text-[var(--fg)]"
-                        href={`/monitors/${encodeURIComponent(monitor.id)}`}
-                      >
-                        View <span aria-hidden="true">→</span>
-                      </Link>
-                      <Button
-                        onClick={() => setMonitorSheet(monitor)}
-                        size="sm"
-                        variant="secondary"
-                      >
-                        Edit
-                      </Button>
-                    </div>
                   </td>
                 </tr>
               ))}

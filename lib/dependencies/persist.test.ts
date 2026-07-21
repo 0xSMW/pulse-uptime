@@ -5,7 +5,9 @@ import { describe, expect, it, vi } from "vitest"
 vi.mock("server-only", () => ({}))
 
 import {
+  applyPollOutcome,
   associationKindForAdapter,
+  type BackfillIncidentCandidate,
   combinedComponentStates,
   computeNextPollAt,
   type DependencyNotificationInput,
@@ -13,14 +15,17 @@ import {
   failureDelayMs,
   type InstalledDependencyRow,
   isSourceStale,
+  latestUpdateQuote,
+  MAX_RETRY_AFTER_MS,
+  MAX_UPDATE_QUOTE_LENGTH,
   matchingIdsForSelector,
   notificationKeyExternalId,
   type PersistExecutor,
   type PersistSourceRow,
   type PersistStore,
-  persistSnapshot,
   resolveDependencyState,
   safeProviderUrl,
+  selectBackfillIncidentIds,
   selectorIntersectsIncident,
   shouldNotifyDependencyIncident,
   shouldNotifyDependencyRecovery,
@@ -132,6 +137,77 @@ describe("combinedComponentStates", () => {
       ],
     })
     expect(combinedComponentStates(completed).get("c1")).toBe("OPERATIONAL")
+  })
+})
+
+describe("selectBackfillIncidentIds", () => {
+  const selector: DependencySelector = {
+    kind: "component_ids",
+    aggregation: "worst_of",
+    ids: ["comp-a"],
+  }
+  const windowStart = new Date(NOW.getTime() - 7 * 86_400_000)
+
+  function candidate(
+    overrides: Partial<BackfillIncidentCandidate> & { incidentId: string }
+  ): BackfillIncidentCandidate {
+    return {
+      componentIds: ["comp-a"],
+      startedAt: new Date(NOW.getTime() - 2 * 86_400_000),
+      resolvedAt: new Date(NOW.getTime() - 1 * 86_400_000),
+      ...overrides,
+    }
+  }
+
+  it("links a recent resolved incident whose components intersect the selector", () => {
+    expect(
+      selectBackfillIncidentIds(
+        selector,
+        null,
+        [candidate({ incidentId: "recent" })],
+        windowStart,
+        NOW
+      )
+    ).toEqual(["recent"])
+  })
+
+  it("skips an incident resolved before the 7-day window", () => {
+    const old = candidate({
+      incidentId: "old",
+      startedAt: new Date(NOW.getTime() - 9 * 86_400_000),
+      resolvedAt: new Date(NOW.getTime() - 8 * 86_400_000),
+    })
+    expect(
+      selectBackfillIncidentIds(selector, null, [old], windowStart, NOW)
+    ).toEqual([])
+  })
+
+  it("links an incident that started before the window but resolved inside it", () => {
+    const straddle = candidate({
+      incidentId: "straddle",
+      startedAt: new Date(NOW.getTime() - 9 * 86_400_000),
+      resolvedAt: new Date(NOW.getTime() - 6 * 86_400_000),
+    })
+    expect(
+      selectBackfillIncidentIds(selector, null, [straddle], windowStart, NOW)
+    ).toEqual(["straddle"])
+  })
+
+  it("skips an incident whose components do not intersect the selector", () => {
+    const mismatch = candidate({
+      incidentId: "mismatch",
+      componentIds: ["comp-x"],
+    })
+    expect(
+      selectBackfillIncidentIds(selector, null, [mismatch], windowStart, NOW)
+    ).toEqual([])
+  })
+
+  it("skips an active (unresolved) incident, leaving it to the first poll", () => {
+    const active = candidate({ incidentId: "active", resolvedAt: null })
+    expect(
+      selectBackfillIncidentIds(selector, null, [active], windowStart, NOW)
+    ).toEqual([])
   })
 })
 
@@ -581,6 +657,15 @@ describe("failureDelayMs and isSourceStale", () => {
   it("honors an explicit Retry-After over the ladder", () => {
     expect(failureDelayMs(1, 2 * 60_000)).toBe(2 * 60_000)
     expect(failureDelayMs(1, 60 * 60_000)).toBe(60 * 60_000)
+    expect(failureDelayMs(1, MAX_RETRY_AFTER_MS)).toBe(MAX_RETRY_AFTER_MS)
+  })
+
+  it("falls back to the ladder for invalid or oversized Retry-After values", () => {
+    expect(failureDelayMs(1, Number.NaN)).toBe(5 * 60_000)
+    expect(failureDelayMs(1, Number.POSITIVE_INFINITY)).toBe(5 * 60_000)
+    expect(failureDelayMs(1, -1)).toBe(5 * 60_000)
+    expect(failureDelayMs(2, MAX_RETRY_AFTER_MS + 1)).toBe(15 * 60_000)
+    expect(failureDelayMs(3, Number.NEGATIVE_INFINITY)).toBe(30 * 60_000)
   })
 
   it("treats a never-successful source and a source stale past its window as stale", () => {
@@ -696,7 +781,69 @@ describe("notificationKeyExternalId", () => {
   })
 })
 
-// -- persistSnapshot orchestration, against a stateful in-memory fake ------
+describe("latestUpdateQuote", () => {
+  function update(
+    overrides: Partial<
+      NormalizedProviderSnapshot["incidents"][number]["updates"][number]
+    > = {}
+  ): NormalizedProviderSnapshot["incidents"][number]["updates"][number] {
+    return {
+      externalId: "u1",
+      state: "investigating",
+      bodyText: "Investigating elevated errors",
+      createdAt: NOW.toISOString(),
+      updatedAt: NOW.toISOString(),
+      ...overrides,
+    }
+  }
+
+  it("picks the update with the greatest provider created timestamp and carries that timestamp", () => {
+    const later = new Date(NOW.getTime() + 300_000).toISOString()
+    expect(
+      latestUpdateQuote([
+        update({ externalId: "u1", bodyText: "First update" }),
+        update({
+          externalId: "u2",
+          bodyText: "Second update",
+          createdAt: later,
+        }),
+      ])
+    ).toEqual({ body: "Second update", timestamp: later })
+  })
+
+  it("skips blank bodies and trims the winning body", () => {
+    expect(
+      latestUpdateQuote([
+        update({ externalId: "u1", bodyText: "  Real update  " }),
+        update({
+          externalId: "u2",
+          bodyText: "   ",
+          createdAt: new Date(NOW.getTime() + 300_000).toISOString(),
+        }),
+      ])
+    ).toEqual({ body: "Real update", timestamp: NOW.toISOString() })
+  })
+
+  it("caps a long body at MAX_UPDATE_QUOTE_LENGTH with an ellipsis", () => {
+    const body = "x".repeat(MAX_UPDATE_QUOTE_LENGTH + 50)
+    const quote = latestUpdateQuote([update({ bodyText: body })])
+    expect(quote?.body).toBe(`${"x".repeat(MAX_UPDATE_QUOTE_LENGTH)}…`)
+    expect(quote?.body).toHaveLength(MAX_UPDATE_QUOTE_LENGTH + 1)
+  })
+
+  it("never cuts through a surrogate pair at the cap", () => {
+    const body = `${"x".repeat(MAX_UPDATE_QUOTE_LENGTH - 1)}\u{1F525}end`
+    const quote = latestUpdateQuote([update({ bodyText: body })])
+    expect(quote?.body).toBe(`${"x".repeat(MAX_UPDATE_QUOTE_LENGTH - 1)}…`)
+  })
+
+  it("returns null for no updates or only blank bodies", () => {
+    expect(latestUpdateQuote([])).toBeNull()
+    expect(latestUpdateQuote([update({ bodyText: "   " })])).toBeNull()
+  })
+})
+
+// -- applyPollOutcome orchestration, against a stateful in-memory fake ------
 
 interface FakeDb {
   installed: InstalledDependencyRow[]
@@ -1014,7 +1161,7 @@ function dependencyRow(
   }
 }
 
-describe("persistSnapshot: not_modified", () => {
+describe("applyPollOutcome: not_modified", () => {
   it("refreshes feed health with the operational interval and touches no dependency state", async () => {
     const db = emptyDb([dependencyRow()])
     const store = createFakeStore(db)
@@ -1024,7 +1171,7 @@ describe("persistSnapshot: not_modified", () => {
       etag: '"v2"',
       lastModified: null,
     }
-    const summary = await persistSnapshot(store, outcome, baseSource(), {
+    const summary = await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
@@ -1057,7 +1204,7 @@ describe("persistSnapshot: not_modified", () => {
       etag: null,
       lastModified: null,
     }
-    await persistSnapshot(store, outcome, baseSource(), {
+    await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: [],
     })
@@ -1067,7 +1214,7 @@ describe("persistSnapshot: not_modified", () => {
   })
 })
 
-describe("persistSnapshot: failure", () => {
+describe("applyPollOutcome: failure", () => {
   it("backs off without touching dependency state when the source is not yet stale", async () => {
     const db = emptyDb([dependencyRow({ currentState: "OPERATIONAL" })])
     const store = createFakeStore(db)
@@ -1077,7 +1224,7 @@ describe("persistSnapshot: failure", () => {
       error: Object.assign(new Error("boom"), { code: "HTTP_STATUS" }),
       retryAfterMs: null,
     }
-    const summary = await persistSnapshot(
+    const summary = await applyPollOutcome(
       store,
       outcome,
       baseSource({ consecutiveFailures: 0, lastSuccessAt: NOW }),
@@ -1113,7 +1260,7 @@ describe("persistSnapshot: failure", () => {
       error: new Error("boom"),
       retryAfterMs: null,
     }
-    const summary = await persistSnapshot(
+    const summary = await applyPollOutcome(
       store,
       outcome,
       baseSource({ staleAfterSeconds: 600, lastSuccessAt: staleLastSuccess }),
@@ -1148,7 +1295,7 @@ describe("persistSnapshot: failure", () => {
       error: new Error("boom"),
       retryAfterMs: 90_000,
     }
-    await persistSnapshot(store, outcome, baseSource(), {
+    await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: [],
     })
@@ -1193,7 +1340,7 @@ function incident(
   }
 }
 
-describe("persistSnapshot: snapshot state transitions", () => {
+describe("applyPollOutcome: snapshot state transitions", () => {
   it("opens a new interval on an OPERATIONAL to OUTAGE transition and enqueues one incident notification", async () => {
     const db = emptyDb([dependencyRow()])
     const store = createFakeStore(db)
@@ -1207,7 +1354,7 @@ describe("persistSnapshot: snapshot state transitions", () => {
       etag: '"v3"',
       lastModified: null,
     }
-    const summary = await persistSnapshot(store, outcome, baseSource(), {
+    const summary = await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
@@ -1225,6 +1372,7 @@ describe("persistSnapshot: snapshot state transitions", () => {
       event: "incident",
       dependencyName: "Vercel Runtime",
       provider: "Vercel",
+      latestUpdate: { body: "Investigating", timestamp: NOW.toISOString() },
     })
   })
 
@@ -1242,11 +1390,11 @@ describe("persistSnapshot: snapshot state transitions", () => {
       etag: '"v3"',
       lastModified: null,
     }
-    await persistSnapshot(store, outcome, baseSource(), {
+    await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
-    await persistSnapshot(store, outcome, baseSource(), {
+    await applyPollOutcome(store, outcome, baseSource(), {
       now: new Date(NOW.getTime() + 60_000),
       defaultRecipients: ["ops@example.com"],
     })
@@ -1278,7 +1426,7 @@ describe("persistSnapshot: snapshot state transitions", () => {
       etag: null,
       lastModified: null,
     }
-    const summary = await persistSnapshot(store, outcome, baseSource(), {
+    const summary = await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
@@ -1299,7 +1447,7 @@ describe("persistSnapshot: snapshot state transitions", () => {
       etag: null,
       lastModified: null,
     }
-    const summary = await persistSnapshot(store, outcome, baseSource(), {
+    const summary = await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
@@ -1329,7 +1477,7 @@ describe("persistSnapshot: snapshot state transitions", () => {
       etag: null,
       lastModified: null,
     }
-    const summary = await persistSnapshot(store, outcome, baseSource(), {
+    const summary = await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
@@ -1362,7 +1510,7 @@ describe("persistSnapshot: snapshot state transitions", () => {
       etag: null,
       lastModified: null,
     }
-    await persistSnapshot(store, outcome, baseSource(), {
+    await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: [],
     })
@@ -1383,7 +1531,7 @@ describe("persistSnapshot: snapshot state transitions", () => {
 // not resolved/open alone, is what tells "just started matching" apart
 // from "still matching, same as last poll".
 
-describe("persistSnapshot: FIX A notification transitions", () => {
+describe("applyPollOutcome: FIX A notification transitions", () => {
   it("(1) sends nothing when a historical resolved incident matches on install", async () => {
     const db = emptyDb([dependencyRow({ currentState: "UNKNOWN" })])
     const store = createFakeStore(db)
@@ -1402,7 +1550,7 @@ describe("persistSnapshot: FIX A notification transitions", () => {
       etag: null,
       lastModified: null,
     }
-    const summary = await persistSnapshot(store, outcome, baseSource(), {
+    const summary = await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
@@ -1426,7 +1574,7 @@ describe("persistSnapshot: FIX A notification transitions", () => {
       etag: null,
       lastModified: null,
     }
-    const summary = await persistSnapshot(store, outcome, baseSource(), {
+    const summary = await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
@@ -1465,11 +1613,11 @@ describe("persistSnapshot: FIX A notification transitions", () => {
       lastModified: null,
     }
 
-    await persistSnapshot(store, openOutcome, baseSource(), {
+    await applyPollOutcome(store, openOutcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
-    const summary = await persistSnapshot(
+    const summary = await applyPollOutcome(
       store,
       resolvedOutcome,
       baseSource(),
@@ -1505,7 +1653,7 @@ describe("persistSnapshot: FIX A notification transitions", () => {
       etag: null,
       lastModified: null,
     }
-    const summary = await persistSnapshot(store, outcome, baseSource(), {
+    const summary = await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
@@ -1516,7 +1664,7 @@ describe("persistSnapshot: FIX A notification transitions", () => {
   })
 })
 
-describe("persistSnapshot: repeated polls of an unchanged historical feed", () => {
+describe("applyPollOutcome: repeated polls of an unchanged historical feed", () => {
   it("enqueues zero notifications on the second and third poll of an install feed full of already-resolved incidents", async () => {
     const db = emptyDb([dependencyRow({ currentState: "OPERATIONAL" })])
     const store = createFakeStore(db)
@@ -1542,15 +1690,15 @@ describe("persistSnapshot: repeated polls of an unchanged historical feed", () =
       lastModified: null,
     }
 
-    const poll1 = await persistSnapshot(store, outcome, baseSource(), {
+    const poll1 = await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
-    const poll2 = await persistSnapshot(store, outcome, baseSource(), {
+    const poll2 = await applyPollOutcome(store, outcome, baseSource(), {
       now: new Date(NOW.getTime() + 60_000),
       defaultRecipients: ["ops@example.com"],
     })
-    const poll3 = await persistSnapshot(store, outcome, baseSource(), {
+    const poll3 = await applyPollOutcome(store, outcome, baseSource(), {
       now: new Date(NOW.getTime() + 120_000),
       defaultRecipients: ["ops@example.com"],
     })
@@ -1564,7 +1712,7 @@ describe("persistSnapshot: repeated polls of an unchanged historical feed", () =
   })
 })
 
-describe("persistSnapshot: recovery fires once at the resolving poll and never again", () => {
+describe("applyPollOutcome: recovery fires once at the resolving poll and never again", () => {
   it("sends exactly one recovery on the poll where the incident resolves, and nothing on a later poll even with the outbox purged", async () => {
     const db = emptyDb([dependencyRow({ currentState: "OPERATIONAL" })])
     const store = createFakeStore(db)
@@ -1594,11 +1742,11 @@ describe("persistSnapshot: recovery fires once at the resolving poll and never a
       lastModified: null,
     }
 
-    await persistSnapshot(store, openOutcome, baseSource(), {
+    await applyPollOutcome(store, openOutcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
-    const resolvePoll = await persistSnapshot(
+    const resolvePoll = await applyPollOutcome(
       store,
       resolvedOutcome,
       baseSource(),
@@ -1615,10 +1763,15 @@ describe("persistSnapshot: recovery fires once at the resolving poll and never a
     // derivation's own prior-state check can stop a third poll of the same
     // resolved incident from enqueuing another recovery.
     db.outboxKeys.clear()
-    const rePoll = await persistSnapshot(store, resolvedOutcome, baseSource(), {
-      now: new Date(NOW.getTime() + 120_000),
-      defaultRecipients: ["ops@example.com"],
-    })
+    const rePoll = await applyPollOutcome(
+      store,
+      resolvedOutcome,
+      baseSource(),
+      {
+        now: new Date(NOW.getTime() + 120_000),
+        defaultRecipients: ["ops@example.com"],
+      }
+    )
     expect(rePoll.notificationsEnqueued).toBe(0)
     expect(db.notifications).toHaveLength(2)
   })
@@ -1626,7 +1779,7 @@ describe("persistSnapshot: recovery fires once at the resolving poll and never a
 
 // -- FIX C: the dedup key (and this fake's dedup emulation) is scoped -----
 
-describe("persistSnapshot: FIX C scoped dedup", () => {
+describe("applyPollOutcome: FIX C scoped dedup", () => {
   it("sends two distinct notifications for two scoped installs of the same preset matched by one incident", async () => {
     const db = emptyDb([
       dependencyRow({
@@ -1668,7 +1821,7 @@ describe("persistSnapshot: FIX C scoped dedup", () => {
       etag: null,
       lastModified: null,
     }
-    const summary = await persistSnapshot(store, outcome, baseSource(), {
+    const summary = await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
@@ -1691,7 +1844,7 @@ describe("persistSnapshot: FIX C scoped dedup", () => {
 // surfaces as downtime for a region that is actually fine. The parent still
 // drives incident matching.
 
-describe("persistSnapshot: scoped statusio container state resolution", () => {
+describe("applyPollOutcome: scoped statusio container state resolution", () => {
   it("persists the selected container's OPERATIONAL state even when the parent aggregates a sibling region's outage, and still matches the parent-named incident", async () => {
     const db = emptyDb([
       dependencyRow({
@@ -1721,7 +1874,7 @@ describe("persistSnapshot: scoped statusio container state resolution", () => {
       etag: null,
       lastModified: null,
     }
-    await persistSnapshot(store, outcome, baseSource(), {
+    await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
@@ -1760,7 +1913,7 @@ describe("persistSnapshot: scoped statusio container state resolution", () => {
       etag: null,
       lastModified: null,
     }
-    await persistSnapshot(store, outcome, baseSource(), {
+    await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
@@ -1771,7 +1924,7 @@ describe("persistSnapshot: scoped statusio container state resolution", () => {
 
 // -- FIX F: canonicalUrl is sanitized before it reaches storage or a payload
 
-describe("persistSnapshot: FIX F canonicalUrl sanitization", () => {
+describe("applyPollOutcome: FIX F canonicalUrl sanitization", () => {
   it("stores and forwards the status page fallback when the provider's canonicalUrl is a javascript: URL", async () => {
     const db = emptyDb([dependencyRow()])
     const store = createFakeStore(db)
@@ -1785,7 +1938,7 @@ describe("persistSnapshot: FIX F canonicalUrl sanitization", () => {
       etag: null,
       lastModified: null,
     }
-    await persistSnapshot(store, outcome, baseSource(), {
+    await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
@@ -1814,7 +1967,7 @@ describe("persistSnapshot: FIX F canonicalUrl sanitization", () => {
       etag: null,
       lastModified: null,
     }
-    await persistSnapshot(store, outcome, baseSource(), {
+    await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
@@ -1845,7 +1998,7 @@ describe("persistSnapshot: FIX F canonicalUrl sanitization", () => {
       etag: null,
       lastModified: null,
     }
-    await persistSnapshot(store, outcome, baseSource(), {
+    await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
@@ -1862,7 +2015,7 @@ describe("persistSnapshot: FIX F canonicalUrl sanitization", () => {
 
 // -- FIX E: a dependency on a disabled preset is never recomputed by a poll
 
-describe("persistSnapshot: FIX E disabled-preset dependencies are skipped", () => {
+describe("applyPollOutcome: FIX E disabled-preset dependencies are skipped", () => {
   it("leaves a disabled preset's UNKNOWN dependency and its open UNKNOWN interval untouched across a subsequent poll", async () => {
     // catalog-sync's flipDependenciesToUnknown already set this dependency to
     // UNKNOWN with an open UNKNOWN interval when its preset drifted and got
@@ -1887,7 +2040,7 @@ describe("persistSnapshot: FIX E disabled-preset dependencies are skipped", () =
       etag: null,
       lastModified: null,
     }
-    await persistSnapshot(store, outcome, baseSource(), {
+    await applyPollOutcome(store, outcome, baseSource(), {
       now: new Date(NOW.getTime() + 60_000),
       defaultRecipients: [],
     })
@@ -1901,7 +2054,7 @@ describe("persistSnapshot: FIX E disabled-preset dependencies are skipped", () =
 // while active). Recovery depends on the durable match row recorded while
 // the incident carried a components scope.
 
-describe("persistSnapshot: incidentio_compat resolved-incident recovery fallback", () => {
+describe("applyPollOutcome: incidentio_compat resolved-incident recovery fallback", () => {
   it("fires incident on the active poll, recovery when scope becomes unmapped and the incident resolves, then nothing on an unchanged repeat", async () => {
     const db = emptyDb([dependencyRow({ currentState: "OPERATIONAL" })])
     const store = createFakeStore(db)
@@ -1934,15 +2087,15 @@ describe("persistSnapshot: incidentio_compat resolved-incident recovery fallback
       lastModified: null,
     }
 
-    const poll1 = await persistSnapshot(store, activeOutcome, source, {
+    const poll1 = await applyPollOutcome(store, activeOutcome, source, {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
-    const poll2 = await persistSnapshot(store, resolvedOutcome, source, {
+    const poll2 = await applyPollOutcome(store, resolvedOutcome, source, {
       now: new Date(NOW.getTime() + 60_000),
       defaultRecipients: ["ops@example.com"],
     })
-    const poll3 = await persistSnapshot(store, resolvedOutcome, source, {
+    const poll3 = await applyPollOutcome(store, resolvedOutcome, source, {
       now: new Date(NOW.getTime() + 120_000),
       defaultRecipients: ["ops@example.com"],
     })
@@ -1978,7 +2131,7 @@ describe("persistSnapshot: incidentio_compat resolved-incident recovery fallback
       etag: null,
       lastModified: null,
     }
-    const summary = await persistSnapshot(store, outcome, source, {
+    const summary = await applyPollOutcome(store, outcome, source, {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
@@ -1995,7 +2148,7 @@ describe("persistSnapshot: incidentio_compat resolved-incident recovery fallback
 // from the other cycle's so the outbox's ON CONFLICT DO NOTHING never
 // drops the second cycle's alerts as duplicates of the first's.
 
-describe("persistSnapshot: reopen lifecycle under one external id", () => {
+describe("applyPollOutcome: reopen lifecycle under one external id", () => {
   it("fires incident, recovery, a distinct second incident on reopen, nothing on repeat, a distinct second recovery, then nothing again", async () => {
     const db = emptyDb([dependencyRow({ currentState: "OPERATIONAL" })])
     const store = createFakeStore(db)
@@ -2037,32 +2190,32 @@ describe("persistSnapshot: reopen lifecycle under one external id", () => {
     })
 
     // Poll 1: active, first incident alert.
-    const poll1 = await persistSnapshot(store, activeOutcome(t0), source, {
+    const poll1 = await applyPollOutcome(store, activeOutcome(t0), source, {
       now: t0,
       defaultRecipients: ["ops@example.com"],
     })
     // Poll 2: resolved, first recovery alert.
-    const poll2 = await persistSnapshot(store, resolvedOutcome(t1), source, {
+    const poll2 = await applyPollOutcome(store, resolvedOutcome(t1), source, {
       now: t1,
       defaultRecipients: ["ops@example.com"],
     })
     // Poll 3: reopened under the same external id, second incident alert.
-    const poll3 = await persistSnapshot(store, activeOutcome(t2), source, {
+    const poll3 = await applyPollOutcome(store, activeOutcome(t2), source, {
       now: t2,
       defaultRecipients: ["ops@example.com"],
     })
     // Poll 4: unchanged active, nothing.
-    const poll4 = await persistSnapshot(store, activeOutcome(t2), source, {
+    const poll4 = await applyPollOutcome(store, activeOutcome(t2), source, {
       now: t3,
       defaultRecipients: ["ops@example.com"],
     })
     // Poll 5: resolved again, second recovery alert.
-    const poll5 = await persistSnapshot(store, resolvedOutcome(t4), source, {
+    const poll5 = await applyPollOutcome(store, resolvedOutcome(t4), source, {
       now: t4,
       defaultRecipients: ["ops@example.com"],
     })
     // Poll 6: unchanged resolved, nothing.
-    const poll6 = await persistSnapshot(store, resolvedOutcome(t4), source, {
+    const poll6 = await applyPollOutcome(store, resolvedOutcome(t4), source, {
       now: t5,
       defaultRecipients: ["ops@example.com"],
     })
@@ -2123,15 +2276,15 @@ describe("persistSnapshot: reopen lifecycle under one external id", () => {
       lastModified: null,
     }
 
-    const poll1 = await persistSnapshot(store, outcome, baseSource(), {
+    const poll1 = await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
-    const poll2 = await persistSnapshot(store, outcome, baseSource(), {
+    const poll2 = await applyPollOutcome(store, outcome, baseSource(), {
       now: new Date(NOW.getTime() + 60_000),
       defaultRecipients: ["ops@example.com"],
     })
-    const poll3 = await persistSnapshot(store, outcome, baseSource(), {
+    const poll3 = await applyPollOutcome(store, outcome, baseSource(), {
       now: new Date(NOW.getTime() + 120_000),
       defaultRecipients: ["ops@example.com"],
     })
@@ -2151,7 +2304,7 @@ describe("persistSnapshot: reopen lifecycle under one external id", () => {
 // is still a reopen transition and must fire "incident" with an
 // occurrence-discriminated key rather than the bare external id.
 
-describe("persistSnapshot: reopen first matched on the reopening poll", () => {
+describe("applyPollOutcome: reopen first matched on the reopening poll", () => {
   it("fires incident with a discriminated key when the dependency first matches a reopened active incident", async () => {
     const db = emptyDb([dependencyRow({ currentState: "OPERATIONAL" })])
     const store = createFakeStore(db)
@@ -2198,11 +2351,11 @@ describe("persistSnapshot: reopen first matched on the reopening poll", () => {
       lastModified: null,
     }
 
-    const poll1 = await persistSnapshot(store, resolvedElsewhere, source, {
+    const poll1 = await applyPollOutcome(store, resolvedElsewhere, source, {
       now: t0,
       defaultRecipients: ["ops@example.com"],
     })
-    const poll2 = await persistSnapshot(store, reopenedHere, source, {
+    const poll2 = await applyPollOutcome(store, reopenedHere, source, {
       now: t1,
       defaultRecipients: ["ops@example.com"],
     })
@@ -2267,11 +2420,11 @@ describe("persistSnapshot: reopen first matched on the reopening poll", () => {
       lastModified: null,
     }
 
-    const poll1 = await persistSnapshot(store, resolvedElsewhere, source, {
+    const poll1 = await applyPollOutcome(store, resolvedElsewhere, source, {
       now: t0,
       defaultRecipients: ["ops@example.com"],
     })
-    const poll2 = await persistSnapshot(store, resolvedNowNamingC1, source, {
+    const poll2 = await applyPollOutcome(store, resolvedNowNamingC1, source, {
       now: t1,
       defaultRecipients: ["ops@example.com"],
     })
@@ -2293,7 +2446,7 @@ describe("persistSnapshot: reopen first matched on the reopening poll", () => {
 // back with everything else instead of leaving an orphaned row that the
 // delivery cron would send for a state change the dashboard never shows.
 
-describe("persistSnapshot: outbox insert shares the poll transaction's rollback", () => {
+describe("applyPollOutcome: outbox insert shares the poll transaction's rollback", () => {
   it("leaves no outbox row, and no state or match write either, when a later statement in the same transaction throws after enqueueNotification ran", async () => {
     const db = emptyDb([dependencyRow()])
     const executor: PersistExecutor = {
@@ -2301,7 +2454,7 @@ describe("persistSnapshot: outbox insert shares the poll transaction's rollback"
       // Stands in for a later write in the same poll transaction failing
       // (e.g. dependency_state_intervals' ended_at >= started_at check).
       // This runs after every dependency's applyDependencyState, match, and
-      // enqueueNotification call in persistSnapshot's loop, so by the time
+      // enqueueNotification call in applyPollOutcome's loop, so by the time
       // it throws the fake db already recorded the outbox row.
       async updateSourceHealthSuccess(sourceId, patch) {
         await createExecutor(db).updateSourceHealthSuccess(sourceId, patch)
@@ -2321,7 +2474,7 @@ describe("persistSnapshot: outbox insert shares the poll transaction's rollback"
     }
 
     await expect(
-      persistSnapshot(store, outcome, baseSource(), {
+      applyPollOutcome(store, outcome, baseSource(), {
         now: NOW,
         defaultRecipients: ["ops@example.com"],
       })
@@ -2344,7 +2497,7 @@ describe("persistSnapshot: outbox insert shares the poll transaction's rollback"
 // Resolved source keeps existing matches only (no install-time broaden).
 // Unmapped never creates a new match.
 
-describe("persistSnapshot: source and unmapped match scope", () => {
+describe("applyPollOutcome: source and unmapped match scope", () => {
   it("matches every installed dependency and fires incident for an active source-wide incident", async () => {
     const db = emptyDb([
       dependencyRow({
@@ -2379,7 +2532,7 @@ describe("persistSnapshot: source and unmapped match scope", () => {
       etag: null,
       lastModified: null,
     }
-    const summary = await persistSnapshot(store, outcome, baseSource(), {
+    const summary = await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
@@ -2431,11 +2584,11 @@ describe("persistSnapshot: source and unmapped match scope", () => {
       lastModified: null,
     }
 
-    const poll1 = await persistSnapshot(store, activeOutcome, baseSource(), {
+    const poll1 = await applyPollOutcome(store, activeOutcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
-    const poll2 = await persistSnapshot(store, resolvedOutcome, baseSource(), {
+    const poll2 = await applyPollOutcome(store, resolvedOutcome, baseSource(), {
       now: new Date(NOW.getTime() + 60_000),
       defaultRecipients: ["ops@example.com"],
     })
@@ -2477,7 +2630,7 @@ describe("persistSnapshot: source and unmapped match scope", () => {
       etag: null,
       lastModified: null,
     }
-    const summary = await persistSnapshot(store, outcome, baseSource(), {
+    const summary = await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
@@ -2508,7 +2661,7 @@ describe("persistSnapshot: source and unmapped match scope", () => {
       etag: null,
       lastModified: null,
     }
-    const summary = await persistSnapshot(
+    const summary = await applyPollOutcome(
       store,
       outcome,
       baseSource({ adapter: "incidentio_compat" }),
@@ -2523,7 +2676,7 @@ describe("persistSnapshot: source and unmapped match scope", () => {
 // -- incident_only fidelity: recovery is eligible at UNKNOWN (or OPERATIONAL).
 // Source-wide scope still drives matching. Scope no longer exempts recovery.
 
-describe("persistSnapshot: incident_only recovery under UNKNOWN state", () => {
+describe("applyPollOutcome: incident_only recovery under UNKNOWN state", () => {
   it("fires incident then recovery for a source-wide incident_only feed even though state stays UNKNOWN", async () => {
     const db = emptyDb([
       dependencyRow({
@@ -2574,11 +2727,11 @@ describe("persistSnapshot: incident_only recovery under UNKNOWN state", () => {
       lastModified: null,
     }
 
-    const poll1 = await persistSnapshot(store, activeOutcome, source, {
+    const poll1 = await applyPollOutcome(store, activeOutcome, source, {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
-    const poll2 = await persistSnapshot(store, resolvedOutcome, source, {
+    const poll2 = await applyPollOutcome(store, resolvedOutcome, source, {
       now: new Date(NOW.getTime() + 60_000),
       defaultRecipients: ["ops@example.com"],
     })
@@ -2640,11 +2793,11 @@ describe("persistSnapshot: incident_only recovery under UNKNOWN state", () => {
       lastModified: null,
     }
 
-    await persistSnapshot(store, activeOutcome, source, {
+    await applyPollOutcome(store, activeOutcome, source, {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
-    await persistSnapshot(store, resolvedOutcome, source, {
+    await applyPollOutcome(store, resolvedOutcome, source, {
       now: new Date(NOW.getTime() + 60_000),
       defaultRecipients: ["ops@example.com"],
     })
@@ -2658,7 +2811,7 @@ describe("persistSnapshot: incident_only recovery under UNKNOWN state", () => {
 // is closed (resolved_at set) and fires recovery, but only when the snapshot
 // authoritatively enumerates every open incident (incidentsComplete).
 
-describe("persistSnapshot: FIX F-A3 completeness-gated closure of disappeared incidents", () => {
+describe("applyPollOutcome: FIX F-A3 completeness-gated closure of disappeared incidents", () => {
   it("closes a matched open incident absent from a complete snapshot and fires recovery", async () => {
     const db = emptyDb([
       dependencyRow({ id: "dep-1", currentState: "OPERATIONAL" }),
@@ -2687,11 +2840,11 @@ describe("persistSnapshot: FIX F-A3 completeness-gated closure of disappeared in
       lastModified: null,
     }
 
-    await persistSnapshot(store, openOutcome, baseSource(), {
+    await applyPollOutcome(store, openOutcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
-    const closePoll = await persistSnapshot(
+    const closePoll = await applyPollOutcome(
       store,
       vanishedOutcome,
       baseSource(),
@@ -2706,6 +2859,9 @@ describe("persistSnapshot: FIX F-A3 completeness-gated closure of disappeared in
       "incident",
       "recovery",
     ])
+    // A disappeared incident carries no update text, so the recovery email
+    // falls back to the generic status-feed note.
+    expect(db.notifications[1]?.latestUpdate).toBeNull()
     // The incident is now stored resolved: closure set its resolved_at.
     expect(db.incidentResolvedAt.get("vercel:inc-1")).toBeInstanceOf(Date)
     expect(db.installed[0]?.currentState).toBe("OPERATIONAL")
@@ -2738,18 +2894,23 @@ describe("persistSnapshot: FIX F-A3 completeness-gated closure of disappeared in
       lastModified: null,
     }
 
-    await persistSnapshot(store, openOutcome, baseSource(), {
+    await applyPollOutcome(store, openOutcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
-    await persistSnapshot(store, vanishedOutcome, baseSource(), {
+    await applyPollOutcome(store, vanishedOutcome, baseSource(), {
       now: new Date(NOW.getTime() + 60_000),
       defaultRecipients: ["ops@example.com"],
     })
-    const rePoll = await persistSnapshot(store, vanishedOutcome, baseSource(), {
-      now: new Date(NOW.getTime() + 120_000),
-      defaultRecipients: ["ops@example.com"],
-    })
+    const rePoll = await applyPollOutcome(
+      store,
+      vanishedOutcome,
+      baseSource(),
+      {
+        now: new Date(NOW.getTime() + 120_000),
+        defaultRecipients: ["ops@example.com"],
+      }
+    )
 
     // Already closed, no longer open, so no second recovery.
     expect(rePoll.notificationsEnqueued).toBe(0)
@@ -2786,11 +2947,11 @@ describe("persistSnapshot: FIX F-A3 completeness-gated closure of disappeared in
       lastModified: null,
     }
 
-    await persistSnapshot(store, openOutcome, baseSource(), {
+    await applyPollOutcome(store, openOutcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
-    const poll2 = await persistSnapshot(
+    const poll2 = await applyPollOutcome(
       store,
       incompleteOutcome,
       baseSource(),
@@ -2810,7 +2971,7 @@ describe("persistSnapshot: FIX F-A3 completeness-gated closure of disappeared in
 // -- FIX F-A4: a reopen under the same external id re-anchors started_at, so
 // overlap offsetSeconds and the detail "Started" track the current outage.
 
-describe("persistSnapshot: FIX F-A4 reopen re-anchors started_at", () => {
+describe("applyPollOutcome: FIX F-A4 reopen re-anchors started_at", () => {
   it("rewrites the stored started_at to the reopen's started time", async () => {
     const db = emptyDb([dependencyRow({ currentState: "OPERATIONAL" })])
     const store = createFakeStore(db)
@@ -2867,15 +3028,15 @@ describe("persistSnapshot: FIX F-A4 reopen re-anchors started_at", () => {
       lastModified: null,
     }
 
-    await persistSnapshot(store, firstActive, baseSource(), {
+    await applyPollOutcome(store, firstActive, baseSource(), {
       now: t0,
       defaultRecipients: ["ops@example.com"],
     })
-    await persistSnapshot(store, resolved, baseSource(), {
+    await applyPollOutcome(store, resolved, baseSource(), {
       now: t1,
       defaultRecipients: ["ops@example.com"],
     })
-    await persistSnapshot(store, reopened, baseSource(), {
+    await applyPollOutcome(store, reopened, baseSource(), {
       now: t2,
       defaultRecipients: ["ops@example.com"],
     })
@@ -2889,7 +3050,7 @@ describe("persistSnapshot: FIX F-A4 reopen re-anchors started_at", () => {
 // -- FIX F-A5: last_successful_poll_at advances only on a real snapshot, not
 // on a stale-failure flip to UNKNOWN.
 
-describe("persistSnapshot: FIX F-A5 last_successful_poll_at only advances on success", () => {
+describe("applyPollOutcome: FIX F-A5 last_successful_poll_at only advances on success", () => {
   it("advances on a snapshot poll and holds across a later stale-failure UNKNOWN flip", async () => {
     const db = emptyDb([
       dependencyRow({ id: "dep-1", currentState: "OPERATIONAL" }),
@@ -2905,7 +3066,7 @@ describe("persistSnapshot: FIX F-A5 last_successful_poll_at only advances on suc
       etag: null,
       lastModified: null,
     }
-    await persistSnapshot(store, snapshotOutcome, baseSource(), {
+    await applyPollOutcome(store, snapshotOutcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
@@ -2919,7 +3080,7 @@ describe("persistSnapshot: FIX F-A5 last_successful_poll_at only advances on suc
       error: new Error("boom"),
       retryAfterMs: null,
     }
-    const summary = await persistSnapshot(
+    const summary = await applyPollOutcome(
       store,
       failureOutcome,
       baseSource({ staleAfterSeconds: 600, lastSuccessAt: NOW }),
@@ -2937,7 +3098,7 @@ describe("persistSnapshot: FIX F-A5 last_successful_poll_at only advances on suc
 // not receive a spurious "incident" alert when its own scope resolves
 // OPERATIONAL. The match row is still recorded for correlation.
 
-describe("persistSnapshot: F1 scoped install spurious-incident suppression", () => {
+describe("applyPollOutcome: F1 scoped install spurious-incident suppression", () => {
   it("records the match but suppresses the incident alert when only a sibling scope is affected", async () => {
     const db = emptyDb([
       dependencyRow({
@@ -2968,7 +3129,7 @@ describe("persistSnapshot: F1 scoped install spurious-incident suppression", () 
       etag: null,
       lastModified: null,
     }
-    const summary = await persistSnapshot(store, outcome, baseSource(), {
+    const summary = await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
@@ -3009,7 +3170,7 @@ describe("persistSnapshot: F1 scoped install spurious-incident suppression", () 
       etag: null,
       lastModified: null,
     }
-    const summary = await persistSnapshot(store, outcome, baseSource(), {
+    const summary = await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
@@ -3026,7 +3187,7 @@ describe("persistSnapshot: F1 scoped install spurious-incident suppression", () 
 // still degrades it. Its one recovery fires only when it truly returns to
 // OPERATIONAL.
 
-describe("persistSnapshot: F2 recovery gated on overall state", () => {
+describe("applyPollOutcome: F2 recovery gated on overall state", () => {
   it("suppresses recovery for one resolved incident while another matching incident still degrades the dependency", async () => {
     const db = emptyDb([
       dependencyRow({
@@ -3100,15 +3261,15 @@ describe("persistSnapshot: F2 recovery gated on overall state", () => {
       lastModified: null,
     }
 
-    const poll1 = await persistSnapshot(store, bothActive, source, {
+    const poll1 = await applyPollOutcome(store, bothActive, source, {
       now: t0,
       defaultRecipients: ["ops@example.com"],
     })
-    const poll2 = await persistSnapshot(store, eResolved, source, {
+    const poll2 = await applyPollOutcome(store, eResolved, source, {
       now: t1,
       defaultRecipients: ["ops@example.com"],
     })
-    const poll3 = await persistSnapshot(store, bothResolved, source, {
+    const poll3 = await applyPollOutcome(store, bothResolved, source, {
       now: t2,
       defaultRecipients: ["ops@example.com"],
     })
@@ -3132,7 +3293,7 @@ describe("persistSnapshot: F2 recovery gated on overall state", () => {
 // lands a resolved_at before its own started_at and never trips the
 // provider_incidents_resolution_order check.
 
-describe("persistSnapshot: F3 closeIncident greatest(now, started_at) guard", () => {
+describe("applyPollOutcome: F3 closeIncident greatest(now, started_at) guard", () => {
   it("resolves a disappeared incident at its own started_at when that is ahead of the close-time now", async () => {
     const db = emptyDb([
       dependencyRow({ id: "dep-1", currentState: "OPERATIONAL" }),
@@ -3169,11 +3330,11 @@ describe("persistSnapshot: F3 closeIncident greatest(now, started_at) guard", ()
       lastModified: null,
     }
 
-    await persistSnapshot(store, openOutcome, baseSource(), {
+    await applyPollOutcome(store, openOutcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
-    await persistSnapshot(store, vanishedOutcome, baseSource(), {
+    await applyPollOutcome(store, vanishedOutcome, baseSource(), {
       now: closeAt,
       defaultRecipients: ["ops@example.com"],
     })
@@ -3186,10 +3347,10 @@ describe("persistSnapshot: F3 closeIncident greatest(now, started_at) guard", ()
 
 // -- Provider-published resolved_at can precede its own started_at (observed
 // live: Cloudflare incident 1nxybwbw5cdk resolved 2h48m before it started).
-// persistSnapshot clamps resolution to the start on ingestion, or the
+// applyPollOutcome clamps resolution to the start on ingestion, or the
 // provider_incidents_resolution_order check aborts the whole poll.
 
-describe("persistSnapshot: resolved-before-started clamp on ingestion", () => {
+describe("applyPollOutcome: resolved-before-started clamp on ingestion", () => {
   it("clamps a provider resolved_at that precedes started_at up to started_at", async () => {
     const db = emptyDb([
       dependencyRow({ id: "dep-1", currentState: "OPERATIONAL" }),
@@ -3215,7 +3376,7 @@ describe("persistSnapshot: resolved-before-started clamp on ingestion", () => {
       lastModified: null,
     }
 
-    await persistSnapshot(store, outcome, baseSource(), {
+    await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
@@ -3248,7 +3409,7 @@ describe("persistSnapshot: resolved-before-started clamp on ingestion", () => {
       lastModified: null,
     }
 
-    await persistSnapshot(store, outcome, baseSource(), {
+    await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
@@ -3342,7 +3503,7 @@ describe("IncidentMatchScope constructors and notification gates", () => {
   })
 })
 
-describe("persistSnapshot: W4 match-scope and fidelity recovery", () => {
+describe("applyPollOutcome: W4 match-scope and fidelity recovery", () => {
   it("AWS active with no service ids: stores the incident, creates no matches or alerts", async () => {
     const db = emptyDb([
       dependencyRow({
@@ -3366,7 +3527,7 @@ describe("persistSnapshot: W4 match-scope and fidelity recovery", () => {
       etag: null,
       lastModified: null,
     }
-    const summary = await persistSnapshot(
+    const summary = await applyPollOutcome(
       store,
       outcome,
       baseSource({ adapter: "aws_health" }),
@@ -3426,11 +3587,11 @@ describe("persistSnapshot: W4 match-scope and fidelity recovery", () => {
       lastModified: null,
     }
 
-    const poll1 = await persistSnapshot(store, unmapped, source, {
+    const poll1 = await applyPollOutcome(store, unmapped, source, {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
-    const poll2 = await persistSnapshot(store, withIds, source, {
+    const poll2 = await applyPollOutcome(store, withIds, source, {
       now: new Date(NOW.getTime() + 60_000),
       defaultRecipients: ["ops@example.com"],
     })
@@ -3470,14 +3631,14 @@ describe("persistSnapshot: W4 match-scope and fidelity recovery", () => {
       lastModified: null,
     }
 
-    await persistSnapshot(store, scoped, source, {
+    await applyPollOutcome(store, scoped, source, {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
     expect(db.matches.size).toBe(1)
     const matchesAfterScoped = new Set(db.matches)
 
-    await persistSnapshot(store, unmapped, source, {
+    await applyPollOutcome(store, unmapped, source, {
       now: new Date(NOW.getTime() + 60_000),
       defaultRecipients: ["ops@example.com"],
     })
@@ -3514,7 +3675,7 @@ describe("persistSnapshot: W4 match-scope and fidelity recovery", () => {
       etag: null,
       lastModified: null,
     }
-    const summary = await persistSnapshot(store, outcome, baseSource(), {
+    const summary = await applyPollOutcome(store, outcome, baseSource(), {
       now: NOW,
       defaultRecipients: ["ops@example.com"],
     })
@@ -3591,15 +3752,15 @@ describe("persistSnapshot: W4 match-scope and fidelity recovery", () => {
       lastModified: null,
     }
 
-    const poll1 = await persistSnapshot(store, bothActive, source, {
+    const poll1 = await applyPollOutcome(store, bothActive, source, {
       now: t0,
       defaultRecipients: ["ops@example.com"],
     })
-    const poll2 = await persistSnapshot(store, sourceResolved, source, {
+    const poll2 = await applyPollOutcome(store, sourceResolved, source, {
       now: t1,
       defaultRecipients: ["ops@example.com"],
     })
-    const poll3 = await persistSnapshot(store, bothResolved, source, {
+    const poll3 = await applyPollOutcome(store, bothResolved, source, {
       now: t2,
       defaultRecipients: ["ops@example.com"],
     })
@@ -3620,7 +3781,7 @@ describe("persistSnapshot: W4 match-scope and fidelity recovery", () => {
     const t0 = NOW
     const t1 = new Date(NOW.getTime() + 60_000)
 
-    await persistSnapshot(
+    await applyPollOutcome(
       store,
       {
         sourceId: "vercel",
@@ -3636,7 +3797,7 @@ describe("persistSnapshot: W4 match-scope and fidelity recovery", () => {
       { now: t0, defaultRecipients: ["ops@example.com"] }
     )
 
-    const poll2 = await persistSnapshot(
+    const poll2 = await applyPollOutcome(
       store,
       {
         sourceId: "vercel",
@@ -3681,7 +3842,7 @@ describe("persistSnapshot: W4 match-scope and fidelity recovery", () => {
     const t0 = NOW
     const t1 = new Date(NOW.getTime() + 60_000)
 
-    await persistSnapshot(
+    await applyPollOutcome(
       store,
       {
         sourceId: "vercel",
@@ -3699,7 +3860,7 @@ describe("persistSnapshot: W4 match-scope and fidelity recovery", () => {
       { now: t0, defaultRecipients: ["ops@example.com"] }
     )
 
-    const poll2 = await persistSnapshot(
+    const poll2 = await applyPollOutcome(
       store,
       {
         sourceId: "vercel",
@@ -3753,7 +3914,7 @@ describe("persistSnapshot: W4 match-scope and fidelity recovery", () => {
       lastModified: null,
     }
 
-    await persistSnapshot(
+    await applyPollOutcome(
       store,
       {
         sourceId: "vercel",
@@ -3769,11 +3930,11 @@ describe("persistSnapshot: W4 match-scope and fidelity recovery", () => {
       { now: t0, defaultRecipients: ["ops@example.com"] }
     )
 
-    const poll2 = await persistSnapshot(store, resolved, baseSource(), {
+    const poll2 = await applyPollOutcome(store, resolved, baseSource(), {
       now: t1,
       defaultRecipients: ["ops@example.com"],
     })
-    const poll3 = await persistSnapshot(store, resolved, baseSource(), {
+    const poll3 = await applyPollOutcome(store, resolved, baseSource(), {
       now: new Date(t1.getTime() + 60_000),
       defaultRecipients: ["ops@example.com"],
     })
@@ -3798,7 +3959,7 @@ describe("persistSnapshot: W4 match-scope and fidelity recovery", () => {
     ])
     const store = createFakeStore(db)
 
-    await persistSnapshot(
+    await applyPollOutcome(
       store,
       {
         sourceId: "vercel",
@@ -3826,14 +3987,14 @@ describe("persistSnapshot: W4 match-scope and fidelity recovery", () => {
       etag: null,
       lastModified: null,
     }
-    const deferred = await persistSnapshot(store, stillOutage, baseSource(), {
+    const deferred = await applyPollOutcome(store, stillOutage, baseSource(), {
       now: new Date(NOW.getTime() + 60_000),
       defaultRecipients: ["ops@example.com"],
     })
     expect(deferred.notificationsEnqueued).toBe(0)
 
     // Re-open then disappear when operational: recovery fires once.
-    await persistSnapshot(
+    await applyPollOutcome(
       store,
       {
         sourceId: "vercel",
@@ -3853,7 +4014,7 @@ describe("persistSnapshot: W4 match-scope and fidelity recovery", () => {
       }
     )
 
-    const recovered = await persistSnapshot(
+    const recovered = await applyPollOutcome(
       store,
       {
         sourceId: "vercel",
@@ -3883,7 +4044,7 @@ describe("persistSnapshot: W4 match-scope and fidelity recovery", () => {
     const db = emptyDb([dependencyRow({ id: "dep-1", fidelity: "component" })])
     const store = createFakeStore(db)
 
-    await persistSnapshot(
+    await applyPollOutcome(
       store,
       {
         sourceId: "vercel",
@@ -3912,7 +4073,7 @@ describe("persistSnapshot: W4 match-scope and fidelity recovery", () => {
       etag: null,
       lastModified: null,
     }
-    const summary = await persistSnapshot(
+    const summary = await applyPollOutcome(
       store,
       vanishedUnknown,
       baseSource(),
@@ -3946,7 +4107,7 @@ describe("persistSnapshot: W4 match-scope and fidelity recovery", () => {
     // while componentsComplete true leaves the incident_only install at UNKNOWN.
     const source = baseSource({ adapter: "statuspage_v2" })
 
-    await persistSnapshot(
+    await applyPollOutcome(
       store,
       {
         sourceId: "vercel",
@@ -3978,7 +4139,7 @@ describe("persistSnapshot: W4 match-scope and fidelity recovery", () => {
       etag: null,
       lastModified: null,
     }
-    const summary = await persistSnapshot(store, vanished, source, {
+    const summary = await applyPollOutcome(store, vanished, source, {
       now: new Date(NOW.getTime() + 60_000),
       defaultRecipients: ["ops@example.com"],
     })
@@ -3994,7 +4155,7 @@ describe("persistSnapshot: W4 match-scope and fidelity recovery", () => {
 
 // -- W5: Azure active_only inventory closes on a successful empty snapshot.
 
-describe("persistSnapshot: Azure active_only empty-channel closure", () => {
+describe("applyPollOutcome: Azure active_only empty-channel closure", () => {
   function azureInstall() {
     return dependencyRow({
       id: "dep-azure",
@@ -4016,7 +4177,7 @@ describe("persistSnapshot: Azure active_only empty-channel closure", () => {
     const store = createFakeStore(db)
     const source = azureSource()
 
-    await persistSnapshot(
+    await applyPollOutcome(
       store,
       {
         sourceId: "vercel",
@@ -4037,7 +4198,7 @@ describe("persistSnapshot: Azure active_only empty-channel closure", () => {
     expect(db.installed[0]?.currentState).toBe("UNKNOWN")
     expect(db.notifications.map((n) => n.event)).toEqual(["incident"])
 
-    const empty = await persistSnapshot(
+    const empty = await applyPollOutcome(
       store,
       {
         sourceId: "vercel",
@@ -4083,7 +4244,7 @@ describe("persistSnapshot: Azure active_only empty-channel closure", () => {
       lastModified: null,
     }
 
-    await persistSnapshot(
+    await applyPollOutcome(
       store,
       {
         sourceId: "vercel",
@@ -4101,11 +4262,11 @@ describe("persistSnapshot: Azure active_only empty-channel closure", () => {
       { now: NOW, defaultRecipients: ["ops@example.com"] }
     )
 
-    await persistSnapshot(store, emptyOutcome, source, {
+    await applyPollOutcome(store, emptyOutcome, source, {
       now: new Date(NOW.getTime() + 60_000),
       defaultRecipients: ["ops@example.com"],
     })
-    const again = await persistSnapshot(store, emptyOutcome, source, {
+    const again = await applyPollOutcome(store, emptyOutcome, source, {
       now: new Date(NOW.getTime() + 120_000),
       defaultRecipients: ["ops@example.com"],
     })
@@ -4123,7 +4284,7 @@ describe("persistSnapshot: Azure active_only empty-channel closure", () => {
     const store = createFakeStore(db)
     const source = azureSource()
 
-    await persistSnapshot(
+    await applyPollOutcome(
       store,
       {
         sourceId: "vercel",
@@ -4141,7 +4302,7 @@ describe("persistSnapshot: Azure active_only empty-channel closure", () => {
       { now: NOW, defaultRecipients: ["ops@example.com"] }
     )
 
-    const incompleteEmpty = await persistSnapshot(
+    const incompleteEmpty = await applyPollOutcome(
       store,
       {
         sourceId: "vercel",

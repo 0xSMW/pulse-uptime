@@ -80,11 +80,11 @@ interface MutationOutcome<T> {
  * restate them:
  *
  * - The mutation and the idempotency completion commit together, in the
- *   SAME transaction (via context.transaction inside executeIdempotent). If
- *   `work` throws anything OTHER than StatusReportError, the transaction
- *   rolls back both the mutation and the completion, so the record is left
- *   running: truthfully, nothing committed, and a retry reruns `work` from
- *   scratch rather than trying to recover a state that never existed.
+ *   SAME transaction (mode: "atomic" on executeIdempotent). If `work` throws
+ *   anything OTHER than StatusReportError, the transaction rolls back both
+ *   the mutation and the completion, so the record is left running:
+ *   truthfully, nothing committed, and a retry reruns `work` from scratch
+ *   rather than trying to recover a state that never existed.
  * - A StatusReportError thrown by `work` is caught HERE, INSIDE the same
  *   transaction, and recorded as the operation's own completed response (via
  *   storedStatusReportError) instead of rolling back. A deterministic domain
@@ -122,26 +122,22 @@ export async function runStatusReportMutation<T>(input: {
       principalKey: context.principalKey,
       routeKey,
       body,
-      work: async (idempotencyContext) =>
-        idempotencyContext.transaction(async (tx) => {
-          try {
-            const outcome = await work(tx, idempotencyContext)
-            revalidatePaths = outcome.revalidatePaths ?? []
-            return {
-              status: outcome.status,
-              body: objectEnvelope(
-                outcome.kind,
-                outcome.data,
-                context.requestId
-              ),
-            }
-          } catch (error) {
-            if (error instanceof StatusReportError) {
-              return storedStatusReportError(error, context.requestId)
-            }
-            throw error
+      mode: "atomic",
+      work: async (tx, idempotencyContext) => {
+        try {
+          const outcome = await work(tx, idempotencyContext)
+          revalidatePaths = outcome.revalidatePaths ?? []
+          return {
+            status: outcome.status,
+            body: objectEnvelope(outcome.kind, outcome.data, context.requestId),
           }
-        }),
+        } catch (error) {
+          if (error instanceof StatusReportError) {
+            return storedStatusReportError(error, context.requestId)
+          }
+          throw error
+        }
+      },
     })
     // Flush revalidation only after the mutation and the idempotency
     // completion commit, and only for a fresh mutation. A StatusReportError

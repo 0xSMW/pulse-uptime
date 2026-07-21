@@ -68,6 +68,7 @@ const expectedOperations = [
   "PATCH /api/v1/status-reports/{reportId}",
   "DELETE /api/v1/status-reports/{reportId}",
   "POST /api/v1/status-reports/{reportId}/publish",
+  "GET /api/v1/status-reports/{reportId}/updates",
   "POST /api/v1/status-reports/{reportId}/updates",
   "PATCH /api/v1/status-reports/{reportId}/updates/{updateId}",
   "DELETE /api/v1/status-reports/{reportId}/updates/{updateId}",
@@ -79,6 +80,7 @@ const expectedOperations = [
   "PATCH /api/v1/dependencies/{dependencyId}",
   "DELETE /api/v1/dependencies/{dependencyId}",
   "POST /api/v1/dependencies/{dependencyId}/refresh",
+  "POST /api/v1/dependencies/{dependencyId}/backfill",
 ]
 
 describe("committed OpenAPI v1 source", () => {
@@ -176,6 +178,20 @@ describe("committed OpenAPI v1 source", () => {
     expect(monitorFields.groupId).toMatchObject({ minLength: 3, maxLength: 64 })
     expect(diff.settingsChanged!.type).toBe("array")
     expect(diff.groupCreates!.type).toBe("array")
+    expect(plan.destructiveConsentRequired!.type).toBe("boolean")
+    expect(plan.destructiveChange!.$ref).toBe(
+      "#/components/schemas/DestructiveChangeEvaluation"
+    )
+    expect(plan.destructiveApprovalRequired).toBeUndefined()
+    expect(plan.tripwireApprovalRequired).toBeUndefined()
+    expect(plan.allowDeleteRequired).toBeUndefined()
+    const applyRequest = schemas.ConfigurationApplyRequest as {
+      properties: Record<string, Record<string, unknown>>
+    }
+    expect(applyRequest.properties.allowDestructiveChanges!.type).toBe(
+      "boolean"
+    )
+    expect(applyRequest.properties.allowDelete).toBeUndefined()
     expect(schemas.Configuration!.properties).toMatchObject({
       version: { const: 2 },
       groups: { maxItems: 100 },
@@ -263,6 +279,18 @@ describe("committed OpenAPI v1 source", () => {
     expect(deviceToken.properties.data.properties.token.writeOnly).not.toBe(
       true
     )
+    const revoke = document.paths["/api/v1/cli-auth/revoke"]!
+      .post as Operation & {
+      operationId: string
+      responses: Record<
+        string,
+        { content: Record<string, { schema: { $ref: string } }> }
+      >
+    }
+    expect(revoke.operationId).toBe("revokeCliInstallation")
+    expect(
+      revoke.responses["200"]!.content["application/json"]!.schema.$ref
+    ).toBe("#/components/schemas/CliInstallationRevocationEnvelope")
     const responses = (
       document as unknown as {
         components: { responses: Record<string, { headers?: unknown }> }
@@ -335,6 +363,13 @@ describe("committed OpenAPI v1 source", () => {
     expect(config.properties.navLinks).toMatchObject({ maxItems: 8 })
     expect(config.properties.historyDays!.enum).toEqual([30, 60, 90])
     expect(config.properties.updatedAt).toMatchObject({ readOnly: true })
+    // Restricted customHead (meta + icon link only); not raw executable HTML.
+    expect(String(config.properties.customHead!.description)).toMatch(
+      /restricted|meta|icon/i
+    )
+    expect(String(config.properties.customHead!.description)).not.toMatch(
+      /raw head injection|accepted self-XSS/i
+    )
     const upload = document.paths["/api/v1/images"]!.post as Operation & {
       requestBody: {
         content: Record<string, { schema: { required: string[] } }>
@@ -346,6 +381,37 @@ describe("committed OpenAPI v1 source", () => {
     ).toEqual(["file", "kind"])
   })
 
+  it("documents account password reauthentication and CAS conflicts", () => {
+    const password = document.paths["/api/v1/me/password"]!
+      .post as Operation & {
+      responses: Record<
+        string,
+        {
+          content?: {
+            "application/json"?: { schema?: { $ref?: string } }
+          }
+        }
+      >
+    }
+    const email = document.paths["/api/v1/me/email"]!.post as Operation & {
+      responses: Record<string, unknown>
+    }
+    expect(password.responses["409"]).toBeDefined()
+    expect(email.responses["409"]).toBeDefined()
+    expect(
+      password.responses["200"]!.content!["application/json"]!.schema!.$ref
+    ).toBe("#/components/schemas/PasswordChangeEnvelope")
+    const change = document.components.schemas.PasswordChange as {
+      required: string[]
+      properties: Record<string, { const?: boolean }>
+    }
+    expect(change.required).toEqual(
+      expect.arrayContaining(["changed", "reauthenticate"])
+    )
+    expect(change.properties.reauthenticate).toBeDefined()
+    expect(change.properties.reauthenticate!.const).toBe(true)
+  })
+
   it("documents the status reports contract", () => {
     const schemas = document.components.schemas
     const scope = schemas.Scope as { enum: string[] }
@@ -354,8 +420,9 @@ describe("committed OpenAPI v1 source", () => {
 
     const operation = (path: string, method: string) =>
       document.paths[path]![method] as Operation & {
-        parameters?: Array<{ $ref?: string }>
+        parameters?: Array<{ $ref?: string; name?: string }>
         responses: Record<string, unknown>
+        "x-required-scopes"?: string[]
       }
     expect(
       operation("/api/v1/status-reports", "get")["x-required-scopes"]
@@ -371,6 +438,25 @@ describe("committed OpenAPI v1 source", () => {
         "x-required-scopes"
       ]
     ).toEqual(["reports:write"])
+
+    // Paginated timeline: detail carries updatesCount/updatesNextCursor, older
+    // pages load via GET .../updates with the shared cursor/limit params.
+    const listUpdates = operation(
+      "/api/v1/status-reports/{reportId}/updates",
+      "get"
+    )
+    expect(listUpdates["x-required-scopes"]).toEqual(["reports:read"])
+    expect(
+      listUpdates.parameters?.some((parameter) =>
+        parameter.$ref?.endsWith("/Cursor")
+      )
+    ).toBe(true)
+    expect(
+      listUpdates.parameters?.some((parameter) =>
+        parameter.$ref?.endsWith("/Limit")
+      )
+    ).toBe(true)
+    expect(listUpdates.responses["200"]).toBeDefined()
 
     // Every mutation is idempotent and both conflict cases (ALREADY_PUBLISHED,
     // LAST_UPDATE) are visible as 409s.
@@ -407,10 +493,17 @@ describe("committed OpenAPI v1 source", () => {
         "resolvedAt",
         "currentStatus",
         "updates",
+        "updatesCount",
+        "updatesNextCursor",
         "affected",
       ])
     )
     expect(report.properties.publishedAt!.type).toEqual(["string", "null"])
+    expect(report.properties.updatesCount!.type).toBe("integer")
+    expect(report.properties.updatesNextCursor!.type).toEqual([
+      "string",
+      "null",
+    ])
     expect(report.properties.title).toMatchObject({
       minLength: 1,
       maxLength: 160,
@@ -442,6 +535,10 @@ describe("committed OpenAPI v1 source", () => {
       properties: { kind: { const: string } }
     }
     expect(list.properties.kind.const).toBe("StatusReportList")
+    const updateList = schemas.StatusReportUpdateListEnvelope as {
+      properties: { kind: { const: string } }
+    }
+    expect(updateList.properties.kind.const).toBe("StatusReportUpdateList")
   })
 
   it("documents database health caching and unavailable states", () => {
@@ -476,6 +573,32 @@ describe("committed OpenAPI v1 source", () => {
       )
     ).toBe(true)
     expect(refresh.responses["503"]).toBeDefined()
+  })
+
+  it("documents the dependency backfill-failed mark and its retry endpoint", () => {
+    const dependency = document.components.schemas.Dependency as {
+      required: string[]
+      properties: Record<string, Record<string, unknown>>
+    }
+    expect(dependency.required).toContain("backfillFailedAt")
+    expect(dependency.properties.backfillFailedAt!.type).toEqual([
+      "string",
+      "null",
+    ])
+    const backfill = document.paths[
+      "/api/v1/dependencies/{dependencyId}/backfill"
+    ]!.post as Operation & {
+      parameters: Array<{ $ref?: string }>
+      responses: Record<string, { content?: Record<string, unknown> }>
+    }
+    expect(backfill["x-required-scopes"]).toEqual(["dependencies:write"])
+    expect(
+      backfill.parameters.some((parameter) =>
+        parameter.$ref?.endsWith("/IdempotencyKey")
+      )
+    ).toBe(true)
+    expect(backfill.responses["200"]).toBeDefined()
+    expect(backfill.responses["404"]).toBeDefined()
   })
 
   it("defines the authoritative manual monitor-test outcome", () => {

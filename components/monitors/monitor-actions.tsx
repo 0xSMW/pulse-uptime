@@ -20,6 +20,9 @@ import {
   useState,
 } from "react"
 
+import { GroupDialog } from "@/components/settings/group-dialog"
+import { MonitorGroupField } from "@/components/settings/monitor-group-field"
+import type { SettingsGroup } from "@/components/settings/settings-api"
 import { Button } from "@/components/ui/button"
 import {
   Collapsible,
@@ -35,12 +38,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { parseMonitorRecipients } from "@/lib/monitoring/recipients"
 import { isPublicHttpUrl } from "@/lib/net/public-url"
 
 export interface EditableMonitor {
   id: string
   name: string
   url: string
+  groupId: string | null
   group: string | null
   method: string
   enabled: boolean
@@ -62,7 +67,7 @@ type MutationState =
 export interface MonitorEditValues {
   name: string
   url: string
-  group: string
+  groupId: string | null
   method: "GET" | "HEAD"
   intervalMinutes: string
   timeoutMs: string
@@ -97,7 +102,7 @@ function initialValues(monitor: EditableMonitor): MonitorEditValues {
   return {
     name: monitor.name,
     url: monitor.url,
-    group: monitor.group ?? "",
+    groupId: monitor.groupId,
     method: monitor.method === "HEAD" ? "HEAD" : "GET",
     intervalMinutes: String(monitor.intervalMinutes),
     timeoutMs: String(monitor.timeoutMs),
@@ -115,11 +120,7 @@ export function validateMonitorEdit(
 ): MonitorEditErrors {
   const errors: MonitorEditErrors = {}
   const name = values.name.trim()
-  const group = values.group.trim()
-  const recipients = values.recipients
-    .split("\n")
-    .map((value) => value.trim())
-    .filter(Boolean)
+  const recipients = parseMonitorRecipients(values.recipients)
 
   if (!name) {
     errors.name = "Enter a monitor name"
@@ -131,9 +132,6 @@ export function validateMonitorEdit(
     errors.url = "Enter a public HTTP or HTTPS URL"
   }
 
-  if (group.length > 50) {
-    errors.group = "Use 50 characters or fewer"
-  }
   if (!["1", "5", "10", "15"].includes(values.intervalMinutes)) {
     errors.intervalMinutes = "Choose 1, 5, 10, or 15 minutes"
   }
@@ -188,7 +186,7 @@ export function validateMonitorEdit(
   if (recipients.length > 20) {
     errors.recipients = "Use no more than 20 recipients"
   } else if (recipients.some((recipient) => !emailPattern.test(recipient))) {
-    errors.recipients = "Enter one valid email per line"
+    errors.recipients = "Enter valid email addresses"
   } else if (
     new Set(recipients.map((recipient) => recipient.toLowerCase())).size !==
     recipients.length
@@ -383,7 +381,13 @@ function HeaderIconAction({
   )
 }
 
-export function MonitorActions({ monitor }: { monitor: EditableMonitor }) {
+export function MonitorActions({
+  monitor,
+  groups,
+}: {
+  monitor: EditableMonitor
+  groups: readonly SettingsGroup[]
+}) {
   const router = useRouter()
   const [editOpen, setEditOpen] = useState(false)
   const [action, setAction] = useState<MutationState>({ status: "idle" })
@@ -432,45 +436,47 @@ export function MonitorActions({ monitor }: { monitor: EditableMonitor }) {
 
   return (
     <>
-      <div className="flex flex-col items-start gap-2">
-        <div className="flex flex-wrap gap-2">
-          <HeaderIconAction
-            disabled={isBusy || paused}
-            disabledDescription={
-              paused
-                ? "Resume this monitor to run a test"
-                : "Another monitor action is in progress"
-            }
-            label="Test Monitor"
-            onClick={() => void runAction("test")}
-          >
-            <Activity aria-hidden className="size-4" />
-          </HeaderIconAction>
-          <HeaderIconAction
-            disabled={isBusy}
-            disabledDescription="Another monitor action is in progress"
-            label={paused ? "Resume Monitor" : "Pause Monitor"}
-            onClick={() => void runAction(paused ? "resume" : "pause")}
-          >
-            {paused ? (
-              <Play aria-hidden className="size-4" />
-            ) : (
-              <Pause aria-hidden className="size-4" />
-            )}
-          </HeaderIconAction>
-          <HeaderIconAction
-            disabled={isBusy}
-            disabledDescription="Another monitor action is in progress"
-            label="Edit Monitor"
-            onClick={() => setEditOpen(true)}
-          >
-            <Pencil aria-hidden className="size-4" />
-          </HeaderIconAction>
+      <div className="relative flex flex-wrap gap-2">
+        <HeaderIconAction
+          disabled={isBusy || paused}
+          disabledDescription={
+            paused
+              ? "Resume this monitor to run a test"
+              : "Another monitor action is in progress"
+          }
+          label="Test Monitor"
+          onClick={() => void runAction("test")}
+        >
+          <Activity aria-hidden className="size-4" />
+        </HeaderIconAction>
+        <HeaderIconAction
+          disabled={isBusy}
+          disabledDescription="Another monitor action is in progress"
+          label={paused ? "Resume Monitor" : "Pause Monitor"}
+          onClick={() => void runAction(paused ? "resume" : "pause")}
+        >
+          {paused ? (
+            <Play aria-hidden className="size-4" />
+          ) : (
+            <Pause aria-hidden className="size-4" />
+          )}
+        </HeaderIconAction>
+        <HeaderIconAction
+          disabled={isBusy}
+          disabledDescription="Another monitor action is in progress"
+          label="Edit Monitor"
+          onClick={() => setEditOpen(true)}
+        >
+          <Pencil aria-hidden className="size-4" />
+        </HeaderIconAction>
+        {/* Absolutely positioned so the status text never shifts the buttons above it */}
+        <div className="absolute top-full left-0 pt-2">
+          <MutationMessage state={action} />
         </div>
-        <MutationMessage state={action} />
       </div>
       {editOpen ? (
         <MonitorEditSheet
+          groups={groups}
           monitor={monitor}
           onArchived={() => router.push("/")}
           onClose={() => setEditOpen(false)}
@@ -545,7 +551,13 @@ export function MonitorRunTestButton({
   )
 }
 
-export function MonitorEditButton({ monitor }: { monitor: EditableMonitor }) {
+export function MonitorEditButton({
+  monitor,
+  groups,
+}: {
+  monitor: EditableMonitor
+  groups: readonly SettingsGroup[]
+}) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   return (
@@ -555,6 +567,7 @@ export function MonitorEditButton({ monitor }: { monitor: EditableMonitor }) {
       </Button>
       {open ? (
         <MonitorEditSheet
+          groups={groups}
           monitor={monitor}
           onArchived={() => router.push("/")}
           onClose={() => setOpen(false)}
@@ -566,10 +579,12 @@ export function MonitorEditButton({ monitor }: { monitor: EditableMonitor }) {
 
 function MonitorEditSheet({
   monitor,
+  groups,
   onClose,
   onArchived,
 }: {
   monitor: EditableMonitor
+  groups: readonly SettingsGroup[]
   onClose: () => void
   onArchived: () => void
 }) {
@@ -579,6 +594,8 @@ function MonitorEditSheet({
   const [errors, setErrors] = useState<MonitorEditErrors>({})
   const [state, setState] = useState<MutationState>({ status: "idle" })
   const [archiveOpen, setArchiveOpen] = useState(false)
+  const [createGroupOpen, setCreateGroupOpen] = useState(false)
+  const [availableGroups, setAvailableGroups] = useState(() => [...groups])
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const formRef = useRef<HTMLFormElement>(null)
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -619,10 +636,7 @@ function MonitorEditSheet({
       return
     }
     setState({ status: "loading", message: "Saving…" })
-    const recipients = values.recipients
-      .split("\n")
-      .map((value) => value.trim())
-      .filter(Boolean)
+    const recipients = parseMonitorRecipients(values.recipients)
     try {
       const response = await mutateMonitor(
         `/api/v1/monitors/${encodeURIComponent(monitor.id)}`,
@@ -632,7 +646,7 @@ function MonitorEditSheet({
           body: JSON.stringify({
             name: values.name.trim(),
             url: values.url,
-            group: values.group.trim() || null,
+            groupId: values.groupId,
             method: values.method,
             intervalMinutes: Number(values.intervalMinutes),
             timeoutMs: Number(values.timeoutMs),
@@ -715,12 +729,12 @@ function MonitorEditSheet({
               onChange={(value) => update("url", value)}
               value={values.url}
             />
-            <TextField
-              error={errors.group}
-              id="monitor-group"
-              label="Group"
-              onChange={(value) => update("group", value)}
-              value={values.group}
+            <MonitorGroupField
+              groups={availableGroups}
+              labelClassName="text-sm"
+              onChange={(groupId) => update("groupId", groupId)}
+              onCreateGroup={() => setCreateGroupOpen(true)}
+              value={values.groupId}
             />
             <SelectField
               id="monitor-method"
@@ -870,6 +884,20 @@ function MonitorEditSheet({
           </div>
         </form>
       </ModalFrame>
+      {createGroupOpen ? (
+        <GroupDialog
+          onClose={() => setCreateGroupOpen(false)}
+          onSaved={(group) => {
+            setAvailableGroups((current) => [
+              ...current.filter((item: SettingsGroup) => item.id !== group.id),
+              group,
+            ])
+            update("groupId", group.id)
+            setCreateGroupOpen(false)
+          }}
+          open
+        />
+      ) : null}
       {archiveOpen ? (
         <ArchiveDialog
           monitor={monitor}

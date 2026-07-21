@@ -43,6 +43,8 @@ export async function POST(
       principalKey: context.principalKey,
       routeKey: `/api/v1/monitors/${id}/test`,
       body: {},
+      // External HTTP probe with no exactly-once boundary.
+      mode: "conservative",
       work: async () => ({
         status: 200,
         body: objectEnvelope(

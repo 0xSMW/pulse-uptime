@@ -487,6 +487,40 @@ describe("StatusPageSettings uploads", () => {
   })
 })
 
+describe("StatusPageSettings custom head", () => {
+  it("describes accepted meta and icon link tags", () => {
+    renderSettings()
+    expect(screen.getByLabelText("Custom head")).toBeDefined()
+    expect(
+      screen.getByText(/Restricted fragment rendered on the public page/)
+    ).toBeDefined()
+    expect(screen.getByText(/icon <link>/i)).toBeDefined()
+  })
+
+  it("shows validation errors for unsafe fragments and blocks save", () => {
+    const fetchMock = stubFetch()
+    renderSettings()
+    fireEvent.change(screen.getByLabelText("Custom head"), {
+      target: { value: "<script>alert(1)</script>" },
+    })
+    expect(screen.getByRole("alert").textContent?.toLowerCase()).toContain(
+      "script"
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    expect(methodCalls(fetchMock, "PUT")).toHaveLength(0)
+  })
+
+  it("accepts safe OG meta without an alert", () => {
+    renderSettings()
+    fireEvent.change(screen.getByLabelText("Custom head"), {
+      target: {
+        value: '<meta property="og:title" content="Acme Status">',
+      },
+    })
+    expect(screen.queryByRole("alert")).toBeNull()
+  })
+})
+
 describe("uploadValidationError", () => {
   it("mirrors the server type allowlists and byte caps", () => {
     const png = (bytes: number) =>

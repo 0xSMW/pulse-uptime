@@ -13,6 +13,7 @@ import type {
   CatalogComponentDirectory,
   CatalogDirectoryOption,
   NormalizedProviderSnapshot,
+  ProviderComponentState,
 } from "../types"
 import { scopeFromComponentIds } from "../types"
 
@@ -66,9 +67,7 @@ const incidentsDocSchema = z.array(incidentSchema)
 
 type Incident = z.infer<typeof incidentSchema>
 
-type ComponentState = "OPERATIONAL" | "DEGRADED" | "OUTAGE" | "MAINTENANCE"
-
-const SEVERITY_RANK: Record<ComponentState, number> = {
+const SEVERITY_RANK: Record<ProviderComponentState, number> = {
   OPERATIONAL: 0,
   MAINTENANCE: 1,
   DEGRADED: 2,
@@ -79,7 +78,7 @@ const SEVERITY_RANK: Record<ComponentState, number> = {
 function mapStatusImpact(
   statusImpact: string,
   sourceId: string
-): ComponentState {
+): ProviderComponentState {
   switch (statusImpact) {
     case "SERVICE_OUTAGE":
       return "OUTAGE"

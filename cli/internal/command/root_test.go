@@ -156,7 +156,7 @@ func TestRootHelpListsEveryLeafAndFitsBudget(t *testing.T) {
 	if code != 0 || stderr != "" {
 		t.Fatalf("code=%d stderr=%q", code, stderr)
 	}
-	for _, path := range []string{"auth login", "context remove", "token create", "monitor watch", "group rename", "incident get", "incident promote", "report create", "report publish", "status-page set", "status-page apply", "config apply", "notification test", "status", "doctor", "completion", "version", "dependency catalog", "dependency add", "dependency remove"} {
+	for _, path := range []string{"auth login", "context remove", "token create", "monitor watch", "group rename", "incident get", "incident promote", "report create", "report publish", "status-page set", "status-page apply", "config apply", "notification test", "status", "doctor", "completion", "version", "dependency catalog", "dependency add", "dependency backfill", "dependency remove"} {
 		if !strings.Contains(stdout, path) {
 			t.Errorf("root help missing %q", path)
 		}
@@ -176,7 +176,7 @@ func TestJSONHelpIsGeneratedFromCommandTree(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.SchemaVersion != 1 || got.Binary != "pulsectl" || len(got.Commands) != 56 {
+	if got.SchemaVersion != 1 || got.Binary != "pulsectl" || len(got.Commands) != 57 {
 		t.Fatalf("incomplete manifest: %#v", got)
 	}
 	for _, item := range got.Commands {

@@ -45,7 +45,8 @@ export class AccountServiceError extends Error {
       | "SESSION_NOT_FOUND"
       | "CURRENT_SESSION"
       | "IMAGE_NOT_FOUND"
-      | "ACCOUNT_NOT_FOUND",
+      | "ACCOUNT_NOT_FOUND"
+      | "ACCOUNT_CHANGED",
     message: string,
     readonly retryAfterSeconds?: number
   ) {
@@ -53,6 +54,9 @@ export class AccountServiceError extends Error {
     this.name = "AccountServiceError"
   }
 }
+
+/** Outcome of a compare-and-set account mutation under concurrency. */
+export type AccountCasResult = "applied" | "conflict"
 
 export interface ProfilePatch {
   name?: string
@@ -290,7 +294,7 @@ export interface EmailChangeStore {
     previousEmail: string
     email: string
     now: Date
-  }) => Promise<void>
+  }) => Promise<AccountCasResult>
 }
 
 export interface EmailChangeDependencies {
@@ -308,10 +312,10 @@ export interface EmailChangeDependencies {
 /**
  * Changes the sole login identifier. Shares the login rate-limit buckets so
  * current-password guesses count against the same 5-per-15-minutes budget as
- * sign-in attempts (mirroring changeAccountPassword). Revokes every *other*
- * human session and synchronizes the denormalized CLI email copies in the same
- * transaction. Machine credentials (API tokens, CLI sessions) are deliberately
- * not revoked.
+ * sign-in attempts (mirroring changeAccountPassword). Compare-and-sets against
+ * the verified previous email so concurrent changes have a single winner.
+ * Revokes every *other* human session and rewrites denormalized CLI email
+ * copies in the same transaction. Machine credentials are not revoked.
  */
 export async function changeAccountEmail(
   input: EmailChangeInput & {
@@ -371,13 +375,19 @@ export async function changeAccountEmail(
   }
 
   if (email !== user.email) {
-    await store.applyEmailChange({
+    const cas = await store.applyEmailChange({
       userId: input.userId,
       currentSessionId: input.currentSessionId,
       previousEmail: user.email,
       email,
       now,
     })
+    if (cas === "conflict") {
+      throw new AccountServiceError(
+        "ACCOUNT_CHANGED",
+        "Account details changed. Refresh and try again."
+      )
+    }
   }
   return { email }
 }
@@ -425,10 +435,10 @@ export interface PasswordChangeStore {
   ) => Promise<{ email: string; passwordDigest: string } | null>
   applyPasswordChange: (input: {
     userId: string
-    currentSessionId: string
+    expectedPasswordDigest: string
     passwordDigest: string
     now: Date
-  }) => Promise<void>
+  }) => Promise<AccountCasResult>
 }
 
 export interface PasswordChangeDependencies {
@@ -448,7 +458,9 @@ export interface PasswordChangeDependencies {
  * Changes the administrator password. Shares the login rate-limit buckets so
  * current-password guesses count against the same 5-per-15-minutes budget as
  * sign-in attempts, then re-hashes with Argon2id, stamps passwordChangedAt,
- * and revokes every *other* human session in the same transaction.
+ * and revokes every unrevoked human session (including the current one) in the
+ * same transaction. The update compare-and-sets against the verified digest so
+ * concurrent rotations have a single winner.
  */
 export async function changeAccountPassword(
   input: PasswordChangeInput & {
@@ -501,12 +513,18 @@ export async function changeAccountPassword(
   const passwordDigest = await (dependencies.hash ?? hashPassword)(
     input.newPassword
   )
-  await store.applyPasswordChange({
+  const cas = await store.applyPasswordChange({
     userId: input.userId,
-    currentSessionId: input.currentSessionId,
+    expectedPasswordDigest: user.passwordDigest,
     passwordDigest,
     now,
   })
+  if (cas === "conflict") {
+    throw new AccountServiceError(
+      "ACCOUNT_CHANGED",
+      "Account details changed. Refresh and try again."
+    )
+  }
   return { changed: true }
 }
 
@@ -522,22 +540,33 @@ const databasePasswordChangeStore: PasswordChangeStore = {
       .limit(1)
     return row ?? null
   },
-  async applyPasswordChange({ userId, currentSessionId, passwordDigest, now }) {
-    await db.transaction(async (tx) => {
-      await tx
+  async applyPasswordChange({
+    userId,
+    expectedPasswordDigest,
+    passwordDigest,
+    now,
+  }) {
+    return db.transaction(async (tx) => {
+      const updated = await tx
         .update(adminUsers)
         .set({ passwordDigest, passwordChangedAt: now, updatedAt: now })
-        .where(eq(adminUsers.id, userId))
+        .where(
+          and(
+            eq(adminUsers.id, userId),
+            eq(adminUsers.passwordDigest, expectedPasswordDigest)
+          )
+        )
+        .returning({ id: adminUsers.id })
+      if (updated.length === 0) {
+        return "conflict"
+      }
       await tx
         .update(humanSessions)
         .set({ revokedAt: now })
         .where(
-          and(
-            eq(humanSessions.userId, userId),
-            ne(humanSessions.id, currentSessionId),
-            isNull(humanSessions.revokedAt)
-          )
+          and(eq(humanSessions.userId, userId), isNull(humanSessions.revokedAt))
         )
+      return "applied"
     })
   },
 }
@@ -649,11 +678,17 @@ const databaseEmailChangeStore: EmailChangeStore = {
     email,
     now,
   }) {
-    await db.transaction(async (tx) => {
-      await tx
+    return db.transaction(async (tx) => {
+      const updated = await tx
         .update(adminUsers)
         .set({ email, updatedAt: now })
-        .where(eq(adminUsers.id, userId))
+        .where(
+          and(eq(adminUsers.id, userId), eq(adminUsers.email, previousEmail))
+        )
+        .returning({ id: adminUsers.id })
+      if (updated.length === 0) {
+        return "conflict"
+      }
       await tx
         .update(humanSessions)
         .set({ revokedAt: now })
@@ -672,6 +707,7 @@ const databaseEmailChangeStore: EmailChangeStore = {
         .update(cliInstallations)
         .set({ userEmail: email })
         .where(eq(cliInstallations.userEmail, previousEmail))
+      return "applied"
     })
   },
 }

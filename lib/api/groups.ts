@@ -10,7 +10,7 @@ import {
 import { type DatabaseHandle, db } from "@/lib/db/client"
 
 import {
-  mutateConfig,
+  applyConfigChange,
   nextConfig,
   requireAcceptedConfig,
 } from "./config-mutation"
@@ -130,7 +130,7 @@ export async function createGroup(
   handle: DatabaseHandle = db
 ) {
   const group = createGroupSchema.parse(input)
-  const result = await mutateConfig(
+  const result = await applyConfigChange(
     principalKey,
     (config) => addGroup(config, group),
     handle
@@ -147,7 +147,7 @@ export async function updateGroup(
   principalKey: string,
   handle: DatabaseHandle = db
 ) {
-  const result = await mutateConfig(
+  const result = await applyConfigChange(
     principalKey,
     (config) => renameGroup(config, id, input),
     handle
@@ -160,6 +160,10 @@ export async function deleteGroup(
   principalKey: string,
   handle: DatabaseHandle = db
 ) {
-  await mutateConfig(principalKey, (config) => removeGroup(config, id), handle)
+  await applyConfigChange(
+    principalKey,
+    (config) => removeGroup(config, id),
+    handle
+  )
   return { id, deleted: true }
 }

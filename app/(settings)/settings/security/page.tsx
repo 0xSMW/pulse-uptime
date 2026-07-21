@@ -1,11 +1,11 @@
 import { redirect } from "next/navigation"
 
 import { SecuritySettings } from "@/components/settings/security-settings"
-import { getCurrentSession } from "@/lib/auth/session"
+import { authenticateCurrentSession } from "@/lib/auth/session"
 import { getSecuritySettings } from "@/lib/reporting/queries/settings"
 
 export default async function SecuritySettingsPage() {
-  const session = await getCurrentSession()
+  const session = await authenticateCurrentSession()
   if (!session) {
     redirect("/onboarding")
   }

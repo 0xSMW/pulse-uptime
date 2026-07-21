@@ -163,8 +163,8 @@
           </a>
           <h1>Own your uptime</h1>
           <p class="lede">
-            Pulse checks your endpoints, opens incidents, and tracks the
-            providers behind them — one control plane for people and agents
+            Pulse monitors your services, opens incidents, <br>and tracks the
+            providers behind them
           </p>
           <div class="hero-actions">
             <a
@@ -699,9 +699,7 @@
             </g>
           </svg>
           <h3>Ready for agents</h3>
-          <p>
-            One typed API and CLI for people, scripts, and autonomous workflows
-          </p>
+          <p>One API and CLI for people and autonomous workflows</p>
         </article>
         <article data-reveal>
           <p class="figure">FIG 0.3</p>
@@ -791,11 +789,11 @@
         <div class="section-intro" data-reveal>
           <div>
             <p class="section-number">1.0 &nbsp; Monitor</p>
-            <h2>Monitor what matters</h2>
+            <h2>Start in seconds</h2>
           </div>
           <p>
-            Add an endpoint in seconds. Pulse keeps the first decision simple
-            and tucks the rest away.
+            Add an endpoint, choose an interval, and Pulse handles the rest. Or
+            have your agent manage.
           </p>
         </div>
 
@@ -915,8 +913,8 @@
             <h2>From failure to recovery</h2>
           </div>
           <p>
-            Play the outage or step through it check by check. Every surface
-            follows the same monitor state.
+            Pulse traces each check from first failure through recovery. Status,
+            incidents, and alerts in sync.
           </p>
         </div>
 
@@ -1075,8 +1073,8 @@
             <h2>Automatic history</h2>
           </div>
           <p>
-            Pulse confirms outages, records each transition, and sends one clear
-            alert.
+            Pulse confirms outages, records each transition, and sends clear
+            alerts. Add reports as you fix.
           </p>
         </div>
 
@@ -1191,7 +1189,7 @@
           </div>
           <p>
             Add OpenAI, Stripe, or 20+ services in one click. Incidents appear
-            beside your own checks.
+            beneath your own services.
           </p>
         </div>
 
@@ -1344,7 +1342,7 @@
           </div>
           <p>
             Run <span class="mono">pulsectl</span> yourself, or hand your agent
-            the CLI and let it manage the whole setup.
+            the CLI and let it manage setup and maintenance.
           </p>
         </div>
 
@@ -1464,8 +1462,8 @@
             <h2>Built to stay small</h2>
           </div>
           <p>
-            Pulse compacts routine checks and preserves incident history within
-            a clear storage budget.
+            Pulse compacts routine checks and preserves history within a minimal
+            storage budget.
           </p>
         </div>
 
@@ -1597,8 +1595,8 @@
             <h2>Vercel native</h2>
           </div>
           <p>
-            Pulse is Vercel-native, Postgres-backed, and small enough to
-            understand end to end.
+            Pulse is Vercel-native, Postgres-backed, and small enough to audit
+            or extend.
           </p>
         </div>
 
@@ -1882,17 +1880,13 @@
               <pre
                 class="dv-code security-trace"
                 id="security-trace"
-              ><span class="t-prompt">$</span> check
-                            https://inference.superposition.app/health
+              ><span class="t-prompt">$</span> check https://inference.superposition.app/health
 
-                            <span class="t-label">resolve</span> inference.superposition.app → 172.64.3.14
-                            <span class="t-label">policy</span> <span class="t-up">public range</span> · not private,
-                            not link-local
-                            <span class="t-label">pin</span> socket pinned to validated address
-                            <span class="t-label">tls</span> TLS 1.3 · certificate valid
-                            <span class="t-label">result</span> <span class="t-up">200 OK</span> in 42 ms → <span
-                                class="t-up">UP</span>
-                        </pre>
+<span class="t-label">resolve</span>  inference.superposition.app → 172.64.3.14
+<span class="t-label">policy</span>   <span class="t-up">public range</span> · not private, not link-local
+<span class="t-label">pin</span>      socket pinned to validated address
+<span class="t-label">tls</span>      TLS 1.3 · certificate valid
+<span class="t-label">result</span>   <span class="t-up">200 OK</span> in 42 ms → <span class="t-up">UP</span></pre>
             </div>
             <div class="security-blocked">
               <div class="blocked-head">

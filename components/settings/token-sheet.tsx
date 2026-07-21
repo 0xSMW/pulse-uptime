@@ -86,7 +86,7 @@ export function TokenSheet({
             expiresAt: expiryFromDays(days),
           }),
         },
-        true
+        { mutation: true }
       )
       setSecret(envelope.data.token)
       router.refresh()

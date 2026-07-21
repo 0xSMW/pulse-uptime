@@ -8,6 +8,8 @@ export interface DependencyIncidentEmailProps {
   state: string
   canonicalUrl: string | null
   providerTimestamp: string
+  /** Latest provider update quoted in place of the generic status-feed note. */
+  latestUpdate?: { body: string; timestamp: string }
 }
 
 export function DependencyIncidentEmail({
@@ -17,6 +19,7 @@ export function DependencyIncidentEmail({
   state,
   canonicalUrl,
   providerTimestamp,
+  latestUpdate,
 }: DependencyIncidentEmailProps) {
   return (
     <EmailLayout
@@ -33,10 +36,19 @@ export function DependencyIncidentEmail({
       </Text>
       <Text style={emailMetaStyle}>State {state}</Text>
       <Text style={emailMetaStyle}>Provider updated {providerTimestamp}</Text>
-      <Text style={emailMetaStyle}>
-        This reflects the provider&apos;s own status feed, not an independent
-        Pulse check.
-      </Text>
+      {latestUpdate ? (
+        <>
+          <Text style={emailTextStyle}>{latestUpdate.body}</Text>
+          <Text style={emailMetaStyle}>
+            Update posted {latestUpdate.timestamp}
+          </Text>
+        </>
+      ) : (
+        <Text style={emailMetaStyle}>
+          This reflects the provider&apos;s own status feed, not an independent
+          Pulse check.
+        </Text>
+      )}
     </EmailLayout>
   )
 }

@@ -9,8 +9,8 @@ const { dbMock, sqlMock } = vi.hoisted(() => ({
 vi.mock("@/lib/db/client", () => ({ db: dbMock, sql: sqlMock }))
 
 import {
-  getMonitorDetail,
-  getMonitorLive,
+  findMonitorDetail,
+  findMonitorLive,
   selectRecentRollupWindow,
 } from "./monitors"
 
@@ -130,17 +130,17 @@ beforeEach(() => {
   mockUnsafeBySql() // no raw minute rows, fall back to rollups
 })
 
-describe("getMonitorLive p95 and incidents", () => {
+describe("findMonitorLive p95 and incidents", () => {
   it("computes p95 from activation-filtered rollups, excluding a slow setup bucket", async () => {
     dbMock.select
-      .mockReturnValueOnce(selectChain([identity({})])) // getMonitorIdentity
+      .mockReturnValueOnce(selectChain([identity({})])) // findMonitorIdentity
       .mockReturnValueOnce(
         selectChain([PRE_ACTIVATION_ROLLUP, POST_ACTIVATION_ROLLUP])
       ) // rollups 15m
       .mockReturnValueOnce(selectChain([])) // incidents
       .mockReturnValueOnce(selectChain([{ acceptedAt: null }])) // accepted config version
 
-    const live = await getMonitorLive("site-home")
+    const live = await findMonitorLive("site-home")
 
     // Post-activation bucket alone lands in the <=100ms histogram bucket. The
     // slow pre-activation bucket would have pulled this to 10000ms unfiltered.
@@ -155,7 +155,7 @@ describe("getMonitorLive p95 and incidents", () => {
       .mockReturnValueOnce(selectChain([])) // rollups 15m
       .mockReturnValueOnce(selectChain([{ acceptedAt: null }])) // accepted config version
 
-    const live = await getMonitorLive("site-home")
+    const live = await findMonitorLive("site-home")
 
     expect(live!.latestIncident).toBeNull()
     expect(live!.recentIncidents).toEqual([])
@@ -178,7 +178,7 @@ describe("getMonitorLive p95 and incidents", () => {
       .mockReturnValueOnce(selectChain([ongoing])) // incidents
       .mockReturnValueOnce(selectChain([{ acceptedAt: null }])) // accepted config version
 
-    const live = await getMonitorLive("site-home")
+    const live = await findMonitorLive("site-home")
 
     expect(live!.latestIncident).not.toBeNull()
     expect(live!.latestIncident!.state).toBe("ONGOING")
@@ -186,7 +186,7 @@ describe("getMonitorLive p95 and incidents", () => {
   })
 })
 
-describe("getMonitorDetail latency and response chart", () => {
+describe("findMonitorDetail latency and response chart", () => {
   it("filters p95 and the response chart to activation, dropping the setup bucket", async () => {
     dbMock.select
       .mockReturnValueOnce(selectChain([identity({})])) // identity
@@ -198,7 +198,7 @@ describe("getMonitorDetail latency and response chart", () => {
       .mockReturnValueOnce(selectChain([])) // incidents
       .mockReturnValueOnce(selectChain([])) // accepted config
 
-    const detail = await getMonitorDetail("site-home")
+    const detail = await findMonitorDetail("site-home")
 
     expect(detail!.p95LatencyMs).toBe(100)
     // The response chart keeps only the post-activation point.
@@ -219,7 +219,7 @@ describe("getMonitorDetail latency and response chart", () => {
       .mockReturnValueOnce(selectChain([])) // accepted config (no incidents select)
     // recent raw checks + scheduler-derived raw availability both use sql.unsafe
 
-    const detail = await getMonitorDetail("site-home")
+    const detail = await findMonitorDetail("site-home")
 
     expect(detail!.latestIncident).toBeNull()
     expect(detail!.recentIncidents).toEqual([])
@@ -255,7 +255,7 @@ describe("recent checks activation cutoff", () => {
       .mockReturnValueOnce(selectChain([])) // incidents
       .mockReturnValueOnce(selectChain([])) // accepted config
 
-    const detail = await getMonitorDetail("site-home")
+    const detail = await findMonitorDetail("site-home")
 
     expect(detail!.recentChecks).toHaveLength(1)
     expect(detail!.recentChecks[0]).toMatchObject({
@@ -276,7 +276,7 @@ describe("recent checks activation cutoff", () => {
       .mockReturnValueOnce(selectChain([])) // incidents
       .mockReturnValueOnce(selectChain([])) // accepted config
 
-    const detail = await getMonitorDetail("site-home")
+    const detail = await findMonitorDetail("site-home")
 
     expect(detail!.recentChecks).toHaveLength(1)
     expect(detail!.recentChecks[0]).toMatchObject({
@@ -296,7 +296,7 @@ describe("recent checks activation cutoff", () => {
       .mockReturnValueOnce(selectChain([])) // rollups day
       .mockReturnValueOnce(selectChain([])) // accepted config (no incidents select)
 
-    const detail = await getMonitorDetail("site-home")
+    const detail = await findMonitorDetail("site-home")
 
     expect(detail!.recentChecks).toEqual([])
   })
@@ -311,7 +311,7 @@ describe("recent checks activation cutoff", () => {
       .mockReturnValueOnce(selectChain([])) // incidents
       .mockReturnValueOnce(selectChain([{ acceptedAt: null }])) // accepted config version
 
-    const live = await getMonitorLive("site-home")
+    const live = await findMonitorLive("site-home")
 
     expect(live!.recentChecks).toHaveLength(1)
     expect(live!.recentChecks[0]).toMatchObject({

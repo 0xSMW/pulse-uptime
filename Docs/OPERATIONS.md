@@ -112,13 +112,13 @@ Run migrations only through `DATABASE_URL_UNPOOLED`. Runtime functions use the p
 
 - Revoke API tokens from Settings or `/api/v1/tokens/{tokenId}`.
 - Revoke a CLI installation to invalidate every linked CLI session.
-- Revoke human sessions after a password change.
+- Password change revokes every human session including the current one and clears the session cookie so the operator must sign in again.
 - Rotate `API_TOKEN_HASH_KEY` or `DEVICE_AUTH_SECRET` only with an explicit credential invalidation plan.
 - Rotate `CRON_SECRET`, the Resend key, Neon credentials, and the Vercel API token in both Vercel and the provider.
 
 ## Recovering from admin lockout
 
-Changing the account email or password revokes every other dashboard session, and the email address is the sole login identifier — there is no reset-by-email flow. A mistyped email during an email change therefore locks the dashboard.
+Changing the account email revokes every other dashboard session. Changing the password revokes every human session including the current one and returns `reauthenticate: true` with a cleared session cookie. Concurrent email or password changes that lose the credential compare-and-swap return 409 ACCOUNT_CHANGED. The email address is the sole login identifier, and there is no reset-by-email flow. A mistyped email during an email change therefore locks the dashboard.
 
 Machine credentials are deliberately not revoked by these changes: existing API tokens and CLI sessions keep working, so `pulsectl` remains available while the dashboard is locked.
 

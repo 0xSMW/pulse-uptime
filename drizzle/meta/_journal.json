@@ -148,6 +148,20 @@
       "when": 1784569000000,
       "tag": "0020_dependency_discovered_scope_options",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1784622688285,
+      "tag": "0021_cynical_malcolm_colcord",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1784625219058,
+      "tag": "0022_destructive_config_change",
+      "breakpoints": true
     }
   ]
 }

@@ -1,17 +1,17 @@
-import type { MonitorState } from "@/lib/monitoring/types"
+import type { VisibleMonitorState } from "@/lib/monitoring/types"
 import { cn } from "@/lib/utils"
 
-export type { MonitorState }
+export type { VisibleMonitorState }
 
-interface StatusDotProps {
-  state: MonitorState
+export interface StatusDotProps {
+  state: VisibleMonitorState
   size?: "sm" | "md"
   className?: string
   "aria-label"?: string
   "aria-hidden"?: boolean
 }
 
-const stateStyles: Record<MonitorState, string> = {
+const stateStyles: Record<VisibleMonitorState, string> = {
   UP: "bg-[var(--up)] text-[var(--up)]",
   VERIFYING_DOWN:
     "status-dot-pulse bg-[var(--verifying)] text-[var(--verifying)]",
@@ -22,7 +22,7 @@ const stateStyles: Record<MonitorState, string> = {
   PAUSED: "bg-[var(--neutral-state)] text-[var(--neutral-state)]",
 }
 
-const stateLabels: Record<MonitorState, string> = {
+const stateLabels: Record<VisibleMonitorState, string> = {
   UP: "Up",
   VERIFYING_DOWN: "Verifying",
   VERIFYING_UP: "Verifying",

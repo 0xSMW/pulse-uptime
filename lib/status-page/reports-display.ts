@@ -1,3 +1,9 @@
+import type {
+  ReportImpact,
+  ReportType,
+  ReportUpdateStatus,
+} from "@/lib/status-reports/domain"
+
 /**
  * Pure display helpers for public status reports. Like display.ts these
  * carry no server-only marker: deterministic functions shared by the public
@@ -5,21 +11,11 @@
  * of PublicStatusReport in lib/api/status-reports.ts (string timestamps).
  */
 
-export type ReportImpact = "down" | "degraded" | "maintenance"
-export type ReportKind = "incident" | "maintenance"
-export type ReportUpdateStatus =
-  | "investigating"
-  | "identified"
-  | "monitoring"
-  | "resolved"
-  | "scheduled"
-  | "in_progress"
-  | "completed"
 export type ReportPhase = "ongoing" | "upcoming" | "window_ended" | "resolved"
 
 export interface PublicReportEntry {
   id: string
-  type: ReportKind
+  type: ReportType
   title: string
   startsAt: string
   endsAt: string | null
@@ -47,16 +43,6 @@ export interface PublicReportsView {
   upcoming: PublicReportEntry[]
   windowEnded: PublicReportEntry[]
   resolved: PublicReportEntry[]
-}
-
-export const reportStatusLabels: Record<ReportUpdateStatus, string> = {
-  investigating: "Investigating",
-  identified: "Identified",
-  monitoring: "Monitoring",
-  resolved: "Resolved",
-  scheduled: "Scheduled",
-  in_progress: "In progress",
-  completed: "Completed",
 }
 
 export const reportImpactLabels: Record<ReportImpact, string> = {
@@ -233,7 +219,7 @@ export function monitorReportAnnotations(
  */
 export function publicReportPhase(
   report: {
-    type: ReportKind
+    type: ReportType
     startsAt: string
     endsAt: string | null
     resolvedAt: string | null

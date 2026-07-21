@@ -4,6 +4,14 @@ import argon2 from "argon2"
 export const SESSION_COOKIE_NAME = "__Host-pulse_session"
 const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000
 
+/**
+ * Valid Argon2id digest used only to equalize login verify cost when the
+ * supplied email does not match an account. Not a real credential.
+ * Generated with argon2id m=65536,t=3,p=4 against a fixed dummy password.
+ */
+export const LOGIN_DUMMY_PASSWORD_DIGEST =
+  "$argon2id$v=19$m=65536,t=3,p=4$QKFnFuu/HvmIeMT0WNYg8g$C8OcnKyLcqkw3geNNivjLlhyQPoriGkK5EL1OAYZTqs"
+
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase()
 }

@@ -22,6 +22,49 @@ export function formatLatency(value: number | null): string {
   return value === null ? "—" : `${Math.round(value)} ms`
 }
 
+// Short date-time in the viewer's zone, e.g. "Jul 20, 14:30".
+export function formatTimestamp(value: string, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone,
+  }).format(new Date(value))
+}
+
+// Calendar date in the viewer's zone, e.g. "Jul 20, 2026". Unparseable
+// input renders as a placeholder dash rather than throwing.
+export function formatCalendarDate(value: string, timeZone: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.valueOf())) {
+    return "—"
+  }
+  return new Intl.DateTimeFormat("en-US", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone,
+  }).format(date)
+}
+
+// Same calendar day in the DISPLAY timezone, not UTC. Two instants can share
+// a UTC date yet fall on different local days, and vice versa.
+export function sameDayInZone(
+  a: Date | string,
+  b: Date | string,
+  timeZone = "UTC"
+): boolean {
+  const day = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+  return day.format(new Date(a)) === day.format(new Date(b))
+}
+
 export function formatDuration(totalSeconds: number): string {
   const seconds = Math.max(0, Math.floor(totalSeconds))
   if (seconds < 60) {
@@ -68,6 +111,66 @@ export function formatBucketTimeRange(
   return `${dateOf(start)} ${timeOf(start)} to ${dateOf(end)} ${timeOf(end)}`
 }
 
+// Calendar day count of value in the given zone, expressed as whole days since
+// the Unix epoch. en-CA renders the wall-clock date as YYYY-MM-DD in the zone,
+// so a check at 23:50 Bangkok time and one at 00:10 the next Bangkok morning
+// land on different day numbers even though they are twenty minutes apart in
+// UTC. The projected parts build a UTC midnight, so the difference between two
+// day numbers is a plain calendar-day count immune to daylight saving.
+function zonedDayNumber(value: Date, timeZone: string): number {
+  const [year, month, day] = value
+    .toLocaleDateString("en-CA", { timeZone })
+    .split("-")
+  return Math.floor(
+    Date.UTC(Number(year), Number(month) - 1, Number(day)) / 86_400_000
+  )
+}
+
+// Human, calendar-relative label for the recent incidents and checks tables.
+// Calendar days are compared in the viewer zone, never in UTC, so the boundary
+// is the viewer's midnight. Same day reads "Today at HH:MM", the prior day
+// "Yesterday at HH:MM", the rest of the past week the weekday with its time,
+// the week before that "Last week", and anything older the absolute date with
+// the year only when it differs from now.
+export function formatRelativeDay(
+  value: Date,
+  now = new Date(),
+  timeZone = "UTC"
+): string {
+  const time = value.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone,
+  })
+  const days = zonedDayNumber(now, timeZone) - zonedDayNumber(value, timeZone)
+  if (days <= 0) {
+    return `Today at ${time}`
+  }
+  if (days === 1) {
+    return `Yesterday at ${time}`
+  }
+  if (days < 7) {
+    const weekday = value.toLocaleDateString("en-US", {
+      weekday: "long",
+      timeZone,
+    })
+    return `${weekday} at ${time}`
+  }
+  if (days < 14) {
+    return "Last week"
+  }
+  const sameYear =
+    value.toLocaleDateString("en-US", { year: "numeric", timeZone }) ===
+    now.toLocaleDateString("en-US", { year: "numeric", timeZone })
+  return value.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: sameYear ? undefined : "numeric",
+    timeZone,
+  })
+}
+
 export function formatRelativeTime(
   value: Date,
   now = new Date(),
@@ -84,8 +187,7 @@ export function formatRelativeTime(
     return `${Math.floor(seconds / 60)}m ago`
   }
 
-  const dayOf = (date: Date) => date.toLocaleDateString("en-CA", { timeZone })
-  if (dayOf(value) === dayOf(now)) {
+  if (sameDayInZone(value, now, timeZone)) {
     return value.toLocaleTimeString("en-US", {
       hour: "2-digit",
       minute: "2-digit",

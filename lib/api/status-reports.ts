@@ -1,5 +1,6 @@
 import "server-only"
 
+import { Buffer } from "node:buffer"
 import {
   and,
   count,
@@ -42,7 +43,7 @@ import {
   requireStatusReport,
 } from "@/lib/status-reports/queries"
 
-import { decodeCursor, encodeCursor } from "./pagination"
+import { decodeTimestampUuidCursor, encodeCursor } from "./pagination"
 
 // The vocabulary lives in the client-safe domain module. The two status arrays
 // stay exported from here for the callers that import them off this module.
@@ -135,11 +136,22 @@ export interface StatusReportData {
   resolvedAt: string | null
   originIncidentId: string | null
   currentStatus: StatusReportUpdateStatus
+  /**
+   * First page of the timeline, newest first by (publishedAt, createdAt, id).
+   * Older pages load via GET .../updates with updatesNextCursor.
+   */
   updates: StatusReportUpdateData[]
+  /** Total updates on the report, including those past the first page. */
+  updatesCount: number
+  /** Opaque cursor for the next older page, or null when updates is complete. */
+  updatesNextCursor: string | null
   affected: AffectedServiceData[]
   createdAt: string
   updatedAt: string
 }
+
+/** First page size on report detail and mutation responses. */
+export const DETAIL_UPDATES_PAGE_SIZE = 50
 
 /**
  * List-shaped row: everything a report list needs without the
@@ -207,7 +219,9 @@ export interface StatusReportsStore {
     limit: number
   }) => Promise<StatusReportRow[]>
   getReportDetails: (ids: readonly string[]) => Promise<{
+    /** First DETAIL_UPDATES_PAGE_SIZE updates per report, newest first order. */
     updates: StatusReportUpdateRow[]
+    counts: Array<{ reportId: string; count: number }>
     affected: StatusReportAffectedRow[]
   }>
   /**
@@ -223,10 +237,33 @@ export interface StatusReportsStore {
     }>
     affected: StatusReportAffectedRow[]
   }>
+  /**
+   * Keyset page of one report's updates, descending (publishedAt, createdAt,
+   * id). Callers request limit+1 to detect a following page. Cursor is the
+   * last row of the prior page (exclusive upper bound in descending order).
+   */
+  listReportUpdates: (input: {
+    reportId: string
+    cursor: { publishedAt: Date; createdAt: Date; id: string } | null
+    limit: number
+  }) => Promise<StatusReportUpdateRow[]>
+  /**
+   * Locked report update: SELECT FOR UPDATE, merge patch against the locked
+   * row, validate the effective maintenance window, resolve affected monitor
+   * snapshots inside the same transaction, then write. Throws StatusReportError
+   * for window/type/monitor validation failures so concurrent start/end
+   * patches serialize to one invalid loser and one valid final row.
+   */
   updateReport: (input: {
     id: string
     patch: { title?: string; startsAt?: Date; endsAt?: Date | null }
-    affected: StatusReportAffectedRow[] | undefined
+    /**
+     * When defined, full replacement. Resolved against the live registry
+     * inside the report lock (not from a pre-transaction snapshot).
+     */
+    affectedEntries:
+      | ReadonlyArray<{ monitorId: string; impact: StatusReportImpact }>
+      | undefined
     now: Date
   }) => Promise<StatusReportRow | null>
   deleteReport: (id: string) => Promise<boolean>
@@ -590,14 +627,160 @@ function serializeAffected(
     }))
 }
 
+/**
+ * Local triple-key cursor for update timelines ordered by
+ * (publishedAt, createdAt, id). CURSOR-01 covers timestamp+UUID pairs; multi-sort
+ * keysets stay local until INT unifies them.
+ */
+interface ReportUpdateCursorValue {
+  publishedAt: string
+  createdAt: string
+  id: string
+}
+
+// Matches Date.prototype.toISOString() so wire cursors stay stable.
+const UPDATE_CURSOR_TS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
+
+export function encodeReportUpdateCursor(
+  value: ReportUpdateCursorValue
+): string {
+  return Buffer.from(JSON.stringify(value), "utf8").toString("base64url")
+}
+
+export function decodeReportUpdateCursor(
+  value: string | null
+): { ok: true; cursor: ReportUpdateCursorValue | null } | { ok: false } {
+  if (value === null) {
+    return { ok: true, cursor: null }
+  }
+  if (value === "") {
+    return { ok: false }
+  }
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(value, "base64url").toString("utf8")
+    ) as unknown
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ok: false }
+    }
+    const record = parsed as Partial<ReportUpdateCursorValue>
+    if (
+      typeof record.publishedAt !== "string" ||
+      typeof record.createdAt !== "string" ||
+      typeof record.id !== "string"
+    ) {
+      return { ok: false }
+    }
+    if (
+      !(
+        UPDATE_CURSOR_TS.test(record.publishedAt) &&
+        UPDATE_CURSOR_TS.test(record.createdAt) &&
+        isUuid(record.id)
+      )
+    ) {
+      return { ok: false }
+    }
+    const publishedAt = new Date(record.publishedAt)
+    const createdAt = new Date(record.createdAt)
+    if (
+      Number.isNaN(publishedAt.getTime()) ||
+      Number.isNaN(createdAt.getTime()) ||
+      publishedAt.toISOString() !== record.publishedAt ||
+      createdAt.toISOString() !== record.createdAt
+    ) {
+      return { ok: false }
+    }
+    return {
+      ok: true,
+      cursor: {
+        publishedAt: record.publishedAt,
+        createdAt: record.createdAt,
+        id: record.id,
+      },
+    }
+  } catch {
+    return { ok: false }
+  }
+}
+
+function serializeUpdateRow(
+  update: StatusReportUpdateRow
+): StatusReportUpdateData {
+  return {
+    id: update.id,
+    status: update.status,
+    markdown: update.markdown,
+    publishedAt: update.publishedAt.toISOString(),
+    createdAt: update.createdAt.toISOString(),
+  }
+}
+
+/**
+ * Pages a full in-memory update set for detail/mutation responses: newest
+ * DETAIL_UPDATES_PAGE_SIZE rows plus truncation metadata.
+ */
+function pageUpdatesForDetail(updates: readonly StatusReportUpdateRow[]): {
+  page: StatusReportUpdateRow[]
+  updatesCount: number
+  updatesNextCursor: string | null
+} {
+  const newestFirst = [...updates].sort((left, right) =>
+    compareReportUpdates(right, left)
+  )
+  const page = newestFirst.slice(0, DETAIL_UPDATES_PAGE_SIZE)
+  const last = page.at(-1)
+  return {
+    page,
+    updatesCount: newestFirst.length,
+    updatesNextCursor:
+      newestFirst.length > DETAIL_UPDATES_PAGE_SIZE && last
+        ? encodeReportUpdateCursor({
+            publishedAt: last.publishedAt.toISOString(),
+            createdAt: last.createdAt.toISOString(),
+            id: last.id,
+          })
+        : null,
+  }
+}
+
+function nextCursorFromPage(
+  page: readonly StatusReportUpdateRow[],
+  updatesCount: number
+): string | null {
+  // Sort first: getReportDetails does not order rows within a report.
+  const newestFirst = [...page].sort((left, right) =>
+    compareReportUpdates(right, left)
+  )
+  const last = newestFirst.at(-1)
+  if (!(last && updatesCount > newestFirst.length)) {
+    return null
+  }
+  return encodeReportUpdateCursor({
+    publishedAt: last.publishedAt.toISOString(),
+    createdAt: last.createdAt.toISOString(),
+    id: last.id,
+  })
+}
+
 export function serializeReport(
   report: StatusReportRow,
   updates: readonly StatusReportUpdateRow[],
-  affected: readonly StatusReportAffectedRow[]
+  affected: readonly StatusReportAffectedRow[],
+  truncation?: { updatesCount: number; updatesNextCursor: string | null }
 ): StatusReportData {
   const newestFirst = [...updates].sort((left, right) =>
     compareReportUpdates(right, left)
   )
+  // When the caller already paged (detail load, listReportUpdates), trust
+  // their count/cursor. Otherwise page a full in-memory set for mutations
+  // that recompute against every update.
+  const paged = truncation
+    ? {
+        page: newestFirst,
+        updatesCount: truncation.updatesCount,
+        updatesNextCursor: truncation.updatesNextCursor,
+      }
+    : pageUpdatesForDetail(newestFirst)
   return {
     id: report.id,
     type: report.type,
@@ -608,15 +791,11 @@ export function serializeReport(
     resolvedAt: report.resolvedAt?.toISOString() ?? null,
     originIncidentId: report.originIncidentId,
     currentStatus:
-      newestFirst[0]?.status ??
+      paged.page[0]?.status ??
       (report.type === "incident" ? "investigating" : "scheduled"),
-    updates: newestFirst.map((update) => ({
-      id: update.id,
-      status: update.status,
-      markdown: update.markdown,
-      publishedAt: update.publishedAt.toISOString(),
-      createdAt: update.createdAt.toISOString(),
-    })),
+    updates: paged.page.map(serializeUpdateRow),
+    updatesCount: paged.updatesCount,
+    updatesNextCursor: paged.updatesNextCursor,
     affected: serializeAffected(affected),
     createdAt: report.createdAt.toISOString(),
     updatedAt: report.updatedAt.toISOString(),
@@ -660,8 +839,16 @@ async function loadReportData(
   store: StatusReportsStore,
   report: StatusReportRow
 ): Promise<StatusReportData> {
-  const { updates, affected } = await store.getReportDetails([report.id])
-  return serializeReport(report, updates, affected)
+  const { updates, counts, affected } = await store.getReportDetails([
+    report.id,
+  ])
+  const updatesCount =
+    counts.find((entry) => entry.reportId === report.id)?.count ??
+    updates.length
+  return serializeReport(report, updates, affected, {
+    updatesCount,
+    updatesNextCursor: nextCursorFromPage(updates, updatesCount),
+  })
 }
 
 export function parseStatusReportListQuery(input: {
@@ -687,19 +874,13 @@ export function parseStatusReportListQuery(input: {
       "Type must be all, incident, or maintenance"
     )
   }
-  let cursor: { createdAt: Date; id: string } | null = null
-  if (input.cursor) {
-    const decoded = decodeCursor(input.cursor)
-    const createdAt = decoded ? new Date(decoded.sort) : null
-    if (
-      !(decoded && createdAt) ||
-      Number.isNaN(createdAt.getTime()) ||
-      !isUuid(decoded.id)
-    ) {
-      throw new StatusReportError("INVALID_CURSOR", "Cursor is invalid")
-    }
-    cursor = { createdAt, id: decoded.id }
+  const decoded = decodeTimestampUuidCursor(input.cursor)
+  if (!decoded.ok) {
+    throw new StatusReportError("INVALID_CURSOR", "Cursor is invalid")
   }
+  const cursor: { createdAt: Date; id: string } | null = decoded.cursor
+    ? { createdAt: decoded.cursor.sort, id: decoded.cursor.id }
+    : null
   return {
     state: state as StatusReportListState,
     type: type as StatusReportListType,
@@ -719,19 +900,30 @@ export async function listStatusReports(
   const store = dependencies.store ?? databaseStatusReportsStore
   const rows = await store.listReports(input)
   const page = rows.slice(0, input.limit)
-  const { updates, affected } =
+  const { updates, counts, affected } =
     page.length > 0
       ? await store.getReportDetails(page.map((row) => row.id))
-      : { updates: [], affected: [] }
+      : { updates: [], counts: [], affected: [] }
+  const countByReport = new Map(
+    counts.map((entry) => [entry.reportId, entry.count])
+  )
   const last = page.at(-1)
   return {
-    data: page.map((report) =>
-      serializeReport(
-        report,
-        updates.filter((update) => update.reportId === report.id),
-        affected.filter((row) => row.reportId === report.id)
+    data: page.map((report) => {
+      const reportUpdates = updates.filter(
+        (update) => update.reportId === report.id
       )
-    ),
+      const updatesCount = countByReport.get(report.id) ?? reportUpdates.length
+      return serializeReport(
+        report,
+        reportUpdates,
+        affected.filter((row) => row.reportId === report.id),
+        {
+          updatesCount,
+          updatesNextCursor: nextCursorFromPage(reportUpdates, updatesCount),
+        }
+      )
+    }),
     nextCursor:
       rows.length > input.limit && last
         ? encodeCursor({ sort: last.createdAt.toISOString(), id: last.id })
@@ -867,48 +1059,10 @@ export async function updateStatusReport(
   const store = dependencies.store ?? databaseStatusReportsStore
   const now = dependencies.now?.() ?? new Date()
   const parsed = parseOrThrow(patchSchema, input)
-  const existing = await store.getReport(id)
-  if (!existing) {
-    throw new StatusReportError(
-      "REPORT_NOT_FOUND",
-      "Status report was not found"
-    )
-  }
-  // A patch can't change `type` (it's not a patchable field), so the
-  // existing report's type governs both checks below. Only the CALLER'S
-  // own endsAt is checked (not the merged/effective value): a title- or
-  // affected-only patch must not start failing because of pre-existing
-  // data, only a patch that itself tries to add a window to an incident.
-  assertNoIncidentWindow(existing.type, parsed.endsAt)
-  if (parsed.affected !== undefined) {
-    assertAffectedMatchesType(existing.type, parsed.affected)
-  }
-
-  // A partial patch touching only one bound must still validate against the
-  // EFFECTIVE other bound (the existing report's, when the patch leaves it
-  // untouched), not just the bound(s) the caller happened to send.
-  const effectiveStartsAt = parsed.startsAt ?? existing.startsAt
-  const effectiveEndsAt =
-    parsed.endsAt === undefined ? existing.endsAt : parsed.endsAt
-  if (
-    effectiveEndsAt &&
-    effectiveEndsAt.getTime() <= effectiveStartsAt.getTime()
-  ) {
-    throw new StatusReportError(
-      "VALIDATION_ERROR",
-      "endsAt must be after startsAt",
-      {
-        startsAt: effectiveStartsAt.toISOString(),
-        endsAt: effectiveEndsAt.toISOString(),
-      }
-    )
-  }
-
-  // Affected is a FULL REPLACEMENT with fresh registry snapshots.
-  const affected =
-    parsed.affected === undefined
-      ? undefined
-      : await snapshotAffected(store, id, parsed.affected)
+  // Window invariants, type/impact checks, and affected monitor resolution
+  // all run inside the store's SELECT FOR UPDATE transaction against the
+  // locked row. An earlier unlocked getReport is not authority for the
+  // effective startsAt/endsAt merge (concurrent bound patches would race).
   const patch: { title?: string; startsAt?: Date; endsAt?: Date | null } = {}
   if (parsed.title !== undefined) {
     patch.title = parsed.title
@@ -919,7 +1073,12 @@ export async function updateStatusReport(
   if (parsed.endsAt !== undefined) {
     patch.endsAt = parsed.endsAt
   }
-  const report = await store.updateReport({ id, patch, affected, now })
+  const report = await store.updateReport({
+    id,
+    patch,
+    affectedEntries: parsed.affected,
+    now,
+  })
   if (!report) {
     throw new StatusReportError(
       "REPORT_NOT_FOUND",
@@ -927,6 +1086,54 @@ export async function updateStatusReport(
     )
   }
   return loadReportData(store, report)
+}
+
+/**
+ * Cursor-paginated timeline for one report. Descending (publishedAt, createdAt,
+ * id), default limit 50, max 100 via pageLimit at the route.
+ */
+export async function listStatusReportUpdates(
+  reportId: string,
+  input: { cursor: string | null; limit: number },
+  dependencies: StatusReportsDependencies = {}
+): Promise<{ data: StatusReportUpdateData[]; nextCursor: string | null }> {
+  const store = dependencies.store ?? databaseStatusReportsStore
+  const existing = await store.getReport(reportId)
+  if (!existing) {
+    throw new StatusReportError(
+      "REPORT_NOT_FOUND",
+      "Status report was not found"
+    )
+  }
+  const decoded = decodeReportUpdateCursor(input.cursor)
+  if (!decoded.ok) {
+    throw new StatusReportError("INVALID_CURSOR", "Cursor is invalid")
+  }
+  const cursor = decoded.cursor
+    ? {
+        publishedAt: new Date(decoded.cursor.publishedAt),
+        createdAt: new Date(decoded.cursor.createdAt),
+        id: decoded.cursor.id,
+      }
+    : null
+  const rows = await store.listReportUpdates({
+    reportId,
+    cursor,
+    limit: input.limit + 1,
+  })
+  const page = rows.slice(0, input.limit)
+  const last = page.at(-1)
+  return {
+    data: page.map(serializeUpdateRow),
+    nextCursor:
+      rows.length > input.limit && last
+        ? encodeReportUpdateCursor({
+            publishedAt: last.publishedAt.toISOString(),
+            createdAt: last.createdAt.toISOString(),
+            id: last.id,
+          })
+        : null,
+  }
 }
 
 export async function deleteStatusReport(
@@ -1269,9 +1476,6 @@ export function classifyPublicReport(
 // (imported from lib/ids/uuid) gates every id read below. Mirrors
 // lib/api/images.ts.
 
-/** Detail reads keep at most this many (newest) updates per report. */
-const PER_REPORT_UPDATE_LIMIT = 500
-
 const reportSelection = {
   id: statusReports.id,
   type: statusReports.type,
@@ -1421,12 +1625,13 @@ export function createDatabaseStatusReportsStore(
 
     async getReportDetails(ids) {
       if (ids.length === 0) {
-        return { updates: [], affected: [] }
+        return { updates: [], counts: [], affected: [] }
       }
       // Per-report bound: a window rank partitioned by report keeps the newest
-      // PER_REPORT_UPDATE_LIMIT updates for EVERY requested report, so one
+      // DETAIL_UPDATES_PAGE_SIZE updates for EVERY requested report, so one
       // chatty report can never starve the others out of a shared global cap.
-      // No outer ORDER BY, serializeReport re-sorts per report in JS anyway.
+      // Older pages load via listReportUpdates. No outer ORDER BY;
+      // serializeReport re-sorts per report in JS anyway.
       const ranked = handle.$with("ranked_updates").as(
         handle
           .select({
@@ -1439,7 +1644,7 @@ export function createDatabaseStatusReportsStore(
           .from(statusReportUpdates)
           .where(inArray(statusReportUpdates.reportId, [...ids]))
       )
-      const [updates, affected] = await Promise.all([
+      const [updates, counts, affected] = await Promise.all([
         handle
           .with(ranked)
           .select({
@@ -1452,7 +1657,12 @@ export function createDatabaseStatusReportsStore(
             updatedAt: ranked.updatedAt,
           })
           .from(ranked)
-          .where(lte(ranked.updateRank, PER_REPORT_UPDATE_LIMIT)),
+          .where(lte(ranked.updateRank, DETAIL_UPDATES_PAGE_SIZE)),
+        handle
+          .select({ reportId: statusReportUpdates.reportId, count: count() })
+          .from(statusReportUpdates)
+          .where(inArray(statusReportUpdates.reportId, [...ids]))
+          .groupBy(statusReportUpdates.reportId),
         // Bound derived from the requested reports, not an arbitrary constant:
         // each report can hold at most MAX_AFFECTED_PER_REPORT rows (enforced at
         // write time), so this cap can never truncate a page of reports that
@@ -1463,7 +1673,41 @@ export function createDatabaseStatusReportsStore(
           .where(inArray(statusReportAffected.reportId, [...ids]))
           .limit(ids.length * MAX_AFFECTED_PER_REPORT),
       ])
-      return { updates, affected }
+      return { updates, counts, affected }
+    },
+
+    async listReportUpdates({ reportId, cursor, limit }) {
+      if (!isUuid(reportId)) {
+        return []
+      }
+      const conditions: SQL[] = [eq(statusReportUpdates.reportId, reportId)]
+      if (cursor) {
+        // Exclusive upper bound in descending (publishedAt, createdAt, id).
+        conditions.push(
+          or(
+            lt(statusReportUpdates.publishedAt, cursor.publishedAt),
+            and(
+              eq(statusReportUpdates.publishedAt, cursor.publishedAt),
+              lt(statusReportUpdates.createdAt, cursor.createdAt)
+            ),
+            and(
+              eq(statusReportUpdates.publishedAt, cursor.publishedAt),
+              eq(statusReportUpdates.createdAt, cursor.createdAt),
+              lt(statusReportUpdates.id, cursor.id)
+            )
+          )!
+        )
+      }
+      return handle
+        .select(updateSelection)
+        .from(statusReportUpdates)
+        .where(and(...conditions))
+        .orderBy(
+          desc(statusReportUpdates.publishedAt),
+          desc(statusReportUpdates.createdAt),
+          desc(statusReportUpdates.id)
+        )
+        .limit(limit)
     },
 
     async getListDetails(ids) {
@@ -1499,8 +1743,87 @@ export function createDatabaseStatusReportsStore(
       return { counts, latest, affected }
     },
 
-    async updateReport({ id, patch, affected, now }) {
+    async updateReport({ id, patch, affectedEntries, now }) {
+      if (!isUuid(id)) {
+        return null
+      }
+      // SELECT FOR UPDATE so concurrent start/end patches serialize: each
+      // merges against the locked row, validates the effective window, then
+      // writes. An unlocked pre-read cannot be authority for the merge.
       return handle.transaction(async (tx) => {
+        const [locked] = await tx
+          .select(reportSelection)
+          .from(statusReports)
+          .where(eq(statusReports.id, id))
+          .for("update")
+        if (!locked) {
+          return null
+        }
+        // Only the CALLER'S endsAt is checked for the incident-window ban: a
+        // title-only patch must not fail on pre-existing data.
+        assertNoIncidentWindow(locked.type, patch.endsAt)
+        if (affectedEntries !== undefined) {
+          assertAffectedMatchesType(locked.type, affectedEntries)
+        }
+        const effectiveStartsAt = patch.startsAt ?? locked.startsAt
+        const effectiveEndsAt =
+          patch.endsAt === undefined ? locked.endsAt : patch.endsAt
+        if (
+          effectiveEndsAt &&
+          effectiveEndsAt.getTime() <= effectiveStartsAt.getTime()
+        ) {
+          throw new StatusReportError(
+            "VALIDATION_ERROR",
+            "endsAt must be after startsAt",
+            {
+              startsAt: effectiveStartsAt.toISOString(),
+              endsAt: effectiveEndsAt.toISOString(),
+            }
+          )
+        }
+
+        let resolvedAffected: StatusReportAffectedRow[] | undefined
+        if (affectedEntries !== undefined) {
+          // Resolve monitors inside the same transaction as the window merge.
+          if (affectedEntries.length === 0) {
+            resolvedAffected = []
+          } else {
+            const monitors = await tx
+              .select({
+                id: monitorRegistry.id,
+                name: monitorRegistry.name,
+                groupName: monitorRegistry.groupName,
+              })
+              .from(monitorRegistry)
+              .where(
+                inArray(
+                  monitorRegistry.id,
+                  affectedEntries.map((entry) => entry.monitorId)
+                )
+              )
+            const byId = new Map(
+              monitors.map((monitor) => [monitor.id, monitor])
+            )
+            resolvedAffected = affectedEntries.map((entry) => {
+              const monitor = byId.get(entry.monitorId)
+              if (!monitor) {
+                throw new StatusReportError(
+                  "VALIDATION_ERROR",
+                  `Affected monitor "${entry.monitorId}" was not found`,
+                  { monitorId: entry.monitorId }
+                )
+              }
+              return {
+                reportId: id,
+                monitorId: monitor.id,
+                monitorName: monitor.name,
+                groupName: monitor.groupName,
+                impact: entry.impact,
+              }
+            })
+          }
+        }
+
         const [row] = await tx
           .update(statusReports)
           .set({ ...patch, updatedAt: now })
@@ -1509,12 +1832,12 @@ export function createDatabaseStatusReportsStore(
         if (!row) {
           return null
         }
-        if (affected !== undefined) {
+        if (resolvedAffected !== undefined) {
           await tx
             .delete(statusReportAffected)
             .where(eq(statusReportAffected.reportId, id))
-          if (affected.length > 0) {
-            await tx.insert(statusReportAffected).values(affected)
+          if (resolvedAffected.length > 0) {
+            await tx.insert(statusReportAffected).values(resolvedAffected)
           }
         }
         return row

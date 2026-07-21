@@ -49,11 +49,8 @@ export interface ConfigurationPlan {
   planHash: string
   targetConfig: DeclarativeConfig
   diff: ConfigurationDiff
-  destructiveApprovalRequired: boolean
+  destructiveConsentRequired: boolean
   destructiveChange: DestructiveChangeEvaluation
-  // Authoritative allowDelete requirement. Archiving any monitor or any
-  // tripwire-flagged destructive change both demand explicit allowDelete.
-  allowDeleteRequired: boolean
 }
 
 export interface PlanOptions {
@@ -237,8 +234,8 @@ export function createConfigurationPlan(
     planHash,
     targetConfig,
     diff,
-    destructiveApprovalRequired: destructiveChange.required,
+    destructiveConsentRequired:
+      diff.archives.length > 0 || destructiveChange.required,
     destructiveChange,
-    allowDeleteRequired: diff.archives.length > 0 || destructiveChange.required,
   }
 }

@@ -2,11 +2,12 @@ import type { Metadata } from "next"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 
+import { PublicReportUpdates } from "@/components/status-page/public-report-updates"
 import { StatusUnavailableNotice } from "@/components/status-page/status-unavailable-notice"
-import { RestrictedMarkdown } from "@/lib/markdown/restricted-markdown"
+import { renderRestrictedMarkdown } from "@/lib/markdown/restricted"
 import { formatDuration } from "@/lib/reporting/format"
 import {
-  getPublicReportDetail,
+  findPublicReport,
   getStatusFaviconDataUri,
   getStatusPageDisplayConfig,
 } from "@/lib/reporting/queries/status"
@@ -20,8 +21,8 @@ import {
   type ReportPhase,
   reportDurationSeconds,
   reportImpactLabels,
-  reportStatusLabels,
 } from "@/lib/status-page/reports-display"
+import { REPORT_STATUS_LABELS } from "@/lib/status-reports/domain"
 
 // The page people refresh compulsively mid-incident: ISR at the same
 // cadence as /status, plus the revalidatePath calls on every report mutation.
@@ -38,8 +39,8 @@ export async function generateMetadata({
   // Report lookup first: unknown ids and drafts 404 without paying for the
   // config read or the favicon bytes. A database-unavailable read is neither
   // of those. It falls through to the default page name below.
-  const report = await getPublicReportDetail(reportId)
-  if (report === null) {
+  const result = await findPublicReport(reportId)
+  if (result.status === "not_found") {
     notFound()
   }
   const [config, favicon] = await Promise.all([
@@ -49,9 +50,9 @@ export async function generateMetadata({
   return {
     title: {
       absolute:
-        report === "unavailable"
+        result.status === "unavailable"
           ? config.name
-          : `${report.title} — ${config.name}`,
+          : `${result.report.title} — ${config.name}`,
     },
     robots: { index: true, follow: true },
     ...(favicon ? { icons: { icon: favicon } } : {}),
@@ -67,13 +68,13 @@ const phaseLabels: Record<ReportPhase, string> = {
 
 export default async function PublicReportPage({ params }: ReportPageProps) {
   const { reportId } = await params
-  const report = await getPublicReportDetail(reportId)
-  if (report === null) {
+  const result = await findPublicReport(reportId)
+  if (result.status === "not_found") {
     notFound()
   }
   const config = await getStatusPageDisplayConfig()
 
-  if (report === "unavailable") {
+  if (result.status === "unavailable") {
     return (
       <main className="mx-auto w-full max-w-[720px] px-4 pt-12 pb-16 sm:px-6">
         <Link
@@ -90,6 +91,7 @@ export default async function PublicReportPage({ params }: ReportPageProps) {
     )
   }
 
+  const report = result.report
   const zone = timezoneDisplay(config.timezone)
   const phase = publicReportPhase(report, new Date())
   const typeLabel = report.type === "maintenance" ? "Maintenance" : "Incident"
@@ -116,7 +118,7 @@ export default async function PublicReportPage({ params }: ReportPageProps) {
         <p className="font-medium text-[var(--fg-faint)] text-xs uppercase tracking-wide">
           {typeLabel} ·{" "}
           {phase === "ongoing"
-            ? reportStatusLabels[report.currentStatus]
+            ? REPORT_STATUS_LABELS[report.currentStatus]
             : phaseLabels[phase]}
         </p>
         <h1 className="font-semibold text-base tracking-[-0.32px]">
@@ -182,40 +184,18 @@ export default async function PublicReportPage({ params }: ReportPageProps) {
         </section>
       ) : null}
 
-      <section aria-labelledby="updates-heading" className="mt-6">
-        <h2 className="font-semibold text-sm" id="updates-heading">
-          Updates
-        </h2>
-        <ol className="mt-4 space-y-5 border-[var(--border)] border-l pl-5">
-          {report.updates.map((update) => (
-            <li className="relative" key={update.id}>
-              <span
-                aria-hidden
-                className="absolute top-1.5 -left-[23px] size-1.5 rounded-full bg-[var(--border-strong)]"
-              />
-              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                <h3 className="font-semibold text-[13px]">
-                  {reportStatusLabels[update.status]}
-                </h3>
-                <time
-                  className="font-data text-[var(--fg-faint)] text-xs"
-                  dateTime={update.publishedAt}
-                >
-                  {formatStatusTimestamp(update.publishedAt, zone.timeZone)}{" "}
-                  {timezoneOffsetLabel(
-                    config.timezone,
-                    new Date(update.publishedAt)
-                  )}
-                </time>
-              </div>
-              <RestrictedMarkdown
-                className="mt-1.5 space-y-2 text-[13px] text-[var(--fg-muted)] leading-[19px] [&_a]:underline [&_a]:underline-offset-2 [&_code]:font-data [&_code]:text-xs"
-                markdown={update.markdown}
-              />
-            </li>
-          ))}
-        </ol>
-      </section>
+      <PublicReportUpdates
+        initialNextCursor={report.updatesNextCursor}
+        initialUpdates={report.updates.map((update) => ({
+          id: update.id,
+          status: update.status,
+          html: renderRestrictedMarkdown(update.markdown),
+          publishedAt: update.publishedAt,
+          createdAt: update.createdAt,
+        }))}
+        reportId={report.id}
+        timezone={zone.timeZone}
+      />
     </main>
   )
 }

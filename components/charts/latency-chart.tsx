@@ -11,11 +11,18 @@ import {
 } from "recharts"
 
 import { useTimezone } from "@/components/dashboard/timezone-provider"
+import { formatLatency } from "@/lib/reporting/format"
 
 export interface LatencyPoint {
   timestamp: string
   latencyMs: number | null
   successful: boolean
+}
+
+// Human labels for the series a tooltip can carry. The raw data key is never
+// shown. An unmapped key falls back to itself so a new series stays legible.
+const seriesLabels: Record<string, string> = {
+  latencyMs: "Latency",
 }
 
 export function LatencyChart({ data }: { data: LatencyPoint[] }) {
@@ -79,6 +86,11 @@ export function LatencyChart({ data }: { data: LatencyPoint[] }) {
               fontFamily: "var(--font-geist-mono)",
               fontSize: 11,
             }}
+            formatter={(value, name) => [
+              formatLatency(typeof value === "number" ? value : null),
+              seriesLabels[name as string] ?? name,
+            ]}
+            separator="  "
           />
           <Area
             connectNulls={false}

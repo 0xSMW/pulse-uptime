@@ -8,8 +8,11 @@ import type {
 } from "@/lib/monitoring/types"
 import { incidentNotificationKey } from "@/lib/notifications/idempotency"
 import { formatDuration } from "@/lib/reporting/format"
-import type { PackedMinuteExecutor } from "./batch"
 import { encodeTelemetry } from "./codec"
+
+export interface AtomicMinuteExecutor {
+  query: <T>(text: string, values: readonly unknown[]) => Promise<readonly T[]>
+}
 
 export type CompletedMinuteCheck = Omit<ScheduledCheck, "runId" | "scheduledAt">
 
@@ -130,7 +133,7 @@ where pulse_assert_equal((select count(*) from state_update), (select count(*) f
 `
 
 export async function persistAtomicMinute(
-  db: PackedMinuteExecutor,
+  db: AtomicMinuteExecutor,
   input: AtomicMinuteInput
 ): Promise<void> {
   const monitorIds = [...new Set(input.monitorIds)].sort()

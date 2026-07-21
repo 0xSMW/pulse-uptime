@@ -6,7 +6,10 @@ import { useRouter } from "next/navigation"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import { useTimezone } from "@/components/dashboard/timezone-provider"
-import { type MonitorState, StatusDot } from "@/components/monitors/status-dot"
+import {
+  StatusDot,
+  type VisibleMonitorState,
+} from "@/components/monitors/status-dot"
 import {
   TimelineBar,
   type TimelineBucket,
@@ -35,7 +38,7 @@ export interface DashboardMonitor {
   id: string
   name: string
   url: string
-  state: MonitorState
+  state: VisibleMonitorState
   uptime24h: number | null
   latestLatencyMs: number | null
   lastCheckedAt: string | null
@@ -86,7 +89,7 @@ export function navigateFromMonitorRow(
   )
 }
 
-function stateLabel(state: MonitorState): string {
+function stateLabel(state: VisibleMonitorState): string {
   return state
     .toLowerCase()
     .split("_")

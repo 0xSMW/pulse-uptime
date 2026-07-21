@@ -82,11 +82,11 @@ suite("idempotency PostgreSQL atomicity", () => {
       principalKey: "human:1",
       routeKey: "test",
       body: { name: "atomic-lease" },
-      work: async (context) =>
-        context.transaction(async (tx) => {
-          await tx.insert(schema.jobLeases).values(newLease("atomic-lease"))
-          return { status: 201, body: { ok: true } }
-        }),
+      mode: "atomic",
+      work: async (tx) => {
+        await tx.insert(schema.jobLeases).values(newLease("atomic-lease"))
+        return { status: 201, body: { ok: true } }
+      },
     })
     expect(result).toMatchObject({
       status: 201,
@@ -98,10 +98,11 @@ suite("idempotency PostgreSQL atomicity", () => {
       state: "completed",
       responseStatus: 201,
       responseBody: { ok: true },
+      protocol: 1,
     })
   })
 
-  it("rolls back the mutation and leaves the record running when run() throws", async () => {
+  it("rolls back the mutation and leaves the record running when work throws", async () => {
     const key = "00000000-0000-4000-8000-000000000020"
     await expect(
       executeIdempotent({
@@ -109,11 +110,11 @@ suite("idempotency PostgreSQL atomicity", () => {
         principalKey: "human:1",
         routeKey: "test",
         body: { name: "rollback-lease" },
-        work: async (context) =>
-          context.transaction(async (tx) => {
-            await tx.insert(schema.jobLeases).values(newLease("rollback-lease"))
-            throw new Error("mutation failed")
-          }),
+        mode: "atomic",
+        work: async (tx) => {
+          await tx.insert(schema.jobLeases).values(newLease("rollback-lease"))
+          throw new Error("mutation failed")
+        },
       })
     ).rejects.toThrow("mutation failed")
     expect(await findLease("rollback-lease")).toBeUndefined()
@@ -123,6 +124,7 @@ suite("idempotency PostgreSQL atomicity", () => {
       responseStatus: null,
       responseBody: null,
       completedAt: null,
+      protocol: 1,
     })
   })
 
@@ -136,21 +138,21 @@ suite("idempotency PostgreSQL atomicity", () => {
       principalKey: "human:1",
       routeKey: "test",
       body: { name: seedName },
-      work: async (context) =>
-        context.transaction(async (tx) => {
-          await tx.transaction(async (inner) => {
-            await inner
-              .select()
-              .from(schema.jobLeases)
-              .where(eq(schema.jobLeases.name, seedName))
-              .for("update")
-            await inner
-              .update(schema.jobLeases)
-              .set({ ownerId: newOwner })
-              .where(eq(schema.jobLeases.name, seedName))
-          })
-          return { status: 200, body: { ok: true } }
-        }),
+      mode: "atomic",
+      work: async (tx) => {
+        await tx.transaction(async (inner) => {
+          await inner
+            .select()
+            .from(schema.jobLeases)
+            .where(eq(schema.jobLeases.name, seedName))
+            .for("update")
+          await inner
+            .update(schema.jobLeases)
+            .set({ ownerId: newOwner })
+            .where(eq(schema.jobLeases.name, seedName))
+        })
+        return { status: 200, body: { ok: true } }
+      },
     })
     expect(result).toMatchObject({ status: 200, replayed: false })
     expect((await findLease(seedName))?.ownerId).toBe(newOwner)
@@ -170,21 +172,21 @@ suite("idempotency PostgreSQL atomicity", () => {
         principalKey: "human:1",
         routeKey: "test",
         body: { name: seedName },
-        work: async (context) =>
-          context.transaction(async (tx) => {
-            await tx.transaction(async (inner) => {
-              await inner
-                .select()
-                .from(schema.jobLeases)
-                .where(eq(schema.jobLeases.name, seedName))
-                .for("update")
-              await inner
-                .update(schema.jobLeases)
-                .set({ ownerId: crypto.randomUUID() })
-                .where(eq(schema.jobLeases.name, seedName))
-            })
-            throw new Error("outer failed after nested commit")
-          }),
+        mode: "atomic",
+        work: async (tx) => {
+          await tx.transaction(async (inner) => {
+            await inner
+              .select()
+              .from(schema.jobLeases)
+              .where(eq(schema.jobLeases.name, seedName))
+              .for("update")
+            await inner
+              .update(schema.jobLeases)
+              .set({ ownerId: crypto.randomUUID() })
+              .where(eq(schema.jobLeases.name, seedName))
+          })
+          throw new Error("outer failed after nested commit")
+        },
       })
     ).rejects.toThrow("outer failed after nested commit")
     expect((await findLease(seedName))?.ownerId).toBe(originalOwner)
@@ -194,29 +196,26 @@ suite("idempotency PostgreSQL atomicity", () => {
   it("replays the stored response for a repeated key without duplicating the mutation", async () => {
     const key = "00000000-0000-4000-8000-000000000050"
     const body = { name: "replay-lease" }
-    const work = vi.fn(
-      async (
-        context: Parameters<Parameters<typeof executeIdempotent>[0]["work"]>[0]
-      ) =>
-        context.transaction(async (tx) => {
-          await tx.insert(schema.jobLeases).values(newLease("replay-lease"))
-          return { status: 201, body: { ok: true } }
-        })
-    )
+    const work = vi.fn(async (tx: { insert: typeof verify.insert }) => {
+      await tx.insert(schema.jobLeases).values(newLease("replay-lease"))
+      return { status: 201, body: { ok: true } }
+    })
 
     const first = await executeIdempotent({
       request: request(key),
       principalKey: "human:1",
       routeKey: "test",
       body,
-      work,
+      mode: "atomic",
+      work: work as never,
     })
     const second = await executeIdempotent({
       request: request(key),
       principalKey: "human:1",
       routeKey: "test",
       body,
-      work,
+      mode: "atomic",
+      work: work as never,
     })
 
     expect(first).toMatchObject({
@@ -287,6 +286,7 @@ suite("idempotency PostgreSQL atomicity", () => {
       principalKey: "human:1",
       routeKey: "test",
       body,
+      mode: "atomic",
       work,
       now: new Date(),
     })
@@ -325,13 +325,13 @@ suite("idempotency PostgreSQL atomicity", () => {
       routeKey: "test",
       body,
       now,
-      work: async (context) =>
-        context.transaction(async (tx) => {
-          await tx.insert(schema.jobLeases).values(newLease("inflight-lease"))
-          started()
-          await gate
-          return { status: 201, body: { ok: true, value: "owner" } }
-        }),
+      mode: "atomic",
+      work: async (tx) => {
+        await tx.insert(schema.jobLeases).values(newLease("inflight-lease"))
+        started()
+        await gate
+        return { status: 201, body: { ok: true, value: "owner" } }
+      },
     })
     await startedPromise
 
@@ -350,6 +350,7 @@ suite("idempotency PostgreSQL atomicity", () => {
       routeKey: "test",
       body,
       now: retryNow,
+      mode: "atomic",
       work: retryWork,
     })
 
@@ -417,6 +418,7 @@ suite("idempotency PostgreSQL atomicity", () => {
         principalKey: "human:1",
         routeKey: "test",
         body,
+        mode: "atomic",
         work,
         now: new Date(),
       })

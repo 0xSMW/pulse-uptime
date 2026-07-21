@@ -1,9 +1,8 @@
 import "server-only"
 
-import { randomUUID } from "node:crypto"
-
 import { requireAcceptedConfig } from "@/lib/api/config-mutation"
 import { db } from "@/lib/db/client"
+import { queryExecutor } from "@/lib/db/query-executor"
 import {
   type DeliverySummary,
   deliverPendingNotifications,
@@ -12,13 +11,14 @@ import { createResendSender } from "@/lib/notifications/provider"
 import { reconcileStaleClaims, type SqlExecutor } from "@/lib/notifications/sql"
 import { ORDINARY_NOTIFICATION_EVENT_TYPES } from "@/lib/notifications/types"
 import { requirePulseReleaseId } from "@/lib/release/id"
-import { queryExecutor } from "@/lib/scheduler/runtime"
-import { createSqlLeaseStore } from "@/lib/scheduler/sql"
-import { scheduledMinuteAt } from "@/lib/scheduler/time"
+import { runCronCoordinator } from "@/lib/scheduler/cron-coordinator"
+import { DEPENDENCY_LEASE, type LeaseStore } from "@/lib/scheduler/lease"
+import type { CronRunCounts, CronRunStore } from "@/lib/scheduler/run-record"
+import { createSqlCronRunStore, createSqlLeaseStore } from "@/lib/scheduler/sql"
 
 import { createSqlCatalogSyncStore, syncCatalog } from "./catalog-sync"
 import { loadCatalogManifest } from "./manifest"
-import { createSqlPersistStore, persistSnapshot } from "./persist"
+import { applyPollOutcome, createSqlPersistStore } from "./persist"
 import {
   type PollerSourceRow,
   type PollerStore,
@@ -26,126 +26,23 @@ import {
 } from "./poller"
 import type { DependencyAdapterName } from "./types"
 
-// Mirrors runMonitoringCron (lib/scheduler/runtime.ts) but shares no lease,
-// deadline, or transaction with it, per the doc's isolation requirement:
-// its own lease name, its own cron_runs job name, its own SQL store.
-//
-// withLease (lib/scheduler/lease.ts) hardcodes a 90s duration for every
-// caller, and CronJobName (lib/scheduler/run-record.ts) is a closed union
-// that doesn't include "check-dependencies". Both are outside this phase's
-// owned paths, so this module reimplements the same acquire/release and
-// start/complete/fail shapes locally against the existing job_leases and
-// cron_runs tables rather than widening shared types it doesn't own.
+// Dependency cron lifecycle: acquire lease dependency-check, insert a
+// check-dependencies cron_runs row for the scheduled minute, run work, then
+// complete or fail that row and release the lease.
 
-const DEPENDENCY_LEASE = "dependency-check"
-// The lease must outlive a maximal run so a slow run never loses exclusivity.
-// The check-dependencies route (app/api/cron/check-dependencies/route.ts) caps
-// a run at maxDuration = 60s, so a 90s lease leaves a 30s margin above the
-// worst case. This mirrors the monitoring cron, whose 60s route holds the 90s
-// LEASE_DURATION_MS in lib/scheduler/lease.ts. A shorter lease would expire
-// mid-run and let the next minute's invocation steal it and double-poll
-// overlapping sources concurrently with the still-running first run.
-const DEPENDENCY_LEASE_DURATION_MS = 90_000
-const DEPENDENCY_CRON_JOB_NAME = "check-dependencies"
-
-interface DependencyLeaseStore {
-  acquire: (
-    name: string,
-    ownerId: string,
-    durationMs: number
-  ) => Promise<boolean>
-  release: (name: string, ownerId: string) => Promise<void>
-}
-
-async function withDependencyLease<T>(
-  store: DependencyLeaseStore,
-  ownerId: string,
-  work: () => Promise<T>
-): Promise<{ acquired: false } | { acquired: true; value: T }> {
-  if (
-    !(await store.acquire(
-      DEPENDENCY_LEASE,
-      ownerId,
-      DEPENDENCY_LEASE_DURATION_MS
-    ))
-  ) {
-    return { acquired: false }
-  }
-  try {
-    return { acquired: true, value: await work() }
-  } finally {
-    await store.release(DEPENDENCY_LEASE, ownerId)
-  }
-}
-
-interface DependencyCronRunCounts {
-  sourcesDue: number
-  polled: number
-  notModified: number
-  failed: number
-}
-
-function createDependencyCronRunStore(executor: SqlExecutor) {
-  return {
-    async start(input: {
-      id: string
-      scheduledMinute: Date
-      startedAt: Date
-      releaseId: string
-    }): Promise<boolean> {
-      const rows = await executor.query<{ id: string }>(
-        `insert into cron_runs (id, job_name, scheduled_minute, status, started_at, monitor_count, success_count, failure_count, skipped_count, release_id)
-         values ($1, $2, $3, 'running', $4, 0, 0, 0, 0, $5)
-         on conflict (job_name, scheduled_minute) do nothing returning id`,
-        [
-          input.id,
-          DEPENDENCY_CRON_JOB_NAME,
-          input.scheduledMinute,
-          input.startedAt,
-          input.releaseId,
-        ]
-      )
-      return rows.length === 1
-    },
-    async complete(
-      id: string,
-      completedAt: Date,
-      counts: DependencyCronRunCounts
-    ): Promise<void> {
-      await executor.query(
-        `update cron_runs set status = 'completed', completed_at = $2,
-         monitor_count = $3, success_count = $4, failure_count = $5, skipped_count = $6, error_message = null
-         where id = $1 and status = 'running' returning id`,
-        [
-          id,
-          completedAt,
-          counts.sourcesDue,
-          counts.polled,
-          counts.failed,
-          counts.notModified,
-        ]
-      )
-    },
-    async fail(
-      id: string,
-      completedAt: Date,
-      errorMessage: string
-    ): Promise<void> {
-      await executor.query(
-        `update cron_runs set status = 'failed', completed_at = $2, error_message = $3
-         where id = $1 and status = 'running' returning id`,
-        [id, completedAt, errorMessage]
-      )
-    },
-  }
-}
+/**
+ * Work budget for the dependency cron. The route maxDuration is 60s. This
+ * reserves headroom for outbox reconciliation, delivery, run finalization,
+ * and lease release after the poll pool settles.
+ */
+export const DEPENDENCY_WORK_BUDGET_MS = 52_000
 
 // A due source's next_poll_at is advanced to a near-future claim floor in the
 // same statement that selects it, so a second invocation overlapping this one
 // does not re-select and double-poll the same source. This is defense in depth
-// beyond the 90s process lease, for when the lease holder is hard-killed after
+// beyond the process lease, for when the lease holder is hard-killed after
 // maxDuration without releasing, or work overruns the lease. The claim is a
-// floor, not a replacement: persistSnapshot rewrites next_poll_at with the real
+// floor, not a replacement: applyPollOutcome rewrites next_poll_at with the real
 // operational or active cadence (computeNextPollAt) after the poll resolves, so
 // a completed poll always reschedules from the manifest cadence and only a lost
 // run leaves the claim floor standing. This mirrors the outbox claim
@@ -201,7 +98,7 @@ interface DueSourceRow {
  */
 export function createDueSourceStore(executor: SqlExecutor): PollerStore {
   return {
-    async listDueSources(now: Date): Promise<PollerSourceRow[]> {
+    async claimDueSources(now: Date): Promise<PollerSourceRow[]> {
       const manifest = loadCatalogManifest()
       const manifestBySourceId = new Map(
         manifest.sources.map((source) => [source.id, source])
@@ -254,122 +151,142 @@ export type DependencyCronRunResult =
   | {
       status: "completed"
       runId: string
+      counts: CronRunCounts
       catalogSynced: boolean
       sourcesDue: number
       polled: number
       notModified: number
       failed: number
+      skipped: number
       staleClaims: number
       delivery: DeliverySummary
     }
   | { status: "failed"; runId: string; error: string }
 
-function safeCronError(error: unknown): string {
-  const message =
-    error instanceof Error ? error.message : "Unknown cron failure"
-  return message.replace(/[\r\n\t]+/g, " ").slice(0, 500)
-}
-
-interface DependencyCronRunStore {
-  start: (input: {
-    id: string
-    scheduledMinute: Date
-    startedAt: Date
-    releaseId: string
-  }) => Promise<boolean>
-  complete: (
-    id: string,
-    completedAt: Date,
-    counts: DependencyCronRunCounts
-  ) => Promise<void>
-  fail: (id: string, completedAt: Date, errorMessage: string) => Promise<void>
-}
-
 export interface DependencyCronCoordinatorDeps {
-  leases: DependencyLeaseStore
-  runs: DependencyCronRunStore
+  leases: LeaseStore
+  runs: CronRunStore
   // Deployment identity recorded on the cron_runs row for release-bound proof.
   releaseId: string
   syncCatalog: () => Promise<{ synced: boolean }>
   loadDefaultRecipients: () => Promise<string[]>
-  poll: (defaultRecipients: string[]) => Promise<{
+  poll: (
+    defaultRecipients: string[],
+    deadlineAtMs: number
+  ) => Promise<{
     sourcesDue: number
     polled: number
     notModified: number
     failed: number
+    skipped: number
   }>
   reconcileOutbox: (now: Date) => Promise<number>
   deliverOutbox: () => Promise<DeliverySummary>
   now?: () => Date
+  nowMs?: () => number
   createId?: () => string
+  /** Absolute work deadline. Defaults to start + DEPENDENCY_WORK_BUDGET_MS. */
+  deadlineAtMs?: number
+}
+
+/** Map domain poll counters into the four generic cron_runs columns. */
+export function toDependencyCronRunCounts(poll: {
+  sourcesDue: number
+  polled: number
+  notModified: number
+  failed: number
+  skipped: number
+}): CronRunCounts {
+  return {
+    monitorCount: poll.sourcesDue,
+    successCount: poll.polled,
+    failureCount: poll.failed,
+    skippedCount: poll.notModified + poll.skipped,
+  }
 }
 
 /**
- * The testable core: mirrors runMonitoringCoordinator's split from
- * runMonitoringCron. Every collaborator is injected, so the lease/dedup/
- * catalog-sync/poll/deliver sequencing is unit-testable without a database.
+ * The testable core: lease, scheduled-minute identity, catalog sync, poll,
+ * outbox reconcile and delivery. Collaborators are injected so the sequence is
+ * unit-testable without a database.
  */
 export async function runDependencyCronCoordinator(
   deps: DependencyCronCoordinatorDeps
 ): Promise<DependencyCronRunResult> {
-  const now = deps.now ?? (() => new Date())
-  const createId = deps.createId ?? randomUUID
-  const startedAt = now()
-  const ownerId = createId()
-  const runId = createId()
-  const scheduledMinute = scheduledMinuteAt(startedAt)
+  const nowMs = deps.nowMs ?? Date.now
+  const invocationStartedAtMs = nowMs()
 
-  const leased = await withDependencyLease(deps.leases, ownerId, async () => {
-    if (
-      !(await deps.runs.start({
-        id: runId,
-        scheduledMinute,
-        startedAt,
-        releaseId: deps.releaseId,
-      }))
-    ) {
-      return { status: "duplicate", runId } as const
-    }
+  return runCronCoordinator(
+    {
+      leases: deps.leases,
+      runs: deps.runs,
+      leaseName: DEPENDENCY_LEASE,
+      jobName: "check-dependencies",
+      releaseId: deps.releaseId,
+      now: deps.now,
+      createId: deps.createId,
+    },
+    async ({ progress }) => {
+      const deadlineAtMs = Math.min(
+        deps.deadlineAtMs ?? Number.POSITIVE_INFINITY,
+        invocationStartedAtMs + DEPENDENCY_WORK_BUDGET_MS
+      )
 
-    try {
       const syncResult = await deps.syncCatalog()
       const defaultRecipients = await deps.loadDefaultRecipients()
-      const pollResult = await deps.poll(defaultRecipients)
-      // Return stuck sending rows to pending before draining, so this cron
-      // self-heals its own claims left behind when a prior invocation was
-      // killed mid-send. Nothing else recovers them: the monitor and
-      // maintenance paths reconcile on their own schedule but never for a run
-      // that only this cron drives. Same staleness threshold as the monitor
-      // cron (reconcileStaleClaims default).
+
+      let pollResult: {
+        sourcesDue: number
+        polled: number
+        notModified: number
+        failed: number
+        skipped: number
+      }
+      try {
+        pollResult = await deps.poll(defaultRecipients, deadlineAtMs)
+      } catch (error) {
+        const partial =
+          error &&
+          typeof error === "object" &&
+          "pollCounts" in error &&
+          error.pollCounts &&
+          typeof error.pollCounts === "object"
+            ? (error.pollCounts as {
+                sourcesDue: number
+                polled: number
+                notModified: number
+                failed: number
+                skipped: number
+              })
+            : null
+        if (partial) {
+          progress.record(toDependencyCronRunCounts(partial))
+        }
+        throw error
+      }
+
+      const counts = toDependencyCronRunCounts(pollResult)
+      // Record before outbox reconciliation, delivery, and completion so a
+      // late failure still persists real poll counts instead of zeros.
+      progress.record(counts)
+
+      const now = deps.now ?? (() => new Date())
       const staleClaims = await deps.reconcileOutbox(now())
       const delivery = await deps.deliverOutbox()
 
-      await deps.runs.complete(runId, now(), {
-        sourcesDue: pollResult.sourcesDue,
-        polled: pollResult.polled,
-        notModified: pollResult.notModified,
-        failed: pollResult.failed,
-      })
-
       return {
-        status: "completed",
-        runId,
+        counts,
         catalogSynced: syncResult.synced,
         sourcesDue: pollResult.sourcesDue,
         polled: pollResult.polled,
         notModified: pollResult.notModified,
         failed: pollResult.failed,
+        skipped: pollResult.skipped,
         staleClaims,
         delivery,
-      } as const
-    } catch (error) {
-      const message = safeCronError(error)
-      await deps.runs.fail(runId, now(), message)
-      return { status: "failed", runId, error: message } as const
+      }
     }
-  })
-
-  return leased.acquired ? leased.value : { status: "lease-held" }
+  )
 }
 
 export async function runDependencyCron(): Promise<DependencyCronRunResult> {
@@ -378,16 +295,17 @@ export async function runDependencyCron(): Promise<DependencyCronRunResult> {
 
   return runDependencyCronCoordinator({
     leases: createSqlLeaseStore(queryExecutor),
-    runs: createDependencyCronRunStore(queryExecutor),
+    runs: createSqlCronRunStore(queryExecutor),
     releaseId: requirePulseReleaseId(),
     syncCatalog: () => syncCatalog(createSqlCatalogSyncStore(db), manifest),
     loadDefaultRecipients: async () =>
       (await requireAcceptedConfig()).config.settings.defaultRecipients,
-    poll: (defaultRecipients) =>
+    poll: (defaultRecipients, deadlineAtMs) =>
       pollDueSources({
         store: createDueSourceStore(queryExecutor),
+        deadlineAtMs,
         persist: async (outcome, source, now) => {
-          await persistSnapshot(persistStore, outcome, source, {
+          await applyPollOutcome(persistStore, outcome, source, {
             now,
             defaultRecipients,
           })

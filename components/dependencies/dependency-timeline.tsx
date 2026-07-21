@@ -10,7 +10,7 @@ export interface DependencyStateBucket {
   state: DependencyState | null
 }
 
-// Decision 5, Docs/DEPENDENCY-MONITORING.md "Implementation plan": maps the
+// Decision 5, Docs/Specs/DEPENDENCY-MONITORING.md "Implementation plan": maps the
 // five-state dependency model onto TimelineBar's existing bucket states.
 // MAINTENANCE reuses the striped paused treatment, UNKNOWN and "no interval
 // yet" both reuse no-data since neither is evidence of a provider outage.

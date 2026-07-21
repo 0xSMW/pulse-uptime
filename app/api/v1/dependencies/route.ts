@@ -48,25 +48,25 @@ export async function POST(request: Request) {
       principalKey: context.principalKey,
       routeKey: "/api/v1/dependencies",
       body,
-      work: async ({ operationId, transaction }) =>
-        transaction(async (tx) => {
-          try {
-            return {
-              status: 201,
-              body: objectEnvelope(
-                "Dependency",
-                await addDependency(parsed, { dependencyId: operationId }, tx),
-                context.requestId
-              ),
-            }
-          } catch (error) {
-            const stored = storedDependencyError(error, context.requestId)
-            if (stored) {
-              return stored
-            }
-            throw error
+      mode: "atomic",
+      work: async (tx, { operationId }) => {
+        try {
+          return {
+            status: 201,
+            body: objectEnvelope(
+              "Dependency",
+              await addDependency(parsed, { dependencyId: operationId }, tx),
+              context.requestId
+            ),
           }
-        }),
+        } catch (error) {
+          const stored = storedDependencyError(error, context.requestId)
+          if (stored) {
+            return stored
+          }
+          throw error
+        }
+      },
     })
     return apiJson(result.body, { status: result.status })
   } catch (error) {

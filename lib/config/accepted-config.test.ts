@@ -9,10 +9,7 @@ import {
   type MonitoringConfig,
 } from "@/lib/config"
 
-import {
-  findAcceptedSnapshot,
-  requireAcceptedSnapshot,
-} from "./accepted-config"
+import { findAcceptedSnapshot } from "./accepted-config"
 
 const CONFIG: MonitoringConfig = {
   schemaVersion: 2,
@@ -37,11 +34,10 @@ function fakeExecutor(rows: unknown[]) {
   return { executor: { select: () => chain } as never, captured }
 }
 
-describe("readAcceptedSnapshot", () => {
-  it("returns null when no accepted row exists (find), and throws (require)", async () => {
+describe("findAcceptedSnapshot", () => {
+  it("returns null when no accepted row exists", async () => {
     const { executor } = fakeExecutor([])
     await expect(findAcceptedSnapshot(executor)).resolves.toBeNull()
-    await expect(requireAcceptedSnapshot(executor)).rejects.toThrow()
   })
 
   it("returns the config, hash, and acceptedAt for a valid, hash-matching row", async () => {

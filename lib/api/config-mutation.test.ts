@@ -16,7 +16,9 @@ function makeHandle(row: unknown) {
     values: vi.fn(async () => undefined),
   }
   const handle: Record<string, unknown> = {
-    execute: vi.fn(async () => undefined),
+    // Serves both the advisory lock (result ignored) and lockedNow, which reads
+    // the database clock as the row's epoch_ms.
+    execute: vi.fn(async () => [{ epoch_ms: String(Date.now()) }]),
     select: vi.fn(() => selectChain),
     insert: vi.fn(() => insertChain),
   }
@@ -39,7 +41,7 @@ import {
 import type { DatabaseHandle } from "@/lib/db/client"
 import { synchronizeRegistry as mockSynchronizeRegistry } from "@/lib/scheduler/registry-sync"
 
-import { mutateConfig } from "./config-mutation"
+import { applyConfigChange } from "./config-mutation"
 
 const CONFIG: MonitoringConfig = {
   schemaVersion: 2,
@@ -51,7 +53,7 @@ const CONFIG: MonitoringConfig = {
 const HASH = hashMonitoringConfig(CONFIG)
 const ROW = { configJson: CONFIG, configHash: HASH }
 
-describe("mutateConfig handle threading", () => {
+describe("applyConfigChange handle threading", () => {
   beforeEach(() => {
     vi.mocked(defaultHandle.transaction).mockReset()
     vi.mocked(mockSynchronizeRegistry).mockReset()
@@ -63,7 +65,7 @@ describe("mutateConfig handle threading", () => {
       async (run: (tx: unknown) => unknown) => run(handle)
     )
 
-    const result = await mutateConfig("human:1", (config) => config)
+    const result = await applyConfigChange("human:1", (config) => config)
 
     expect(defaultHandle.transaction).toHaveBeenCalledOnce()
     expect(result).toEqual(CONFIG)
@@ -72,7 +74,11 @@ describe("mutateConfig handle threading", () => {
   it("opens the transaction on the given handle instead of the default db, so it joins an outer transaction as a savepoint", async () => {
     const handle = makeHandle(ROW) as unknown as DatabaseHandle
 
-    const result = await mutateConfig("human:1", (config) => config, handle)
+    const result = await applyConfigChange(
+      "human:1",
+      (config) => config,
+      handle
+    )
 
     expect(handle.transaction).toHaveBeenCalledOnce()
     expect(defaultHandle.transaction).not.toHaveBeenCalled()
@@ -82,7 +88,7 @@ describe("mutateConfig handle threading", () => {
   it("reads the accepted snapshot through the SAME given handle, not the default pool (finding: reading via a different connection than the one holding the advisory lock could observe a different snapshot)", async () => {
     const handle = makeHandle(ROW) as unknown as DatabaseHandle
 
-    await mutateConfig("human:1", (config) => config, handle)
+    await applyConfigChange("human:1", (config) => config, handle)
 
     expect(handle.select).toHaveBeenCalled()
   })
@@ -92,7 +98,7 @@ describe("mutateConfig handle threading", () => {
     const failure = new Error("mutator rejected this change")
 
     await expect(
-      mutateConfig(
+      applyConfigChange(
         "human:1",
         () => {
           throw failure
@@ -121,7 +127,7 @@ describe("mutateConfig handle threading", () => {
       },
     })
 
-    await expect(mutateConfig("human:1", mutator, handle)).rejects.toThrow(
+    await expect(applyConfigChange("human:1", mutator, handle)).rejects.toThrow(
       "registry sync failed"
     )
     expect(mockSynchronizeRegistry).toHaveBeenCalledOnce()

@@ -13,15 +13,12 @@ vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
     async ({
       work,
     }: {
-      work: (context: {
-        operationId: string
-        transaction: <R>(run: (tx: unknown) => Promise<R>) => Promise<R>
-      }) => Promise<{ status: number; body: unknown }>
+      work: (
+        tx: unknown,
+        context: { operationId: string }
+      ) => Promise<{ status: number; body: unknown }>
     }) => ({
-      ...(await work({
-        operationId: "op-1",
-        transaction: async (run) => run("stub-tx"),
-      })),
+      ...(await work("stub-tx", { operationId: "op-1" })),
       replayed: false,
     })
   ),
@@ -199,18 +196,17 @@ describe("PUT /api/v1/status-page-config", () => {
     expect(payload.kind).toBe("StatusPageConfig")
   })
 
-  it("wraps the write in context.transaction and threads the tx handle into putStatusPageConfig (finding: a fallback post-hoc completion write could commit after the guarded UPDATE crashed, leaving the two inconsistent)", async () => {
+  it("uses atomic mode and threads the helper-owned tx into putStatusPageConfig (finding: a fallback post-hoc completion write could commit after the guarded UPDATE crashed, leaving the two inconsistent)", async () => {
     await PUT(putRequest({ name: "Acme Status" }, { "If-Match": '"5"' }))
     const options = vi.mocked(executeIdempotent).mock.calls[0]![0] as {
-      work: (context: {
-        operationId: string
-        transaction: <R>(run: (tx: unknown) => Promise<R>) => Promise<R>
-      }) => Promise<{ status: number; body: unknown }>
+      mode: string
+      work: (
+        tx: unknown,
+        context: { operationId: string }
+      ) => Promise<{ status: number; body: unknown }>
     }
-    await options.work({
-      operationId: "op-2",
-      transaction: async (run) => run("captured-tx"),
-    })
+    expect(options.mode).toBe("atomic")
+    await options.work("captured-tx", { operationId: "op-2" })
     // The mock resolves putStatusPageConfig itself, so assert on the handle
     // that reached it directly rather than re-deriving it from the response.
     expect(vi.mocked(putStatusPageConfig).mock.calls.at(-1)?.[2]).toEqual({
@@ -302,16 +298,13 @@ describe("PUT /api/v1/status-page-config", () => {
     )
     await PUT(putRequest({}, { "If-Match": '"9"' }))
     const options = vi.mocked(executeIdempotent).mock.calls[0]![0] as {
-      work: (context: {
-        operationId: string
-        transaction: <R>(run: (tx: unknown) => Promise<R>) => Promise<R>
-      }) => Promise<{ status: number; body: unknown }>
+      work: (
+        tx: unknown,
+        context: { operationId: string }
+      ) => Promise<{ status: number; body: unknown }>
     }
     await expect(
-      options.work({
-        operationId: "op-1",
-        transaction: async (run) => run("stub-tx"),
-      })
+      options.work("stub-tx", { operationId: "op-1" })
     ).resolves.toEqual({
       status: 412,
       body: errorEnvelope(

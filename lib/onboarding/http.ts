@@ -3,7 +3,7 @@ import "server-only"
 import { NextResponse } from "next/server"
 
 import { mutationOriginAllowed } from "@/lib/auth/origin"
-import { getCurrentSession } from "@/lib/auth/session"
+import { authenticateCurrentSession } from "@/lib/auth/session"
 
 export async function authenticatedMutation(request: Request) {
   if (!mutationOriginAllowed(request)) {
@@ -15,7 +15,7 @@ export async function authenticatedMutation(request: Request) {
       ),
     }
   }
-  const session = await getCurrentSession()
+  const session = await authenticateCurrentSession()
   if (!session) {
     return {
       session: null,

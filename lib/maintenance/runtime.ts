@@ -1,6 +1,7 @@
 import "server-only"
 
 import { db } from "@/lib/db/client"
+import { queryExecutor } from "@/lib/db/query-executor"
 import {
   crossCheckMonitoringLoop,
   type LoopAlertSummary,
@@ -12,7 +13,6 @@ import {
 import { createResendSender } from "@/lib/notifications/provider"
 import { reconcileStaleClaims } from "@/lib/notifications/sql"
 import { requirePulseReleaseId } from "@/lib/release/id"
-import { queryExecutor } from "@/lib/scheduler/runtime"
 import { createSqlCronRunStore, createSqlLeaseStore } from "@/lib/scheduler/sql"
 
 import {
@@ -30,11 +30,11 @@ const SYSTEM_ALERT_DELIVERY_LIMIT = 50
 const SYSTEM_ALERT_DELIVERY_CONCURRENCY = 5
 
 export type SystemAlertDeliverySummary = DeliverySummary & {
-  staleClaimsReconciled: number
+  staleClaims: number
 }
 
 const EMPTY_SYSTEM_ALERT_DELIVERY: SystemAlertDeliverySummary = {
-  staleClaimsReconciled: 0,
+  staleClaims: 0,
   claimed: 0,
   sent: 0,
   failed: 0,
@@ -95,7 +95,7 @@ export async function runSweepCron(): Promise<
   let systemAlertDelivery: SystemAlertDeliverySummary =
     EMPTY_SYSTEM_ALERT_DELIVERY
   try {
-    const staleClaimsReconciled = await reconcileStaleClaims(
+    const staleClaims = await reconcileStaleClaims(
       queryExecutor,
       now,
       5 * 60_000,
@@ -119,7 +119,7 @@ export async function runSweepCron(): Promise<
         eventTypes: SYSTEM_ALERT_EVENT_TYPES,
       }
     )
-    systemAlertDelivery = { ...delivery, staleClaimsReconciled }
+    systemAlertDelivery = { ...delivery, staleClaims }
   } catch (error) {
     console.error(
       JSON.stringify({

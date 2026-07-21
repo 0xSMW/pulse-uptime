@@ -2,20 +2,17 @@ import type { ReactNode } from "react"
 
 import styles from "@/components/status-page/status-page.module.css"
 import { getStatusPageDisplayConfig } from "@/lib/reporting/queries/status"
+import { renderSafeCustomHead } from "@/lib/status-page/custom-head"
 import { cn } from "@/lib/utils"
 
 /**
  * Public status shell. All personalization here is inert server-rendered
  * markup: the client bundle does not grow.
  *
- * customHead injection: a nested App Router segment cannot reach the real
- * <head> (only the root layout renders it), and React can only hoist parsed
- * elements, never a raw HTML string. So the accepted-self-XSS customHead
- * string is emitted as the first markup inside the page shell instead:
- * browsers execute <script>, apply <link rel=stylesheet>, and honor <style>
- * identically in body, which covers the analytics/fonts/styling this field
- * exists for. This is the documented tradeoff (strict head-only consumers,
- * e.g. some meta-tag verifiers, won't see it).
+ * customHead: restricted meta and icon link elements only. React hoists
+ * validated elements into the document head even when this nested layout
+ * emits them from the page shell. They remain React nodes, not raw HTML.
+ * customCss and the Google tag stay on their existing paths.
  */
 export default async function PublicStatusLayout({
   children,
@@ -34,13 +31,7 @@ export default async function PublicStatusLayout({
       )}
       data-theme={forcedTheme ?? undefined}
     >
-      {config.customHead ? (
-        <div
-          // biome-ignore lint/security/noDangerouslySetInnerHtml: custom head is the status page owner's own configured markup, an intentional customization
-          dangerouslySetInnerHTML={{ __html: config.customHead }}
-          data-status-custom-head
-        />
-      ) : null}
+      {renderSafeCustomHead(config.customHead)}
       {config.customCss ? (
         // biome-ignore lint/security/noDangerouslySetInnerHtml: custom css is the status page owner's own configured stylesheet, an intentional customization
         <style dangerouslySetInnerHTML={{ __html: config.customCss }} />

@@ -43,6 +43,14 @@ const testNotificationPayloadSchema = z.object({
 // Provider-reported dependency incidents/recoveries. Carries everything the
 // email needs to render (name, provider, title, state, link, provider
 // timestamp) so delivery never has to join back to dependency tables.
+// latestUpdate quotes the incident's most recent provider update in place of
+// the generic status-feed note. Optional because older outbox rows and
+// incidents without update text have no quote to render.
+const providerUpdateQuoteSchema = z.object({
+  body: nonempty,
+  timestamp: nonempty,
+})
+
 const dependencyIncidentPayloadSchema = z.object({
   type: z.literal("dependency.incident"),
   dependencyName: nonempty,
@@ -51,6 +59,7 @@ const dependencyIncidentPayloadSchema = z.object({
   state: nonempty,
   canonicalUrl: z.string().url().nullable(),
   providerTimestamp: nonempty,
+  latestUpdate: providerUpdateQuoteSchema.optional(),
 })
 
 const dependencyRecoveryPayloadSchema = z.object({
@@ -61,6 +70,7 @@ const dependencyRecoveryPayloadSchema = z.object({
   state: nonempty,
   canonicalUrl: z.string().url().nullable(),
   providerTimestamp: nonempty,
+  latestUpdate: providerUpdateQuoteSchema.optional(),
 })
 
 // Operator-facing self-alert with no monitor or dependency subject. Raised when
@@ -88,6 +98,8 @@ type IncidentOpenedPayload = z.infer<typeof incidentOpenedPayloadSchema>
 type IncidentResolvedPayload = z.infer<typeof incidentResolvedPayloadSchema>
 
 type TestNotificationPayload = z.infer<typeof testNotificationPayloadSchema>
+
+export type ProviderUpdateQuote = z.infer<typeof providerUpdateQuoteSchema>
 
 export type DependencyIncidentPayload = z.infer<
   typeof dependencyIncidentPayloadSchema

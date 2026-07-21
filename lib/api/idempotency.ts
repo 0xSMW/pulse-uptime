@@ -2,7 +2,7 @@ import "server-only"
 
 import { createHash } from "node:crypto"
 
-import { and, eq, lt, lte } from "drizzle-orm"
+import { and, eq, inArray, lt, lte } from "drizzle-orm"
 
 import { canonicalSerialize } from "@/lib/config/canonical"
 import type { DatabaseHandle } from "@/lib/db/client"
@@ -10,34 +10,56 @@ import { db } from "@/lib/db/client"
 import { apiIdempotency } from "@/lib/db/schema"
 import { isUuid } from "@/lib/ids/uuid"
 
-// Records written by this atomic protocol carry this marker. A running record
-// with this marker proves its mutation and completion share one transaction,
-// so a running record past the stale window took no effect and is safe to
-// rerun. Legacy running records default to LEGACY_PROTOCOL because their
-// mutation could have committed before a separate completion write failed, so
-// claimStale refuses to rerun them and they resolve as REQUEST_IN_PROGRESS
-// until they expire and are pruned.
+// Protocol values written on the running record at claim time. claimStale only
+// reclaims protocols that declare a safe re-execution invariant.
+//
+// 0 — conservative / legacy. Post-hoc completion. A running record past the
+//     stale window may have committed work before a separate completion write
+//     failed, so claimStale refuses to rerun it until the row expires.
+// 1 — atomic. Mutation and completion share one transaction the helper owns.
+//     A running record past the stale window took no effect and is safe to
+//     reclaim. A live owner holds a row lock for the life of that transaction.
+// 2 — replay-safe. Post-hoc completion, but the operation has a named
+//     downstream retry invariant (unique key, deterministic upsert, etc.), so
+//     stale reclaim and re-execution are safe.
+export const CONSERVATIVE_PROTOCOL = 0
 export const ATOMIC_PROTOCOL = 1
-export const LEGACY_PROTOCOL = 0
+export const REPLAY_SAFE_PROTOCOL = 2
+/** Alias for rows written before the atomic protocol existed. */
+export const LEGACY_PROTOCOL = CONSERVATIVE_PROTOCOL
+
+export type IdempotencyMode = "atomic" | "replay_safe" | "conservative"
+
+const PROTOCOL_BY_MODE: Record<IdempotencyMode, number> = {
+  atomic: ATOMIC_PROTOCOL,
+  replay_safe: REPLAY_SAFE_PROTOCOL,
+  conservative: CONSERVATIVE_PROTOCOL,
+}
+
+/** Protocols whose running records may be stale-reclaimed and re-executed. */
+export const RECLAIMABLE_PROTOCOLS = [
+  ATOMIC_PROTOCOL,
+  REPLAY_SAFE_PROTOCOL,
+] as const
+
+export function protocolForMode(mode: IdempotencyMode): number {
+  return PROTOCOL_BY_MODE[mode]
+}
+
+export function allowsStaleReclaim(protocol: number): boolean {
+  return protocol === ATOMIC_PROTOCOL || protocol === REPLAY_SAFE_PROTOCOL
+}
 
 export interface StoredResponse<T = unknown> {
   status: number
   body: T
 }
-export interface IdempotencyContext {
+
+/** Context passed to work() and replayBody. No transaction escape hatch. */
+export interface IdempotencyWorkContext {
   operationId: string
-  /**
-   * Opens a database transaction, runs `run`, and if it resolves, persists
-   * the idempotency record's completion inside that SAME transaction before
-   * committing. If `run` throws, the transaction (and the completion) rolls
-   * back, so the record is left running, which now truthfully means "no
-   * effect committed". work() must return exactly what this returns.
-   * Callable at most once per execution.
-   */
-  transaction: <R>(
-    run: (tx: DatabaseHandle) => Promise<StoredResponse<R>>
-  ) => Promise<StoredResponse<R>>
 }
+
 export type IdempotencyRecord = typeof apiIdempotency.$inferSelect
 export interface IdempotencyPersistence {
   insertRunning: (
@@ -82,7 +104,7 @@ export class IdempotencyError extends Error {
   }
 }
 
-export async function executeIdempotent<T>(input: {
+interface ExecuteIdempotentBase<T> {
   request: Request
   principalKey: string
   routeKey: string
@@ -98,18 +120,48 @@ export async function executeIdempotent<T>(input: {
   body: unknown
   retentionSeconds?: number
   now?: Date
-  work: (context: IdempotencyContext) => Promise<StoredResponse<T>>
   persistBody?: (body: T) => unknown
   replayBody?: (
     storedBody: unknown,
-    context: IdempotencyContext
+    context: IdempotencyWorkContext
   ) => Promise<T> | T
   persistence?: IdempotencyPersistence
-}): Promise<StoredResponse<T> & { replayed: boolean }> {
+}
+
+export type ExecuteIdempotentAtomicInput<T> = ExecuteIdempotentBase<T> & {
+  mode: "atomic"
+  /**
+   * Runs inside a transaction the helper opens. Completion is written on the
+   * same handle before commit. Callers cannot complete atomic work outside
+   * this transaction: there is no post-hoc path for mode "atomic".
+   */
+  work: (
+    tx: DatabaseHandle,
+    context: IdempotencyWorkContext
+  ) => Promise<StoredResponse<T>>
+}
+
+export type ExecuteIdempotentPostHocInput<T> = ExecuteIdempotentBase<T> & {
+  mode: "replay_safe" | "conservative"
+  /**
+   * Runs outside any helper-owned transaction. Completion is written after
+   * work resolves. replay_safe permits stale reclaim; conservative does not.
+   */
+  work: (context: IdempotencyWorkContext) => Promise<StoredResponse<T>>
+}
+
+export type ExecuteIdempotentInput<T> =
+  | ExecuteIdempotentAtomicInput<T>
+  | ExecuteIdempotentPostHocInput<T>
+
+export async function executeIdempotent<T>(
+  input: ExecuteIdempotentInput<T>
+): Promise<StoredResponse<T> & { replayed: boolean }> {
   const key = requireIdempotencyKey(input.request)
   const now = input.now ?? new Date()
   const persistence = input.persistence ?? databaseIdempotencyPersistence
   const retentionSeconds = input.retentionSeconds ?? 86_400
+  const protocol = protocolForMode(input.mode)
   const url = new URL(input.request.url)
   const query = [...url.searchParams.entries()]
     .sort(
@@ -135,7 +187,7 @@ export async function executeIdempotent<T>(input: {
       method: input.request.method,
       routeKey: input.routeKey,
       requestHash,
-      protocol: ATOMIC_PROTOCOL,
+      protocol,
       state: "running",
       createdAt: now,
       expiresAt,
@@ -157,7 +209,7 @@ export async function executeIdempotent<T>(input: {
           method: input.request.method,
           routeKey: input.routeKey,
           requestHash,
-          protocol: ATOMIC_PROTOCOL,
+          protocol,
           responseStatus: null,
           responseBody: null,
           state: "running",
@@ -187,10 +239,9 @@ export async function executeIdempotent<T>(input: {
       return {
         status: existing.responseStatus!,
         body: input.replayBody
-          ? await input.replayBody(
-              existing.responseBody,
-              replayContext(existing.id)
-            )
+          ? await input.replayBody(existing.responseBody, {
+              operationId: existing.id,
+            })
           : (existing.responseBody as T),
         replayed: true,
       }
@@ -202,16 +253,10 @@ export async function executeIdempotent<T>(input: {
         "A request with this idempotency key is still running"
       )
     }
-    // Completion now commits atomically with the mutation, so a running
-    // record past the stale window proves the prior attempt never took
-    // effect, as of the read above. A live owner holds a row lock on its
-    // record for the life of its mutation, so this claimStale UPDATE blocks
-    // until that owner settles. If the owner committed, the record is now
-    // completed, claimStale matches nothing, and the client's next retry
-    // replays it. If the owner rolled back, the record is still running and
-    // claimStale reclaims it for a safe rerun. A legacy record from before
-    // the atomic protocol carries no such lock and no protocol marker, so
-    // claimStale refuses it and the caller falls back to REQUEST_IN_PROGRESS.
+    // claimStale only matches reclaimable protocols (atomic, replay-safe).
+    // Conservative and legacy rows stay REQUEST_IN_PROGRESS until expiry.
+    // A live atomic owner holds a row lock on its record for the life of its
+    // mutation, so this claimStale UPDATE blocks until that owner settles.
     recordId = await persistence.claimStale(
       existing.id,
       staleBefore,
@@ -227,50 +272,34 @@ export async function executeIdempotent<T>(input: {
   }
 
   const operationId = recordId
-  let transactionUsed = false
-  const context: IdempotencyContext = {
-    operationId,
-    transaction: async (run) => {
-      if (transactionUsed) {
-        throw new Error(
-          "context.transaction can only be called once per idempotent execution"
-        )
-      }
-      transactionUsed = true
-      return await persistence.transaction(async (tx) => {
-        // Hold a row lock on this operation's own idempotency record for the
-        // whole mutation transaction. A concurrent retry that reaches the
-        // stale window blocks in claimStale until this transaction settles.
-        // On commit the record is completed, so claimStale matches nothing
-        // and the retry replays. On rollback nothing committed and the record
-        // is still running, so the retry reclaims it and reruns safely. This
-        // is what keeps a slow but live owner from being reclaimed and run a
-        // second time concurrently.
-        await persistence.lockOwner(operationId, tx)
-        const result = await run(tx)
-        // context.transaction is generic in R so any route's work() can use
-        // it, but a route only ever instantiates it at its own T (work()
-        // must return exactly what this call returns), so this cast is safe.
-        await persistence.complete(
-          operationId,
-          result.status,
-          input.persistBody
-            ? input.persistBody(result.body as unknown as T)
-            : result.body,
-          new Date(),
-          tx
-        )
-        return result
-      })
-    },
+  const workContext: IdempotencyWorkContext = { operationId }
+
+  if (input.mode === "atomic") {
+    // Helper owns the transaction. work receives tx + operationId and cannot
+    // escape: completion is written on the same handle before commit.
+    const result = await persistence.transaction(async (tx) => {
+      // Hold a row lock on this operation's own idempotency record for the
+      // whole mutation transaction. A concurrent retry that reaches the
+      // stale window blocks in claimStale until this transaction settles.
+      await persistence.lockOwner(operationId, tx)
+      const workResult = await input.work(tx, workContext)
+      await persistence.complete(
+        operationId,
+        workResult.status,
+        input.persistBody
+          ? input.persistBody(workResult.body)
+          : workResult.body,
+        new Date(),
+        tx
+      )
+      return workResult
+    })
+    return { ...result, replayed: false }
   }
 
-  const result = await input.work(context)
-  // Routes with no database mutation to be atomic with never call
-  // context.transaction, so completion falls back to this post-hoc write.
-  if (!transactionUsed) {
-    await complete(persistence, operationId, result, input.persistBody)
-  }
+  // replay_safe and conservative: post-hoc completion after work resolves.
+  const result = await input.work(workContext)
+  await complete(persistence, operationId, result, input.persistBody)
   return { ...result, replayed: false }
 }
 
@@ -326,20 +355,6 @@ async function complete<T>(
   )
 }
 
-// Only replayBody sees this, and it only ever reads operationId. There is no
-// mutation to make atomic with a replay, so opening a transaction here is a
-// programmer error, not a supported path.
-function replayContext(operationId: string): IdempotencyContext {
-  return {
-    operationId,
-    transaction: () => {
-      throw new Error(
-        "context.transaction is not available while replaying a stored response"
-      )
-    },
-  }
-}
-
 const databaseIdempotencyPersistence: IdempotencyPersistence = {
   async insertRunning(value) {
     return (
@@ -382,15 +397,12 @@ const databaseIdempotencyPersistence: IdempotencyPersistence = {
     // createdAt, so an age check alone would still match a record whose
     // owner finished just after we read it, letting a retry take over an
     // already-completed record and overwrite its stored response. The
-    // state = "running" condition closes that race: if it doesn't match,
-    // the caller falls back to REQUEST_IN_PROGRESS and the next retry reads
-    // the completed record and replays it. A live owner also holds a row
-    // lock on this record, so this UPDATE blocks until that owner commits
-    // (state becomes completed, no match) or rolls back (still running,
-    // match). The protocol = ATOMIC_PROTOCOL condition excludes legacy
-    // records, whose committed mutation could predate a failed completion
-    // write, so they are never rerun and instead resolve as
-    // REQUEST_IN_PROGRESS until they expire and are pruned.
+    // state = "running" condition closes that race. A live atomic owner also
+    // holds a row lock on this record, so this UPDATE blocks until that owner
+    // commits (state becomes completed, no match) or rolls back (still
+    // running, match). protocol must be reclaimable: atomic (mutation and
+    // completion shared a transaction) or replay-safe (named downstream
+    // retry invariant). Conservative and legacy rows are never rerun.
     return (
       await db
         .update(apiIdempotency)
@@ -399,7 +411,7 @@ const databaseIdempotencyPersistence: IdempotencyPersistence = {
           and(
             eq(apiIdempotency.id, id),
             eq(apiIdempotency.state, "running"),
-            eq(apiIdempotency.protocol, ATOMIC_PROTOCOL),
+            inArray(apiIdempotency.protocol, [...RECLAIMABLE_PROTOCOLS]),
             lt(apiIdempotency.createdAt, staleBefore)
           )
         )

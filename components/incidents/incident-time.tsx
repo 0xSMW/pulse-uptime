@@ -4,8 +4,8 @@ import { useTimezone } from "@/components/dashboard/timezone-provider"
 import {
   formatIncidentTime,
   formatIncidentTimeOfDay,
-  sameDayInZone,
 } from "@/components/incidents/incident-format"
+import { sameDayInZone } from "@/lib/reporting/format"
 
 // When `sameDayOf` is provided and both instants fall on the same calendar
 // day in the display timezone, the date is dropped and only the time shows.

@@ -15,19 +15,30 @@ import {
   useState,
 } from "react"
 
+import { DependencyStatusDot } from "@/components/dependencies/dependency-status"
 import {
-  type MonitorState,
   StatusDot,
   stateLabels,
+  type VisibleMonitorState,
 } from "@/components/monitors/status-dot"
+import type { DependencyState } from "@/lib/dependencies/types"
 import { formatDuration, formatLatency } from "@/lib/reporting/format"
 import { cn } from "@/lib/utils"
 
 export interface PaletteMonitor {
   id: string
   name: string
-  state: MonitorState
+  state: VisibleMonitorState
   latestLatencyMs: number | null
+}
+
+export interface PaletteDependency {
+  id: string
+  name: string
+  state: DependencyState
+  pending: boolean
+  provider: string
+  componentLabel: string | null
 }
 
 export interface PaletteIncident {
@@ -45,12 +56,14 @@ interface PaletteItem {
   hint: string
   href: string
   external?: boolean
-  state?: MonitorState
+  state?: VisibleMonitorState
+  dependencyState?: DependencyState
+  pending?: boolean
   down?: boolean
 }
 
 export interface PaletteGroup {
-  label: "Navigation" | "Monitors" | "Live Incidents"
+  label: "Navigation" | "Monitors" | "Dependencies" | "Live Incidents"
   items: PaletteItem[]
 }
 
@@ -88,6 +101,7 @@ const navigationItems: PaletteItem[] = [
 
 export function buildPaletteGroups(
   monitors: PaletteMonitor[],
+  dependencies: PaletteDependency[],
   incidents: PaletteIncident[],
   now = new Date()
 ): PaletteGroup[] {
@@ -114,6 +128,27 @@ export function buildPaletteGroups(
       })),
     },
   ]
+  // Follows the DependencyPanel convention: the group is hidden entirely when
+  // no dependencies exist, so accounts without dependencies see no bare
+  // heading. Sits after Monitors, before the live incident group.
+  if (dependencies.length > 0) {
+    groups.push({
+      label: "Dependencies",
+      items: dependencies.map((dependency) => ({
+        id: `dependency-${dependency.id}`,
+        text: dependency.name,
+        searchText: dependency.componentLabel
+          ? `${dependency.name} ${dependency.provider} ${dependency.componentLabel}`
+          : `${dependency.name} ${dependency.provider}`,
+        hint: dependency.componentLabel
+          ? `${dependency.provider} · ${dependency.componentLabel}`
+          : dependency.provider,
+        href: `/dependencies/${encodeURIComponent(dependency.id)}`,
+        dependencyState: dependency.state,
+        pending: dependency.pending,
+      })),
+    })
+  }
   const live = monitors.filter((monitor) => monitor.state === "DOWN")
   if (live.length > 0) {
     groups.push({
@@ -180,10 +215,12 @@ const PaletteContext = createContext<PaletteContextValue | null>(null)
 
 export function CommandPaletteProvider({
   monitorsPromise,
+  dependenciesPromise,
   incidentsPromise,
   children,
 }: {
   monitorsPromise: Promise<PaletteMonitor[]>
+  dependenciesPromise: Promise<PaletteDependency[]>
   incidentsPromise: Promise<PaletteIncident[]>
   children: ReactNode
 }) {
@@ -241,6 +278,7 @@ export function CommandPaletteProvider({
           >
             <PaletteDialog
               closePalette={closePalette}
+              dependenciesPromise={dependenciesPromise}
               incidentsPromise={incidentsPromise}
               monitorsPromise={monitorsPromise}
             />
@@ -282,7 +320,7 @@ function PaletteDialogLoading() {
           aria-label="Search commands"
           autoFocus
           className="h-14 w-full border-0 bg-transparent pr-4 pl-11 text-sm outline-none placeholder:text-[var(--fg-faint)]"
-          placeholder="Search pages and monitors"
+          placeholder="Search pages, monitors, and dependencies"
         />
       </div>
       <div
@@ -316,16 +354,19 @@ function PaletteDialogLoading() {
 
 function PaletteDialog({
   monitorsPromise,
+  dependenciesPromise,
   incidentsPromise,
   closePalette,
 }: {
   monitorsPromise: Promise<PaletteMonitor[]>
+  dependenciesPromise: Promise<PaletteDependency[]>
   incidentsPromise: Promise<PaletteIncident[]>
   closePalette: () => void
 }) {
   // Streamed from the layout; resolved by the time a human opens the palette,
   // so use() is effectively synchronous here.
   const monitors = use(monitorsPromise)
+  const dependencies = use(dependenciesPromise)
   const incidents = use(incidentsPromise)
   const router = useRouter()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -340,8 +381,8 @@ function PaletteDialog({
   }, [])
 
   const groups = useMemo(
-    () => buildPaletteGroups(monitors, incidents, now),
-    [incidents, monitors, now]
+    () => buildPaletteGroups(monitors, dependencies, incidents, now),
+    [dependencies, incidents, monitors, now]
   )
   const visibleGroups = useMemo(
     () => filterPaletteGroups(groups, query),
@@ -414,7 +455,7 @@ function PaletteDialog({
             setActiveIndex(0)
           }}
           onKeyDown={handleInputKey}
-          placeholder="Search pages and monitors"
+          placeholder="Search pages, monitors, and dependencies"
           ref={inputRef}
           value={query}
         />
@@ -448,7 +489,13 @@ function PaletteDialog({
                     tabIndex={-1}
                     type="button"
                   >
-                    {item.state ? (
+                    {item.dependencyState ? (
+                      <DependencyStatusDot
+                        aria-hidden
+                        pending={item.pending}
+                        state={item.dependencyState}
+                      />
+                    ) : item.state ? (
                       <StatusDot aria-hidden state={item.state} />
                     ) : null}
                     <span className="min-w-0 flex-1 truncate">{item.text}</span>

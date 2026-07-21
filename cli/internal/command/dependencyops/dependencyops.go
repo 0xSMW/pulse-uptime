@@ -85,6 +85,7 @@ type Dependency struct {
 	ID                  string  `json:"id"`
 	PresetID            string  `json:"presetId"`
 	ScopeID             *string `json:"scopeId"`
+	ComponentLabel      *string `json:"componentLabel"`
 	Name                string  `json:"name"`
 	Provider            string  `json:"provider"`
 	Category            string  `json:"category,omitempty"`
@@ -111,6 +112,7 @@ type DependencyDetail struct {
 	Checking             bool                 `json:"checking"`
 	ProviderUpdatedAt    *string              `json:"providerUpdatedAt"`
 	LastSuccessfulPollAt *string              `json:"lastSuccessfulPollAt"`
+	BackfillFailedAt     *string              `json:"backfillFailedAt"`
 	CanonicalURL         string               `json:"canonicalUrl,omitempty"`
 	Incidents            []DependencyIncident `json:"incidents,omitempty"`
 }
@@ -160,14 +162,14 @@ type CatalogCategory struct {
 	Presets  []CatalogPreset `json:"presets"`
 }
 
-type CatalogData struct {
+type Catalog struct {
 	Categories []CatalogCategory `json:"categories"`
 }
 
 func NewGroup(d Dependencies) *cobra.Command {
 	d = defaults(d)
 	group := &cobra.Command{Use: "dependency", Short: "Manage third-party dependencies", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
-	group.AddCommand(newCatalogCommand(d), newListCommand(d), newGetCommand(d), newAddCommand(d), newRemoveCommand(d))
+	group.AddCommand(newCatalogCommand(d), newListCommand(d), newGetCommand(d), newAddCommand(d), newBackfillCommand(d), newRemoveCommand(d))
 	return group
 }
 
@@ -205,7 +207,7 @@ func newListCommand(d Dependencies) *cobra.Command {
 	var cursor string
 	var all bool
 	cmd := &cobra.Command{Use: "list", Short: "List installed dependencies", Args: cobra.NoArgs, Annotations: annotations("dependencies:read"), RunE: func(cmd *cobra.Command, _ []string) error {
-		doc, err := List(cmd.Context(), d.Client, limit, cursor, all || machine(d.Format()))
+		doc, err := List(cmd.Context(), d.Client, ListOptions{Limit: limit, Cursor: cursor, All: all, Machine: machine(d.Format())})
 		if err != nil {
 			return d.MapError(err)
 		}
@@ -256,6 +258,27 @@ func newAddCommand(d Dependencies) *cobra.Command {
 	return cmd
 }
 
+// newBackfillCommand retries the install-time incident history backfill for a
+// dependency whose add-time scan failed. The endpoint is idempotent and safe to
+// call regardless of the mark, so a retry on an unmarked dependency is a no-op.
+// On success the backfillFailedAt mark clears and the refreshed detail renders.
+func newBackfillCommand(d Dependencies) *cobra.Command {
+	return &cobra.Command{Use: "backfill <id>", Short: "Retry install-time incident history backfill", Args: cobra.ExactArgs(1), Annotations: annotations("dependencies:write"), RunE: func(cmd *cobra.Command, args []string) error {
+		if strings.TrimSpace(args[0]) == "" {
+			return invalid("dependency id is required")
+		}
+		key, err := idempotencyKey(d)
+		if err != nil {
+			return err
+		}
+		var doc Envelope
+		if err := d.Client.Do(cmd.Context(), Request{Method: http.MethodPost, Path: dependencyPath(args[0]) + "/backfill", IdempotencyKey: key, Result: &doc}); err != nil {
+			return d.MapError(err)
+		}
+		return renderDetail(d, d.Format(), doc)
+	}}
+}
+
 func newRemoveCommand(d Dependencies) *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{Use: "remove <id>", Short: "Remove a dependency", Args: cobra.ExactArgs(1), Annotations: annotations("dependencies:write"), RunE: func(cmd *cobra.Command, args []string) error {
@@ -300,19 +323,26 @@ const (
 	maxListBytes   = 64 << 20
 )
 
-func List(ctx context.Context, client Client, limit int, cursor string, auto bool) (ListEnvelope, error) {
-	if limit < 0 {
+type ListOptions struct {
+	Limit   int
+	Cursor  string
+	All     bool
+	Machine bool
+}
+
+func List(ctx context.Context, client Client, options ListOptions) (ListEnvelope, error) {
+	if options.Limit < 0 {
 		return ListEnvelope{}, invalid("--limit cannot be negative")
 	}
 	q := url.Values{}
-	if cursor != "" {
-		q.Set("cursor", cursor)
+	if options.Cursor != "" {
+		q.Set("cursor", options.Cursor)
 	}
-	remaining := limit
+	remaining := options.Limit
 	result := ListEnvelope{APIVersion: "v1", Kind: "DependencyList", Data: make([]json.RawMessage, 0)}
 	seen := map[string]struct{}{}
-	if cursor != "" {
-		seen[cursor] = struct{}{}
+	if options.Cursor != "" {
+		seen[options.Cursor] = struct{}{}
 	}
 	totalBytes := 0
 	for pages := 0; ; pages++ {
@@ -360,7 +390,7 @@ func List(ctx context.Context, client Client, limit int, cursor string, auto boo
 				break
 			}
 		}
-		if !auto || page.Meta.NextCursor == nil || *page.Meta.NextCursor == "" {
+		if !(options.All || options.Machine) || page.Meta.NextCursor == nil || *page.Meta.NextCursor == "" {
 			break
 		}
 		next := *page.Meta.NextCursor
@@ -415,7 +445,7 @@ func invalid(message string) error {
 
 // flattenCatalog flattens the category-grouped catalog into rows suitable for
 // a table, stamping each preset with its parent category.
-func flattenCatalog(data CatalogData) []CatalogPreset {
+func flattenCatalog(data Catalog) []CatalogPreset {
 	rows := make([]CatalogPreset, 0)
 	for _, category := range data.Categories {
 		for _, preset := range category.Presets {
@@ -464,7 +494,7 @@ func renderCatalog(d Dependencies, format string, doc Envelope) error {
 	case "yaml":
 		return yamlValue(d.Out, doc)
 	}
-	var data CatalogData
+	var data Catalog
 	if err := json.Unmarshal(doc.Data, &data); err != nil {
 		_, e := fmt.Fprintln(d.Out, string(doc.Data))
 		return e
@@ -491,6 +521,16 @@ func renderCatalog(d Dependencies, format string, doc Envelope) error {
 // data.
 const dependencyStateCaption = "Note: dependency state is provider reported, not a Pulse check."
 
+// dependencyRegion picks the REGION cell for a list row: the resolved scope
+// label when the list payload provides one, else the raw scope id, else blank
+// for an unscoped dependency.
+func dependencyRegion(dep Dependency) string {
+	if dep.ComponentLabel != nil {
+		return *dep.ComponentLabel
+	}
+	return value(dep.ScopeID)
+}
+
 func renderList(d Dependencies, format string, doc ListEnvelope) error {
 	switch format {
 	case "json":
@@ -509,7 +549,7 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 		for _, raw := range doc.Data {
 			var dep Dependency
 			if json.Unmarshal(raw, &dep) == nil {
-				if _, e := fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\t%s\n", output.EscapeTSVField(dep.State), output.EscapeTSVField(dep.Name), output.EscapeTSVField(dep.Provider), output.EscapeTSVField(value(dep.ActiveIncidentTitle)), output.EscapeTSVField(value(dep.ProviderUpdatedAt))); e != nil {
+				if _, e := fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\t%s\t%s\n", output.EscapeTSVField(dep.State), output.EscapeTSVField(dep.Name), output.EscapeTSVField(dep.Provider), output.EscapeTSVField(dependencyRegion(dep)), output.EscapeTSVField(value(dep.ActiveIncidentTitle)), output.EscapeTSVField(value(dep.ProviderUpdatedAt))); e != nil {
 					return e
 				}
 			}
@@ -517,11 +557,11 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 		return nil
 	default:
 		fmt.Fprintln(d.Err, dependencyStateCaption)
-		fmt.Fprintln(d.Out, "STATE\tNAME\tPROVIDER\tINCIDENT\tUPDATED")
+		fmt.Fprintln(d.Out, "STATE\tNAME\tPROVIDER\tREGION\tINCIDENT\tUPDATED")
 		for _, raw := range doc.Data {
 			var dep Dependency
 			if json.Unmarshal(raw, &dep) == nil {
-				fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\t%s\n", output.SanitizeDisplay(dep.State), output.SanitizeDisplay(dep.Name), output.SanitizeDisplay(dep.Provider), output.SanitizeDisplay(value(dep.ActiveIncidentTitle)), output.SanitizeDisplay(value(dep.ProviderUpdatedAt)))
+				fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\t%s\t%s\n", output.SanitizeDisplay(dep.State), output.SanitizeDisplay(dep.Name), output.SanitizeDisplay(dep.Provider), output.SanitizeDisplay(dependencyRegion(dep)), output.SanitizeDisplay(value(dep.ActiveIncidentTitle)), output.SanitizeDisplay(value(dep.ProviderUpdatedAt)))
 			}
 		}
 		if doc.Meta.NextCursor != nil && *doc.Meta.NextCursor != "" {
@@ -550,7 +590,7 @@ func renderDetail(d Dependencies, format string, doc Envelope) error {
 	case "tsv":
 		var detail DependencyDetail
 		if json.Unmarshal(doc.Data, &detail) == nil && detail.ID != "" {
-			_, e := fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\n", output.EscapeTSVField(detail.ID), output.EscapeTSVField(detail.State), output.EscapeTSVField(detail.Provider), output.EscapeTSVField(detail.Name))
+			_, e := fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\t%s\n", output.EscapeTSVField(detail.ID), output.EscapeTSVField(detail.State), output.EscapeTSVField(detail.Provider), output.EscapeTSVField(detail.Name), output.EscapeTSVField(value(detail.BackfillFailedAt)))
 			return e
 		}
 		_, e := fmt.Fprintln(d.Out, string(doc.Data))
@@ -576,6 +616,9 @@ func renderDetailHuman(w io.Writer, detail DependencyDetail) {
 	fmt.Fprintf(w, "Notifications %s\n", enabledLabel(detail.NotificationsEnabled))
 	fmt.Fprintf(w, "Last poll     %s\n", output.SanitizeDisplay(value(detail.LastSuccessfulPollAt)))
 	fmt.Fprintf(w, "Canonical URL %s\n", output.SanitizeDisplay(detail.CanonicalURL))
+	if detail.BackfillFailedAt != nil {
+		fmt.Fprintf(w, "Backfill      failed %s, retry with dependency backfill %s\n", output.SanitizeDisplay(*detail.BackfillFailedAt), output.SanitizeDisplay(detail.ID))
+	}
 	active := activeIncidents(detail.Incidents)
 	if len(active) == 0 {
 		fmt.Fprintln(w, "Active incidents  none")

@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server"
 import { mutationOriginAllowed } from "@/lib/auth/origin"
 import { revokeSession } from "@/lib/auth/service"
-import { expiredSessionCookie, getCurrentSession } from "@/lib/auth/session"
+import {
+  authenticateCurrentSession,
+  expiredSessionCookie,
+} from "@/lib/auth/session"
 
 export async function POST(request: Request) {
   if (!mutationOriginAllowed(request)) {
@@ -10,7 +13,7 @@ export async function POST(request: Request) {
       { status: 403 }
     )
   }
-  const session = await getCurrentSession()
+  const session = await authenticateCurrentSession()
   if (session) {
     await revokeSession(session.sessionId)
   }

@@ -15,7 +15,7 @@ vi.mock("./config-mutation", async (importOriginal) => ({
     hash: "hash",
     acceptedAt: new Date(0),
   })),
-  mutateConfig: vi.fn(
+  applyConfigChange: vi.fn(
     async (_principalKey: string, mutator: (config: unknown) => unknown) =>
       mutator(BASE_CONFIG)
   ),
@@ -30,7 +30,7 @@ import type { DatabaseHandle } from "@/lib/db/client"
 import { db } from "@/lib/db/client"
 import { uptime24hByMonitorId } from "@/lib/monitoring/queries"
 
-import { mutateConfig } from "./config-mutation"
+import { applyConfigChange } from "./config-mutation"
 import {
   archiveMonitor,
   createMonitor,
@@ -126,6 +126,20 @@ describe("monitor API request parsing", () => {
     ).toThrow()
   })
 
+  it("rejects an unknown legacy group name instead of creating it", () => {
+    expect(() =>
+      parseCreateMonitor(
+        {
+          id: "site-unknown-group",
+          name: "Unknown group",
+          url: "https://unknown.example.com",
+          group: "Productionn",
+        },
+        [{ id: "production", name: "Production" }]
+      )
+    ).toThrowError(expect.objectContaining({ code: "GROUP_NOT_FOUND" }))
+  })
+
   it("accepts an explicit null groupId to clear but rejects an empty string", () => {
     const groups = [{ id: "production", name: "Production" }]
     const monitor = parseCreateMonitor(
@@ -188,7 +202,7 @@ describe("clear then reassign a group through updateMonitor", () => {
       config = mutator(config)
       return config
     }
-    vi.mocked(mutateConfig)
+    vi.mocked(applyConfigChange)
       .mockImplementationOnce(step as never)
       .mockImplementationOnce(step as never)
 
@@ -213,6 +227,37 @@ describe("clear then reassign a group through updateMonitor", () => {
       groupId: "production",
       group: "Production",
     })
+  })
+})
+
+describe("legacy group assignment", () => {
+  it("leaves configuration unchanged when the legacy name is unknown", async () => {
+    const groups = [{ id: "production", name: "Production" }]
+    const monitor = parseCreateMonitor(
+      {
+        id: "site-grp",
+        name: "Grouped",
+        url: "https://grouped.example.com",
+        groupId: "production",
+      },
+      groups
+    )
+    const config = {
+      schemaVersion: 2,
+      configVersion: 1,
+      settings: {},
+      groups,
+      monitors: [monitor],
+    }
+    vi.mocked(applyConfigChange).mockImplementationOnce((async (
+      _principalKey: string,
+      mutator: (value: unknown) => unknown
+    ) => mutator(config)) as never)
+
+    await expect(
+      updateMonitor("site-grp", { group: "Productionn" }, "human:1")
+    ).rejects.toMatchObject({ code: "GROUP_NOT_FOUND" })
+    expect(config.groups).toEqual(groups)
   })
 })
 
@@ -263,7 +308,7 @@ describe("single monitor runtime state", () => {
   })
 })
 
-describe("handle threading to mutateConfig (finding: the mutation and the idempotency completion must commit in the same transaction, so the route's tx must reach mutateConfig, not the default pool)", () => {
+describe("handle threading to applyConfigChange (finding: the mutation and the idempotency completion must commit in the same transaction, so the route's tx must reach applyConfigChange, not the default pool)", () => {
   const routeTx = { impl: "route-tx" } as unknown as DatabaseHandle
 
   it("createMonitor forwards the given handle", async () => {
@@ -272,7 +317,7 @@ describe("handle threading to mutateConfig (finding: the mutation and the idempo
       "human:1",
       routeTx
     )
-    expect(mutateConfig).toHaveBeenLastCalledWith(
+    expect(applyConfigChange).toHaveBeenLastCalledWith(
       "human:1",
       expect.any(Function),
       routeTx
@@ -284,7 +329,7 @@ describe("handle threading to mutateConfig (finding: the mutation and the idempo
       { id: "site-three", name: "Three", url: "https://three.example.com" },
       "human:1"
     )
-    expect(mutateConfig).toHaveBeenLastCalledWith(
+    expect(applyConfigChange).toHaveBeenLastCalledWith(
       "human:1",
       expect.any(Function),
       db
@@ -293,7 +338,7 @@ describe("handle threading to mutateConfig (finding: the mutation and the idempo
 
   it("updateMonitor forwards the given handle", async () => {
     await updateMonitor("site-home", { name: "Renamed" }, "human:1", routeTx)
-    expect(mutateConfig).toHaveBeenLastCalledWith(
+    expect(applyConfigChange).toHaveBeenLastCalledWith(
       "human:1",
       expect.any(Function),
       routeTx
@@ -302,15 +347,15 @@ describe("handle threading to mutateConfig (finding: the mutation and the idempo
 
   it("setMonitorEnabled forwards the given handle", async () => {
     await setMonitorEnabled("site-home", false, "human:1", routeTx)
-    expect(mutateConfig).toHaveBeenLastCalledWith(
+    expect(applyConfigChange).toHaveBeenLastCalledWith(
       "human:1",
       expect.any(Function),
       routeTx
     )
   })
 
-  it("archiveMonitor forwards the given handle to mutateConfig and to the archived-registry fallback read on MONITOR_NOT_FOUND", async () => {
-    vi.mocked(mutateConfig).mockRejectedValueOnce(
+  it("archiveMonitor forwards the given handle to applyConfigChange and to the archived-registry fallback read on MONITOR_NOT_FOUND", async () => {
+    vi.mocked(applyConfigChange).mockRejectedValueOnce(
       new MonitorApiError("MONITOR_NOT_FOUND", "Monitor was not found")
     )
     const chain: Record<string, unknown> = {}
@@ -327,7 +372,7 @@ describe("handle threading to mutateConfig (finding: the mutation and the idempo
       fallbackHandle
     )
 
-    expect(mutateConfig).toHaveBeenLastCalledWith(
+    expect(applyConfigChange).toHaveBeenLastCalledWith(
       "human:1",
       expect.any(Function),
       fallbackHandle

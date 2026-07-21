@@ -27,14 +27,14 @@ export class SettingsApiError extends Error {
 export async function apiRequest<T>(
   url: string,
   init: RequestInit = {},
-  mutation = false
+  options: { mutation?: boolean } = {}
 ): Promise<T> {
   const headers = new Headers(init.headers)
   headers.set("Accept", "application/json")
   if (init.body) {
     headers.set("Content-Type", "application/json")
   }
-  if (mutation) {
+  if (options.mutation) {
     headers.set("Idempotency-Key", crypto.randomUUID())
   }
 

@@ -19,8 +19,10 @@ import type { DependencyDashboardRow } from "@/lib/dependencies/queries"
 // DependencyPanel can stay a server component.
 export function DependencyPanelRow({
   dependency,
+  showIncident,
 }: {
   dependency: DependencyDashboardRow
+  showIncident: boolean
 }) {
   const router = useRouter()
   const { resolvedTimeZone } = useTimezone()
@@ -54,6 +56,11 @@ export function DependencyPanelRow({
         <div className="flex items-center gap-1.5 text-[var(--fg-muted)] text-xs">
           <span>{dependency.provider}</span>
           <DependencyFidelityBadge fidelity={dependency.fidelity} />
+          {dependency.componentLabel ? (
+            <span className="min-w-0 truncate">
+              · {dependency.componentLabel}
+            </span>
+          ) : null}
         </div>
       </td>
       <td className="px-4">
@@ -72,12 +79,14 @@ export function DependencyPanelRow({
           value={dependency.providerUpdatedAt}
         />
       </td>
-      <td
-        className="max-w-[220px] truncate px-6"
-        title={dependency.activeIncidentTitle ?? undefined}
-      >
-        {dependency.activeIncidentTitle ?? ""}
-      </td>
+      {showIncident ? (
+        <td
+          className="max-w-[220px] truncate px-6"
+          title={dependency.activeIncidentTitle ?? undefined}
+        >
+          {dependency.activeIncidentTitle ?? ""}
+        </td>
+      ) : null}
     </tr>
   )
 }

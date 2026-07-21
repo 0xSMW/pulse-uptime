@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import Link from "next/link"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
   DISCARD_PROMPT,
-  GuardedLink,
   SettingsDirtyProvider,
   useDirtyGuard,
 } from "./settings-dirty"
@@ -44,14 +44,12 @@ function isDialogOpen(): boolean {
   return document.querySelector("dialog")?.open ?? false
 }
 
-describe("GuardedLink", () => {
+describe("link navigation under the dirty guard", () => {
   it("prevents the click and opens the discard dialog while the shell is dirty", () => {
     render(
       <SettingsDirtyProvider>
         <DirtyProbe />
-        <GuardedLink href="/incidents/reports">
-          Manage status reports
-        </GuardedLink>
+        <Link href="/incidents/reports">Manage status reports</Link>
       </SettingsDirtyProvider>
     )
     const link = screen.getByRole("link", { name: "Manage status reports" })
@@ -67,7 +65,7 @@ describe("GuardedLink", () => {
   it("navigates without a prompt when clean", () => {
     render(
       <SettingsDirtyProvider>
-        <GuardedLink href="/status">View status page</GuardedLink>
+        <Link href="/status">View status page</Link>
       </SettingsDirtyProvider>
     )
     const click = fireEvent.click(
@@ -81,7 +79,7 @@ describe("GuardedLink", () => {
     render(
       <SettingsDirtyProvider>
         <DirtyProbe />
-        <GuardedLink href="/status">View status page</GuardedLink>
+        <Link href="/status">View status page</Link>
       </SettingsDirtyProvider>
     )
     fireEvent.click(screen.getByRole("link", { name: "View status page" }))
@@ -92,13 +90,11 @@ describe("GuardedLink", () => {
 })
 
 describe("SettingsDirtyProvider global navigation guard", () => {
-  it("opens exactly one dialog on a GuardedLink click while dirty (no double-prompt)", () => {
+  it("opens exactly one dialog on a link click while dirty (no double-prompt)", () => {
     render(
       <SettingsDirtyProvider>
         <DirtyProbe />
-        <GuardedLink href="/incidents/reports">
-          Manage status reports
-        </GuardedLink>
+        <Link href="/incidents/reports">Manage status reports</Link>
       </SettingsDirtyProvider>
     )
     fireEvent.click(screen.getByRole("link", { name: "Manage status reports" }))

@@ -27,6 +27,26 @@ export type DependencyState =
   | "MAINTENANCE"
   | "UNKNOWN"
 
+export type ProviderComponentState = Exclude<DependencyState, "UNKNOWN">
+
+/**
+ * Normalized incident, update, and maintenance lifecycle vocabulary. Adapters
+ * map each provider's own status strings into this fixed set before storage.
+ * Kept literal here so this module stays dependency-free. A typed constant
+ * in adapters/shared.ts errors when the DB schema's providerIncidentStates
+ * array gains a value outside this union, keeping the two aligned.
+ */
+export type ProviderIncidentState =
+  | "investigating"
+  | "identified"
+  | "monitoring"
+  | "resolved"
+  | "scheduled"
+  | "in_progress"
+  | "completed"
+  | "recovering"
+  | "false_alarm"
+
 /**
  * Fidelity tier of a source or preset. "component" is the default: the feed
  * carries per-component operational state Pulse can normalize into a status
@@ -120,20 +140,20 @@ export interface NormalizedProviderSnapshot {
    * `incidents` has genuinely gone away and may be closed (resolved_at set to
    * observedAt). Set false by any adapter whose feed is a rolling window that
    * could transiently omit a still-open incident, so absence is never read as
-   * resolution. See persistSnapshot's completeness-gated closure.
+   * resolution. See applyPollOutcome's completeness-gated closure.
    */
   incidentsComplete: boolean
   components: Record<
     string,
     {
-      state: "OPERATIONAL" | "DEGRADED" | "OUTAGE" | "MAINTENANCE"
+      state: ProviderComponentState
       updatedAt: string | null
     }
   >
   incidents: Array<{
     externalId: string
     title: string
-    state: string
+    state: ProviderIncidentState
     impact: string | null
     startedAt: string
     resolvedAt: string | null
@@ -146,7 +166,7 @@ export interface NormalizedProviderSnapshot {
     scope: IncidentMatchScope
     updates: Array<{
       externalId: string
-      state: string
+      state: ProviderIncidentState
       bodyText: string
       createdAt: string
       updatedAt: string
@@ -154,7 +174,7 @@ export interface NormalizedProviderSnapshot {
   }>
   maintenances: Array<{
     externalId: string
-    state: string
+    state: ProviderIncidentState
     startsAt: string
     endsAt: string | null
     componentIds: string[]

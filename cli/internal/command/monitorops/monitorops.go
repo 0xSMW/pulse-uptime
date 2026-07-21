@@ -145,7 +145,7 @@ type WatchEvent struct {
 func NewGroup(d Dependencies) *cobra.Command {
 	d = defaults(d)
 	group := &cobra.Command{Use: "monitor", Short: "Manage endpoint monitors", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
-	group.AddCommand(newListCommand(d), newGetCommand(d), newCreateCommand(d), newUpdateCommand(d), newActionCommand(d, "pause"), newActionCommand(d, "resume"), newDeleteCommand(d), newActionCommand(d, "test"), newWatchCommand(d))
+	group.AddCommand(newListCommand(d), newGetCommand(d), newCreateCommand(d), newUpdateCommand(d), newActionCommand(d, "pause"), newActionCommand(d, "resume"), newArchiveCommand(d), newActionCommand(d, "test"), newWatchCommand(d))
 	return group
 }
 
@@ -249,19 +249,26 @@ type editFlags struct {
 	enabled, disabled, clearGroup, clearRecipients                bool
 }
 
+type editMode uint8
+
+const (
+	createMode editMode = iota
+	updateMode
+)
+
 func newCreateCommand(d Dependencies) *cobra.Command {
 	var f editFlags
 	cmd := &cobra.Command{Use: "create", Short: "Create a monitor", Args: cobra.NoArgs, Annotations: annotations("monitors:write"), RunE: func(cmd *cobra.Command, _ []string) error {
 		if f.id == "" || f.name == "" || f.targetURL == "" {
 			return invalid("--id, --name, and --url are required")
 		}
-		body, err := editBody(cmd, f, true)
+		body, err := editBody(cmd, f, createMode)
 		if err != nil {
 			return err
 		}
 		return mutateAndRender(cmd.Context(), d, http.MethodPost, "/api/v1/monitors", body)
 	}}
-	addEditFlags(cmd, &f, true)
+	addEditFlags(cmd, &f, createMode)
 	_ = cmd.MarkFlagRequired("id")
 	_ = cmd.MarkFlagRequired("name")
 	_ = cmd.MarkFlagRequired("url")
@@ -275,7 +282,7 @@ func newUpdateCommand(d Dependencies) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		body, err := editBody(cmd, f, false)
+		body, err := editBody(cmd, f, updateMode)
 		if err != nil {
 			return err
 		}
@@ -284,13 +291,13 @@ func newUpdateCommand(d Dependencies) *cobra.Command {
 		}
 		return mutateAndRender(cmd.Context(), d, http.MethodPatch, monitorPath(id), body)
 	}}
-	addEditFlags(cmd, &f, false)
+	addEditFlags(cmd, &f, updateMode)
 	return cmd
 }
 
-func addEditFlags(cmd *cobra.Command, f *editFlags, create bool) {
+func addEditFlags(cmd *cobra.Command, f *editFlags, mode editMode) {
 	flags := cmd.Flags()
-	if create {
+	if mode == createMode {
 		flags.StringVar(&f.id, "id", "", "Stable monitor ID")
 	}
 	flags.StringVar(&f.name, "name", "", "Display name")
@@ -310,7 +317,7 @@ func addEditFlags(cmd *cobra.Command, f *editFlags, create bool) {
 	flags.BoolVar(&f.disabled, "disabled", false, "Disable monitor")
 }
 
-func editBody(cmd *cobra.Command, f editFlags, create bool) (map[string]any, error) {
+func editBody(cmd *cobra.Command, f editFlags, mode editMode) (map[string]any, error) {
 	if f.enabled && f.disabled {
 		return nil, invalid("--enabled and --disabled cannot be combined")
 	}
@@ -327,11 +334,11 @@ func editBody(cmd *cobra.Command, f editFlags, create bool) (map[string]any, err
 	}
 	body := map[string]any{}
 	put := func(flag, key string, value any) {
-		if create || cmd.Flags().Changed(flag) {
+		if mode == createMode || cmd.Flags().Changed(flag) {
 			body[key] = value
 		}
 	}
-	if create {
+	if mode == createMode {
 		body["id"] = f.id
 	}
 	put("name", "name", f.name)
@@ -434,39 +441,45 @@ func newActionCommand(d Dependencies, action string) *cobra.Command {
 	return cmd
 }
 
-func newDeleteCommand(d Dependencies) *cobra.Command {
+func newArchiveCommand(d Dependencies) *cobra.Command {
 	var yes bool
-	cmd := &cobra.Command{Use: "delete <id>", Short: "Delete a monitor", Args: cobra.ExactArgs(1), Annotations: annotations("monitors:write"), RunE: func(cmd *cobra.Command, args []string) error {
-		id, err := exactMonitorID(args, "")
-		if err != nil {
-			return err
-		}
-		if !yes {
-			if !d.StdinTTY {
-				return invalid("noninteractive deletion requires --yes")
-			}
-			fmt.Fprintf(d.Err, "Archive monitor %s? [y/N] ", id)
-			line, err := bufio.NewReader(d.In).ReadString('\n')
-			if err != nil && !errors.Is(err, io.EOF) {
+	cmd := &cobra.Command{
+		Use:         "archive <id>",
+		Short:       "Archive a monitor",
+		Args:        cobra.ExactArgs(1),
+		Annotations: annotations("monitors:write"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := exactMonitorID(args, "")
+			if err != nil {
 				return err
 			}
-			answer := strings.ToLower(strings.TrimSpace(line))
-			if answer != "y" && answer != "yes" {
-				fmt.Fprintln(d.Err, "Canceled")
-				return nil
+			if !yes {
+				if !d.StdinTTY {
+					return invalid("noninteractive archival requires --yes")
+				}
+				fmt.Fprintf(d.Err, "Archive monitor %s? [y/N] ", id)
+				line, err := bufio.NewReader(d.In).ReadString('\n')
+				if err != nil && !errors.Is(err, io.EOF) {
+					return err
+				}
+				answer := strings.ToLower(strings.TrimSpace(line))
+				if answer != "y" && answer != "yes" {
+					fmt.Fprintln(d.Err, "Canceled")
+					return nil
+				}
 			}
-		}
-		key, err := idempotencyKey(d)
-		if err != nil {
-			return err
-		}
-		if err := d.Client.Do(cmd.Context(), Request{Method: http.MethodDelete, Path: monitorPath(id), IdempotencyKey: key}); err != nil {
-			return d.MapError(err)
-		}
-		doc := Envelope{APIVersion: "v1", Kind: "MonitorArchived", Data: json.RawMessage(fmt.Sprintf(`{"id":%q}`, id))}
-		return renderEnvelope(d, d.Format(), doc)
-	}}
-	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm deletion")
+			key, err := idempotencyKey(d)
+			if err != nil {
+				return err
+			}
+			var doc Envelope
+			if err := d.Client.Do(cmd.Context(), Request{Method: http.MethodDelete, Path: monitorPath(id), IdempotencyKey: key, Result: &doc}); err != nil {
+				return d.MapError(err)
+			}
+			return renderEnvelope(d, d.Format(), doc)
+		},
+	}
+	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm archival")
 	return cmd
 }
 

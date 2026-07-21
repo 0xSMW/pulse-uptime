@@ -165,7 +165,7 @@ export default function CliDocsPage() {
           <p className="mt-3 text-[13px] text-[var(--fg-muted)] leading-5">
             Noninteractive destructive applies require both
             <code className="mx-1 font-mono text-[var(--fg)]">
-              --allow-delete
+              --allow-destructive
             </code>
             and <code className="font-mono text-[var(--fg)]">--yes</code>.
           </p>

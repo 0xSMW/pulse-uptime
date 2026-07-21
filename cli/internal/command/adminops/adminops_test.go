@@ -22,6 +22,20 @@ func (f *fakeClient) Do(_ context.Context, method, path string, body any, _ http
 	return nil, nil
 }
 
+type fakeSessions struct {
+	session Session
+	cleared bool
+}
+
+func (f *fakeSessions) Current(context.Context) (Session, error) {
+	return f.session, nil
+}
+
+func (f *fakeSessions) Clear(context.Context) error {
+	f.cleared = true
+	return nil
+}
+
 func TestParseExpiryBounds(t *testing.T) {
 	if got, err := ParseExpiry("90d"); err != nil || got != 90*24*time.Hour {
 		t.Fatalf("got %v, %v", got, err)
@@ -103,6 +117,42 @@ func TestTokenRevokeRejectsBadIDsBeforeRequest(t *testing.T) {
 		if len(client.requests) != 0 {
 			t.Fatalf("id %q issued %d requests", id, len(client.requests))
 		}
+	}
+}
+
+func TestAuthUnlinkIsCanonicalAndLogoutIsRetired(t *testing.T) {
+	cmd := NewAuthCommand(Dependencies{})
+	unlink, _, err := cmd.Find([]string{"unlink"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unlink.Hidden || unlink.Deprecated != "" {
+		t.Fatalf("unlink metadata = hidden:%v deprecated:%q", unlink.Hidden, unlink.Deprecated)
+	}
+	for _, sub := range cmd.Commands() {
+		if sub.Name() == "logout" {
+			t.Fatal("logout command is retired and must not be registered")
+		}
+	}
+}
+
+func TestAuthUnlinkRevokesInstallationThenClearsLocalSession(t *testing.T) {
+	client := &fakeClient{}
+	sessions := &fakeSessions{session: Session{Authenticated: true, Source: "stored"}}
+	cmd := NewAuthCommand(Dependencies{
+		Client:   client,
+		Sessions: sessions,
+		Output:   func(string) string { return "json" },
+	})
+	cmd.SetArgs([]string{"unlink", "--yes"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.requests) != 1 || client.requests[0].method != http.MethodPost || client.requests[0].path != "/api/v1/cli-auth/revoke" {
+		t.Fatalf("requests = %#v", client.requests)
+	}
+	if !sessions.cleared {
+		t.Fatal("local session was not cleared")
 	}
 }
 

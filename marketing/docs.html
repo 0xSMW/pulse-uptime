@@ -1486,7 +1486,7 @@ pulsectl me --server https://pulse.superposition.app</code></pre>
               <pre
               ><code class="language-bash">pulsectl auth login          # link this installation
 pulsectl auth status         # inspect the current session
-pulsectl auth logout --yes   # remove it
+pulsectl auth unlink --yes   # remove it
 
 # headless environments: pass a scoped token instead
 export PULSECTL_TOKEN=pulse_live_...
@@ -1611,13 +1611,16 @@ pulsectl monitor list --context staging</code></pre>
                   <tr>
                     <td>me</td>
                     <td>
-                      Show the current principal, scopes, and installation.
+                      Show the current principal or link this installation.
                     </td>
                     <td class="muted">authenticated</td>
                   </tr>
                   <tr>
-                    <td>auth login | status | logout</td>
-                    <td>Link, inspect, or remove a device session.</td>
+                    <td>auth login | status | unlink</td>
+                    <td>
+                      Link, inspect, or unlink an installation and revoke its
+                      credentials.
+                    </td>
                     <td class="muted">authenticated</td>
                   </tr>
                   <tr>
@@ -1646,10 +1649,10 @@ pulsectl monitor list --context staging</code></pre>
                     <td class="muted">monitors:write</td>
                   </tr>
                   <tr>
-                    <td>monitor pause | resume | delete</td>
+                    <td>monitor pause | resume | archive</td>
                     <td>
-                      Lifecycle operations. <code>delete</code> archives and
-                      asks for <code>--yes</code>.
+                      Lifecycle operations. <code>archive</code> preserves
+                      history and asks for <code>--yes</code>.
                     </td>
                     <td class="muted">monitors:write</td>
                   </tr>
@@ -2033,9 +2036,9 @@ pulsectl config apply --file monitors.yaml --wait</code></pre>
               <li>
                 <strong>Destructive-change tripwire.</strong>
                 A plan that archives monitors or deletes groups sets
-                <code>destructiveApprovalRequired</code>. Non-interactive
-                applies must state intent twice:
-                <code>--allow-delete --yes</code>.
+                <code>destructiveConsentRequired</code>. Non-interactive applies
+                must state intent twice:
+                <code>--allow-destructive --yes</code>.
               </li>
               <li>
                 <strong>Archives, not deletes.</strong>
@@ -2894,7 +2897,7 @@ pulsectl status</code></pre>
                 <p>
                   Diff a candidate document against the accepted configuration.
                   Returns base/target/plan hashes, the categorized diff, and
-                  <code>destructiveApprovalRequired</code>.
+                  <code>destructiveConsentRequired</code>.
                 </p>
                 <span class="scope-chip">config:write</span>
               </div>
@@ -2923,7 +2926,7 @@ pulsectl status</code></pre>
       "archives": [ ],
       "unchanged": [ ]
     },
-    "destructiveApprovalRequired": false
+    "destructiveConsentRequired": false
   },
   "meta": { "requestId": "req_01j8zqf7" }
 }</code></pre>
@@ -2942,7 +2945,8 @@ pulsectl status</code></pre>
                   <code>If-Match</code>
                   with the export ETag and the three hashes from the plan.
                   Destructive plans also require
-                  <code>allowDelete: true</code>. Returns an operation to poll.
+                  <code>allowDestructiveChanges: true</code>. Returns an
+                  operation to poll.
                 </p>
                 <span class="scope-chip">config:write</span>
               </div>
@@ -2963,7 +2967,7 @@ pulsectl status</code></pre>
     "targetConfigHash": "sha256:9d1a…",
     "planHash": "sha256:77b0…",
     "targetConfig": { … },
-    "allowDelete": false
+    "allowDestructiveChanges": false
   }'</code></pre>
                 </figure>
               </div>
@@ -3216,8 +3220,9 @@ pulsectl status</code></pre>
                   ><code class="path">/api/v1/cli-auth/revoke</code>
                 </h4>
                 <p>
-                  Revoke the calling CLI session. This is what
-                  <code>pulsectl auth logout</code>
+                  Revoke the calling installation, its CLI sessions, and
+                  descendant API tokens. This is what
+                  <code>pulsectl auth unlink</code>
                   uses.
                 </p>
                 <span class="scope-chip">authenticated</span>
@@ -3229,7 +3234,7 @@ pulsectl status</code></pre>
                     ><button class="code-copy" type="button">Copy</button>
                   </figcaption>
                   <pre
-                  ><code class="language-bash">pulsectl auth logout --yes</code></pre>
+                  ><code class="language-bash">pulsectl auth unlink --yes</code></pre>
                 </figure>
               </div>
             </div>

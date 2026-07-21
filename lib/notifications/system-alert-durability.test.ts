@@ -330,7 +330,9 @@ describe("system.alert durability", () => {
     ])
     const sender: NotificationSender = {
       async send() {
-        throw new NotificationProviderError("rate_limit_exceeded", true)
+        throw new NotificationProviderError("rate_limit_exceeded", {
+          retryable: true,
+        })
       },
     }
 

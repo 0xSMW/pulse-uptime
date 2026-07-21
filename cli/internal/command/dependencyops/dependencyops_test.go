@@ -130,7 +130,7 @@ func TestListRejectsRepeatingCursor(t *testing.T) {
 		setListResult(t, r.Result, []string{`{"id":"dep-1"}`}, &cycle)
 		return nil
 	})
-	_, err := List(context.Background(), client, 0, "", true)
+	_, err := List(context.Background(), client, ListOptions{Machine: true})
 	if err == nil {
 		t.Fatal("expected a repeating cursor to be rejected")
 	}
@@ -145,7 +145,7 @@ func TestListRejectsRepeatingCursor(t *testing.T) {
 
 func TestListSendsCursorAndLimitAndRendersTable(t *testing.T) {
 	dep1 := `{"id":"dep-1","presetId":"vercel_runtime","name":"Vercel Runtime","provider":"Vercel","state":"OPERATIONAL","providerUpdatedAt":null,"activeIncidentTitle":null}`
-	dep2 := `{"id":"dep-2","presetId":"stripe_api","name":"Stripe API","provider":"Stripe","state":"DEGRADED","providerUpdatedAt":"2026-07-19T00:00:00Z","activeIncidentTitle":"Elevated error rates"}`
+	dep2 := `{"id":"dep-2","presetId":"stripe_api","name":"Stripe API","provider":"Stripe","state":"DEGRADED","providerUpdatedAt":"2026-07-19T00:00:00Z","activeIncidentTitle":"Elevated error rates","componentLabel":"US East"}`
 	client := &fakeClient{do: func(r Request) error {
 		if got := r.Query.Get("cursor"); got != "start" {
 			t.Errorf("cursor = %q", got)
@@ -160,13 +160,13 @@ func TestListSendsCursorAndLimitAndRendersTable(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := stdout.String()
-	if !strings.Contains(out, "STATE\tNAME\tPROVIDER\tINCIDENT\tUPDATED") {
+	if !strings.Contains(out, "STATE\tNAME\tPROVIDER\tREGION\tINCIDENT\tUPDATED") {
 		t.Fatalf("missing header: %q", out)
 	}
-	if !strings.Contains(out, "OPERATIONAL\tVercel Runtime\tVercel\t\t") {
+	if !strings.Contains(out, "OPERATIONAL\tVercel Runtime\tVercel\t\t\t") {
 		t.Fatalf("missing operational row: %q", out)
 	}
-	if !strings.Contains(out, "DEGRADED\tStripe API\tStripe\tElevated error rates\t2026-07-19T00:00:00Z") {
+	if !strings.Contains(out, "DEGRADED\tStripe API\tStripe\tUS East\tElevated error rates\t2026-07-19T00:00:00Z") {
 		t.Fatalf("missing degraded row: %q", out)
 	}
 	// Provider reported caption belongs on stderr, never inside the piped table data.
@@ -190,7 +190,7 @@ func TestListTSVKeepsCaptionOffStdout(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stdout.String(), "OPERATIONAL\tVercel Runtime\tVercel\t\t") {
+	if !strings.Contains(stdout.String(), "OPERATIONAL\tVercel Runtime\tVercel\t\t\t") {
 		t.Fatalf("missing tsv row: %q", stdout.String())
 	}
 	if strings.Contains(stdout.String(), "provider reported") {
@@ -226,7 +226,7 @@ func TestListEmptyDataSerializesAsArray(t *testing.T) {
 		setListResult(t, r.Result, nil, nil)
 		return nil
 	})
-	doc, err := List(context.Background(), client, 0, "", true)
+	doc, err := List(context.Background(), client, ListOptions{Machine: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,6 +350,87 @@ func TestGetJSONOutputUnaffectedByProviderReportedLabel(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), "Provider reported") {
 		t.Fatalf("json output must stay pure data: %q", stdout.String())
+	}
+}
+
+func TestGetRendersBackfillMarkWhenSet(t *testing.T) {
+	detail := `{"id":"dep-1","presetId":"vercel_runtime","name":"Vercel Runtime","provider":"Vercel","state":"OPERATIONAL","backfillFailedAt":"2026-07-20T00:00:00Z"}`
+	client := &fakeClient{do: func(r Request) error {
+		doc := r.Result.(*Envelope)
+		*doc = Envelope{APIVersion: "v1", Kind: "Dependency", Data: json.RawMessage(detail)}
+		return nil
+	}}
+	var stdout bytes.Buffer
+	cmd := NewGroup(Dependencies{Client: client, Out: &stdout, Format: func() string { return "table" }})
+	cmd.SetArgs([]string{"get", "dep-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "Backfill      failed 2026-07-20T00:00:00Z, retry with dependency backfill dep-1") {
+		t.Fatalf("missing backfill mark line: %q", stdout.String())
+	}
+}
+
+func TestGetOmitsBackfillMarkWhenNull(t *testing.T) {
+	detail := `{"id":"dep-1","presetId":"vercel_runtime","name":"Vercel Runtime","provider":"Vercel","state":"OPERATIONAL","backfillFailedAt":null}`
+	client := &fakeClient{do: func(r Request) error {
+		doc := r.Result.(*Envelope)
+		*doc = Envelope{APIVersion: "v1", Kind: "Dependency", Data: json.RawMessage(detail)}
+		return nil
+	}}
+	var stdout bytes.Buffer
+	cmd := NewGroup(Dependencies{Client: client, Out: &stdout, Format: func() string { return "table" }})
+	cmd.SetArgs([]string{"get", "dep-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stdout.String(), "Backfill") {
+		t.Fatalf("backfill line must stay hidden when the mark is null: %q", stdout.String())
+	}
+}
+
+func TestBackfillPostsAndRendersRefreshedDetail(t *testing.T) {
+	refreshed := `{"id":"dep-1","presetId":"vercel_runtime","name":"Vercel Runtime","provider":"Vercel","state":"OPERATIONAL","backfillFailedAt":null}`
+	client := &fakeClient{do: func(r Request) error {
+		doc := r.Result.(*Envelope)
+		*doc = Envelope{APIVersion: "v1", Kind: "Dependency", Data: json.RawMessage(refreshed)}
+		return nil
+	}}
+	var stdout bytes.Buffer
+	cmd := NewGroup(Dependencies{
+		Client: client, Out: &stdout, Format: func() string { return "table" },
+		NewID: func() (string, error) { return "idem-backfill", nil },
+	})
+	cmd.SetArgs([]string{"backfill", "dep 1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	request := client.requests[0]
+	if request.Method != http.MethodPost || request.Path != "/api/v1/dependencies/dep%201/backfill" || request.IdempotencyKey != "idem-backfill" {
+		t.Fatalf("request = %#v", request)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "State         OPERATIONAL") {
+		t.Fatalf("missing refreshed detail: %q", out)
+	}
+	if strings.Contains(out, "Backfill") {
+		t.Fatalf("cleared mark must not render a backfill line: %q", out)
+	}
+}
+
+func TestBackfillMapsNotFound(t *testing.T) {
+	sentinel := errors.New("DEPENDENCY_NOT_FOUND")
+	mapped := errors.New("mapped-not-found")
+	client := &fakeClient{do: func(Request) error { return sentinel }}
+	cmd := NewGroup(Dependencies{Client: client, NewID: func() (string, error) { return "idem-backfill", nil }, MapError: func(err error) error {
+		if !errors.Is(err, sentinel) {
+			t.Fatalf("mapped error = %v", err)
+		}
+		return mapped
+	}})
+	cmd.SetArgs([]string{"backfill", "dep-1"})
+	if err := cmd.Execute(); !errors.Is(err, mapped) {
+		t.Fatalf("error = %v", err)
 	}
 }
 
@@ -497,11 +578,12 @@ func TestGroupTreeAndScopes(t *testing.T) {
 		names[child.Name()] = child.Annotations["requiredScope"]
 	}
 	want := map[string]string{
-		"catalog": "dependencies:read",
-		"list":    "dependencies:read",
-		"get":     "dependencies:read",
-		"add":     "dependencies:write",
-		"remove":  "dependencies:write",
+		"catalog":  "dependencies:read",
+		"list":     "dependencies:read",
+		"get":      "dependencies:read",
+		"add":      "dependencies:write",
+		"backfill": "dependencies:write",
+		"remove":   "dependencies:write",
 	}
 	for name, scope := range want {
 		if names[name] != scope {

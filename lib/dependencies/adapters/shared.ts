@@ -9,6 +9,7 @@ import type { DependencySourceManifest } from "../manifest"
 import type {
   CatalogComponentDirectory,
   NormalizedProviderSnapshot,
+  ProviderIncidentState,
 } from "../types"
 import { catalogDirectoryFromComponentIds } from "../types"
 
@@ -55,14 +56,19 @@ export class AdapterParseError extends Error {
   }
 }
 
-const PROVIDER_INCIDENT_STATE_SET: ReadonlySet<string> = new Set(
+// Typed against the dependency-free ProviderIncidentState union so the DB
+// check-constraint vocabulary cannot drift from it without a compile error.
+const PROVIDER_INCIDENT_STATES: readonly ProviderIncidentState[] =
   providerIncidentStates
+
+const PROVIDER_INCIDENT_STATE_SET: ReadonlySet<string> = new Set(
+  PROVIDER_INCIDENT_STATES
 )
 
 /** True only for the 9-value vocabulary the provider_incidents check constraint accepts. */
 export function isProviderIncidentState(
   value: string
-): value is (typeof providerIncidentStates)[number] {
+): value is ProviderIncidentState {
   return PROVIDER_INCIDENT_STATE_SET.has(value)
 }
 
@@ -70,7 +76,7 @@ export function isProviderIncidentState(
 export function requireProviderIncidentState(
   value: string,
   sourceId: string
-): (typeof providerIncidentStates)[number] {
+): ProviderIncidentState {
   if (!isProviderIncidentState(value)) {
     throw new AdapterParseError(
       "UNKNOWN_STATUS",

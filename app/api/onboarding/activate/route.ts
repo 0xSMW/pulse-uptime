@@ -3,6 +3,19 @@ import { NextResponse } from "next/server"
 import { authenticatedMutation, safeError } from "@/lib/onboarding/http"
 import { activateFirstMonitor, OnboardingError } from "@/lib/onboarding/service"
 
+function statusFor(error: unknown): number {
+  if (!(error instanceof OnboardingError)) {
+    return 400
+  }
+  if (error.code === "ACTIVATION_FAILED") {
+    return 503
+  }
+  if (error.code === "ONBOARDING_STATE_CONFLICT") {
+    return 409
+  }
+  return 400
+}
+
 export async function POST(request: Request) {
   const auth = await authenticatedMutation(request)
   if (auth.response) {
@@ -18,13 +31,9 @@ export async function POST(request: Request) {
       monitor: result.monitor,
     })
   } catch (error) {
-    const status =
-      error instanceof OnboardingError && error.code === "ACTIVATION_FAILED"
-        ? 503
-        : 400
     return NextResponse.json(
       { error: safeError(error, "Could not start monitoring") },
-      { status }
+      { status: statusFor(error) }
     )
   }
 }

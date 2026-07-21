@@ -1,4 +1,4 @@
-import type { MonitorState } from "@/components/monitors/status-dot"
+import type { VisibleMonitorState } from "@/components/monitors/status-dot"
 import {
   impactOptions,
   isResolvingStatus,
@@ -50,6 +50,10 @@ export interface ReportData {
   originIncidentId: string | null
   currentStatus: ReportUpdateStatus
   updates: ReportUpdateData[]
+  /** Total updates on the report, including pages past the first. */
+  updatesCount?: number
+  /** Opaque cursor for older timeline pages, or null when complete. */
+  updatesNextCursor?: string | null
   affected: ReportAffectedData[]
   createdAt: string
   updatedAt: string
@@ -73,7 +77,9 @@ export type ReportListState = "all" | "draft" | "ongoing" | "resolved"
 export type ReportListType = "all" | "incident" | "maintenance"
 
 /** Maps a report's current status onto the house StatusDot vocabulary. */
-export function reportDotState(status: ReportUpdateStatus): MonitorState {
+export function reportDotState(
+  status: ReportUpdateStatus
+): VisibleMonitorState {
   switch (status) {
     case "investigating":
     case "identified":

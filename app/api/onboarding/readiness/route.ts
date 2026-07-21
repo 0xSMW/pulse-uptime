@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server"
 
 import { enforceRateLimit, sourceIpKey } from "@/lib/api/rate-limit"
+import { abortSignalForDeadline } from "@/lib/async/deadline"
 import { hasAdministrator } from "@/lib/auth/service"
-import { getCurrentSession } from "@/lib/auth/session"
-import { checkOnboardingReadiness } from "@/lib/onboarding/readiness"
+import { authenticateCurrentSession } from "@/lib/auth/session"
+import {
+  getOnboardingReadiness,
+  ONBOARDING_READINESS_TIMEOUT_MS,
+} from "@/lib/onboarding/readiness"
 
 // Postgres-backed so the bucket holds across serverless instances.
 const READINESS_LIMIT = {
@@ -11,10 +15,6 @@ const READINESS_LIMIT = {
   limit: 10,
   windowSeconds: 60,
 }
-let cache: {
-  expiresAt: number
-  report: Awaited<ReturnType<typeof checkOnboardingReadiness>>
-} | null = null
 
 export async function GET(request: Request) {
   // The readiness probe performs privileged provider writes (Edge Config, email). Once
@@ -22,7 +22,7 @@ export async function GET(request: Request) {
   // onboarding may drive it — anonymous callers are switched off, which removes the
   // unauthenticated post-bootstrap side-effect path while keeping the onboarding flow
   // (which can navigate back to this step after the account is created) working.
-  if ((await hasAdministrator()) && !(await getCurrentSession())) {
+  if ((await hasAdministrator()) && !(await authenticateCurrentSession())) {
     return NextResponse.json(
       { error: "Onboarding is already complete" },
       { status: 410, headers: { "Cache-Control": "no-store" } }
@@ -34,13 +34,16 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Try again shortly" }, { status: 429 })
   }
 
-  const now = Date.now()
-  if (cache && cache.expiresAt > now) {
-    return NextResponse.json(cache.report, {
-      headers: { "Cache-Control": "no-store" },
-    })
-  }
-  const report = await checkOnboardingReadiness()
-  cache = { expiresAt: now + 30_000, report }
-  return NextResponse.json(report, { headers: { "Cache-Control": "no-store" } })
+  const nowMs = Date.now()
+  const deadlineAtMs = nowMs + ONBOARDING_READINESS_TIMEOUT_MS
+  // Outer deadline aborts provider HTTP. The query executor bounds all DB work.
+  const deadlineSignal = abortSignalForDeadline(deadlineAtMs, nowMs)
+  const signal = request.signal.aborted
+    ? request.signal
+    : AbortSignal.any([request.signal, deadlineSignal])
+
+  const report = await getOnboardingReadiness({ deadlineAtMs, signal, nowMs })
+  return NextResponse.json(report, {
+    headers: { "Cache-Control": "no-store" },
+  })
 }

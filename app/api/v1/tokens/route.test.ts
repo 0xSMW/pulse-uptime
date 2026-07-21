@@ -14,7 +14,7 @@ vi.mock("@/lib/api/middleware", () => ({
   isApiResponse: (value: unknown) => value instanceof Response,
 }))
 // Mimics executeIdempotent persistBody / replayBody so create+replay contracts
-// can be asserted without a database.
+// can be asserted without a database. Atomic mode calls work(tx, context).
 vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/idempotency")>()),
   executeIdempotent: vi.fn(
@@ -25,16 +25,14 @@ vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
       replayBody,
     }: {
       request: Request
-      work: (context: {
-        operationId: string
-        transaction: (
-          run: (tx: unknown) => Promise<{ status: number; body: T }>
-        ) => Promise<{ status: number; body: T }>
-      }) => Promise<{ status: number; body: T }>
+      work: (
+        tx: unknown,
+        context: { operationId: string }
+      ) => Promise<{ status: number; body: T }>
       persistBody?: (body: T) => unknown
       replayBody?: (
         stored: unknown,
-        context: { operationId: string; transaction: never }
+        context: { operationId: string }
       ) => T | Promise<T>
     }) => {
       const key = incomingRequest.headers.get("idempotency-key")!
@@ -43,23 +41,16 @@ vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
         const body = replayBody
           ? await replayBody(existing.body, {
               operationId: existing.operationId,
-              transaction: undefined as never,
             })
           : (existing.body as T)
         return { status: existing.status, body, replayed: true }
       }
       const operationId = "op-token-1"
-      const result = await work({
+      const result = await work("tx", { operationId })
+      idempotencyRecords.set(key, {
+        status: result.status,
+        body: persistBody ? persistBody(result.body) : result.body,
         operationId,
-        transaction: async (run) => {
-          const outcome = await run("tx")
-          idempotencyRecords.set(key, {
-            status: outcome.status,
-            body: persistBody ? persistBody(outcome.body) : outcome.body,
-            operationId,
-          })
-          return outcome
-        },
       })
       return { ...result, replayed: false }
     }
@@ -68,6 +59,7 @@ vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
 vi.mock("@/lib/api/token-service", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/token-service")>()),
   createApiToken: vi.fn(),
+  listApiTokens: vi.fn(),
   validateTokenInput: vi.fn(),
 }))
 vi.mock("@/lib/api/tokens", async (importOriginal) => ({
@@ -81,15 +73,18 @@ vi.mock("@/lib/api/tokens", async (importOriginal) => ({
 }))
 
 import { type ApiContext, authorize } from "@/lib/api/middleware"
+import { encodeCursor } from "@/lib/api/pagination"
 import type { ApiScope } from "@/lib/api/scopes"
 import {
   createApiToken,
+  listApiTokens,
   type TokenRecord,
   validateTokenInput,
 } from "@/lib/api/token-service"
 
 import {
   type CreatedTokenData,
+  GET,
   type PersistedCreatedTokenData,
   POST,
   persistCreatedToken,
@@ -174,6 +169,7 @@ beforeEach(() => {
   idempotencyRecords.clear()
   vi.mocked(authorize).mockReset()
   vi.mocked(createApiToken).mockReset()
+  vi.mocked(listApiTokens).mockReset()
   vi.mocked(validateTokenInput).mockReset()
   process.env.API_TOKEN_HASH_KEY = "api-token-key-with-at-least-32-characters"
 })
@@ -232,6 +228,42 @@ describe("CreatedToken persist/replay helpers", () => {
       token: "pulse_live_replayed",
     })
     expect(replayed.expiryClamped).toBe(true)
+  })
+})
+
+describe("GET /api/v1/tokens cursor validation", () => {
+  it("returns INVALID_CURSOR and never lists tokens for a non-UUID cursor id", async () => {
+    vi.mocked(authorize).mockResolvedValue(humanContext)
+    const cursor = encodeCursor({
+      sort: "2026-07-18T00:00:00.000Z",
+      id: "not-a-uuid",
+    })
+    const response = await GET(
+      new Request(`https://pulse.test/api/v1/tokens?cursor=${cursor}`)
+    )
+    const body = await response.json()
+    expect(response.status).toBe(400)
+    expect(body.error.code).toBe("INVALID_CURSOR")
+    expect(listApiTokens).not.toHaveBeenCalled()
+  })
+
+  it("lists tokens when the cursor is a valid timestamp+UUID pair", async () => {
+    vi.mocked(authorize).mockResolvedValue(humanContext)
+    vi.mocked(listApiTokens).mockResolvedValue({
+      tokens: [tokenRecord],
+      nextCursor: null,
+    })
+    const sort = "2026-07-18T00:00:00.000Z"
+    const id = "11111111-1111-4111-8111-111111111111"
+    const cursor = encodeCursor({ sort, id })
+    const response = await GET(
+      new Request(`https://pulse.test/api/v1/tokens?cursor=${cursor}`)
+    )
+    expect(response.status).toBe(200)
+    expect(listApiTokens).toHaveBeenCalledWith({
+      cursor: { sort: new Date(sort), id },
+      limit: 50,
+    })
   })
 })
 

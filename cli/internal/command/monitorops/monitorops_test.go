@@ -247,13 +247,13 @@ func TestGetRendersRuntimeState(t *testing.T) {
 	}
 }
 
-func TestDeleteRequiresYesWhenNoninteractive(t *testing.T) {
+func TestArchiveRequiresYesWhenNoninteractive(t *testing.T) {
 	called := false
 	d := Dependencies{Client: clientFunc(func(context.Context, Request) error { called = true; return nil }), Format: func() string { return "json" }, NewID: func() (string, error) { return "key", nil }}
 	cmd := NewGroup(d)
 	cmd.SilenceErrors = true
 	cmd.SilenceUsage = true
-	cmd.SetArgs([]string{"delete", "api"})
+	cmd.SetArgs([]string{"archive", "api"})
 	err := cmd.Execute()
 	var ce *Error
 	if !errors.As(err, &ce) || ce.Exit != ExitInvalidInput {
@@ -261,6 +261,52 @@ func TestDeleteRequiresYesWhenNoninteractive(t *testing.T) {
 	}
 	if called {
 		t.Fatal("API called")
+	}
+}
+
+// The rendered archive envelope is the server's MonitorArchival response, never
+// a locally fabricated document.
+func TestArchiveRendersServerEnvelope(t *testing.T) {
+	client := clientFunc(func(_ context.Context, r Request) error {
+		if r.Method != "DELETE" {
+			t.Fatalf("method = %q", r.Method)
+		}
+		doc, ok := r.Result.(*Envelope)
+		if !ok {
+			t.Fatalf("result type = %T", r.Result)
+		}
+		doc.APIVersion, doc.Kind = "v1", "MonitorArchival"
+		doc.Data = json.RawMessage(`{"id":"api","archived":true}`)
+		return nil
+	})
+	var out bytes.Buffer
+	cmd := NewGroup(Dependencies{Client: client, Out: &out, Format: func() string { return "json" }, NewID: func() (string, error) { return "key", nil }})
+	cmd.SetArgs([]string{"archive", "api", "--yes"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var env Envelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	if env.Kind != "MonitorArchival" {
+		t.Fatalf("kind = %q", env.Kind)
+	}
+}
+
+func TestArchiveIsCanonicalAndDeleteIsRetired(t *testing.T) {
+	cmd := NewGroup(Dependencies{})
+	archive, _, err := cmd.Find([]string{"archive"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archive.Hidden || archive.Deprecated != "" {
+		t.Fatalf("archive metadata = hidden:%v deprecated:%q", archive.Hidden, archive.Deprecated)
+	}
+	for _, sub := range cmd.Commands() {
+		if sub.Name() == "delete" {
+			t.Fatal("delete command is retired and must not be registered")
+		}
 	}
 }
 

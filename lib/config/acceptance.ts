@@ -2,9 +2,9 @@ import { hashMonitoringConfig } from "./canonical"
 import { exportDeclarativeConfig } from "./export"
 import type { MonitoringConfig } from "./schema"
 import {
-  type DestructiveApproval,
+  type DestructiveChangeApproval,
   evaluateDestructiveChange,
-  isValidDestructiveApproval,
+  isValidDestructiveChangeApproval,
 } from "./tripwire"
 import { validateMonitoringConfig } from "./validation"
 
@@ -39,7 +39,7 @@ export type AcceptanceResult =
     }
 
 export interface AcceptanceOptions {
-  approval?: DestructiveApproval | null
+  approval?: DestructiveChangeApproval | null
   now?: Date
 }
 
@@ -92,7 +92,11 @@ export function evaluateConfigurationAcceptance(
   )
   if (
     destructive.required &&
-    !isValidDestructiveApproval(options.approval, candidateHash, options.now)
+    !isValidDestructiveChangeApproval(
+      options.approval,
+      candidateHash,
+      options.now
+    )
   ) {
     return {
       status: "rejected",

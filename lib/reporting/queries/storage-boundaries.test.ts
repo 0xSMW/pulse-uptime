@@ -31,7 +31,7 @@ import { monitorRegistry } from "@/lib/db/schema"
 import { defaultStatusPageDocument } from "@/lib/status-page/display"
 import { getPublicReports } from "@/lib/status-reports/queries"
 
-import { getMonitorDetail, getMonitorLive } from "./monitors"
+import { findMonitorDetail, findMonitorLive } from "./monitors"
 import { getPublicStatus } from "./status"
 
 // A monitor row wide enough to satisfy both the detail identity select and the
@@ -158,12 +158,12 @@ describe("rollup reporting boundaries", () => {
   it("monitor detail and live reads target metric_rollups and no legacy raw telemetry", async () => {
     const tables = new Set<string>()
     for (const table of await referencedTables(() =>
-      getMonitorDetail("mon-detail")
+      findMonitorDetail("mon-detail")
     )) {
       tables.add(table)
     }
     for (const table of await referencedTables(() =>
-      getMonitorLive("mon-live")
+      findMonitorLive("mon-live")
     )) {
       tables.add(table)
     }

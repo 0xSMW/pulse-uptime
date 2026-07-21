@@ -30,24 +30,22 @@ export async function DELETE(
       principalKey: context.principalKey,
       routeKey: "token-revoke",
       body: { tokenId },
-      work: async ({ transaction }) =>
-        transaction<{ token: { id: string; revokedAt: string | null } | null }>(
-          async (tx) => {
-            const token = await revokeApiToken(tokenId, new Date(), tx)
-            if (!token) {
-              return { status: 404, body: { token: null } }
-            }
-            return {
-              status: 200,
-              body: {
-                token: {
-                  id: token.id,
-                  revokedAt: token.revokedAt?.toISOString() ?? null,
-                },
-              },
-            }
-          }
-        ),
+      mode: "atomic",
+      work: async (tx) => {
+        const token = await revokeApiToken(tokenId, new Date(), tx)
+        if (!token) {
+          return { status: 404, body: { token: null } }
+        }
+        return {
+          status: 200,
+          body: {
+            token: {
+              id: token.id,
+              revokedAt: token.revokedAt?.toISOString() ?? null,
+            },
+          },
+        }
+      },
     })
     if (!result.body.token) {
       return apiError(

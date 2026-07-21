@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { parseMonitorRecipients } from "@/lib/monitoring/recipients"
+
 import {
   hasAdvancedMonitorFormErrors,
   isPublicMonitorUrl,
   type MonitorFormValues,
   monitorSheetActionLabels,
-  parseRecipients,
   validateMonitorForm,
 } from "./monitor-sheet"
 import {
@@ -70,7 +71,7 @@ describe("Settings form helpers", () => {
 
   it("parses newline and comma separated recipients", () => {
     expect(
-      parseRecipients("a@example.com\nb@example.com, c@example.com")
+      parseMonitorRecipients("a@example.com\nb@example.com, c@example.com")
     ).toEqual(["a@example.com", "b@example.com", "c@example.com"])
   })
 
@@ -109,7 +110,11 @@ describe("Settings form helpers", () => {
       .fn()
       .mockResolvedValue(new Response(null, { status: 204 }))
     vi.stubGlobal("fetch", fetchMock)
-    await apiRequest("/api/v1/tokens/token-id", { method: "DELETE" }, true)
+    await apiRequest(
+      "/api/v1/tokens/token-id",
+      { method: "DELETE" },
+      { mutation: true }
+    )
     const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers)
     expect(headers.get("Idempotency-Key")).toBe(
       "12345678-1234-1234-1234-123456789abc"
@@ -134,7 +139,11 @@ describe("Settings form helpers", () => {
     )
 
     await expect(
-      apiRequest("/api/v1/groups/core", { method: "DELETE" }, true)
+      apiRequest(
+        "/api/v1/groups/core",
+        { method: "DELETE" },
+        { mutation: true }
+      )
     ).rejects.toMatchObject({
       code: "GROUP_NOT_EMPTY",
       details: { monitorCount: 2 },

@@ -1,7 +1,6 @@
 import "server-only"
 
 import { randomUUID } from "node:crypto"
-import { sql as drizzleSql } from "drizzle-orm"
 
 import {
   type AcceptedConfigSnapshot,
@@ -22,7 +21,9 @@ import {
   configChangeApprovals,
   monitoringConfigSnapshots,
 } from "@/lib/db/schema"
-import { synchronizeRegistry as syncRegistryRows } from "@/lib/scheduler/registry-sync"
+import { synchronizeRegistry } from "@/lib/scheduler/registry-sync"
+
+import { lockConfiguration, lockedNow } from "./configuration-lock"
 
 type DbTransaction = DatabaseTransaction
 
@@ -73,31 +74,32 @@ async function writeEdgeConfig(config: MonitoringConfig): Promise<void> {
   }
 }
 
-async function synchronizeRegistry(
+async function syncMonitorRegistryRows(
   tx: DbTransaction,
   config: MonitoringConfig,
   hash: string,
   now: Date
 ): Promise<void> {
-  await syncRegistryRows(tx, config, hash, now, "api")
+  await synchronizeRegistry(tx, config, hash, now, "api")
 }
 
-export async function mutateConfig(
+export async function applyConfigChange(
   principalKey: string,
   mutator: (config: MonitoringConfig) => MonitoringConfig,
   handle: DatabaseHandle = db
 ): Promise<MonitoringConfig> {
   return handle.transaction(async (tx) => {
-    await tx.execute(
-      drizzleSql`select pg_advisory_xact_lock(hashtext('pulse:configuration'))`
-    )
+    await lockConfiguration(tx)
     const current = await requireAcceptedConfig(tx as unknown as typeof db)
     const target = validateMonitoringConfig(mutator(current.config))
     const hash = hashMonitoringConfig(target)
     if (hash === current.hash) {
       return current.config
     }
-    const now = new Date()
+    // Stamp from the lock-serialized database clock so this snapshot's
+    // acceptedAt orders correctly against a concurrent cron acceptance under
+    // the same lock, immune to host clock skew.
+    const now = await lockedNow(tx)
     const destructive = evaluateDestructiveChange(
       exportDeclarativeConfig(current.config),
       exportDeclarativeConfig(target)
@@ -106,7 +108,7 @@ export async function mutateConfig(
       await tx.insert(configChangeApprovals).values({
         id: randomUUID(),
         targetConfigHash: hash,
-        action: "bulk_archive",
+        action: "destructive_config_change",
         createdByPrincipal: principalKey,
         createdAt: now,
         expiresAt: new Date(now.getTime() + 600_000),
@@ -123,7 +125,7 @@ export async function mutateConfig(
       seenAt: now,
       acceptedAt: now,
     })
-    await synchronizeRegistry(tx, target, hash, now)
+    await syncMonitorRegistryRows(tx, target, hash, now)
     // writeEdgeConfig is an external HTTP call and cannot be rolled back, so it runs last,
     // after every statement in this transaction that could still abort it. Only the
     // caller's completion write and commit remain between it and durability.

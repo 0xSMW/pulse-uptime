@@ -134,7 +134,7 @@ export async function listIncidents(filter: IncidentFilter = "all") {
   })
 }
 
-export async function getIncidentDetail(id: string) {
+export async function findIncidentDetail(id: string) {
   const [row] = await db
     .select({
       id: incidents.id,

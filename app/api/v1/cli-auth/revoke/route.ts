@@ -28,20 +28,24 @@ export async function POST(request: Request) {
       principalKey: context.principalKey,
       routeKey: "cli-session-revoke",
       body: {},
-      work: async ({ transaction }) =>
-        transaction(async (tx) => ({
-          status: 200,
-          body: {
-            revoked: await revokeCliInstallation(
-              context.principal,
-              new Date(),
-              tx
-            ),
-          },
-        })),
+      mode: "atomic",
+      work: async (tx) => ({
+        status: 200,
+        body: {
+          revoked: await revokeCliInstallation(
+            context.principal,
+            new Date(),
+            tx
+          ),
+        },
+      }),
     })
     return apiJson(
-      objectEnvelope("CliSessionRevocation", result.body, context.requestId),
+      objectEnvelope(
+        "CliInstallationRevocation",
+        result.body,
+        context.requestId
+      ),
       { status: result.status }
     )
   } catch (error) {

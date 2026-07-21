@@ -5,7 +5,7 @@ vi.mock("@/lib/db/client", () => ({
   db: { transaction: vi.fn(), update: vi.fn() },
 }))
 vi.mock("./queries", () => ({
-  getDependencyDetail: vi.fn(),
+  findDependencyDetail: vi.fn(),
   listCatalog: vi.fn(),
   listDependenciesForDashboard: vi.fn(),
 }))
@@ -32,6 +32,7 @@ import {
   patchDependency,
   removeDependency,
   requireDependencyDetail,
+  retryDependencyBackfill,
   scheduleDependencyPoll,
 } from "./service"
 
@@ -40,7 +41,7 @@ const DETAIL = {
   id: "dep-1",
   presetId: "vercel_runtime",
   state: "OPERATIONAL",
-} as unknown as ReturnType<typeof queries.getDependencyDetail>
+} as unknown as ReturnType<typeof queries.findDependencyDetail>
 
 function fakeStore(
   overrides: Partial<DependenciesStore> = {}
@@ -54,6 +55,7 @@ function fakeStore(
     loadSourceIdForDependency: vi.fn(),
     removeDependency: vi.fn(),
     patchNotifications: vi.fn(),
+    retryBackfill: vi.fn().mockResolvedValue(true),
     ...overrides,
   }
 }
@@ -73,7 +75,7 @@ function preset(
 }
 
 beforeEach(() => {
-  vi.mocked(queries.getDependencyDetail)
+  vi.mocked(queries.findDependencyDetail)
     .mockReset()
     .mockResolvedValue(DETAIL as never)
   vi.mocked(queries.listCatalog).mockReset()
@@ -432,7 +434,7 @@ describe("addDependency duplicates and defaults", () => {
         dependency: expect.objectContaining({ id: "op-123" }),
       })
     )
-    expect(queries.getDependencyDetail).toHaveBeenCalledWith("op-123", db)
+    expect(queries.findDependencyDetail).toHaveBeenCalledWith("op-123", db)
   })
 
   it("reads the detail back on the same transaction handle the insert ran on, not the pooled db", async () => {
@@ -446,8 +448,8 @@ describe("addDependency duplicates and defaults", () => {
     expect(store.insertDependency).toHaveBeenCalledWith(
       expect.objectContaining({ handle: tx })
     )
-    expect(queries.getDependencyDetail).toHaveBeenCalledWith("id", tx)
-    expect(queries.getDependencyDetail).not.toHaveBeenCalledWith("id", db)
+    expect(queries.findDependencyDetail).toHaveBeenCalledWith("id", tx)
+    expect(queries.findDependencyDetail).not.toHaveBeenCalledWith("id", db)
   })
 
   it("returns the freshly built detail projection, not a bespoke shape", async () => {
@@ -478,7 +480,7 @@ describe("read wrappers", () => {
   })
 
   it("requireDependencyDetail throws DEPENDENCY_NOT_FOUND when the query finds nothing", async () => {
-    vi.mocked(queries.getDependencyDetail).mockResolvedValue(null)
+    vi.mocked(queries.findDependencyDetail).mockResolvedValue(null)
     await expect(requireDependencyDetail("missing")).rejects.toMatchObject({
       code: "DEPENDENCY_NOT_FOUND",
     })
@@ -529,7 +531,7 @@ describe("patchDependency", () => {
       tx
     )
     expect(store.patchNotifications).toHaveBeenCalledWith("dep-1", false, tx)
-    expect(queries.getDependencyDetail).toHaveBeenCalledWith("dep-1", tx)
+    expect(queries.findDependencyDetail).toHaveBeenCalledWith("dep-1", tx)
   })
 })
 
@@ -581,7 +583,56 @@ describe("scheduleDependencyPoll", () => {
     await expect(
       scheduleDependencyPoll("dep-1", { store, now: () => NOW })
     ).resolves.toEqual({ id: "dep-1", queued: true })
-    expect(store.touchSourceNextPoll).toHaveBeenCalledWith("vercel", NOW)
+    expect(store.touchSourceNextPoll).toHaveBeenCalledWith(
+      "vercel",
+      NOW,
+      expect.anything()
+    )
+  })
+
+  it("threads a caller-supplied handle into touchSourceNextPoll", async () => {
+    const store = fakeStore({
+      loadSourceIdForDependency: vi.fn().mockResolvedValue("vercel"),
+    })
+    const handle = { update: vi.fn() } as unknown as typeof db
+    await scheduleDependencyPoll("dep-1", { store, now: () => NOW }, handle)
+    expect(store.touchSourceNextPoll).toHaveBeenCalledWith(
+      "vercel",
+      NOW,
+      handle
+    )
+  })
+})
+
+describe("retryDependencyBackfill", () => {
+  it("throws DEPENDENCY_NOT_FOUND when no active dependency matches", async () => {
+    const store = fakeStore({
+      retryBackfill: vi.fn().mockResolvedValue(false),
+    })
+    await expect(
+      retryDependencyBackfill("dep-1", { store })
+    ).rejects.toMatchObject({ code: "DEPENDENCY_NOT_FOUND" })
+    expect(queries.findDependencyDetail).not.toHaveBeenCalled()
+  })
+
+  it("re-runs the backfill and returns the refreshed detail with the mark cleared", async () => {
+    const store = fakeStore({
+      retryBackfill: vi.fn().mockResolvedValue(true),
+    })
+    await expect(retryDependencyBackfill("dep-1", { store })).resolves.toBe(
+      DETAIL
+    )
+    expect(store.retryBackfill).toHaveBeenCalledWith("dep-1", db)
+  })
+
+  it("threads a caller-supplied handle into both the retry and the read-back", async () => {
+    const store = fakeStore({
+      retryBackfill: vi.fn().mockResolvedValue(true),
+    })
+    const tx = { transaction: vi.fn(), update: vi.fn() } as unknown as typeof db
+    await retryDependencyBackfill("dep-1", { store }, tx)
+    expect(store.retryBackfill).toHaveBeenCalledWith("dep-1", tx)
+    expect(queries.findDependencyDetail).toHaveBeenCalledWith("dep-1", tx)
   })
 })
 
@@ -589,13 +640,20 @@ describe("databaseDependenciesStore validator clearing (FIX D)", () => {
   it("clears the source's etag and last_modified in the same transaction that installs a dependency", async () => {
     const setCalls: Array<{ table: unknown; patch: Record<string, unknown> }> =
       []
-    const tx = {
+    // A chain that satisfies both the duplicate pre-check
+    // (from/where/limit) and the incident backfill's preset read
+    // (from/innerJoin/where/limit). The preset read resolves empty, so the
+    // backfill returns before its incident query and the insert path is
+    // exercised unchanged.
+    const emptyChain: Record<string, () => unknown> = {
+      from: () => emptyChain,
+      innerJoin: () => emptyChain,
+      where: () => emptyChain,
+      limit: () => Promise.resolve([]),
+    }
+    const tx: Record<string, unknown> = {
       // No existing active dependency, so the duplicate pre-check passes and the insert proceeds.
-      select: () => ({
-        from: () => ({
-          where: () => ({ limit: vi.fn().mockResolvedValue([]) }),
-        }),
-      }),
+      select: () => emptyChain,
       insert: () => ({ values: vi.fn().mockResolvedValue(undefined) }),
       update: (table: unknown) => ({
         set: (patch: Record<string, unknown>) => {
@@ -604,6 +662,10 @@ describe("databaseDependenciesStore validator clearing (FIX D)", () => {
         },
       }),
     }
+    // The backfill savepoint runs on the same handle; its preset read resolves
+    // empty (emptyChain), so the scan is a no-op and the mark stays unset.
+    tx.transaction = async (work: (savepoint: unknown) => Promise<unknown>) =>
+      work(tx)
     vi.mocked(db.transaction).mockImplementation((async (
       work: (tx: unknown) => Promise<unknown>
     ) => work(tx)) as never)
@@ -736,6 +798,133 @@ describe("databaseDependenciesStore insertDependency race handling", () => {
     })
 
     expect(inserted).toBe(false)
+  })
+})
+
+describe("databaseDependenciesStore insertDependency backfill isolation", () => {
+  it("marks the failure on the dependency but still commits the insert when the backfill savepoint fails", async () => {
+    const setCalls: Array<{ table: unknown; patch: Record<string, unknown> }> =
+      []
+    const emptyChain: Record<string, () => unknown> = {
+      from: () => emptyChain,
+      innerJoin: () => emptyChain,
+      where: () => emptyChain,
+      limit: () => Promise.resolve([]),
+    }
+    const tx: Record<string, unknown> = {
+      select: () => emptyChain,
+      insert: () => ({ values: vi.fn().mockResolvedValue(undefined) }),
+      update: (table: unknown) => ({
+        set: (patch: Record<string, unknown>) => {
+          setCalls.push({ table, patch })
+          return { where: vi.fn().mockResolvedValue(undefined) }
+        },
+      }),
+    }
+    // The backfill savepoint rejects, standing in for a transient scan failure.
+    // The insert must still commit, with the failure marked on the dependency.
+    tx.transaction = () => Promise.reject(new Error("scan failed"))
+    vi.mocked(db.transaction).mockImplementation((async (
+      work: (handle: unknown) => Promise<unknown>
+    ) => work(tx)) as never)
+
+    const inserted = await databaseDependenciesStore.insertDependency({
+      dependency: {
+        id: "dep-1",
+        catalogId: "vercel_runtime",
+        scopeId: null,
+        notificationsEnabled: true,
+        createdAt: NOW,
+        removedAt: null,
+      },
+      state: {
+        state: "UNKNOWN",
+        pendingFirstPoll: true,
+        observedAt: NOW,
+        providerUpdatedAt: null,
+      },
+      intervalId: "interval-1",
+      sourceId: "vercel",
+      now: NOW,
+    })
+
+    expect(inserted).toBe(true)
+    const mark = setCalls.find(
+      (call) => call.table === dependencies && "backfillFailedAt" in call.patch
+    )
+    expect(mark?.patch.backfillFailedAt).toBe(NOW)
+    // The insert path still finished: the source validator clearing ran.
+    expect(setCalls.some((call) => call.table === dependencySources)).toBe(true)
+  })
+})
+
+describe("databaseDependenciesStore retryBackfill", () => {
+  function retryTxMock(row: Record<string, unknown> | null) {
+    const setCalls: Array<{ table: unknown; patch: Record<string, unknown> }> =
+      []
+    let selectCall = 0
+    const tx = {
+      // First select is the dependency lookup, the second is the backfill's
+      // own preset read, which resolves empty so the scan is a no-op.
+      select: () => {
+        selectCall += 1
+        const chain: Record<string, () => unknown> = {
+          from: () => chain,
+          innerJoin: () => chain,
+          where: () => chain,
+          limit: () => Promise.resolve(selectCall === 1 && row ? [row] : []),
+        }
+        return chain
+      },
+      update: (table: unknown) => ({
+        set: (patch: Record<string, unknown>) => {
+          setCalls.push({ table, patch })
+          return { where: vi.fn().mockResolvedValue(undefined) }
+        },
+      }),
+    }
+    return { tx, setCalls }
+  }
+
+  it("re-runs the backfill and clears the mark, returning true", async () => {
+    const { tx, setCalls } = retryTxMock({
+      catalogId: "vercel_runtime",
+      scopeId: null,
+      createdAt: NOW,
+      sourceId: "vercel",
+    })
+    const retried = await databaseDependenciesStore.retryBackfill(
+      "dep-1",
+      tx as unknown as typeof db
+    )
+    expect(retried).toBe(true)
+    const mark = setCalls.find((call) => call.table === dependencies)
+    expect(mark?.patch).toMatchObject({ backfillFailedAt: null })
+  })
+
+  it("returns false and clears nothing when no active dependency matches", async () => {
+    const { tx, setCalls } = retryTxMock(null)
+    const retried = await databaseDependenciesStore.retryBackfill(
+      "dep-1",
+      tx as unknown as typeof db
+    )
+    expect(retried).toBe(false)
+    expect(setCalls).toHaveLength(0)
+  })
+
+  it("opens its own transaction when no handle is supplied", async () => {
+    const { tx } = retryTxMock({
+      catalogId: "vercel_runtime",
+      scopeId: null,
+      createdAt: NOW,
+      sourceId: "vercel",
+    })
+    vi.mocked(db.transaction).mockImplementation((async (
+      work: (handle: unknown) => Promise<unknown>
+    ) => work(tx)) as never)
+    const retried = await databaseDependenciesStore.retryBackfill("dep-1")
+    expect(retried).toBe(true)
+    expect(db.transaction).toHaveBeenCalled()
   })
 })
 

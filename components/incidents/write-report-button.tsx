@@ -27,7 +27,7 @@ export function WriteReportButton({ incidentId }: { incidentId: string }) {
       const result = await apiRequest<ApiEnvelope<{ id: string }>>(
         `/api/v1/incidents/${encodeURIComponent(incidentId)}/promote`,
         { method: "POST" },
-        true
+        { mutation: true }
       )
       router.push(`/incidents/reports/${encodeURIComponent(result.data.id)}`)
     } catch (cause) {

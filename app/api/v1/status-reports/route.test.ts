@@ -13,14 +13,12 @@ vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
     async ({
       work,
     }: {
-      work: (context: {
-        operationId: string
-        transaction: (
-          run: (tx: unknown) => Promise<unknown>
-        ) => Promise<unknown>
-      }) => Promise<{ status: number; body: unknown }>
+      work: (
+        tx: unknown,
+        context: { operationId: string }
+      ) => Promise<{ status: number; body: unknown }>
     }) => ({
-      ...(await work({ operationId: "op-1", transaction: (run) => run("tx") })),
+      ...(await work("tx", { operationId: "op-1" })),
       replayed: false,
     })
   ),
@@ -77,6 +75,8 @@ const report: StatusReportData = {
       createdAt: "2026-07-18T09:05:00.000Z",
     },
   ],
+  updatesCount: 1,
+  updatesNextCursor: null,
   affected: [
     {
       monitorId: "api-prod",

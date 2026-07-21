@@ -9,14 +9,18 @@ import {
   classifyPublicReport,
   compareReportUpdates,
   createStatusReport,
+  DETAIL_UPDATES_PAGE_SIZE,
   databaseStatusReportsStore,
+  decodeReportUpdateCursor,
   deleteReportUpdate,
   deleteStatusReport,
   deriveResolvedAt,
   editReportUpdate,
+  encodeReportUpdateCursor,
   getPublicReports,
   listStatusReportSummaries,
   listStatusReports,
+  listStatusReportUpdates,
   MAX_AFFECTED_PER_REPORT,
   parseStatusReportListQuery,
   promoteIncident,
@@ -160,10 +164,23 @@ function memoryStore(
       return rows.slice(0, limit + 1).map((row) => ({ ...row }))
     },
     async getReportDetails(ids) {
+      const all = [...updates.values()].filter((row) =>
+        ids.includes(row.reportId)
+      )
+      const page: StatusReportUpdateRow[] = []
+      const counts: Array<{ reportId: string; count: number }> = []
+      for (const reportId of ids) {
+        const rows = all
+          .filter((row) => row.reportId === reportId)
+          .sort((left, right) => compareReportUpdates(right, left))
+        counts.push({ reportId, count: rows.length })
+        page.push(
+          ...rows.slice(0, DETAIL_UPDATES_PAGE_SIZE).map((row) => ({ ...row }))
+        )
+      }
       return {
-        updates: [...updates.values()]
-          .filter((row) => ids.includes(row.reportId))
-          .map((row) => ({ ...row })),
+        updates: page,
+        counts: counts.filter((entry) => entry.count > 0),
         affected: affected
           .filter((row) => ids.includes(row.reportId))
           .map((row) => ({ ...row })),
@@ -190,17 +207,105 @@ function memoryStore(
           .map((row) => ({ ...row })),
       }
     },
-    async updateReport({ id, patch, affected: replacement, now }) {
-      const row = reports.get(id)
-      if (!row) {
-        return null
+    async listReportUpdates({ reportId, cursor, limit }) {
+      let rows = [...updates.values()]
+        .filter((row) => row.reportId === reportId)
+        .sort((left, right) => compareReportUpdates(right, left))
+      if (cursor) {
+        rows = rows.filter((row) => {
+          const byPublished =
+            row.publishedAt.getTime() - cursor.publishedAt.getTime()
+          if (byPublished !== 0) {
+            return byPublished < 0
+          }
+          const byCreated = row.createdAt.getTime() - cursor.createdAt.getTime()
+          if (byCreated !== 0) {
+            return byCreated < 0
+          }
+          return row.id < cursor.id
+        })
       }
-      Object.assign(row, patch, { updatedAt: now })
-      if (replacement !== undefined) {
-        affected = affected.filter((entry) => entry.reportId !== id)
-        affected.push(...replacement.map((entry) => ({ ...entry })))
-      }
-      return { ...row }
+      return rows.slice(0, limit).map((row) => ({ ...row }))
+    },
+    async updateReport({ id, patch, affectedEntries, now }) {
+      // Mirrors the DB's locked contract: merge and validate against the
+      // locked row inside the per-report lock so concurrent bound patches
+      // cannot both pass against a stale pre-read.
+      return withReportLock(id, async () => {
+        const row = reports.get(id)
+        if (!row) {
+          return null
+        }
+        if (row.type === "incident" && patch.endsAt != null) {
+          throw new StatusReportError(
+            "VALIDATION_ERROR",
+            "endsAt is not allowed for incident reports",
+            { type: row.type }
+          )
+        }
+        if (affectedEntries !== undefined) {
+          const allowed =
+            row.type === "incident"
+              ? (["down", "degraded"] as const)
+              : (["maintenance"] as const)
+          for (const entry of affectedEntries) {
+            if (!(allowed as readonly string[]).includes(entry.impact)) {
+              throw new StatusReportError(
+                "VALIDATION_ERROR",
+                `Affected impact must be one of ${allowed.join(", ")} for ${row.type} reports`,
+                { monitorId: entry.monitorId, impact: entry.impact }
+              )
+            }
+          }
+        }
+        const effectiveStartsAt = patch.startsAt ?? row.startsAt
+        const effectiveEndsAt =
+          patch.endsAt === undefined ? row.endsAt : patch.endsAt
+        if (
+          effectiveEndsAt &&
+          effectiveEndsAt.getTime() <= effectiveStartsAt.getTime()
+        ) {
+          throw new StatusReportError(
+            "VALIDATION_ERROR",
+            "endsAt must be after startsAt",
+            {
+              startsAt: effectiveStartsAt.toISOString(),
+              endsAt: effectiveEndsAt.toISOString(),
+            }
+          )
+        }
+        Object.assign(row, patch, { updatedAt: now })
+        if (affectedEntries !== undefined) {
+          const affectedMonitors = await store.findMonitors(
+            affectedEntries.map((entry) => entry.monitorId)
+          )
+          const byId = new Map(
+            affectedMonitors.map((monitor) => [monitor.id, monitor])
+          )
+          const replacement: StatusReportAffectedRow[] = affectedEntries.map(
+            (entry) => {
+              const monitor = byId.get(entry.monitorId)
+              if (!monitor) {
+                throw new StatusReportError(
+                  "VALIDATION_ERROR",
+                  `Affected monitor "${entry.monitorId}" was not found`,
+                  { monitorId: entry.monitorId }
+                )
+              }
+              return {
+                reportId: id,
+                monitorId: monitor.id,
+                monitorName: monitor.name,
+                groupName: monitor.groupName,
+                impact: entry.impact,
+              }
+            }
+          )
+          affected = affected.filter((entry) => entry.reportId !== id)
+          affected.push(...replacement)
+        }
+        return { ...row }
+      })
     },
     async deleteReport(id) {
       const existed = reports.delete(id)
@@ -1238,6 +1343,48 @@ describe("updateStatusReport", () => {
     ).resolves.toMatchObject({ endsAt: "2026-07-19T02:00:00.000Z" })
   })
 
+  it("serializes concurrent start/end patches so an inverted window never lands (finding: locked report updates)", async () => {
+    const store = memoryStore()
+    const deps = dependencies(store)
+    const created = await createStatusReport(
+      {
+        ...validCreate,
+        type: "maintenance",
+        affected: [],
+        startsAt: "2026-07-19T00:00:00.000Z",
+        endsAt: "2026-07-19T02:00:00.000Z",
+        update: { status: "scheduled", markdown: "Planned." },
+      },
+      deps
+    )
+
+    // Both patches are valid against the initial window, but together they
+    // invert it. The FOR UPDATE merge must reject one and leave a valid row.
+    const results = await Promise.allSettled([
+      updateStatusReport(
+        created.id,
+        { startsAt: "2026-07-19T01:30:00.000Z" },
+        deps
+      ),
+      updateStatusReport(
+        created.id,
+        { endsAt: "2026-07-19T01:00:00.000Z" },
+        deps
+      ),
+    ])
+    const fulfilled = results.filter((result) => result.status === "fulfilled")
+    const rejected = results.filter((result) => result.status === "rejected")
+    expect(fulfilled).toHaveLength(1)
+    expect(rejected).toHaveLength(1)
+    expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({
+      code: "VALIDATION_ERROR",
+    })
+
+    const final = store.reports.get(created.id)!
+    expect(final.endsAt).not.toBeNull()
+    expect(final.endsAt!.getTime()).toBeGreaterThan(final.startsAt.getTime())
+  })
+
   it("rejects a patch replacing affected with an impact that doesn't match the report type", async () => {
     const store = memoryStore()
     const deps = dependencies(store)
@@ -1997,5 +2144,94 @@ describe("getPublicReports", () => {
       groupSlug: "cafe",
     })
     expect(filtered.ongoing.map((row) => row.id)).toEqual([report.id])
+  })
+})
+
+describe("listStatusReportUpdates pagination", () => {
+  it("pages 501 updates with no duplicates or skips, stable across timestamp ties", async () => {
+    const store = memoryStore()
+    const newId = sequentialUuids()
+    const deps = {
+      store,
+      now: () => NOW,
+      newId,
+    }
+    const created = await createStatusReport(validCreate, deps)
+    // Seed 500 more updates (501 total) with deliberate timestamp ties so
+    // the (publishedAt, createdAt, id) total order is the only stability.
+    const tiedPublished = new Date("2026-07-18T10:00:00.000Z")
+    for (let index = 0; index < 500; index += 1) {
+      const id = newId()
+      await store.insertUpdate({
+        id,
+        reportId: created.id,
+        status: index % 2 === 0 ? "monitoring" : "investigating",
+        markdown: `Update ${index}`,
+        publishedAt:
+          index < 50
+            ? tiedPublished
+            : new Date(
+                `2026-07-18T${String(10 + (index % 10)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}:00.000Z`
+              ),
+        createdAt:
+          index < 50 ? tiedPublished : new Date(NOW.getTime() + index * 1000),
+        updatedAt: NOW,
+      })
+    }
+
+    const detail = await requireStatusReport(created.id, deps)
+    expect(detail.updatesCount).toBe(501)
+    expect(detail.updates).toHaveLength(DETAIL_UPDATES_PAGE_SIZE)
+    expect(detail.updatesNextCursor).not.toBeNull()
+
+    const seen = new Set(detail.updates.map((update) => update.id))
+    let cursor = detail.updatesNextCursor
+    let pages = 1
+    while (cursor) {
+      const page = await listStatusReportUpdates(
+        created.id,
+        { cursor, limit: 50 },
+        deps
+      )
+      pages += 1
+      for (const update of page.data) {
+        expect(seen.has(update.id)).toBe(false)
+        seen.add(update.id)
+      }
+      // Descending order within the page.
+      for (let i = 1; i < page.data.length; i += 1) {
+        const prev = page.data[i - 1]!
+        const curr = page.data[i]!
+        const prevKey = `${prev.publishedAt}|${prev.createdAt}|${prev.id}`
+        const currKey = `${curr.publishedAt}|${curr.createdAt}|${curr.id}`
+        expect(prevKey >= currKey).toBe(true)
+      }
+      cursor = page.nextCursor
+    }
+    expect(seen.size).toBe(501)
+    expect(pages).toBeGreaterThan(1)
+
+    // Cursor decodes with all three keys.
+    const decoded = decodeReportUpdateCursor(detail.updatesNextCursor)
+    expect(decoded.ok).toBe(true)
+    if (decoded.ok && decoded.cursor) {
+      expect(decoded.cursor.id).toBe(detail.updates.at(-1)!.id)
+      expect(encodeReportUpdateCursor(decoded.cursor)).toBe(
+        detail.updatesNextCursor
+      )
+    }
+  })
+
+  it("rejects an invalid updates cursor", async () => {
+    const store = memoryStore()
+    const deps = dependencies(store)
+    const created = await createStatusReport(validCreate, deps)
+    await expect(
+      listStatusReportUpdates(
+        created.id,
+        { cursor: "not-a-cursor", limit: 50 },
+        deps
+      )
+    ).rejects.toMatchObject({ code: "INVALID_CURSOR" })
   })
 })

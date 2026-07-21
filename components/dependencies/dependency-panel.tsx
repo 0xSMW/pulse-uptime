@@ -2,7 +2,7 @@ import { DependencyPanelRow } from "@/components/dependencies/dependency-row"
 import { listDependenciesForDashboard } from "@/lib/dependencies/queries"
 
 // Server component: hidden entirely when no dependencies exist, per
-// Docs/DEPENDENCY-MONITORING.md "Overview". No uptime percentage anywhere,
+// Docs/Specs/DEPENDENCY-MONITORING.md "Overview". No uptime percentage anywhere,
 // since provider status criteria are subjective and cannot support a
 // trustworthy cross-provider availability calculation.
 export async function DependencyPanel() {
@@ -10,6 +10,12 @@ export async function DependencyPanel() {
   if (dependencies.length === 0) {
     return null
   }
+
+  // The Incident column is present only when at least one dependency carries an
+  // active incident, so an all-clear table does not reserve an empty column.
+  const hasIncidents = dependencies.some((dependency) =>
+    Boolean(dependency.activeIncidentTitle)
+  )
 
   return (
     <section aria-labelledby="dependencies-title" className="mt-8">
@@ -34,12 +40,18 @@ export async function DependencyPanel() {
               <th className="px-4 font-medium">Dependency</th>
               <th className="px-4 font-medium">Timeline 24h</th>
               <th className="px-4 font-medium">Provider Updated</th>
-              <th className="px-6 font-medium">Incident</th>
+              {hasIncidents ? (
+                <th className="px-6 font-medium">Incident</th>
+              ) : null}
             </tr>
           </thead>
           <tbody>
             {dependencies.map((dependency) => (
-              <DependencyPanelRow dependency={dependency} key={dependency.id} />
+              <DependencyPanelRow
+                dependency={dependency}
+                key={dependency.id}
+                showIncident={hasIncidents}
+              />
             ))}
           </tbody>
         </table>

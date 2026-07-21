@@ -117,20 +117,20 @@ export async function PUT(request: Request) {
       // stale replay. `work` below closes over the real `body` and `ifMatch`
       // directly, so this composite is used only for hashing.
       body: { ifMatch, document: body },
-      work: async ({ transaction }) =>
-        transaction(async (tx) => {
-          try {
-            const { data } = await putStatusPageConfig(body, ifMatch, {
-              handle: tx,
-            })
-            return { status: 200, body: data }
-          } catch (error) {
-            if (error instanceof StatusPageConfigError) {
-              return storedConfigError(error, context.requestId)
-            }
-            throw error
+      mode: "atomic",
+      work: async (tx) => {
+        try {
+          const { data } = await putStatusPageConfig(body, ifMatch, {
+            handle: tx,
+          })
+          return { status: 200, body: data }
+        } catch (error) {
+          if (error instanceof StatusPageConfigError) {
+            return storedConfigError(error, context.requestId)
           }
-        }),
+          throw error
+        }
+      },
     })
     if (result.status !== 200) {
       return apiJson(result.body, { status: result.status })

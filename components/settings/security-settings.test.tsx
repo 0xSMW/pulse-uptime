@@ -6,10 +6,15 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
+
+const { push, refresh } = vi.hoisted(() => ({
+  push: vi.fn(),
+  refresh: vi.fn(),
+}))
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+  useRouter: () => ({ refresh, push }),
 }))
 
 import { TimezoneProvider } from "@/components/dashboard/timezone-provider"
@@ -20,10 +25,40 @@ import {
 } from "./security-settings"
 import { SettingsDirtyProvider, useSettingsDirty } from "./settings-dirty"
 
+// Node 22+ can leave window.localStorage undefined under jsdom without
+// --localstorage-file. Provide an in-memory store for these settings tests.
+beforeAll(() => {
+  if (typeof window.localStorage?.getItem === "function") {
+    return
+  }
+  const store = new Map<string, string>()
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        store.set(key, String(value))
+      },
+      removeItem: (key: string) => {
+        store.delete(key)
+      },
+      clear: () => {
+        store.clear()
+      },
+      key: (index: number) => [...store.keys()][index] ?? null,
+      get length() {
+        return store.size
+      },
+    },
+  })
+})
+
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
   window.localStorage.clear()
+  push.mockReset()
+  refresh.mockReset()
 })
 
 const OTHER_SESSION_ID = "22222222-2222-4222-8222-222222222222"
@@ -133,33 +168,46 @@ describe("SecuritySettings password form", () => {
     expect(screen.getByTestId("dirty").textContent).toBe("false")
   })
 
-  it("posts the change, clears the fields, and announces success", async () => {
+  it("posts the change and navigates to login after every session is signed out", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ data: { changed: true, reauthenticate: true } }),
+          { status: 200 }
+        )
+      )
+    vi.stubGlobal("fetch", fetchMock)
+    renderSecurity()
+    fillPasswordForm("old-password-12", "new-password-123", "new-password-123")
+    fireEvent.click(submitButton())
+    await waitFor(() => {
+      expect(push).toHaveBeenCalledWith("/login")
+    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/me/password",
+      expect.objectContaining({ method: "POST" })
+    )
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
+  it("keeps the form on the page when the change fails", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ data: { changed: true } }), {
-        status: 200,
-      })
+      new Response(
+        JSON.stringify({
+          error: { message: "Current password is incorrect" },
+        }),
+        { status: 403 }
+      )
     )
     vi.stubGlobal("fetch", fetchMock)
     renderSecurity()
     fillPasswordForm("old-password-12", "new-password-123", "new-password-123")
     fireEvent.click(submitButton())
     await waitFor(() => {
-      expect(
-        screen.getByText(
-          "Password changed. Your other sessions have been signed out."
-        )
-      ).toBeDefined()
+      expect(screen.getByText("Current password is incorrect")).toBeDefined()
     })
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/v1/me/password",
-      expect.objectContaining({ method: "POST" })
-    )
-    expect(
-      (screen.getByLabelText("Current password") as HTMLInputElement).value
-    ).toBe("")
-    expect(
-      (screen.getByLabelText("New password") as HTMLInputElement).value
-    ).toBe("")
+    expect(push).not.toHaveBeenCalled()
   })
 })
 

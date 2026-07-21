@@ -16,6 +16,13 @@ import {
   providerIncidentUpdates,
 } from "@/lib/db/schema"
 
+import {
+  type BackfillIncident,
+  buildStateBuckets,
+  type IntervalRow,
+  incidentImpactState,
+  type StateBucket,
+} from "./buckets"
 import type {
   DependencyFidelity,
   DependencyScope,
@@ -27,63 +34,49 @@ import { resolveScopeSelection } from "./types"
 // Reads for the Overview panel, the dependency detail view, and the add
 // sheet's catalog listing. Kept db-direct (no injected store), matching
 // lib/reporting/queries/* convention: reads are queried straight from the
-// schema, mutations go through an injectable store in service.ts.
+// schema, mutations go through an injectable store in service.ts. Bucket math
+// lives in ./buckets, kept db-free so the assumed-operational backfill overlay
+// stays unit-testable.
 
-const STATE_PRIORITY: Record<DependencyState, number> = {
-  OUTAGE: 0,
-  DEGRADED: 1,
-  MAINTENANCE: 2,
-  UNKNOWN: 3,
-  OPERATIONAL: 4,
-}
-
-interface IntervalRow {
-  state: string
-  startedAt: Date
-  endedAt: Date | null
-}
-
-interface StateBucket {
-  start: string
-  state: DependencyState | null
-}
-
-/** Buckets a dependency's state-interval history into fixed-width windows, picking the worst overlapping state per bucket (or null when no interval covers it, i.e. before the dependency existed). */
-function buildStateBuckets(
-  intervals: readonly IntervalRow[],
-  bucketCount: number,
-  bucketMs: number,
-  end: Date
-): StateBucket[] {
-  const windowStart = end.getTime() - bucketCount * bucketMs
-  const buckets: StateBucket[] = []
-  for (let index = 0; index < bucketCount; index += 1) {
-    const bucketStart = windowStart + index * bucketMs
-    const bucketEnd = bucketStart + bucketMs
-    let worst: DependencyState | null = null
-    for (const interval of intervals) {
-      const intervalEnd = interval.endedAt
-        ? interval.endedAt.getTime()
-        : end.getTime()
-      if (
-        interval.startedAt.getTime() < bucketEnd &&
-        intervalEnd > bucketStart
-      ) {
-        const state = interval.state as DependencyState
-        if (worst === null || STATE_PRIORITY[state] < STATE_PRIORITY[worst]) {
-          worst = state
-        }
-      }
-    }
-    buckets.push({ start: new Date(bucketStart).toISOString(), state: worst })
+// Resolves a dependency's stored scopeId to the human label operators pick at
+// install time. required_options labels live inline in the catalog scope.
+// discovered scopes carry their label in dependency_discovered_scope_options,
+// passed in as discoveredLabel. Falls back to the raw scopeId when no label
+// resolves, and returns null for an unscoped dependency.
+function resolveScopeLabel(
+  scope: DependencyScope | null,
+  scopeId: string | null,
+  discoveredLabel: string | null
+): string | null {
+  if (!scopeId) {
+    return null
   }
-  return buckets
+  if (scope?.kind === "required_options") {
+    return (
+      scope.options.find((option) => option.id === scopeId)?.label ?? scopeId
+    )
+  }
+  if (
+    scope?.kind === "discovered_children" ||
+    scope?.kind === "discovered_locations"
+  ) {
+    return discoveredLabel ?? scopeId
+  }
+  return scopeId
+}
+
+// Keys the batched discovered-scope label lookup. A catalogId and scopeId pair
+// identifies one discovered option, joined by a NUL that cannot appear in
+// either id.
+function discoveredScopeKey(catalogId: string, scopeId: string): string {
+  return `${catalogId}\x00${scopeId}`
 }
 
 export interface DependencyDashboardRow {
   id: string
   presetId: string
   scopeId: string | null
+  componentLabel: string | null
   name: string
   provider: string
   category: string
@@ -103,6 +96,8 @@ export async function listDependenciesForDashboard(): Promise<
       id: dependencies.id,
       presetId: dependencies.catalogId,
       scopeId: dependencies.scopeId,
+      createdAt: dependencies.createdAt,
+      scopeOptions: dependencyCatalog.scopeOptions,
       name: dependencyCatalog.displayName,
       category: dependencyCatalog.category,
       fidelity: dependencyCatalog.fidelity,
@@ -134,7 +129,26 @@ export async function listDependenciesForDashboard(): Promise<
   const now = new Date()
   const windowStart = new Date(now.getTime() - 24 * 3_600_000)
 
-  const [intervalRows, incidentRows] = await Promise.all([
+  // Catalog ids whose rows hold a discovered scope. Their labels live in
+  // dependency_discovered_scope_options, batched into one lookup so the list
+  // stays a fixed number of queries no matter the row count. required_options
+  // scopes resolve inline from the catalog scope and need no lookup.
+  const discoveredCatalogIds = Array.from(
+    new Set(
+      rows
+        .filter((row) => {
+          const scope = (row.scopeOptions as DependencyScope | null) ?? null
+          return (
+            row.scopeId !== null &&
+            (scope?.kind === "discovered_children" ||
+              scope?.kind === "discovered_locations")
+          )
+        })
+        .map((row) => row.presetId)
+    )
+  )
+
+  const [intervalRows, incidentRows, discoveredRows] = await Promise.all([
     db
       .select({
         dependencyId: dependencyStateIntervals.dependencyId,
@@ -152,10 +166,17 @@ export async function listDependenciesForDashboard(): Promise<
           )
         )
       ),
+    // One batched read covering both the active-incident banner (resolved_at
+    // null subset) and the assumed-operational backfill overlay (any matched
+    // incident whose active window reaches into the 24h render window). Never
+    // per row: a single inArray keeps the list a fixed number of queries.
     db
       .select({
         dependencyId: dependencyIncidentMatches.dependencyId,
         title: providerIncidents.title,
+        impact: providerIncidents.impact,
+        startedAt: providerIncidents.startedAt,
+        resolvedAt: providerIncidents.resolvedAt,
         providerUpdatedAt: providerIncidents.providerUpdatedAt,
       })
       .from(dependencyIncidentMatches)
@@ -166,10 +187,38 @@ export async function listDependenciesForDashboard(): Promise<
       .where(
         and(
           inArray(dependencyIncidentMatches.dependencyId, ids),
-          isNull(providerIncidents.resolvedAt)
+          or(
+            isNull(providerIncidents.resolvedAt),
+            gte(providerIncidents.resolvedAt, windowStart)
+          )
         )
       ),
+    discoveredCatalogIds.length === 0
+      ? Promise.resolve(
+          [] as { catalogId: string; scopeId: string; label: string }[]
+        )
+      : db
+          .select({
+            catalogId: dependencyDiscoveredScopeOptions.catalogId,
+            scopeId: dependencyDiscoveredScopeOptions.scopeId,
+            label: dependencyDiscoveredScopeOptions.label,
+          })
+          .from(dependencyDiscoveredScopeOptions)
+          .where(
+            inArray(
+              dependencyDiscoveredScopeOptions.catalogId,
+              discoveredCatalogIds
+            )
+          ),
   ])
+
+  const discoveredLabelByKey = new Map<string, string>()
+  for (const row of discoveredRows) {
+    discoveredLabelByKey.set(
+      discoveredScopeKey(row.catalogId, row.scopeId),
+      row.label
+    )
+  }
 
   const intervalsByDependency = new Map<string, IntervalRow[]>()
   for (const row of intervalRows) {
@@ -181,22 +230,40 @@ export async function listDependenciesForDashboard(): Promise<
     string,
     { title: string; providerUpdatedAt: Date }
   >()
+  const backfillIncidentsByDependency = new Map<string, BackfillIncident[]>()
   for (const row of incidentRows) {
-    const existing = activeIncidentByDependency.get(row.dependencyId)
-    if (!existing || row.providerUpdatedAt > existing.providerUpdatedAt) {
-      activeIncidentByDependency.set(row.dependencyId, {
-        title: row.title,
-        providerUpdatedAt: row.providerUpdatedAt,
-      })
+    if (row.resolvedAt === null) {
+      const existing = activeIncidentByDependency.get(row.dependencyId)
+      if (!existing || row.providerUpdatedAt > existing.providerUpdatedAt) {
+        activeIncidentByDependency.set(row.dependencyId, {
+          title: row.title,
+          providerUpdatedAt: row.providerUpdatedAt,
+        })
+      }
     }
+    const list = backfillIncidentsByDependency.get(row.dependencyId) ?? []
+    list.push({
+      startedAt: row.startedAt,
+      resolvedAt: row.resolvedAt,
+      state: incidentImpactState(row.impact),
+    })
+    backfillIncidentsByDependency.set(row.dependencyId, list)
   }
 
   return rows.map((row) => {
     const active = activeIncidentByDependency.get(row.id)
+    const scope = (row.scopeOptions as DependencyScope | null) ?? null
+    const discoveredLabel =
+      row.scopeId === null
+        ? null
+        : (discoveredLabelByKey.get(
+            discoveredScopeKey(row.presetId, row.scopeId)
+          ) ?? null)
     return {
       id: row.id,
       presetId: row.presetId,
       scopeId: row.scopeId,
+      componentLabel: resolveScopeLabel(scope, row.scopeId, discoveredLabel),
       name: row.name,
       provider: row.provider,
       category: row.category,
@@ -211,7 +278,11 @@ export async function listDependenciesForDashboard(): Promise<
         intervalsByDependency.get(row.id) ?? [],
         24,
         3_600_000,
-        now
+        now,
+        {
+          createdAt: row.createdAt,
+          incidents: backfillIncidentsByDependency.get(row.id) ?? [],
+        }
       ),
     }
   })
@@ -249,6 +320,9 @@ export interface DependencyDetail {
   sourceScopeNote: string | null
   notificationsEnabled: boolean
   createdAt: string
+  // Set when install-time incident backfill failed. The detail view offers a
+  // manual retry while this is non-null. Null once backfill succeeded.
+  backfillFailedAt: string | null
   state: DependencyState
   pendingFirstPoll: boolean
   stateStartedAt: string
@@ -264,7 +338,7 @@ export interface DependencyDetail {
 // Accepts a handle so a caller inside a transaction (addDependency) can read
 // its own uncommitted insert back on the same connection, instead of a pooled
 // connection that would not see it yet under READ COMMITTED.
-export async function getDependencyDetail(
+export async function findDependencyDetail(
   id: string,
   handle: DatabaseHandle = db
 ): Promise<DependencyDetail | null> {
@@ -275,6 +349,7 @@ export async function getDependencyDetail(
       scopeId: dependencies.scopeId,
       notificationsEnabled: dependencies.notificationsEnabled,
       createdAt: dependencies.createdAt,
+      backfillFailedAt: dependencies.backfillFailedAt,
       name: dependencyCatalog.displayName,
       description: dependencyCatalog.description,
       category: dependencyCatalog.category,
@@ -378,12 +453,8 @@ export async function getDependencyDetail(
   }
 
   const scope = (row.scopeOptions as DependencyScope | null) ?? null
-  let componentLabel: string | null = row.scopeId
-  if (scope?.kind === "required_options") {
-    componentLabel =
-      scope.options.find((option) => option.id === row.scopeId)?.label ??
-      row.scopeId
-  } else if (
+  let discoveredLabel: string | null = null
+  if (
     row.scopeId &&
     (scope?.kind === "discovered_children" ||
       scope?.kind === "discovered_locations")
@@ -400,11 +471,27 @@ export async function getDependencyDetail(
         )
       )
       .limit(1)
-    componentLabel = discovered?.label ?? row.scopeId
+    discoveredLabel = discovered?.label ?? null
   }
+  const componentLabel = resolveScopeLabel(scope, row.scopeId, discoveredLabel)
 
   const activeIncident =
     incidentRows.find((incident) => incident.resolvedAt === null) ?? null
+
+  // Assumed-operational overlay for the pre-install window. Every matched
+  // incident contributes its impact-derived state to buckets it overlaps
+  // between createdAt - 7d and createdAt. buildStateBuckets gates which
+  // buckets that touches, so passing the full matched set here is safe.
+  const backfill = {
+    createdAt: row.createdAt,
+    incidents: incidentRows.map(
+      (incident): BackfillIncident => ({
+        startedAt: incident.startedAt,
+        resolvedAt: incident.resolvedAt,
+        state: incidentImpactState(incident.impact),
+      })
+    ),
+  }
 
   return {
     id: row.id,
@@ -419,6 +506,7 @@ export async function getDependencyDetail(
     sourceScopeNote: row.sourceScopeNote,
     notificationsEnabled: row.notificationsEnabled,
     createdAt: row.createdAt.toISOString(),
+    backfillFailedAt: row.backfillFailedAt?.toISOString() ?? null,
     state: row.state as DependencyState,
     pendingFirstPoll: row.pendingFirstPoll,
     stateStartedAt: row.stateStartedAt.toISOString(),
@@ -442,8 +530,8 @@ export async function getDependencyDetail(
         updatedAt: update.providerUpdatedAt.toISOString(),
       })),
     })),
-    timeline24h: buildStateBuckets(intervals, 24, 3_600_000, now),
-    timeline7d: buildStateBuckets(intervals, 7, 86_400_000, now),
+    timeline24h: buildStateBuckets(intervals, 24, 3_600_000, now, backfill),
+    timeline7d: buildStateBuckets(intervals, 7, 86_400_000, now, backfill),
   }
 }
 

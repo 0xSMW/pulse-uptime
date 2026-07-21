@@ -29,7 +29,7 @@ export async function GET(request: Request): Promise<Response> {
   const failed = result.status === "failed"
   console[failed ? "error" : "info"](
     JSON.stringify({
-      event: failed ? "maintenance.failed" : "maintenance.completed",
+      event: failed ? "cron.failed" : "cron.completed",
       jobName: "maintenance",
       releaseId,
       status: result.status,

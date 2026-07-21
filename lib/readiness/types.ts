@@ -18,4 +18,12 @@ export interface ReadinessReport {
   checks: ReadinessResult[]
 }
 
-export type ReadinessProbe = () => Promise<ReadinessResult>
+/** Absolute wall-clock deadline and abort for every provider probe. */
+export interface ReadinessProbeOptions {
+  deadlineAtMs: number
+  signal: AbortSignal
+}
+
+export type ReadinessProbe = (
+  options: ReadinessProbeOptions
+) => Promise<ReadinessResult>
