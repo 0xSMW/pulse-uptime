@@ -27,10 +27,10 @@ export function createSqlCronRunStore(db: QueryExecutor): CronRunStore {
   return {
     async start(input) {
       const rows = await db.query(`insert into cron_runs
-(id, job_name, scheduled_minute, status, started_at, monitor_count, success_count, failure_count, skipped_count)
-values ($1, $2, $3, 'running', $4, 0, 0, 0, 0)
+(id, job_name, scheduled_minute, status, started_at, monitor_count, success_count, failure_count, skipped_count, release_id)
+values ($1, $2, $3, 'running', $4, 0, 0, 0, 0, $5)
 on conflict (job_name, scheduled_minute) do nothing returning id`, [
-        input.id, input.jobName, input.scheduledMinute, input.startedAt,
+        input.id, input.jobName, input.scheduledMinute, input.startedAt, input.releaseId,
       ]);
       return rows.length === 1;
     },

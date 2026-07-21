@@ -35,7 +35,13 @@ export type CronRunFailure = {
 };
 
 export interface CronRunStore {
-  start(input: { id: string; jobName: CronJobName; scheduledMinute: Date; startedAt: Date }): Promise<boolean>;
+  start(input: {
+    id: string;
+    jobName: CronJobName;
+    scheduledMinute: Date;
+    startedAt: Date;
+    releaseId: string;
+  }): Promise<boolean>;
   complete(id: string, completedAt: Date, counts: CronRunCounts): Promise<void>;
   fail(id: string, completedAt: Date, failure: CronRunFailure, counts?: CronRunCounts): Promise<void>;
 }

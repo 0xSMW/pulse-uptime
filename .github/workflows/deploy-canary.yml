@@ -1,19 +1,21 @@
 name: Deploy canary
 
 # After a production deployment becomes READY, Vercel promotes it immediately.
-# This canary invokes the two critical crons against the live production alias
-# and fails loudly (red X on the commit, plus a commit comment) if either does
-# not report a healthy run. It catches code that shipped ahead of its schema.
+# This canary proves the promoted deployment has actually executed a completed
+# monitor-check cron under its own release identity after the promotion
+# boundary (Pack 2 release-bound proof). It does not merely poke the cron
+# routes and trust a completed/duplicate status from any release.
 
 on:
   deployment_status:
 
 permissions:
   contents: write # create a commit comment on failure
+  actions: read
 
 jobs:
   canary:
-    name: Cron canary
+    name: Release deploy proof
     # Only real, promoted production deployments. Skip previews and non-success.
     if: >-
       github.event.deployment_status.state == 'success' &&
@@ -21,10 +23,39 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Probe crons
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Capture promotion boundary and identity
+        id: meta
+        env:
+          # Prefer the deployment_status timestamp as the promotion boundary so
+          # runs that finished before this deployment became READY never qualify.
+          STATUS_CREATED_AT: ${{ github.event.deployment_status.created_at }}
+        run: |
+          set -euo pipefail
+          if [ -n "${STATUS_CREATED_AT:-}" ]; then
+            boundary="${STATUS_CREATED_AT}"
+          else
+            boundary="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          fi
+          echo "boundary=${boundary}" >> "$GITHUB_OUTPUT"
+          echo "Promotion boundary: ${boundary}"
+          # Deployment identity for diagnostics. Exact match is enforced against
+          # the server-reported PULSE_RELEASE_ID once deploy-proof responds.
+          echo "sha=${{ github.event.deployment.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify release-bound deploy proof
         env:
           BASE_URL: ${{ secrets.PRODUCTION_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          AFTER: ${{ steps.meta.outputs.boundary }}
+          # Optional: pin expected Vercel deployment id when the secret is set.
+          # When unset, the script accepts the live server's releaseId and still
+          # requires ready + completedAt >= AFTER.
+          EXPECTED_RELEASE_ID: ${{ vars.EXPECTED_RELEASE_ID }}
+          MAX_ATTEMPTS: "20"
+          SLEEP_SECONDS: "6"
           SHA: ${{ github.event.deployment.sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -35,47 +66,13 @@ jobs:
             exit 1
           fi
 
-          MAX_ATTEMPTS=10
-          SLEEP_SECONDS=6
-
-          # Probe one cron path. Passes on status completed or duplicate.
-          # Fails immediately on status failed. Retries lease-held and transient
-          # non-200 responses (alias promotion race) up to MAX_ATTEMPTS.
-          probe() {
-            path="$1"
-            url="${BASE_URL%/}${path}"
-            last=""
-            for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
-              code="$(curl -sS -m 30 -o /tmp/body -w '%{http_code}' \
-                -H "Authorization: Bearer ${CRON_SECRET}" "$url" || echo "000")"
-              status="$(jq -r '.status // "none"' /tmp/body 2>/dev/null || echo "none")"
-              last="http=${code} status=${status}"
-              echo "attempt ${attempt}/${MAX_ATTEMPTS} ${path} -> ${last}"
-
-              if [ "$status" = "failed" ]; then
-                REASON="${path} returned status=failed (http=${code})"
-                return 1
-              fi
-              if [ "$code" = "200" ] && { [ "$status" = "completed" ] || [ "$status" = "duplicate" ]; }; then
-                echo "${path} healthy (${last})"
-                return 0
-              fi
-              sleep "$SLEEP_SECONDS"
-            done
-            REASON="${path} never reported a healthy run (last ${last})"
-            return 1
-          }
-
-          REASON=""
-          rc=0
-          for p in /api/cron/check-monitors /api/cron/check-dependencies; do
-            if ! probe "$p"; then
-              rc=1
-              break
-            fi
-          done
+          set +e
+          node scripts/verify-deploy-proof.mjs
+          rc=$?
+          set -e
 
           if [ "$rc" -ne 0 ]; then
+            REASON="release-bound deploy proof failed for after=${AFTER}"
             echo "::error::Canary failed: ${REASON}"
             if [ -n "${SHA:-}" ]; then
               jq -nc --arg b "Deploy canary failed: ${REASON}" '{body:$b}' \
@@ -86,4 +83,4 @@ jobs:
             exit 1
           fi
 
-          echo "Both crons healthy."
+          echo "Release-bound deploy proof passed."

@@ -1,3 +1,4 @@
+import { getPulseReleaseId } from "@/lib/release/id";
 import {
   CRON_RESPONSE_HEADERS,
   isAuthorizedCronRequest,
@@ -16,12 +17,18 @@ export async function GET(request: Request): Promise<Response> {
     });
   }
   const startedAt = Date.now();
-  console.info(JSON.stringify({ event: "cron.started", jobName: "monitor-check" }));
+  const releaseId = getPulseReleaseId();
+  console.info(JSON.stringify({
+    event: "cron.started",
+    jobName: "monitor-check",
+    releaseId,
+  }));
   const result = await runMonitoringCron();
   const failed = result.status === "failed";
   console[failed ? "error" : "info"](JSON.stringify({
     event: failed ? "cron.failed" : "cron.completed",
     jobName: "monitor-check",
+    releaseId,
     status: result.status,
     ...(result.status === "failed" ? { errorCode: result.error } : {}),
     ...(result.status !== "lease-held" ? { runId: result.runId } : {}),

@@ -22,6 +22,15 @@ const SECURITY_HEADERS = [
 ];
 
 const nextConfig: NextConfig = {
+  // Bake the immutable deployment id into the server bundle at build time so
+  // every cron run records which release executed it. Vercel provides
+  // VERCEL_DEPLOYMENT_ID during build; tests and local set PULSE_RELEASE_ID.
+  env: {
+    PULSE_RELEASE_ID:
+      process.env.PULSE_RELEASE_ID
+      || process.env.VERCEL_DEPLOYMENT_ID
+      || "",
+  },
   experimental: {
     authInterrupts: true,
     // Client router cache. Two freshness tiers: revisited routes re-render

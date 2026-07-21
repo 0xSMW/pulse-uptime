@@ -23,10 +23,13 @@ import {
 } from "@/lib/db/schema";
 import type { MonitorStateSnapshot } from "@/lib/monitoring/types";
 import { deliverPendingNotifications } from "@/lib/notifications/delivery";
+import { ORDINARY_NOTIFICATION_EVENT_TYPES } from "@/lib/notifications/types";
 import { createResendSender } from "@/lib/notifications/provider";
 import { reconcileStaleClaims, type SqlExecutor } from "@/lib/notifications/sql";
 import { persistAtomicMinute, type CompletedMinuteCheck } from "@/lib/storage/atomic-minute";
 import { completesQuarterHourBucket, refreshRecentRollups } from "@/lib/storage/rollup-refresh";
+
+import { requirePulseReleaseId } from "@/lib/release/id";
 
 import { runMonitoringCoordinator } from "./coordinator";
 import { evaluateConfigurationSource, requireApprovalConsumption } from "./configuration";
@@ -39,9 +42,28 @@ type AcceptedRow = {
   configHash: string;
 };
 
-export const queryExecutor: SqlExecutor = {
+export const queryExecutor: SqlExecutor & {
+  withStatementTimeout<T>(
+    timeoutMs: number,
+    work: (query: <R>(text: string, values: readonly unknown[]) => Promise<readonly R[]>) => Promise<T>,
+  ): Promise<T>;
+} = {
   async query<T>(text: string, values: readonly unknown[]): Promise<readonly T[]> {
     return await sql.unsafe(text, portableQueryValues(values) as never[]) as unknown as readonly T[];
+  },
+  // One connection for the whole work block so SET LOCAL statement_timeout
+  // applies to the maintenance SQL that follows inside the same transaction.
+  async withStatementTimeout(timeoutMs, work) {
+    return sql.begin(async (tx) => {
+      const timeout = Math.max(1, Math.floor(timeoutMs));
+      await tx.unsafe(
+        `select set_config('statement_timeout', $1, true)`,
+        [String(timeout)] as never[],
+      );
+      const query = async <R>(text: string, values: readonly unknown[]): Promise<readonly R[]> =>
+        await tx.unsafe(text, portableQueryValues(values) as never[]) as unknown as readonly R[];
+      return work(query);
+    }) as Promise<ReturnType<typeof work>>;
   },
 };
 
@@ -158,19 +180,22 @@ export async function runMonitoringCron() {
   return runMonitoringCoordinator({
     leases: createSqlLeaseStore(queryExecutor),
     runs: createSqlCronRunStore(queryExecutor),
+    releaseId: requirePulseReleaseId(),
     async loadConfig(now) {
       activeConfig = await loadAcceptedConfiguration(now);
       const states = await db.select().from(monitorState);
       stateSnapshots = new Map(states.map((state) => [state.monitorId, state]));
       return activeConfig;
     },
-    reconcileOutbox: (now) => reconcileStaleClaims(queryExecutor, now),
+    reconcileOutbox: (now) => reconcileStaleClaims(queryExecutor, now, undefined, {
+      eventTypes: ORDINARY_NOTIFICATION_EVENT_TYPES,
+    }),
     deliverOutbox: () => deliverPendingNotifications({
       db: queryExecutor,
       sender,
       appUrl: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
       log: (event) => console.info(JSON.stringify(event)),
-    }),
+    }, { eventTypes: ORDINARY_NOTIFICATION_EVENT_TYPES }),
     async runMonitor(monitor, _scheduledAt, runId) {
       if (!activeConfig) throw new Error("Accepted configuration is unavailable");
       const recipients = monitor.recipients.length > 0

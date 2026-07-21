@@ -11,6 +11,8 @@ import { scheduledMinuteAt } from "./time";
 export type MonitoringCoordinatorDependencies = {
   leases: LeaseStore;
   runs: CronRunStore;
+  // Deployment identity recorded on the cron_runs row for release-bound proof.
+  releaseId: string;
   loadConfig(now: Date): Promise<MonitoringConfig>;
   reconcileOutbox(now: Date): Promise<number>;
   deliverOutbox(): Promise<DeliverySummary>;
@@ -50,6 +52,7 @@ export async function runMonitoringCoordinator(
       jobName: "monitor-check",
       scheduledMinute,
       startedAt,
+      releaseId: dependencies.releaseId,
     })) return { status: "duplicate", runId } as const;
 
     try {

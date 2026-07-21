@@ -26,6 +26,16 @@ describe("cron route security", () => {
     expect(isAuthorizedCronRequest(new Request("https://pulse.test/api/cron/check-dependencies"), secret)).toBe(false);
   });
 
+  it("requires the same exact bearer secret for the deploy-proof route", () => {
+    const secret = "c".repeat(32);
+    expect(isAuthorizedCronRequest(new Request("https://pulse.test/api/cron/deploy-proof?after=2026-07-20T12:00:00.000Z", {
+      headers: { authorization: `Bearer ${secret}` },
+    }), secret)).toBe(true);
+    expect(isAuthorizedCronRequest(new Request("https://pulse.test/api/cron/deploy-proof?after=2026-07-20T12:00:00.000Z", {
+      headers: { authorization: "Bearer wrong" },
+    }), secret)).toBe(false);
+  });
+
   it("sets explicit no-store response headers", () => {
     expect(CRON_RESPONSE_HEADERS["cache-control"]).toContain("no-store");
   });

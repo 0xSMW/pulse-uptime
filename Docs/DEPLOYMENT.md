@@ -102,10 +102,47 @@ The build command is `pnpm run vercel-build`, set in `vercel.json`. It runs `nod
 
 - Migrates only when `VERCEL_ENV=production`. Preview and local builds log a skip and exit 0, so they never touch the production database.
 - Uses `DATABASE_URL_UNPOOLED` (the direct, non-pooled Neon connection). A pooled URL is refused, not used as a fallback, because advisory locks and DDL are session scoped and unreliable over the pooler.
+- Validates the URL before opening a connection (scheme, host, database name, non-pooler host, no explicit PgBouncer options). Logs only hostname and database name.
 - Serializes overlapping builds with a Postgres advisory lock (`pg_try_advisory_lock`, bounded wait). Two builds cannot corrupt the drizzle journal. The second waits, then finds no pending migrations and no-ops.
 - Fails the build loudly on any migration error, so the previous deployment keeps serving.
 
 Required Vercel setting: `DATABASE_URL_UNPOOLED` must be present in the Production environment. Add the direct Neon connection string to Production in project settings, or `vercel env add DATABASE_URL_UNPOOLED production`. Without it the production build fails fast at the migrate step.
+
+### Direct migration URL shape
+
+`DATABASE_URL_UNPOOLED` must be a direct session endpoint, not a pooler.
+
+Accepted shape:
+
+```text
+postgresql://USER:PASSWORD@ep-NAME-ID.REGION.aws.neon.tech/DATABASE?sslmode=require
+```
+
+Also valid for self-hosted Postgres:
+
+```text
+postgres://USER:PASSWORD@db.example.com:5432/DATABASE
+```
+
+Rejected before any network call:
+
+- Pooler hostnames whose first DNS label ends with `-pooler` (Neon pooler form: `ep-NAME-ID-pooler.REGION.aws.neon.tech`)
+- Query options that request PgBouncer or transaction pooling (`pgbouncer=true`, `pool_mode=transaction`)
+- Non-`postgres`/`postgresql` schemes, missing host, or missing database path
+
+Credential-safe check of a stored URL (prints host and database only):
+
+```sh
+node --input-type=module -e '
+import { validateDirectMigrationUrl } from "./scripts/database-url.mjs";
+const result = validateDirectMigrationUrl(process.env.DATABASE_URL_UNPOOLED ?? "");
+if (!result.ok) {
+  console.error(JSON.stringify({ ok: false, code: result.code }));
+  process.exit(1);
+}
+console.log(JSON.stringify({ ok: true, hostname: result.hostname, database: result.database }));
+'
+```
 
 ### Expand, migrate, contract
 
@@ -114,8 +151,17 @@ Schema changes ship in additive steps so no deployment ever reads a column that 
 - Additive migrations (new nullable columns, new tables, new indexes) ship ahead of or together with the code that reads them. The gate applies them before the reader serves traffic.
 - Destructive migrations (dropping or renaming a column, tightening a constraint) ship only after all code that reads the old shape is gone. Deploy the reader change first, let it go live, then ship the drop in a later deployment.
 
-## 8. Deploy safety: cron canary
+## 8. Deploy safety: release-bound deploy proof
 
-`.github/workflows/deploy-canary.yml` runs on GitHub `deployment_status` events (Vercel creates GitHub deployments for this repo). When a Production deployment reaches `success`, the workflow invokes `/api/cron/check-monitors` and `/api/cron/check-dependencies` once each with the `CRON_SECRET` bearer and asserts each returns status `completed` or `duplicate`. A `failed` status or a persistent non-200 fails the workflow (red X on the commit) and posts a commit comment naming the failing cron and its response.
+`.github/workflows/deploy-canary.yml` runs on GitHub `deployment_status` events (Vercel creates GitHub deployments for this repo). When a Production deployment reaches `success`, the workflow captures a promotion boundary timestamp, then polls `GET /api/cron/deploy-proof?after=<boundary>` via `scripts/verify-deploy-proof.mjs` until the live production process reports a completed `monitor-check` cron run whose `release_id` matches the server's own `PULSE_RELEASE_ID` and whose `completedAt` is at or after the boundary.
 
-The canary targets the public production alias via the `PRODUCTION_URL` secret, not the immutable per-deployment URL, because that URL is behind Vercel deployment protection and returns an SSO redirect. Required GitHub Actions secrets: `CRON_SECRET` and `PRODUCTION_URL`.
+`PULSE_RELEASE_ID` is the immutable Vercel deployment id (`VERCEL_DEPLOYMENT_ID`), baked into the server bundle at build time through `next.config.ts`. Every new `cron_runs` row records that id. Historical rows with null `release_id` never qualify.
+
+HTTP outcomes from deploy-proof:
+
+- `200` `ready` — qualifying monitoring run completed
+- `202` `waiting` — not yet (may include latest running/failed row for diagnostics)
+- `400` `invalid_request` — bad `after` parameter
+- `500` `misconfigured` — production release id absent or invalid
+
+A mismatched release id, misconfigured identity, or timeout fails the workflow (red X on the commit) and posts a commit comment. The canary targets the public production alias via the `PRODUCTION_URL` secret, not the immutable per-deployment URL, because that URL is behind Vercel deployment protection and returns an SSO redirect. Required GitHub Actions secrets: `CRON_SECRET` and `PRODUCTION_URL`.

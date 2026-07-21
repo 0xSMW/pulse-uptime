@@ -12,13 +12,18 @@
 //   - Requires DATABASE_URL_UNPOOLED (the direct, non-pooled Neon connection).
 //     Advisory locks and DDL are session scoped and unreliable over the pooled
 //     endpoint, so a pooled URL is refused rather than used as a fallback.
+//   - Validates the URL shape before any network call (scheme, host, database,
+//     non-pooler host, no explicit PgBouncer options).
 //   - Serializes concurrent builds with a Postgres advisory lock. Two
 //     overlapping builds cannot corrupt the drizzle journal. The second build
 //     waits for the first, then finds no pending migrations and no-ops.
 
+import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
+import { validateDirectMigrationUrl } from "./database-url.mjs";
 
 // Fixed advisory lock key shared by every deploy of this project. Any constant
 // works as long as it is stable across builds. Chosen to be unlikely to collide
@@ -41,27 +46,58 @@ function fail(message) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function main() {
-  if (process.env.VERCEL_ENV !== "production") {
+/**
+ * @param {object} [deps]
+ * @param {NodeJS.ProcessEnv} [deps.env]
+ * @param {typeof postgres} [deps.connect]
+ * @param {typeof drizzle} [deps.createDb]
+ * @param {typeof migrate} [deps.runMigrate]
+ * @param {(message: string) => void} [deps.exitWithError]
+ */
+export async function main({
+  env = process.env,
+  connect = postgres,
+  createDb = drizzle,
+  runMigrate = migrate,
+  exitWithError = fail,
+} = {}) {
+  if (env.VERCEL_ENV !== "production") {
     log("migrate.skipped", {
       reason: "not-production",
-      vercelEnv: process.env.VERCEL_ENV ?? null,
+      vercelEnv: env.VERCEL_ENV ?? null,
     });
     return;
   }
 
-  const url = process.env.DATABASE_URL_UNPOOLED;
-  if (!url) {
-    fail(
+  const rawUrl = env.DATABASE_URL_UNPOOLED;
+  if (!rawUrl) {
+    exitWithError(
       "DATABASE_URL_UNPOOLED is not set for the production build. Add the direct " +
         "(non-pooled) Neon connection string to the Production environment in " +
         "Vercel project settings so the build can apply migrations.",
     );
+    return;
   }
+
+  const validated = validateDirectMigrationUrl(rawUrl);
+  if (!validated.ok) {
+    // Never include the raw URL (credentials / query secrets). Hostname and
+    // database are only logged when parse succeeded far enough to know them.
+    log("migrate.url.rejected", { code: validated.code });
+    exitWithError(
+      `DATABASE_URL_UNPOOLED failed validation (${validated.code}): ${validated.message}`,
+    );
+    return;
+  }
+
+  log("migrate.url.validated", {
+    hostname: validated.hostname,
+    database: validated.database,
+  });
 
   // Single connection: the advisory lock is session scoped, so the lock, the
   // migrations, and the unlock must all run on the same connection.
-  const sql = postgres(url, { max: 1, onnotice: () => {} });
+  const sql = connect(validated.connectionString, { max: 1, onnotice: () => {} });
   let locked = false;
   try {
     const deadline = Date.now() + LOCK_WAIT_MS;
@@ -84,7 +120,7 @@ async function main() {
     }
 
     log("migrate.started");
-    await migrate(drizzle(sql), { migrationsFolder: "drizzle" });
+    await runMigrate(createDb(sql), { migrationsFolder: "drizzle" });
     log("migrate.completed");
   } finally {
     if (locked) {
@@ -98,6 +134,18 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  fail(error instanceof Error ? error.message : String(error));
-});
+function isDirectRun() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return fileURLToPath(import.meta.url) === resolve(entry);
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectRun()) {
+  main().catch((error) => {
+    fail(error instanceof Error ? error.message : String(error));
+  });
+}

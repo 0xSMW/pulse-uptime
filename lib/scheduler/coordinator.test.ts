@@ -22,16 +22,18 @@ const config: MonitoringConfig = {
 describe("runMonitoringCoordinator", () => {
   it("records and executes the documented sequence", async () => {
     const events: string[] = [];
+    const start = vi.fn(async () => { events.push("start"); return true; });
     const result = await runMonitoringCoordinator({
       leases: {
         acquire: async () => { events.push("lease"); return true; },
         release: async () => { events.push("release"); },
       },
       runs: {
-        start: async () => { events.push("start"); return true; },
+        start,
         complete: async () => { events.push("complete"); },
         fail: vi.fn(),
       },
+      releaseId: "dpl_test",
       loadConfig: async () => { events.push("config"); return config; },
       reconcileOutbox: async () => { events.push("reconcile"); return 2; },
       deliverOutbox: async () => {
@@ -46,6 +48,10 @@ describe("runMonitoringCoordinator", () => {
     });
     expect(result.status).toBe("completed");
     expect(events).toEqual(["lease", "start", "config", "reconcile", "deliver", "persist", "deliver", "complete", "release"]);
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({
+      jobName: "monitor-check",
+      releaseId: "dpl_test",
+    }));
   });
 
   it("does no run work for a duplicate scheduled minute", async () => {
@@ -53,6 +59,7 @@ describe("runMonitoringCoordinator", () => {
     const result = await runMonitoringCoordinator({
       leases: { acquire: async () => true, release: async () => undefined },
       runs: { start: async () => false, complete: vi.fn(), fail: vi.fn() },
+      releaseId: "dpl_test",
       loadConfig,
       reconcileOutbox: vi.fn(),
       deliverOutbox: vi.fn(),
