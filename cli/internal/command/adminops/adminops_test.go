@@ -120,21 +120,19 @@ func TestTokenRevokeRejectsBadIDsBeforeRequest(t *testing.T) {
 	}
 }
 
-func TestAuthUnlinkIsCanonicalAndLogoutIsHiddenDeprecatedAlias(t *testing.T) {
+func TestAuthUnlinkIsCanonicalAndLogoutIsRetired(t *testing.T) {
 	cmd := NewAuthCommand(Dependencies{})
 	unlink, _, err := cmd.Find([]string{"unlink"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	logout, _, err := cmd.Find([]string{"logout"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if unlink.Hidden || unlink.Deprecated != "" {
 		t.Fatalf("unlink metadata = hidden:%v deprecated:%q", unlink.Hidden, unlink.Deprecated)
 	}
-	if !logout.Hidden || logout.Deprecated == "" {
-		t.Fatalf("logout metadata = hidden:%v deprecated:%q", logout.Hidden, logout.Deprecated)
+	for _, sub := range cmd.Commands() {
+		if sub.Name() == "logout" {
+			t.Fatal("logout command is retired and must not be registered")
+		}
 	}
 }
 

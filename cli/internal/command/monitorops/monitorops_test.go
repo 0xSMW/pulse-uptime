@@ -264,21 +264,19 @@ func TestArchiveRequiresYesWhenNoninteractive(t *testing.T) {
 	}
 }
 
-func TestArchiveIsCanonicalAndDeleteIsHiddenDeprecatedAlias(t *testing.T) {
+func TestArchiveIsCanonicalAndDeleteIsRetired(t *testing.T) {
 	cmd := NewGroup(Dependencies{})
 	archive, _, err := cmd.Find([]string{"archive"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	deleteAlias, _, err := cmd.Find([]string{"delete"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if archive.Hidden || archive.Deprecated != "" {
 		t.Fatalf("archive metadata = hidden:%v deprecated:%q", archive.Hidden, archive.Deprecated)
 	}
-	if !deleteAlias.Hidden || deleteAlias.Deprecated == "" {
-		t.Fatalf("delete metadata = hidden:%v deprecated:%q", deleteAlias.Hidden, deleteAlias.Deprecated)
+	for _, sub := range cmd.Commands() {
+		if sub.Name() == "delete" {
+			t.Fatal("delete command is retired and must not be registered")
+		}
 	}
 }
 
