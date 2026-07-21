@@ -432,42 +432,43 @@ export function MonitorActions({ monitor }: { monitor: EditableMonitor }) {
 
   return (
     <>
-      <div className="flex flex-col items-start gap-2">
-        <div className="flex flex-wrap gap-2">
-          <HeaderIconAction
-            disabled={isBusy || paused}
-            disabledDescription={
-              paused
-                ? "Resume this monitor to run a test"
-                : "Another monitor action is in progress"
-            }
-            label="Test Monitor"
-            onClick={() => void runAction("test")}
-          >
-            <Activity aria-hidden className="size-4" />
-          </HeaderIconAction>
-          <HeaderIconAction
-            disabled={isBusy}
-            disabledDescription="Another monitor action is in progress"
-            label={paused ? "Resume Monitor" : "Pause Monitor"}
-            onClick={() => void runAction(paused ? "resume" : "pause")}
-          >
-            {paused ? (
-              <Play aria-hidden className="size-4" />
-            ) : (
-              <Pause aria-hidden className="size-4" />
-            )}
-          </HeaderIconAction>
-          <HeaderIconAction
-            disabled={isBusy}
-            disabledDescription="Another monitor action is in progress"
-            label="Edit Monitor"
-            onClick={() => setEditOpen(true)}
-          >
-            <Pencil aria-hidden className="size-4" />
-          </HeaderIconAction>
+      <div className="relative flex flex-wrap gap-2">
+        <HeaderIconAction
+          disabled={isBusy || paused}
+          disabledDescription={
+            paused
+              ? "Resume this monitor to run a test"
+              : "Another monitor action is in progress"
+          }
+          label="Test Monitor"
+          onClick={() => void runAction("test")}
+        >
+          <Activity aria-hidden className="size-4" />
+        </HeaderIconAction>
+        <HeaderIconAction
+          disabled={isBusy}
+          disabledDescription="Another monitor action is in progress"
+          label={paused ? "Resume Monitor" : "Pause Monitor"}
+          onClick={() => void runAction(paused ? "resume" : "pause")}
+        >
+          {paused ? (
+            <Play aria-hidden className="size-4" />
+          ) : (
+            <Pause aria-hidden className="size-4" />
+          )}
+        </HeaderIconAction>
+        <HeaderIconAction
+          disabled={isBusy}
+          disabledDescription="Another monitor action is in progress"
+          label="Edit Monitor"
+          onClick={() => setEditOpen(true)}
+        >
+          <Pencil aria-hidden className="size-4" />
+        </HeaderIconAction>
+        {/* Absolutely positioned so the status text never shifts the buttons above it */}
+        <div className="absolute top-full left-0 pt-2">
+          <MutationMessage state={action} />
         </div>
-        <MutationMessage state={action} />
       </div>
       {editOpen ? (
         <MonitorEditSheet
