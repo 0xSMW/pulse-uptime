@@ -85,6 +85,7 @@ type Dependency struct {
 	ID                  string  `json:"id"`
 	PresetID            string  `json:"presetId"`
 	ScopeID             *string `json:"scopeId"`
+	ComponentLabel      *string `json:"componentLabel"`
 	Name                string  `json:"name"`
 	Provider            string  `json:"provider"`
 	Category            string  `json:"category,omitempty"`
@@ -491,6 +492,16 @@ func renderCatalog(d Dependencies, format string, doc Envelope) error {
 // data.
 const dependencyStateCaption = "Note: dependency state is provider reported, not a Pulse check."
 
+// dependencyRegion picks the REGION cell for a list row: the resolved scope
+// label when the list payload provides one, else the raw scope id, else blank
+// for an unscoped dependency.
+func dependencyRegion(dep Dependency) string {
+	if dep.ComponentLabel != nil {
+		return *dep.ComponentLabel
+	}
+	return value(dep.ScopeID)
+}
+
 func renderList(d Dependencies, format string, doc ListEnvelope) error {
 	switch format {
 	case "json":
@@ -509,7 +520,7 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 		for _, raw := range doc.Data {
 			var dep Dependency
 			if json.Unmarshal(raw, &dep) == nil {
-				if _, e := fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\t%s\n", output.EscapeTSVField(dep.State), output.EscapeTSVField(dep.Name), output.EscapeTSVField(dep.Provider), output.EscapeTSVField(value(dep.ActiveIncidentTitle)), output.EscapeTSVField(value(dep.ProviderUpdatedAt))); e != nil {
+				if _, e := fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\t%s\t%s\n", output.EscapeTSVField(dep.State), output.EscapeTSVField(dep.Name), output.EscapeTSVField(dep.Provider), output.EscapeTSVField(dependencyRegion(dep)), output.EscapeTSVField(value(dep.ActiveIncidentTitle)), output.EscapeTSVField(value(dep.ProviderUpdatedAt))); e != nil {
 					return e
 				}
 			}
@@ -517,11 +528,11 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 		return nil
 	default:
 		fmt.Fprintln(d.Err, dependencyStateCaption)
-		fmt.Fprintln(d.Out, "STATE\tNAME\tPROVIDER\tINCIDENT\tUPDATED")
+		fmt.Fprintln(d.Out, "STATE\tNAME\tPROVIDER\tREGION\tINCIDENT\tUPDATED")
 		for _, raw := range doc.Data {
 			var dep Dependency
 			if json.Unmarshal(raw, &dep) == nil {
-				fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\t%s\n", output.SanitizeDisplay(dep.State), output.SanitizeDisplay(dep.Name), output.SanitizeDisplay(dep.Provider), output.SanitizeDisplay(value(dep.ActiveIncidentTitle)), output.SanitizeDisplay(value(dep.ProviderUpdatedAt)))
+				fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\t%s\t%s\n", output.SanitizeDisplay(dep.State), output.SanitizeDisplay(dep.Name), output.SanitizeDisplay(dep.Provider), output.SanitizeDisplay(dependencyRegion(dep)), output.SanitizeDisplay(value(dep.ActiveIncidentTitle)), output.SanitizeDisplay(value(dep.ProviderUpdatedAt)))
 			}
 		}
 		if doc.Meta.NextCursor != nil && *doc.Meta.NextCursor != "" {

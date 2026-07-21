@@ -54,6 +54,11 @@ export function DependencyPanelRow({
         <div className="flex items-center gap-1.5 text-[var(--fg-muted)] text-xs">
           <span>{dependency.provider}</span>
           <DependencyFidelityBadge fidelity={dependency.fidelity} />
+          {dependency.componentLabel ? (
+            <span className="min-w-0 truncate">
+              · {dependency.componentLabel}
+            </span>
+          ) : null}
         </div>
       </td>
       <td className="px-4">

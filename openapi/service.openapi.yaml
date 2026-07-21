@@ -3691,13 +3691,14 @@
         "additionalProperties": true,
         "description": "Dashboard row for the installed-dependency list. State is provider reported: it reflects the upstream status feed, not an independent Pulse check.",
         "required": [
-          "id", "presetId", "scopeId", "name", "provider", "category", "fidelity", "state",
+          "id", "presetId", "scopeId", "componentLabel", "name", "provider", "category", "fidelity", "state",
           "pendingFirstPoll", "providerUpdatedAt", "activeIncidentTitle", "timeline24h"
         ],
         "properties": {
           "id": {"type": "string", "format": "uuid"},
           "presetId": {"type": "string"},
           "scopeId": {"type": ["string", "null"]},
+          "componentLabel": {"type": ["string", "null"]},
           "name": {"type": "string"},
           "provider": {"type": "string"},
           "category": {"type": "string"},

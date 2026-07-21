@@ -80,10 +80,45 @@ function buildStateBuckets(
   return buckets
 }
 
+// Resolves a dependency's stored scopeId to the human label operators pick at
+// install time. required_options labels live inline in the catalog scope.
+// discovered scopes carry their label in dependency_discovered_scope_options,
+// passed in as discoveredLabel. Falls back to the raw scopeId when no label
+// resolves, and returns null for an unscoped dependency.
+function resolveScopeLabel(
+  scope: DependencyScope | null,
+  scopeId: string | null,
+  discoveredLabel: string | null
+): string | null {
+  if (!scopeId) {
+    return null
+  }
+  if (scope?.kind === "required_options") {
+    return (
+      scope.options.find((option) => option.id === scopeId)?.label ?? scopeId
+    )
+  }
+  if (
+    scope?.kind === "discovered_children" ||
+    scope?.kind === "discovered_locations"
+  ) {
+    return discoveredLabel ?? scopeId
+  }
+  return scopeId
+}
+
+// Keys the batched discovered-scope label lookup. A catalogId and scopeId pair
+// identifies one discovered option, joined by a NUL that cannot appear in
+// either id.
+function discoveredScopeKey(catalogId: string, scopeId: string): string {
+  return `${catalogId}\x00${scopeId}`
+}
+
 export interface DependencyDashboardRow {
   id: string
   presetId: string
   scopeId: string | null
+  componentLabel: string | null
   name: string
   provider: string
   category: string
@@ -103,6 +138,7 @@ export async function listDependenciesForDashboard(): Promise<
       id: dependencies.id,
       presetId: dependencies.catalogId,
       scopeId: dependencies.scopeId,
+      scopeOptions: dependencyCatalog.scopeOptions,
       name: dependencyCatalog.displayName,
       category: dependencyCatalog.category,
       fidelity: dependencyCatalog.fidelity,
@@ -134,7 +170,26 @@ export async function listDependenciesForDashboard(): Promise<
   const now = new Date()
   const windowStart = new Date(now.getTime() - 24 * 3_600_000)
 
-  const [intervalRows, incidentRows] = await Promise.all([
+  // Catalog ids whose rows hold a discovered scope. Their labels live in
+  // dependency_discovered_scope_options, batched into one lookup so the list
+  // stays a fixed number of queries no matter the row count. required_options
+  // scopes resolve inline from the catalog scope and need no lookup.
+  const discoveredCatalogIds = Array.from(
+    new Set(
+      rows
+        .filter((row) => {
+          const scope = (row.scopeOptions as DependencyScope | null) ?? null
+          return (
+            row.scopeId !== null &&
+            (scope?.kind === "discovered_children" ||
+              scope?.kind === "discovered_locations")
+          )
+        })
+        .map((row) => row.presetId)
+    )
+  )
+
+  const [intervalRows, incidentRows, discoveredRows] = await Promise.all([
     db
       .select({
         dependencyId: dependencyStateIntervals.dependencyId,
@@ -169,7 +224,32 @@ export async function listDependenciesForDashboard(): Promise<
           isNull(providerIncidents.resolvedAt)
         )
       ),
+    discoveredCatalogIds.length === 0
+      ? Promise.resolve(
+          [] as { catalogId: string; scopeId: string; label: string }[]
+        )
+      : db
+          .select({
+            catalogId: dependencyDiscoveredScopeOptions.catalogId,
+            scopeId: dependencyDiscoveredScopeOptions.scopeId,
+            label: dependencyDiscoveredScopeOptions.label,
+          })
+          .from(dependencyDiscoveredScopeOptions)
+          .where(
+            inArray(
+              dependencyDiscoveredScopeOptions.catalogId,
+              discoveredCatalogIds
+            )
+          ),
   ])
+
+  const discoveredLabelByKey = new Map<string, string>()
+  for (const row of discoveredRows) {
+    discoveredLabelByKey.set(
+      discoveredScopeKey(row.catalogId, row.scopeId),
+      row.label
+    )
+  }
 
   const intervalsByDependency = new Map<string, IntervalRow[]>()
   for (const row of intervalRows) {
@@ -193,10 +273,18 @@ export async function listDependenciesForDashboard(): Promise<
 
   return rows.map((row) => {
     const active = activeIncidentByDependency.get(row.id)
+    const scope = (row.scopeOptions as DependencyScope | null) ?? null
+    const discoveredLabel =
+      row.scopeId === null
+        ? null
+        : (discoveredLabelByKey.get(
+            discoveredScopeKey(row.presetId, row.scopeId)
+          ) ?? null)
     return {
       id: row.id,
       presetId: row.presetId,
       scopeId: row.scopeId,
+      componentLabel: resolveScopeLabel(scope, row.scopeId, discoveredLabel),
       name: row.name,
       provider: row.provider,
       category: row.category,
@@ -378,12 +466,8 @@ export async function getDependencyDetail(
   }
 
   const scope = (row.scopeOptions as DependencyScope | null) ?? null
-  let componentLabel: string | null = row.scopeId
-  if (scope?.kind === "required_options") {
-    componentLabel =
-      scope.options.find((option) => option.id === row.scopeId)?.label ??
-      row.scopeId
-  } else if (
+  let discoveredLabel: string | null = null
+  if (
     row.scopeId &&
     (scope?.kind === "discovered_children" ||
       scope?.kind === "discovered_locations")
@@ -400,8 +484,9 @@ export async function getDependencyDetail(
         )
       )
       .limit(1)
-    componentLabel = discovered?.label ?? row.scopeId
+    discoveredLabel = discovered?.label ?? null
   }
+  const componentLabel = resolveScopeLabel(scope, row.scopeId, discoveredLabel)
 
   const activeIncident =
     incidentRows.find((incident) => incident.resolvedAt === null) ?? null

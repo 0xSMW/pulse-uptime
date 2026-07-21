@@ -145,7 +145,7 @@ func TestListRejectsRepeatingCursor(t *testing.T) {
 
 func TestListSendsCursorAndLimitAndRendersTable(t *testing.T) {
 	dep1 := `{"id":"dep-1","presetId":"vercel_runtime","name":"Vercel Runtime","provider":"Vercel","state":"OPERATIONAL","providerUpdatedAt":null,"activeIncidentTitle":null}`
-	dep2 := `{"id":"dep-2","presetId":"stripe_api","name":"Stripe API","provider":"Stripe","state":"DEGRADED","providerUpdatedAt":"2026-07-19T00:00:00Z","activeIncidentTitle":"Elevated error rates"}`
+	dep2 := `{"id":"dep-2","presetId":"stripe_api","name":"Stripe API","provider":"Stripe","state":"DEGRADED","providerUpdatedAt":"2026-07-19T00:00:00Z","activeIncidentTitle":"Elevated error rates","componentLabel":"US East"}`
 	client := &fakeClient{do: func(r Request) error {
 		if got := r.Query.Get("cursor"); got != "start" {
 			t.Errorf("cursor = %q", got)
@@ -160,13 +160,13 @@ func TestListSendsCursorAndLimitAndRendersTable(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := stdout.String()
-	if !strings.Contains(out, "STATE\tNAME\tPROVIDER\tINCIDENT\tUPDATED") {
+	if !strings.Contains(out, "STATE\tNAME\tPROVIDER\tREGION\tINCIDENT\tUPDATED") {
 		t.Fatalf("missing header: %q", out)
 	}
-	if !strings.Contains(out, "OPERATIONAL\tVercel Runtime\tVercel\t\t") {
+	if !strings.Contains(out, "OPERATIONAL\tVercel Runtime\tVercel\t\t\t") {
 		t.Fatalf("missing operational row: %q", out)
 	}
-	if !strings.Contains(out, "DEGRADED\tStripe API\tStripe\tElevated error rates\t2026-07-19T00:00:00Z") {
+	if !strings.Contains(out, "DEGRADED\tStripe API\tStripe\tUS East\tElevated error rates\t2026-07-19T00:00:00Z") {
 		t.Fatalf("missing degraded row: %q", out)
 	}
 	// Provider reported caption belongs on stderr, never inside the piped table data.
@@ -190,7 +190,7 @@ func TestListTSVKeepsCaptionOffStdout(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stdout.String(), "OPERATIONAL\tVercel Runtime\tVercel\t\t") {
+	if !strings.Contains(stdout.String(), "OPERATIONAL\tVercel Runtime\tVercel\t\t\t") {
 		t.Fatalf("missing tsv row: %q", stdout.String())
 	}
 	if strings.Contains(stdout.String(), "provider reported") {
