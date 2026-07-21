@@ -7,13 +7,17 @@ import type { DependencyState } from "./types"
 const SEVEN_DAYS_MS = 7 * 86_400_000
 
 // Lower number is worse. worst_of picks the minimum priority across every
-// state overlapping a bucket, matching the poll path's severity ordering.
+// state overlapping a bucket. UNKNOWN ranks last because it is absence of
+// evidence, not a problem report, so it resolves a bucket only when nothing
+// known or assumed overlaps it. The renderer draws UNKNOWN as no-data on the
+// same reasoning. The poll path's worstOf ranks provider component states,
+// which never include UNKNOWN, so this ordering is render-only.
 const STATE_PRIORITY: Record<DependencyState, number> = {
   OUTAGE: 0,
   DEGRADED: 1,
   MAINTENANCE: 2,
-  UNKNOWN: 3,
-  OPERATIONAL: 4,
+  OPERATIONAL: 3,
+  UNKNOWN: 4,
 }
 
 // Folds one candidate state into the running worst, treating null as "nothing

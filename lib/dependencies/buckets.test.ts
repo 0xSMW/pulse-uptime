@@ -294,17 +294,92 @@ describe("buildStateBuckets with assumed-operational backfill", () => {
 
   it("never lets the operational floor mask a worse real interval state", () => {
     const intervals: IntervalRow[] = [
-      { state: "UNKNOWN", startedAt: at(-4 * HOUR_MS), endedAt: null },
+      { state: "DEGRADED", startedAt: at(-4 * HOUR_MS), endedAt: null },
     ]
     const buckets = buildStateBuckets(intervals, 4, HOUR_MS, NOW, {
       createdAt: NOW,
       incidents: [],
     })
     expect(buckets.map((bucket) => bucket.state)).toEqual([
+      "DEGRADED",
+      "DEGRADED",
+      "DEGRADED",
+      "DEGRADED",
+    ])
+  })
+})
+
+describe("buildStateBuckets UNKNOWN ranking", () => {
+  it("lets a known state cover an install-time UNKNOWN sliver in the same bucket", () => {
+    // The install path opens an UNKNOWN interval at createdAt and the first
+    // successful poll closes it seconds later. That sliver must not claim the
+    // bucket away from the operational interval covering the rest of it. No
+    // backfill here, so the interval comparison alone decides the bucket.
+    const createdAt = at(-90 * 60_000)
+    const firstPollAt = at(-89 * 60_000)
+    const intervals: IntervalRow[] = [
+      { state: "UNKNOWN", startedAt: createdAt, endedAt: firstPollAt },
+      { state: "OPERATIONAL", startedAt: firstPollAt, endedAt: null },
+    ]
+    const buckets = buildStateBuckets(intervals, 4, HOUR_MS, NOW)
+    expect(buckets.map((bucket) => bucket.state)).toEqual([
+      null,
+      null,
+      "OPERATIONAL",
+      "OPERATIONAL",
+    ])
+  })
+
+  it("lets the assumed-operational floor cover an UNKNOWN sliver in a straddling bucket", () => {
+    // Same install shape, but the only known coverage of the straddling
+    // bucket is the backfill floor. The floor still wins over UNKNOWN.
+    const createdAt = at(-30 * 60_000)
+    const intervals: IntervalRow[] = [
+      { state: "UNKNOWN", startedAt: createdAt, endedAt: null },
+    ]
+    const buckets = buildStateBuckets(intervals, 4, HOUR_MS, NOW, {
+      createdAt,
+      incidents: [],
+    })
+    expect(buckets.map((bucket) => bucket.state)).toEqual([
+      "OPERATIONAL",
+      "OPERATIONAL",
+      "OPERATIONAL",
+      "OPERATIONAL",
+    ])
+  })
+
+  it("still resolves UNKNOWN for a bucket where it is the only coverage", () => {
+    // No backfill and nothing but UNKNOWN overlapping, as when a dependency
+    // stays pending first poll for over a bucket. Absence of evidence stays
+    // visible rather than being painted green.
+    const intervals: IntervalRow[] = [
+      { state: "UNKNOWN", startedAt: at(-2 * HOUR_MS), endedAt: null },
+    ]
+    const buckets = buildStateBuckets(intervals, 4, HOUR_MS, NOW)
+    expect(buckets.map((bucket) => bucket.state)).toEqual([
+      null,
+      null,
       "UNKNOWN",
       "UNKNOWN",
-      "UNKNOWN",
-      "UNKNOWN",
+    ])
+  })
+
+  it("never lets UNKNOWN mask a worse known state in the same bucket", () => {
+    const intervals: IntervalRow[] = [
+      {
+        state: "UNKNOWN",
+        startedAt: at(-2 * HOUR_MS),
+        endedAt: at(-1.5 * HOUR_MS),
+      },
+      { state: "DEGRADED", startedAt: at(-1.5 * HOUR_MS), endedAt: null },
+    ]
+    const buckets = buildStateBuckets(intervals, 4, HOUR_MS, NOW)
+    expect(buckets.map((bucket) => bucket.state)).toEqual([
+      null,
+      null,
+      "DEGRADED",
+      "DEGRADED",
     ])
   })
 })
