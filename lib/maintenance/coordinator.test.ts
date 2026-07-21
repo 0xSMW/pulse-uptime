@@ -353,13 +353,11 @@ describe("performMaintenance", () => {
       clock += 100
       return 10_000
     })
-    const partial =
-      (name: string, value: number) =>
-      async () => {
-        order.push(name)
-        clock += 100
-        return value
-      }
+    const partial = (name: string, value: number) => async () => {
+      order.push(name)
+      clock += 100
+      return value
+    }
     const summary = await performSweep(
       {
         expireRateLimitBuckets: rate,
@@ -430,10 +428,18 @@ describe("performMaintenance", () => {
       { code: "57014" }
     )
     const order: string[] = []
+    let clock = 0
+    let rateLimitBudgetMs = 0
     const summary = await performSweep(
       {
-        expireRateLimitBuckets: async () => {
+        expireRateLimitBuckets: async (
+          _now: Date,
+          _limit: number,
+          remainingMs?: number
+        ) => {
           order.push("rate")
+          rateLimitBudgetMs = remainingMs ?? 0
+          clock += rateLimitBudgetMs
           throw timeout
         },
         expireApiIdempotency: async () => {
@@ -454,9 +460,11 @@ describe("performMaintenance", () => {
         },
       } as unknown as MaintenanceStore,
       new Date(),
-      { nowMs: () => 0, deadlineAtMs: 5000 }
+      { nowMs: () => clock, deadlineAtMs: 5000 }
     )
-    // Rate-limit hit statement timeout and deactivated. Later categories still ran.
+    // The first category can consume only its fair share. Later categories
+    // retain enough budget to run in the same pass.
+    expect(rateLimitBudgetMs).toBe(1000)
     expect(order).toEqual([
       "rate",
       "idempotency",

@@ -700,7 +700,7 @@ export async function performSweep(
   // can start or every category is drained / budget-skipped.
   while (budget.canStart(MIN_RETENTION_BATCH_MS, "hard")) {
     let progressed = false
-    for (const category of categories) {
+    for (const [index, category] of categories.entries()) {
       if (!category.active) {
         continue
       }
@@ -710,9 +710,16 @@ export async function performSweep(
         continue
       }
       try {
+        const activeCategoriesRemaining = categories
+          .slice(index)
+          .filter((item) => item.active).length
+        const operationBudgetMs = Math.max(
+          1,
+          Math.floor(budget.remainingMs("hard") / activeCategoriesRemaining)
+        )
         const affected = await category.operation(
           RETENTION_BATCH_SIZE,
-          budget.remainingMs("hard")
+          operationBudgetMs
         )
         category.total += affected
         progressed = true
