@@ -5,6 +5,7 @@ import { type ReactNode, useEffect, useId, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { PortalContainerContext } from "@/components/ui/portal-container"
+import { cn } from "@/lib/utils"
 
 export function SheetIconButton({
   label,
@@ -24,6 +25,7 @@ export function SheetIconButton({
   const tooltipId = useId()
 
   return (
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: focusable wrapper surfaces the disabled reason when the inner button cannot take focus
     <span
       aria-label={
         disabled && disabledDescription
@@ -71,6 +73,10 @@ export function Sheet({
   closeDisabled = false,
   headerActions,
   children,
+  // Full Tailwind width class so each caller can size its own panel. Kept as a
+  // whole literal string, not an interpolated value, so Tailwind still emits
+  // the arbitrary value.
+  widthClassName = "w-[min(480px,100vw)]",
 }: {
   title: string
   description?: string
@@ -79,6 +85,7 @@ export function Sheet({
   closeDisabled?: boolean
   headerActions?: ReactNode
   children: ReactNode
+  widthClassName?: string
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   // Popovers inside the sheet portal into the dialog element itself. The
@@ -106,7 +113,10 @@ export function Sheet({
       // overflow-x-hidden overrides the modal dialog's UA overflow auto so
       // nothing inside can ever produce a horizontal scrollbar, the inner
       // content div owns vertical scrolling.
-      className="fixed inset-y-0 right-0 left-auto m-0 h-dvh w-[min(480px,100vw)] max-w-none overflow-x-hidden border-0 border-[var(--border)] border-l bg-[var(--bg)] p-0 text-[var(--fg)] shadow-[-12px_0_40px_rgb(0_0_0/20%)] backdrop:animate-[sheet-backdrop-in_200ms_ease-out] backdrop:bg-black/45 open:flex open:animate-[sheet-slide-in_200ms_ease-out] open:flex-col motion-reduce:open:animate-none motion-reduce:backdrop:animate-none"
+      className={cn(
+        "fixed inset-y-0 right-0 left-auto m-0 h-dvh max-w-none overflow-x-hidden border-0 border-[var(--border)] border-l bg-[var(--bg)] p-0 text-[var(--fg)] shadow-[-12px_0_40px_rgb(0_0_0/20%)] backdrop:animate-[sheet-backdrop-in_200ms_ease-out] backdrop:bg-black/45 open:flex open:animate-[sheet-slide-in_200ms_ease-out] open:flex-col motion-reduce:open:animate-none motion-reduce:backdrop:animate-none",
+        widthClassName
+      )}
       onCancel={(event) => {
         event.preventDefault()
         onClose()

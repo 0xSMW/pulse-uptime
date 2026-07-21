@@ -1,3 +1,8 @@
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import type {
   DependencyFidelity,
   DependencyState,
@@ -12,6 +17,10 @@ import { cn } from "@/lib/utils"
 // color communicates no state.
 export const INCIDENT_FEED_ONLY_LABEL = "Incident feed only"
 
+// Plain-language tooltip on the chip so a reader knows what they actually get.
+export const INCIDENT_FEED_ONLY_HINT =
+  "Provider posts incident notices, not per-component health"
+
 export function DependencyFidelityBadge({
   fidelity,
   className,
@@ -22,15 +31,21 @@ export function DependencyFidelityBadge({
   if (fidelity !== "incident_only") {
     return null
   }
+  // Button trigger so the explanation is reachable by keyboard focus, not just
+  // hover, inside the interactive catalog and dependency rows.
   return (
-    <span
-      className={cn(
-        "inline-flex items-center whitespace-nowrap rounded bg-[var(--chip-bg)] px-1.5 py-0.5 font-medium text-[11px] text-[var(--fg-muted)]",
-        className
-      )}
-    >
-      {INCIDENT_FEED_ONLY_LABEL}
-    </span>
+    <Tooltip>
+      <TooltipTrigger
+        className={cn(
+          "inline-flex items-center whitespace-nowrap rounded bg-[var(--chip-bg)] px-1.5 py-0.5 font-medium text-[11px] text-[var(--fg-muted)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]",
+          className
+        )}
+        type="button"
+      >
+        {INCIDENT_FEED_ONLY_LABEL}
+      </TooltipTrigger>
+      <TooltipContent>{INCIDENT_FEED_ONLY_HINT}</TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -89,6 +104,7 @@ export function DependencyStatusDot({
   "aria-hidden": ariaHidden,
 }: DependencyStatusDotProps) {
   return (
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: role img is set whenever aria-label is present, both guarded by aria-hidden
     <span
       aria-hidden={ariaHidden}
       aria-label={

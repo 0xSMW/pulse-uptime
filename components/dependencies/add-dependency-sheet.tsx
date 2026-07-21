@@ -9,8 +9,10 @@ import {
   useRef,
   useState,
 } from "react"
+import useSWR from "swr"
 
 import { DependencyFidelityBadge } from "@/components/dependencies/dependency-status"
+import { ProviderMark } from "@/components/dependencies/provider-marks"
 import {
   type ApiEnvelope,
   apiRequest,
@@ -221,9 +223,21 @@ export function AddDependencySheet({
   onClose: () => void
 }) {
   const router = useRouter()
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState("")
-  const [categories, setCategories] = useState<DependencyCatalogCategory[]>([])
+  const {
+    data: categories,
+    isLoading: loading,
+    error: catalogError,
+  } = useSWR<DependencyCatalogCategory[]>(
+    "/api/v1/dependency-catalog",
+    async (url: string) => {
+      const response =
+        await apiRequest<
+          ApiEnvelope<{ categories: DependencyCatalogCategory[] }>
+        >(url)
+      return response.data.categories
+    }
+  )
+  const loadError = catalogError ? messageForError(catalogError) : ""
   const [query, setQuery] = useState("")
   const [scopeByPreset, setScopeByPreset] = useState<Record<string, string>>({})
   const [addedKeys, setAddedKeys] = useState<Set<string>>(new Set())
@@ -233,52 +247,19 @@ export function AddDependencySheet({
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    setLoadError("")
-    apiRequest<ApiEnvelope<{ categories: DependencyCatalogCategory[] }>>(
-      "/api/v1/dependency-catalog"
-    )
-      .then((response) => {
-        if (cancelled) {
-          return
-        }
-        setCategories(response.data.categories)
-      })
-      .catch((error: unknown) => {
-        if (cancelled) {
-          return
-        }
-        setLoadError(messageForError(error))
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false)
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
     if (open) {
       requestAnimationFrame(() => inputRef.current?.focus())
     }
   }, [open])
 
   const visibleCategories = useMemo(
-    () => filterCatalogCategories(categories, query),
+    () => filterCatalogCategories(categories ?? [], query),
     [categories, query]
   )
   const visiblePresets = useMemo(
     () => visibleCategories.flatMap((category) => category.presets),
     [visibleCategories]
   )
-
-  useEffect(() => {
-    setActiveIndex(0)
-  }, [query])
 
   function isAdded(
     preset: DependencyCatalogPreset,
@@ -363,6 +344,9 @@ export function AddDependencySheet({
       onClose={handleClose}
       open={open}
       title="Add Dependency"
+      // Wider than the default sheet so a long name, the Scope select, and the
+      // Add button share one row without the name truncating too early.
+      widthClassName="w-[min(560px,100vw)]"
     >
       <div className="relative mb-4">
         <Search
@@ -376,7 +360,12 @@ export function AddDependencySheet({
           aria-controls="dependency-catalog-list"
           aria-label="Search services"
           className="pl-9"
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => {
+            setQuery(event.target.value)
+            // Reset the keyboard highlight to the top whenever the filter
+            // changes, in the handler that owns the change, not an Effect.
+            setActiveIndex(0)
+          }}
           onKeyDown={handleInputKey}
           placeholder="Search services"
           ref={inputRef}
@@ -450,20 +439,28 @@ export function AddDependencySheet({
                         key={preset.id}
                         onMouseMove={() => setActiveIndex(index)}
                         role="option"
+                        title={preset.sourceScopeNote ?? undefined}
                       >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
+                        {/* Grid so the name column flexes and truncates while the
+                            leading brand mark and the right controls keep a fixed
+                            width and never wrap onto a second row. */}
+                        <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5">
+                          {/* Muted monochrome brand mark, no vendor colors, so the
+                              row stays calm and reads as one system. */}
+                          <ProviderMark provider={preset.provider} />
                           <div className="min-w-0">
-                            {/* Wordmark text only: dependency name plus provider,
-                                no logos and no brand colors, per the spec's
-                                "Entry point" section. */}
-                            <p className="truncate font-medium text-[13px]">
+                            <p
+                              className="truncate font-medium text-[13px]"
+                              title={preset.name}
+                            >
                               {preset.name}
                             </p>
-                            <div className="flex items-center gap-1.5 text-[var(--fg-muted)] text-xs">
+                            <div className="flex min-w-0 items-center gap-1.5 text-[var(--fg-muted)] text-xs">
                               <span className="truncate">
                                 {preset.provider}
                               </span>
                               <DependencyFidelityBadge
+                                className="shrink-0"
                                 fidelity={preset.fidelity}
                               />
                             </div>
@@ -526,11 +523,6 @@ export function AddDependencySheet({
                         {discoveryMessage ? (
                           <p className="mt-1 max-w-[320px] text-[var(--fg-faint)] text-xs">
                             {discoveryMessage}
-                          </p>
-                        ) : null}
-                        {preset.sourceScopeNote ? (
-                          <p className="mt-1 max-w-[320px] text-[var(--fg-faint)] text-xs">
-                            {preset.sourceScopeNote}
                           </p>
                         ) : null}
                         {rowError ? (
