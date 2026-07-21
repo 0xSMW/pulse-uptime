@@ -26,9 +26,10 @@ import {
 } from "./poller"
 import type { DependencyAdapterName } from "./types"
 
-// Dependency cron still uses a local lease/run path. Shared primitives now
-// exist (DEPENDENCY_LEASE, CronJobName "check-dependencies", runCronCoordinator,
-// withLease release-safe) but migration is owned by DEP-01.
+// Dependency cron lifecycle: acquire lease dependency-check, insert a
+// check-dependencies cron_runs row for the scheduled minute, run work, then
+// complete or fail that row and release the lease. withDependencyLease and
+// createDependencyCronRunStore implement that against job_leases and cron_runs.
 
 const DEPENDENCY_LEASE = "dependency-check"
 // The lease must outlive a maximal run so a slow run never loses exclusivity.
