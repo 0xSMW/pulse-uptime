@@ -321,3 +321,135 @@ func TestWatchSortsTransitionsAndStopsOnCancel(t *testing.T) {
 		t.Fatalf("transition order=%s,%s", first.MonitorID, second.MonitorID)
 	}
 }
+
+func TestExactMonitorIDWhitespaceOnlyPositionalIsLocalInvalid(t *testing.T) {
+	called := false
+	d := Dependencies{
+		Client: clientFunc(func(context.Context, Request) error {
+			called = true
+			return nil
+		}),
+		Format: func() string { return "json" },
+	}
+	cmd := NewGroup(d)
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	cmd.SetArgs([]string{"get", "   "})
+	err := cmd.Execute()
+	var ce *Error
+	if !errors.As(err, &ce) || ce.Exit != ExitInvalidInput || ce.Code != "INVALID_ARGUMENT" {
+		t.Fatalf("error = %#v", err)
+	}
+	if called {
+		t.Fatal("API called for whitespace-only positional id")
+	}
+}
+
+func TestExactMonitorIDWhitespaceOnlyFlagIsLocalInvalid(t *testing.T) {
+	called := false
+	d := Dependencies{
+		Client: clientFunc(func(context.Context, Request) error {
+			called = true
+			return nil
+		}),
+		Format: func() string { return "json" },
+	}
+	cmd := NewGroup(d)
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	cmd.SetArgs([]string{"get", "--id", "\t  "})
+	err := cmd.Execute()
+	var ce *Error
+	if !errors.As(err, &ce) || ce.Exit != ExitInvalidInput || ce.Code != "INVALID_ARGUMENT" {
+		t.Fatalf("error = %#v", err)
+	}
+	if called {
+		t.Fatal("API called for whitespace-only --id")
+	}
+}
+
+func TestExactMonitorIDTrimsPaddedValidIDInPath(t *testing.T) {
+	var path string
+	client := clientFunc(func(_ context.Context, r Request) error {
+		path = r.Path
+		doc := r.Result.(*Envelope)
+		doc.APIVersion, doc.Kind, doc.Data = "v1", "Monitor", json.RawMessage(`{"id":"api"}`)
+		return nil
+	})
+	d := Dependencies{Client: client, Format: func() string { return "json" }}
+	cmd := NewGroup(d)
+	cmd.SetArgs([]string{"get", "  api  "})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/api/v1/monitors/api" {
+		t.Fatalf("path = %q, want trimmed id", path)
+	}
+}
+
+func TestExactMonitorIDPositionalAndFlagConflict(t *testing.T) {
+	called := false
+	d := Dependencies{
+		Client: clientFunc(func(context.Context, Request) error {
+			called = true
+			return nil
+		}),
+		Format: func() string { return "json" },
+	}
+	cmd := NewGroup(d)
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	cmd.SetArgs([]string{"get", "api", "--id", "other"})
+	err := cmd.Execute()
+	var ce *Error
+	if !errors.As(err, &ce) || ce.Exit != ExitInvalidInput || ce.Code != "INVALID_ARGUMENT" {
+		t.Fatalf("error = %#v", err)
+	}
+	if called {
+		t.Fatal("API called when both positional and --id were set")
+	}
+}
+
+func TestExactMonitorIDValidExactIDKeepsExistingBehavior(t *testing.T) {
+	var path string
+	client := clientFunc(func(_ context.Context, r Request) error {
+		path = r.Path
+		doc := r.Result.(*Envelope)
+		doc.APIVersion, doc.Kind, doc.Data = "v1", "Monitor", json.RawMessage(`{"id":"api"}`)
+		return nil
+	})
+	d := Dependencies{Client: client, Format: func() string { return "json" }}
+
+	for _, args := range [][]string{
+		{"get", "api"},
+		{"get", "--id", "api"},
+	} {
+		path = ""
+		cmd := NewGroup(d)
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("args=%v err=%v", args, err)
+		}
+		if path != "/api/v1/monitors/api" {
+			t.Fatalf("args=%v path=%q", args, path)
+		}
+	}
+}
+
+func TestExactMonitorIDUnitHelper(t *testing.T) {
+	if id, err := exactMonitorID([]string{"  api  "}, ""); err != nil || id != "api" {
+		t.Fatalf("positional trim: id=%q err=%v", id, err)
+	}
+	if id, err := exactMonitorID(nil, "  api  "); err != nil || id != "api" {
+		t.Fatalf("flag trim: id=%q err=%v", id, err)
+	}
+	if _, err := exactMonitorID([]string{" "}, ""); err == nil {
+		t.Fatal("expected whitespace positional to fail")
+	}
+	if _, err := exactMonitorID(nil, "\t"); err == nil {
+		t.Fatal("expected whitespace flag to fail")
+	}
+	if _, err := exactMonitorID([]string{"a"}, "b"); err == nil {
+		t.Fatal("expected conflict to fail")
+	}
+	if _, err := exactMonitorID(nil, ""); err == nil {
+		t.Fatal("expected missing id to fail")
+	}
+}

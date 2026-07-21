@@ -227,7 +227,7 @@ func newListCommand(d Dependencies) *cobra.Command {
 func newGetCommand(d Dependencies) *cobra.Command {
 	var flagID string
 	cmd := &cobra.Command{Use: "get [id]", Short: "Get a monitor", Args: cobra.MaximumNArgs(1), Annotations: annotations("monitors:read"), RunE: func(cmd *cobra.Command, args []string) error {
-		id, err := exactID(args, flagID)
+		id, err := exactMonitorID(args, flagID)
 		if err != nil {
 			return err
 		}
@@ -271,7 +271,8 @@ func newCreateCommand(d Dependencies) *cobra.Command {
 func newUpdateCommand(d Dependencies) *cobra.Command {
 	var f editFlags
 	cmd := &cobra.Command{Use: "update <id>", Short: "Update a monitor", Args: cobra.ExactArgs(1), Annotations: annotations("monitors:write"), RunE: func(cmd *cobra.Command, args []string) error {
-		if err := requireMonitorID(args[0]); err != nil {
+		id, err := exactMonitorID(args, "")
+		if err != nil {
 			return err
 		}
 		body, err := editBody(cmd, f, false)
@@ -281,7 +282,7 @@ func newUpdateCommand(d Dependencies) *cobra.Command {
 		if len(body) == 0 {
 			return invalid("at least one update flag is required")
 		}
-		return mutateAndRender(cmd.Context(), d, http.MethodPatch, monitorPath(args[0]), body)
+		return mutateAndRender(cmd.Context(), d, http.MethodPatch, monitorPath(id), body)
 	}}
 	addEditFlags(cmd, &f, false)
 	return cmd
@@ -401,7 +402,8 @@ func editBody(cmd *cobra.Command, f editFlags, create bool) (map[string]any, err
 func newActionCommand(d Dependencies, action string) *cobra.Command {
 	summary := map[string]string{"pause": "Pause a monitor", "resume": "Resume a monitor", "test": "Test a monitor target"}[action]
 	cmd := &cobra.Command{Use: action + " <id>", Short: summary, Args: cobra.ExactArgs(1), Annotations: annotations("monitors:write"), RunE: func(cmd *cobra.Command, args []string) error {
-		if err := requireMonitorID(args[0]); err != nil {
+		id, err := exactMonitorID(args, "")
+		if err != nil {
 			return err
 		}
 		key, err := idempotencyKey(d)
@@ -409,7 +411,7 @@ func newActionCommand(d Dependencies, action string) *cobra.Command {
 			return err
 		}
 		var doc Envelope
-		err = d.Client.Do(cmd.Context(), Request{Method: http.MethodPost, Path: monitorPath(args[0]) + "/" + action, IdempotencyKey: key, Result: &doc})
+		err = d.Client.Do(cmd.Context(), Request{Method: http.MethodPost, Path: monitorPath(id) + "/" + action, IdempotencyKey: key, Result: &doc})
 		if err != nil {
 			return d.MapError(err)
 		}
@@ -435,14 +437,15 @@ func newActionCommand(d Dependencies, action string) *cobra.Command {
 func newDeleteCommand(d Dependencies) *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{Use: "delete <id>", Short: "Delete a monitor", Args: cobra.ExactArgs(1), Annotations: annotations("monitors:write"), RunE: func(cmd *cobra.Command, args []string) error {
-		if err := requireMonitorID(args[0]); err != nil {
+		id, err := exactMonitorID(args, "")
+		if err != nil {
 			return err
 		}
 		if !yes {
 			if !d.StdinTTY {
 				return invalid("noninteractive deletion requires --yes")
 			}
-			fmt.Fprintf(d.Err, "Archive monitor %s? [y/N] ", args[0])
+			fmt.Fprintf(d.Err, "Archive monitor %s? [y/N] ", id)
 			line, err := bufio.NewReader(d.In).ReadString('\n')
 			if err != nil && !errors.Is(err, io.EOF) {
 				return err
@@ -457,10 +460,10 @@ func newDeleteCommand(d Dependencies) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		if err := d.Client.Do(cmd.Context(), Request{Method: http.MethodDelete, Path: monitorPath(args[0]), IdempotencyKey: key}); err != nil {
+		if err := d.Client.Do(cmd.Context(), Request{Method: http.MethodDelete, Path: monitorPath(id), IdempotencyKey: key}); err != nil {
 			return d.MapError(err)
 		}
-		doc := Envelope{APIVersion: "v1", Kind: "MonitorArchived", Data: json.RawMessage(fmt.Sprintf(`{"id":%q}`, args[0]))}
+		doc := Envelope{APIVersion: "v1", Kind: "MonitorArchived", Data: json.RawMessage(fmt.Sprintf(`{"id":%q}`, id))}
 		return renderEnvelope(d, d.Format(), doc)
 	}}
 	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm deletion")
@@ -667,26 +670,29 @@ func invalid(message string) error {
 	return &Error{Exit: ExitInvalidInput, Code: "INVALID_ARGUMENT", Message: message}
 }
 
-// requireMonitorID rejects an empty or whitespace-only id before a request is
-// built. An empty id would otherwise produce a trailing-slash path that the
-// service redirects, surfacing as an opaque error.
-func requireMonitorID(id string) error {
-	if strings.TrimSpace(id) == "" {
-		return invalid("monitor id is required")
-	}
-	return nil
-}
-func exactID(args []string, flag string) (string, error) {
-	if len(args) == 1 && flag != "" {
+// exactMonitorID selects, trims, and validates the exact monitor ID from either
+// a positional argument or --id. Both sources together, or a whitespace-only
+// value after trim, is INVALID_ARGUMENT and never reaches the API.
+func exactMonitorID(args []string, flag string) (string, error) {
+	hasPositional := len(args) == 1
+	hasFlag := flag != ""
+	if hasPositional && hasFlag {
 		return "", invalid("provide the monitor ID as an argument or --id, not both")
 	}
-	if flag != "" {
-		return flag, nil
+	var raw string
+	switch {
+	case hasFlag:
+		raw = flag
+	case hasPositional:
+		raw = args[0]
+	default:
+		return "", invalid("exact monitor ID is required")
 	}
-	if len(args) == 1 && args[0] != "" {
-		return args[0], nil
+	id := strings.TrimSpace(raw)
+	if id == "" {
+		return "", invalid("monitor id is required")
 	}
-	return "", invalid("exact monitor ID is required")
+	return id, nil
 }
 func durationMinutes(value string) (int, error) {
 	d, err := time.ParseDuration(value)
