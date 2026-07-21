@@ -12,11 +12,12 @@ vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
     async ({
       work,
     }: {
-      work: (context: {
-        operationId: string
-      }) => Promise<{ status: number; body: unknown }>
+      work: (
+        tx: unknown,
+        context: { operationId: string }
+      ) => Promise<{ status: number; body: unknown }>
     }) => ({
-      ...(await work({ operationId: "op-1" })),
+      ...(await work("tx", { operationId: "op-1" })),
       replayed: false,
     })
   ),
@@ -72,7 +73,7 @@ describe("POST /api/v1/dependencies/{dependencyId}/refresh", () => {
     const payload = await response.json()
     expect(payload.kind).toBe("DependencyRefresh")
     expect(payload.data).toEqual({ id: "dep-1", queued: true })
-    expect(scheduleDependencyPoll).toHaveBeenCalledWith("dep-1")
+    expect(scheduleDependencyPoll).toHaveBeenCalledWith("dep-1", {}, "tx")
   })
 
   it("maps DEPENDENCY_NOT_FOUND to 404", async () => {

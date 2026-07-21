@@ -23,26 +23,18 @@ vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
       work,
     }: {
       request: Request
-      work: (context: {
-        operationId: string
-        transaction: (
-          run: (tx: unknown) => Promise<{ status: number; body: unknown }>
-        ) => Promise<{ status: number; body: unknown }>
-      }) => Promise<{ status: number; body: unknown }>
+      work: (
+        tx: unknown,
+        context: { operationId: string }
+      ) => Promise<{ status: number; body: unknown }>
     }) => {
       const key = request.headers.get("idempotency-key")!
       const existing = idempotencyRecords.get(key)
       if (existing) {
         return { ...existing, replayed: true }
       }
-      const result = await work({
-        operationId: "op-1",
-        transaction: async (run) => {
-          const outcome = await run("tx")
-          idempotencyRecords.set(key, outcome)
-          return outcome
-        },
-      })
+      const result = await work("tx", { operationId: "op-1" })
+      idempotencyRecords.set(key, result)
       return { ...result, replayed: false }
     }
   ),

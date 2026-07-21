@@ -23,11 +23,12 @@ export async function POST(
       principalKey: context.principalKey,
       routeKey: `/api/v1/dependencies/${dependencyId}/refresh`,
       body: {},
-      work: async () => ({
+      mode: "atomic",
+      work: async (tx) => ({
         status: 202,
         body: objectEnvelope(
           "DependencyRefresh",
-          await scheduleDependencyPoll(dependencyId),
+          await scheduleDependencyPoll(dependencyId, {}, tx),
           context.requestId
         ),
       }),

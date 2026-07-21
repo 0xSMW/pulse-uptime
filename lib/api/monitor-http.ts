@@ -97,30 +97,30 @@ export function monitorEnabledRoute(config: {
         principalKey: context.principalKey,
         routeKey: `/api/v1/monitors/${id}/${config.routeKey}`,
         body: {},
-        work: async ({ transaction }) =>
-          transaction(async (tx) => {
-            try {
-              return {
-                status: 200,
-                body: objectEnvelope(
-                  "Monitor",
-                  await setMonitorEnabled(
-                    id,
-                    config.enabled,
-                    context.principalKey,
-                    tx
-                  ),
-                  context.requestId
+        mode: "atomic",
+        work: async (tx) => {
+          try {
+            return {
+              status: 200,
+              body: objectEnvelope(
+                "Monitor",
+                await setMonitorEnabled(
+                  id,
+                  config.enabled,
+                  context.principalKey,
+                  tx
                 ),
-              }
-            } catch (error) {
-              const stored = storedMonitorError(error, context.requestId)
-              if (stored) {
-                return stored
-              }
-              throw error
+                context.requestId
+              ),
             }
-          }),
+          } catch (error) {
+            const stored = storedMonitorError(error, context.requestId)
+            if (stored) {
+              return stored
+            }
+            throw error
+          }
+        },
       })
       return apiJson(result.body, { status: result.status })
     } catch (error) {

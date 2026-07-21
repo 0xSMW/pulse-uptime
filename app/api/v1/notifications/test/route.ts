@@ -36,7 +36,11 @@ export async function POST(request: Request) {
       principalKey: context.principalKey,
       routeKey: "notification-test",
       body: body.data,
-      work: async () =>
+      // Outbox insert accepts the transaction handle, so enqueue and
+      // completion commit together. The outbox unique key is a second line
+      // of defense if a reclaim ever re-ran.
+      mode: "atomic",
+      work: async (tx) =>
         storedSuccess(
           "NotificationTest",
           await operationalService.enqueueTestNotification({
@@ -46,6 +50,7 @@ export async function POST(request: Request) {
               context.principal.type === "cli_session"
                 ? context.principal.installation?.displayName
                 : null,
+            handle: tx,
           }),
           context.requestId,
           202

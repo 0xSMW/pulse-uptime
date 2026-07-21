@@ -581,7 +581,24 @@ describe("scheduleDependencyPoll", () => {
     await expect(
       scheduleDependencyPoll("dep-1", { store, now: () => NOW })
     ).resolves.toEqual({ id: "dep-1", queued: true })
-    expect(store.touchSourceNextPoll).toHaveBeenCalledWith("vercel", NOW)
+    expect(store.touchSourceNextPoll).toHaveBeenCalledWith(
+      "vercel",
+      NOW,
+      expect.anything()
+    )
+  })
+
+  it("threads a caller-supplied handle into touchSourceNextPoll", async () => {
+    const store = fakeStore({
+      loadSourceIdForDependency: vi.fn().mockResolvedValue("vercel"),
+    })
+    const handle = { update: vi.fn() } as unknown as typeof db
+    await scheduleDependencyPoll("dep-1", { store, now: () => NOW }, handle)
+    expect(store.touchSourceNextPoll).toHaveBeenCalledWith(
+      "vercel",
+      NOW,
+      handle
+    )
   })
 })
 

@@ -140,7 +140,11 @@ export interface DependenciesStore {
     now: Date
     handle?: DatabaseHandle
   }) => Promise<boolean>
-  touchSourceNextPoll: (sourceId: string, now: Date) => Promise<void>
+  touchSourceNextPoll: (
+    sourceId: string,
+    now: Date,
+    handle?: DatabaseHandle
+  ) => Promise<void>
   loadSourceIdForDependency: (id: string) => Promise<string | null>
   /**
    * Soft removal: sets removedAt and closes the open interval. With no handle
@@ -400,7 +404,8 @@ export async function removeDependency(
 /** Sets the source's next_poll_at to now and returns immediately; the cron picks up the fetch, so this route never touches the network. */
 export async function scheduleDependencyPoll(
   id: string,
-  deps: DependencyServiceDeps = {}
+  deps: DependencyServiceDeps = {},
+  handle: DatabaseHandle = db
 ) {
   const store = deps.store ?? databaseDependenciesStore
   const now = deps.now?.() ?? new Date()
@@ -411,7 +416,9 @@ export async function scheduleDependencyPoll(
       "Dependency was not found"
     )
   }
-  await store.touchSourceNextPoll(sourceId, now)
+  // When a handle is supplied (idempotent refresh route), next_poll_at and
+  // the idempotency completion commit on the same transaction.
+  await store.touchSourceNextPoll(sourceId, now, handle)
   return { id, queued: true }
 }
 
@@ -564,10 +571,10 @@ export const databaseDependenciesStore: DependenciesStore = {
     }
   },
 
-  async touchSourceNextPoll(sourceId, now) {
+  async touchSourceNextPoll(sourceId, now, handle) {
     // Same validator clearing as insertDependency: a manual refresh must
     // force a 200, not risk a 304 that leaves the dependency's state stale.
-    await db
+    await (handle ?? db)
       .update(dependencySources)
       .set({ nextPollAt: now, etag: null, lastModified: null })
       .where(eq(dependencySources.id, sourceId))

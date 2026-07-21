@@ -23,6 +23,9 @@ export async function POST(request: Request) {
       routeKey: "config.apply",
       body,
       retentionSeconds: CONFIG_OPERATION_RETENTION_SECONDS,
+      // Apply is keyed by principal + key and has its own durable operation
+      // record, so a stale reclaim that re-runs apply is safe.
+      mode: "replay_safe",
       work: async () => ({
         status: 202,
         body: objectEnvelope(

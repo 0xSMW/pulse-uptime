@@ -20,10 +20,7 @@ vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
 }))
 
 import { revalidatePath } from "next/cache"
-import {
-  executeIdempotent,
-  type IdempotencyContext,
-} from "@/lib/api/idempotency"
+import { executeIdempotent } from "@/lib/api/idempotency"
 import {
   databaseStatusReportsStore,
   StatusReportError,
@@ -134,10 +131,8 @@ function mutationRequest() {
  * executeIdempotent itself is mocked here (mirroring every route.test.ts in
  * this family): the fake stands in for the real acquire/replay machinery
  * (already exhaustively covered in lib/api/idempotency.test.ts) and instead
- * models just the ONE contract runStatusReportMutation's doc comment is
- * about: context.transaction runs `run` against a transaction handle and
- * only records a completion (into `completions`, standing in for the DB
- * write) if `run` resolves. If `run` throws, nothing is pushed, mirroring a
+ * models atomic mode: work(tx, context) runs, and a completion is recorded
+ * only if work resolves. If work throws, nothing is pushed, mirroring a
  * rolled-back transaction leaving the record running.
  */
 describe("runStatusReportMutation", () => {
@@ -149,15 +144,13 @@ describe("runStatusReportMutation", () => {
     vi.mocked(executeIdempotent)
       .mockReset()
       .mockImplementation(async ({ work }) => {
-        const context: IdempotencyContext = {
-          operationId: "op-1",
-          transaction: async (run) => {
-            const result = await run(stubTx)
-            completions.push({ status: result.status, body: result.body })
-            return result
-          },
-        }
-        const result = await work(context)
+        const result = await (
+          work as (
+            tx: typeof stubTx,
+            context: { operationId: string }
+          ) => Promise<{ status: number; body: unknown }>
+        )(stubTx, { operationId: "op-1" })
+        completions.push({ status: result.status, body: result.body })
         return { ...result, replayed: false }
       })
   })
@@ -217,10 +210,12 @@ describe("runStatusReportMutation", () => {
 
   it("skips revalidation for a replayed response even when work() collected paths (the original run already revalidated)", async () => {
     vi.mocked(executeIdempotent).mockImplementationOnce(async ({ work }) => {
-      const result = await work({
-        operationId: "op-1",
-        transaction: async (run) => run(stubTx),
-      })
+      const result = await (
+        work as (
+          tx: typeof stubTx,
+          context: { operationId: string }
+        ) => Promise<{ status: number; body: unknown }>
+      )(stubTx, { operationId: "op-1" })
       return { ...result, replayed: true }
     })
 

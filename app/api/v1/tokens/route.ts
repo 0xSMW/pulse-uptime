@@ -78,31 +78,31 @@ export async function POST(request: Request) {
       principalKey: context.principalKey,
       routeKey: "token-create",
       body: canonicalInput,
-      work: async ({ operationId, transaction }) =>
-        transaction(async (tx) => {
-          const credential = deriveBearerToken(
-            credentialDerivationContext({
-              kind: "api-token",
-              principalKey: context.principalKey,
-              idempotencyKey,
-              body: canonicalInput,
-              operationId,
-            })
-          )
-          const created = await createApiToken(
-            { ...input, principal: context.principal, credential },
-            new Date(),
-            tx
-          )
-          return {
-            status: 201,
-            body: {
-              ...serializeToken(created.token),
-              token: created.secret,
-              expiryClamped: clamped,
-            },
-          }
-        }),
+      mode: "atomic",
+      work: async (tx, { operationId }) => {
+        const credential = deriveBearerToken(
+          credentialDerivationContext({
+            kind: "api-token",
+            principalKey: context.principalKey,
+            idempotencyKey,
+            body: canonicalInput,
+            operationId,
+          })
+        )
+        const created = await createApiToken(
+          { ...input, principal: context.principal, credential },
+          new Date(),
+          tx
+        )
+        return {
+          status: 201,
+          body: {
+            ...serializeToken(created.token),
+            token: created.secret,
+            expiryClamped: clamped,
+          },
+        }
+      },
       persistBody: persistCreatedToken,
       replayBody: (stored, { operationId }) =>
         replayCreatedToken(

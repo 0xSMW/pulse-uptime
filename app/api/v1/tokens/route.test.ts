@@ -14,7 +14,7 @@ vi.mock("@/lib/api/middleware", () => ({
   isApiResponse: (value: unknown) => value instanceof Response,
 }))
 // Mimics executeIdempotent persistBody / replayBody so create+replay contracts
-// can be asserted without a database.
+// can be asserted without a database. Atomic mode calls work(tx, context).
 vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/idempotency")>()),
   executeIdempotent: vi.fn(
@@ -25,16 +25,14 @@ vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
       replayBody,
     }: {
       request: Request
-      work: (context: {
-        operationId: string
-        transaction: (
-          run: (tx: unknown) => Promise<{ status: number; body: T }>
-        ) => Promise<{ status: number; body: T }>
-      }) => Promise<{ status: number; body: T }>
+      work: (
+        tx: unknown,
+        context: { operationId: string }
+      ) => Promise<{ status: number; body: T }>
       persistBody?: (body: T) => unknown
       replayBody?: (
         stored: unknown,
-        context: { operationId: string; transaction: never }
+        context: { operationId: string }
       ) => T | Promise<T>
     }) => {
       const key = incomingRequest.headers.get("idempotency-key")!
@@ -43,23 +41,16 @@ vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
         const body = replayBody
           ? await replayBody(existing.body, {
               operationId: existing.operationId,
-              transaction: undefined as never,
             })
           : (existing.body as T)
         return { status: existing.status, body, replayed: true }
       }
       const operationId = "op-token-1"
-      const result = await work({
+      const result = await work("tx", { operationId })
+      idempotencyRecords.set(key, {
+        status: result.status,
+        body: persistBody ? persistBody(result.body) : result.body,
         operationId,
-        transaction: async (run) => {
-          const outcome = await run("tx")
-          idempotencyRecords.set(key, {
-            status: outcome.status,
-            body: persistBody ? persistBody(outcome.body) : outcome.body,
-            operationId,
-          })
-          return outcome
-        },
       })
       return { ...result, replayed: false }
     }

@@ -21,24 +21,24 @@ export async function PATCH(request: Request, { params }: Params) {
       principalKey: context.principalKey,
       routeKey: `/api/v1/groups/${id}`,
       body,
-      work: async ({ transaction }) =>
-        transaction(async (tx) => {
-          try {
-            return {
-              status: 200,
-              body: objectEnvelope(
-                "Group",
-                await updateGroup(id, body, context.principalKey, tx),
-                context.requestId
-              ),
-            }
-          } catch (error) {
-            if (error instanceof GroupApiError) {
-              return storedGroupError(error, context.requestId)
-            }
-            throw error
+      mode: "atomic",
+      work: async (tx) => {
+        try {
+          return {
+            status: 200,
+            body: objectEnvelope(
+              "Group",
+              await updateGroup(id, body, context.principalKey, tx),
+              context.requestId
+            ),
           }
-        }),
+        } catch (error) {
+          if (error instanceof GroupApiError) {
+            return storedGroupError(error, context.requestId)
+          }
+          throw error
+        }
+      },
     })
     return apiJson(result.body, { status: result.status })
   } catch (error) {
@@ -60,24 +60,24 @@ export async function DELETE(request: Request, { params }: Params) {
       principalKey: context.principalKey,
       routeKey: `/api/v1/groups/${id}`,
       body: {},
-      work: async ({ transaction }) =>
-        transaction(async (tx) => {
-          try {
-            return {
-              status: 200,
-              body: objectEnvelope(
-                "GroupDeletion",
-                await deleteGroup(id, context.principalKey, tx),
-                context.requestId
-              ),
-            }
-          } catch (error) {
-            if (error instanceof GroupApiError) {
-              return storedGroupError(error, context.requestId)
-            }
-            throw error
+      mode: "atomic",
+      work: async (tx) => {
+        try {
+          return {
+            status: 200,
+            body: objectEnvelope(
+              "GroupDeletion",
+              await deleteGroup(id, context.principalKey, tx),
+              context.requestId
+            ),
           }
-        }),
+        } catch (error) {
+          if (error instanceof GroupApiError) {
+            return storedGroupError(error, context.requestId)
+          }
+          throw error
+        }
+      },
     })
     return apiJson(result.body, { status: result.status })
   } catch (error) {

@@ -17,10 +17,7 @@ vi.mock("@/lib/api/groups", async (importOriginal) => ({
 }))
 
 import { deleteGroup, GroupApiError, updateGroup } from "@/lib/api/groups"
-import {
-  executeIdempotent,
-  type IdempotencyContext,
-} from "@/lib/api/idempotency"
+import { executeIdempotent } from "@/lib/api/idempotency"
 import { type ApiContext, authorize } from "@/lib/api/middleware"
 import type { DatabaseHandle } from "@/lib/db/client"
 
@@ -58,14 +55,11 @@ function deleteRequest() {
 
 /**
  * executeIdempotent is mocked here (mirroring the status-reports route test
- * family, see lib/api/status-report-http.test.ts): the fake models the one
- * contract PATCH/DELETE's inline try/catch depends on, that
- * context.transaction only records a completion (into `completions`,
- * standing in for the DB write) when its callback resolves. A GroupApiError
- * caught inside that callback resolves it with the stored error response,
- * so it commits like any other completion; a non-domain error rejects it,
- * so nothing is pushed, mirroring a rolled-back transaction that leaves the
- * record running.
+ * family): the fake models atomic mode, calling work(tx, context) and only
+ * recording a completion when work resolves. A GroupApiError caught inside
+ * work resolves with the stored error response, so it commits like any other
+ * completion; a non-domain error rejects it, so nothing is pushed, mirroring
+ * a rolled-back transaction that leaves the record running.
  */
 describe("PATCH /api/v1/groups/{groupId}", () => {
   let completions: Array<{ status: number; body: unknown }>
@@ -77,15 +71,13 @@ describe("PATCH /api/v1/groups/{groupId}", () => {
     vi.mocked(executeIdempotent)
       .mockReset()
       .mockImplementation(async ({ work }) => {
-        const idempotencyContext: IdempotencyContext = {
-          operationId: "op-1",
-          transaction: async (run) => {
-            const result = await run(stubTx)
-            completions.push({ status: result.status, body: result.body })
-            return result
-          },
-        }
-        const result = await work(idempotencyContext)
+        const result = await (
+          work as (
+            tx: typeof stubTx,
+            context: { operationId: string }
+          ) => Promise<{ status: number; body: unknown }>
+        )(stubTx, { operationId: "op-1" })
+        completions.push({ status: result.status, body: result.body })
         return { ...result, replayed: false }
       })
   })
@@ -176,15 +168,13 @@ describe("DELETE /api/v1/groups/{groupId}", () => {
     vi.mocked(executeIdempotent)
       .mockReset()
       .mockImplementation(async ({ work }) => {
-        const idempotencyContext: IdempotencyContext = {
-          operationId: "op-1",
-          transaction: async (run) => {
-            const result = await run(stubTx)
-            completions.push({ status: result.status, body: result.body })
-            return result
-          },
-        }
-        const result = await work(idempotencyContext)
+        const result = await (
+          work as (
+            tx: typeof stubTx,
+            context: { operationId: string }
+          ) => Promise<{ status: number; body: unknown }>
+        )(stubTx, { operationId: "op-1" })
+        completions.push({ status: result.status, body: result.body })
         return { ...result, replayed: false }
       })
   })

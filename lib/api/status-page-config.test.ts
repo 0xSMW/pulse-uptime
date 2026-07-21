@@ -516,7 +516,7 @@ function idempotentPutRequest() {
   })
 }
 
-describe("putStatusPageConfig + executeIdempotent (mirrors the route's work(): transaction-wrapped write, a deterministic domain error recorded as the operation's own completed response, and an unexpected error left running)", () => {
+describe("putStatusPageConfig + executeIdempotent (mirrors the route's work(): atomic mode write, a deterministic domain error recorded as the operation's own completed response, and an unexpected error left running)", () => {
   const ETAG = `"${CURRENT_VERSION}"`
 
   it("persists the completion using the SAME transaction the write ran in (finding: a fallback post-hoc completion write could commit after the mutation crashed, leaving the two inconsistent)", async () => {
@@ -528,16 +528,16 @@ describe("putStatusPageConfig + executeIdempotent (mirrors the route's work(): t
       principalKey: "human:1",
       routeKey: "status-page-config",
       body: {},
+      mode: "atomic",
       persistence,
-      work: async ({ transaction }) =>
-        transaction(async () => {
-          const { data } = await putStatusPageConfig(
-            document({ name: "Renamed" }),
-            ETAG,
-            { store }
-          )
-          return { status: 200, body: data }
-        }),
+      work: async () => {
+        const { data } = await putStatusPageConfig(
+          document({ name: "Renamed" }),
+          ETAG,
+          { store }
+        )
+        return { status: 200, body: data }
+      },
     })
 
     expect(result.status).toBe(200)
@@ -555,21 +555,21 @@ describe("putStatusPageConfig + executeIdempotent (mirrors the route's work(): t
       principalKey: "human:1",
       routeKey: "status-page-config",
       body: {},
+      mode: "atomic",
       persistence,
-      work: async ({ transaction }) =>
-        transaction<unknown>(async () => {
-          try {
-            const { data } = await putStatusPageConfig(document(), ETAG, {
-              store,
-            })
-            return { status: 200, body: data }
-          } catch (error) {
-            if (error instanceof StatusPageConfigError) {
-              return { status: 412, body: { code: error.code } }
-            }
-            throw error
+      work: async () => {
+        try {
+          const { data } = await putStatusPageConfig(document(), ETAG, {
+            store,
+          })
+          return { status: 200, body: data as unknown }
+        } catch (error) {
+          if (error instanceof StatusPageConfigError) {
+            return { status: 412, body: { code: error.code } }
           }
-        }),
+          throw error
+        }
+      },
     })
 
     expect(result.status).toBe(412)
@@ -589,14 +589,14 @@ describe("putStatusPageConfig + executeIdempotent (mirrors the route's work(): t
         principalKey: "human:1",
         routeKey: "status-page-config",
         body: {},
+        mode: "atomic",
         persistence,
-        work: async ({ transaction }) =>
-          transaction(async () => {
-            const { data } = await putStatusPageConfig(document(), ETAG, {
-              store,
-            })
-            return { status: 200, body: data }
-          }),
+        work: async () => {
+          const { data } = await putStatusPageConfig(document(), ETAG, {
+            store,
+          })
+          return { status: 200, body: data }
+        },
       })
     ).rejects.toThrow("db down")
 

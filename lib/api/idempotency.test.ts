@@ -5,14 +5,18 @@ vi.mock("server-only", () => ({}))
 import type { DatabaseHandle } from "@/lib/db/client"
 
 import {
+  allowsStaleReclaim,
   ATOMIC_PROTOCOL,
   acquireIdempotencyOwner,
+  CONSERVATIVE_PROTOCOL,
   executeIdempotent,
   IdempotencyError,
   type IdempotencyPersistence,
   type IdempotencyRecord,
   LEGACY_PROTOCOL,
+  protocolForMode,
   reclaimExpiredRecord,
+  REPLAY_SAFE_PROTOCOL,
   requireIdempotencyKey,
 } from "./idempotency"
 
@@ -32,6 +36,8 @@ class MemoryPersistence implements IdempotencyPersistence {
   // holder's transaction settles.
   private readonly locks = new Map<string, Promise<void>>()
   private readonly releasers: Array<() => void> = []
+  /** When set, complete() throws once (post-hoc path), then clears. */
+  failNextComplete: Error | null = null
 
   constructor(owner?: IdempotencyRecord) {
     this.owner = owner
@@ -77,23 +83,19 @@ class MemoryPersistence implements IdempotencyPersistence {
   }
 
   async claimStale(id: string, staleBefore: Date, now: Date, expiresAt: Date) {
-    // A live owner holds a row lock for the life of its transaction, so this
-    // claim waits for it to settle, mirroring the database FOR UPDATE lock.
+    // A live atomic owner holds a row lock for the life of its transaction, so
+    // this claim waits for it to settle, mirroring the database FOR UPDATE lock.
     const held = this.locks.get(id)
     if (held) {
       await held
     }
-    // A completed record must never be reclaimed, mirroring the database
-    // guard: complete() does not touch createdAt, so the age check alone
-    // would still match a record whose owner finished just after it was
-    // read as running. A legacy record from before the atomic protocol is
-    // refused too, because its mutation could have committed before a
-    // separate completion write failed.
+    // A completed record must never be reclaimed. Conservative and legacy
+    // protocols refuse stale reclaim; atomic and replay-safe allow it.
     if (
       !this.owner ||
       this.owner.id !== id ||
       this.owner.state !== "running" ||
-      this.owner.protocol !== ATOMIC_PROTOCOL ||
+      !allowsStaleReclaim(this.owner.protocol) ||
       this.owner.createdAt >= staleBefore
     ) {
       return
@@ -104,8 +106,6 @@ class MemoryPersistence implements IdempotencyPersistence {
 
   async lockOwner(id: string, _tx: DatabaseHandle) {
     void _tx
-    // Install a lock for id that transaction() releases when the enclosing
-    // transaction settles, so a concurrent claimStale blocks until then.
     let release!: () => void
     const held = new Promise<void>((resolve) => {
       release = resolve
@@ -123,8 +123,14 @@ class MemoryPersistence implements IdempotencyPersistence {
     // owner/completion state after `run` resolves. Locks lockOwner took
     // during this transaction release when it settles either way.
     const mark = this.releasers.length
+    const snapshot = this.owner ? { ...this.owner } : undefined
+    const completionsMark = this.completions.length
     try {
       return await run(stubTx)
+    } catch (error) {
+      this.owner = snapshot
+      this.completions.length = completionsMark
+      throw error
     } finally {
       while (this.releasers.length > mark) {
         this.releasers.pop()!()
@@ -139,6 +145,11 @@ class MemoryPersistence implements IdempotencyPersistence {
     completedAt: Date,
     tx?: DatabaseHandle
   ) {
+    if (this.failNextComplete) {
+      const error = this.failNextComplete
+      this.failNextComplete = null
+      throw error
+    }
     this.completions.push({ id, status, body, usedTx: tx !== undefined })
     if (!this.owner || this.owner.id !== id) {
       return
@@ -155,7 +166,8 @@ class MemoryPersistence implements IdempotencyPersistence {
 
 function stored(
   state: "running" | "completed",
-  expiresAt: Date
+  expiresAt: Date,
+  protocol: number = ATOMIC_PROTOCOL
 ): IdempotencyRecord {
   return {
     id: "00000000-0000-4000-8000-000000000099",
@@ -164,7 +176,7 @@ function stored(
     method: "POST",
     routeKey: "test",
     requestHash: "old-request-hash",
-    protocol: ATOMIC_PROTOCOL,
+    protocol,
     responseStatus: state === "completed" ? 200 : null,
     responseBody: state === "completed" ? { value: "stale" } : null,
     state,
@@ -220,6 +232,22 @@ describe("requireIdempotencyKey", () => {
   })
 })
 
+describe("protocolForMode", () => {
+  it("maps each mode to a distinct protocol value", () => {
+    expect(protocolForMode("conservative")).toBe(CONSERVATIVE_PROTOCOL)
+    expect(protocolForMode("atomic")).toBe(ATOMIC_PROTOCOL)
+    expect(protocolForMode("replay_safe")).toBe(REPLAY_SAFE_PROTOCOL)
+    expect(LEGACY_PROTOCOL).toBe(CONSERVATIVE_PROTOCOL)
+  })
+
+  it("marks only atomic and replay-safe as reclaimable", () => {
+    expect(allowsStaleReclaim(ATOMIC_PROTOCOL)).toBe(true)
+    expect(allowsStaleReclaim(REPLAY_SAFE_PROTOCOL)).toBe(true)
+    expect(allowsStaleReclaim(CONSERVATIVE_PROTOCOL)).toBe(false)
+    expect(allowsStaleReclaim(LEGACY_PROTOCOL)).toBe(false)
+  })
+})
+
 describe("idempotency retention reclamation", () => {
   it("executes a new operation for a different body after completed-row expiry", async () => {
     const now = new Date("2026-07-18T12:00:00.000Z")
@@ -230,6 +258,7 @@ describe("idempotency retention reclamation", () => {
     const work = vi.fn(async () => ({ status: 201, body: { value: "fresh" } }))
     const result = await executeIdempotent({
       ...request({ value: "changed" }),
+      mode: "conservative",
       now,
       persistence,
       work,
@@ -243,6 +272,7 @@ describe("idempotency retention reclamation", () => {
     expect(persistence.owner?.id).not.toBe(oldId)
     expect(persistence.owner).toMatchObject({
       state: "completed",
+      protocol: CONSERVATIVE_PROTOCOL,
       responseBody: { value: "fresh" },
     })
     await persistence.complete(oldId, 200, { value: "late-old-worker" }, now)
@@ -255,6 +285,7 @@ describe("idempotency retention reclamation", () => {
     const oldId = persistence.owner!.id
     await executeIdempotent({
       ...request({ value: "same" }),
+      mode: "conservative",
       now,
       persistence,
       work: async () => ({ status: 200, body: { value: "reran" } }),
@@ -279,6 +310,7 @@ describe("idempotency retention reclamation", () => {
     })
     const winner = executeIdempotent({
       ...request({ value: "same" }),
+      mode: "conservative",
       now,
       persistence,
       work: async () => {
@@ -290,6 +322,7 @@ describe("idempotency retention reclamation", () => {
     await startedPromise
     const loser = executeIdempotent({
       ...request({ value: "same" }),
+      mode: "conservative",
       now,
       persistence,
       work: async () => ({ status: 200, body: { value: "loser" } }),
@@ -379,10 +412,9 @@ describe("idempotency retention reclamation", () => {
       release = resolve
     })
 
-    // The original request is slow: it inserts the running record, then
-    // hangs in work() past what a retry will treat as the stale window.
     const original = executeIdempotent({
       ...request({ value: "same" }),
+      mode: "atomic",
       now,
       persistence,
       work: async () => {
@@ -393,10 +425,6 @@ describe("idempotency retention reclamation", () => {
     })
     await startedPromise
 
-    // The retry reads the record as running-but-stale, but the original
-    // finishes and completes it right after that read, before the retry's
-    // claimStale runs. findOwner is where the fake can observe and react
-    // to that read, so it releases the original there.
     const originalFindOwner = persistence.findOwner.bind(persistence)
     let released = false
     persistence.findOwner = async (
@@ -412,11 +440,12 @@ describe("idempotency retention reclamation", () => {
       return record
     }
 
-    const retryNow = new Date(now.getTime() + 6 * 60_000) // past the 5 minute stale window
+    const retryNow = new Date(now.getTime() + 6 * 60_000)
     const work = vi.fn(async () => ({ status: 200, body: { value: "reran" } }))
     await expect(
       executeIdempotent({
         ...request({ value: "same" }),
+        mode: "atomic",
         now: retryNow,
         persistence,
         work,
@@ -467,19 +496,19 @@ describe("idempotency retention reclamation", () => {
   })
 })
 
-describe("atomic completion via context.transaction", () => {
-  it("persists completion with the transaction handle when work uses context.transaction", async () => {
+describe("atomic mode", () => {
+  it("persists completion with the transaction handle the helper opens", async () => {
     const now = new Date("2026-07-18T12:00:00.000Z")
     const persistence = new MemoryPersistence()
     const result = await executeIdempotent({
       ...request({ value: "same" }),
+      mode: "atomic",
       now,
       persistence,
-      work: async (context) =>
-        context.transaction(async (tx) => {
-          expect(tx).toBe(stubTx)
-          return { status: 201, body: { value: "atomic" } }
-        }),
+      work: async (tx) => {
+        expect(tx).toBe(stubTx)
+        return { status: 201, body: { value: "atomic" } }
+      },
     })
     expect(result).toMatchObject({
       status: 201,
@@ -496,23 +525,24 @@ describe("atomic completion via context.transaction", () => {
     ])
     expect(persistence.owner).toMatchObject({
       state: "completed",
+      protocol: ATOMIC_PROTOCOL,
       responseStatus: 201,
       responseBody: { value: "atomic" },
     })
   })
 
-  it("applies persistBody to the transaction-completion path too", async () => {
+  it("applies persistBody on the atomic completion path", async () => {
     const now = new Date("2026-07-18T12:00:00.000Z")
     const persistence = new MemoryPersistence()
     await executeIdempotent({
       ...request({ value: "same" }),
+      mode: "atomic",
       now,
       persistence,
-      work: async (context) =>
-        context.transaction(async () => ({
-          status: 201,
-          body: { secret: "raw", value: "kept" },
-        })),
+      work: async () => ({
+        status: 201,
+        body: { secret: "raw", value: "kept" },
+      }),
       persistBody: (body: { secret: string; value: string }) => ({
         value: body.value,
       }),
@@ -522,11 +552,52 @@ describe("atomic completion via context.transaction", () => {
     })
   })
 
-  it("falls back to a post-hoc completion write when work never calls context.transaction", async () => {
+  it("leaves the record running with no completion when work throws", async () => {
+    const now = new Date("2026-07-18T12:00:00.000Z")
+    const persistence = new MemoryPersistence()
+    await expect(
+      executeIdempotent({
+        ...request({ value: "same" }),
+        mode: "atomic",
+        now,
+        persistence,
+        work: async () => {
+          throw new Error("mutation failed")
+        },
+      })
+    ).rejects.toThrow("mutation failed")
+    expect(persistence.completions).toEqual([])
+    expect(persistence.owner).toMatchObject({
+      state: "running",
+      protocol: ATOMIC_PROTOCOL,
+      responseStatus: null,
+      responseBody: null,
+    })
+  })
+
+  it("passes operationId to work", async () => {
     const now = new Date("2026-07-18T12:00:00.000Z")
     const persistence = new MemoryPersistence()
     await executeIdempotent({
       ...request({ value: "same" }),
+      mode: "atomic",
+      now,
+      persistence,
+      work: async (_tx, { operationId }) => {
+        expect(operationId).toBe(persistence.owner!.id)
+        return { status: 200, body: { value: "ok" } }
+      },
+    })
+  })
+})
+
+describe("conservative mode", () => {
+  it("writes completion post-hoc without a transaction handle", async () => {
+    const now = new Date("2026-07-18T12:00:00.000Z")
+    const persistence = new MemoryPersistence()
+    await executeIdempotent({
+      ...request({ value: "same" }),
+      mode: "conservative",
       now,
       persistence,
       work: async () => ({ status: 200, body: { value: "no-mutation" } }),
@@ -539,57 +610,115 @@ describe("atomic completion via context.transaction", () => {
         usedTx: false,
       },
     ])
+    expect(persistence.owner?.protocol).toBe(CONSERVATIVE_PROTOCOL)
   })
 
-  it("throws when context.transaction is called more than once", async () => {
+  it("refuses stale reclaim after a post-hoc completion failure", async () => {
     const now = new Date("2026-07-18T12:00:00.000Z")
     const persistence = new MemoryPersistence()
+    persistence.failNextComplete = new Error("completion write failed")
     await expect(
       executeIdempotent({
         ...request({ value: "same" }),
+        mode: "conservative",
         now,
         persistence,
-        work: async (context) => {
-          await context.transaction(async () => ({
-            status: 200,
-            body: { value: "first" },
-          }))
-          return context.transaction(async () => ({
-            status: 200,
-            body: { value: "second" },
-          }))
-        },
+        work: async () => ({ status: 200, body: { value: "did-work" } }),
       })
-    ).rejects.toThrow(
-      "context.transaction can only be called once per idempotent execution"
-    )
-  })
-
-  it("leaves the record running with no completion when run() throws", async () => {
-    const now = new Date("2026-07-18T12:00:00.000Z")
-    const persistence = new MemoryPersistence()
-    await expect(
-      executeIdempotent({
-        ...request({ value: "same" }),
-        now,
-        persistence,
-        work: async (context) =>
-          context.transaction(async () => {
-            throw new Error("mutation failed")
-          }),
-      })
-    ).rejects.toThrow("mutation failed")
-    expect(persistence.completions).toEqual([])
+    ).rejects.toThrow("completion write failed")
     expect(persistence.owner).toMatchObject({
       state: "running",
-      responseStatus: null,
-      responseBody: null,
+      protocol: CONSERVATIVE_PROTOCOL,
+    })
+    // Age past the stale window. Conservative must not reclaim.
+    persistence.owner = {
+      ...persistence.owner!,
+      createdAt: new Date(now.getTime() - 10 * 60_000),
+    }
+    const work = vi.fn(async () => ({ status: 200, body: { value: "reran" } }))
+    await expect(
+      executeIdempotent({
+        ...request({ value: "same" }),
+        mode: "conservative",
+        now: new Date(now.getTime() + 1),
+        persistence,
+        work,
+      })
+    ).rejects.toMatchObject({ code: "REQUEST_IN_PROGRESS" })
+    expect(work).not.toHaveBeenCalled()
+  })
+})
+
+describe("replay-safe mode", () => {
+  it("writes completion post-hoc and tags the record replay-safe", async () => {
+    const now = new Date("2026-07-18T12:00:00.000Z")
+    const persistence = new MemoryPersistence()
+    await executeIdempotent({
+      ...request({ value: "same" }),
+      mode: "replay_safe",
+      now,
+      persistence,
+      work: async () => ({ status: 202, body: { value: "accepted" } }),
+    })
+    expect(persistence.completions).toEqual([
+      {
+        id: persistence.owner!.id,
+        status: 202,
+        body: { value: "accepted" },
+        usedTx: false,
+      },
+    ])
+    expect(persistence.owner?.protocol).toBe(REPLAY_SAFE_PROTOCOL)
+  })
+
+  it("reclaims and reruns after a post-hoc completion failure past the stale window", async () => {
+    const now = new Date("2026-07-18T12:00:00.000Z")
+    const persistence = new MemoryPersistence()
+    persistence.failNextComplete = new Error("completion write failed")
+    await expect(
+      executeIdempotent({
+        ...request({ value: "same" }),
+        mode: "replay_safe",
+        now,
+        persistence,
+        work: async () => ({ status: 202, body: { value: "did-work" } }),
+      })
+    ).rejects.toThrow("completion write failed")
+    expect(persistence.owner).toMatchObject({
+      state: "running",
+      protocol: REPLAY_SAFE_PROTOCOL,
+    })
+    persistence.owner = {
+      ...persistence.owner!,
+      createdAt: new Date(now.getTime() - 10 * 60_000),
+    }
+    const work = vi.fn(async () => ({
+      status: 202,
+      body: { value: "reran" },
+    }))
+    const result = await executeIdempotent({
+      ...request({ value: "same" }),
+      mode: "replay_safe",
+      now: new Date(now.getTime() + 1),
+      persistence,
+      work,
+    })
+    expect(result).toMatchObject({
+      status: 202,
+      body: { value: "reran" },
+      replayed: false,
+    })
+    expect(work).toHaveBeenCalledOnce()
+    expect(persistence.owner).toMatchObject({
+      state: "completed",
+      protocol: REPLAY_SAFE_PROTOCOL,
+      responseBody: { value: "reran" },
     })
   })
 })
 
-describe("owner record locking guards a live in-flight owner from concurrent rerun", () => {
-  it("locks the owner record before running the mutation on the transaction path", async () => {
+describe("owner record locking guards a live in-flight atomic owner from concurrent rerun", () => {
+  it("locks the owner record before running the mutation on the atomic path", async () => {
     const now = new Date("2026-07-18T12:00:00.000Z")
     const persistence = new MemoryPersistence()
     const order: string[] = []
@@ -600,13 +729,13 @@ describe("owner record locking guards a live in-flight owner from concurrent rer
     }
     await executeIdempotent({
       ...request({ value: "same" }),
+      mode: "atomic",
       now,
       persistence,
-      work: async (context) =>
-        context.transaction(async () => {
-          order.push("run")
-          return { status: 201, body: { value: "atomic" } }
-        }),
+      work: async () => {
+        order.push("run")
+        return { status: 201, body: { value: "atomic" } }
+      },
     })
     expect(order).toEqual(["lock", "run"])
   })
@@ -623,25 +752,19 @@ describe("owner record locking guards a live in-flight owner from concurrent rer
       release = resolve
     })
 
-    // The original owner opens its mutation transaction, takes the record
-    // lock, and hangs in run() past the stale window a retry will apply.
     const winner = executeIdempotent({
       ...request({ value: "same" }),
+      mode: "atomic",
       now,
       persistence,
-      work: async (context) =>
-        context.transaction(async () => {
-          started()
-          await gate
-          return { status: 200, body: { value: "winner" } }
-        }),
+      work: async () => {
+        started()
+        await gate
+        return { status: 200, body: { value: "winner" } }
+      },
     })
     await startedPromise
 
-    // The retry reads the record as running-but-stale and calls claimStale
-    // while the owner is still in flight. Without the lock, claimStale would
-    // steal a still-running record and run the mutation a second time. With
-    // it, claimStale blocks until the owner's transaction settles.
     const originalClaimStale = persistence.claimStale.bind(persistence)
     let claimEntered!: () => void
     const claimEnteredPromise = new Promise<void>((resolve) => {
@@ -654,10 +777,11 @@ describe("owner record locking guards a live in-flight owner from concurrent rer
       return originalClaimStale(...args)
     }
 
-    const retryNow = new Date(now.getTime() + 6 * 60_000) // past the 5 minute stale window
+    const retryNow = new Date(now.getTime() + 6 * 60_000)
     const work = vi.fn(async () => ({ status: 200, body: { value: "reran" } }))
     const loser = executeIdempotent({
       ...request({ value: "same" }),
+      mode: "atomic",
       now: retryNow,
       persistence,
       work,
@@ -677,17 +801,15 @@ describe("owner record locking guards a live in-flight owner from concurrent rer
   it("reclaims and reruns an atomic running record past the stale window when the owner rolled back", async () => {
     const now = new Date("2026-07-18T12:00:00.000Z")
     const persistence = new MemoryPersistence()
-    // The original owner opened a transaction whose mutation threw, so the
-    // record is still running under the atomic protocol and nothing committed.
     await expect(
       executeIdempotent({
         ...request({ value: "same" }),
+        mode: "atomic",
         now,
         persistence,
-        work: async (context) =>
-          context.transaction(async () => {
-            throw new Error("left running")
-          }),
+        work: async () => {
+          throw new Error("left running")
+        },
       })
     ).rejects.toThrow("left running")
     persistence.owner = {
@@ -698,6 +820,7 @@ describe("owner record locking guards a live in-flight owner from concurrent rer
     const work = vi.fn(async () => ({ status: 200, body: { value: "reran" } }))
     const result = await executeIdempotent({
       ...request({ value: "same" }),
+      mode: "atomic",
       now: new Date(now.getTime() + 1),
       persistence,
       work,
@@ -720,19 +843,15 @@ describe("legacy records from before the atomic protocol are never rerun", () =>
   it("refuses to reclaim a legacy running record past the stale window and reports it in progress", async () => {
     const now = new Date("2026-07-18T12:00:00.000Z")
     const persistence = new MemoryPersistence()
-    // Seed a running record with a matching requestHash, then downgrade it to
-    // the legacy protocol and age it past the stale window, the shape a
-    // pre-atomic deploy leaves behind when its mutation committed but the
-    // separate completion write failed.
     await expect(
       executeIdempotent({
         ...request({ value: "same" }),
+        mode: "atomic",
         now,
         persistence,
-        work: async (context) =>
-          context.transaction(async () => {
-            throw new Error("left running")
-          }),
+        work: async () => {
+          throw new Error("left running")
+        },
       })
     ).rejects.toThrow("left running")
     persistence.owner = {
@@ -745,6 +864,7 @@ describe("legacy records from before the atomic protocol are never rerun", () =>
     await expect(
       executeIdempotent({
         ...request({ value: "same" }),
+        mode: "atomic",
         now: new Date(now.getTime() + 1),
         persistence,
         work,
@@ -790,6 +910,7 @@ describe("idempotency fingerprint covers whatever the caller passes as `body`, i
 
     const first = await executeIdempotent({
       ...preconditionedRequest('"5"', { name: "Acme Status" }),
+      mode: "atomic",
       now,
       persistence,
       work,
@@ -802,6 +923,7 @@ describe("idempotency fingerprint covers whatever the caller passes as `body`, i
 
     const retry = await executeIdempotent({
       ...preconditionedRequest('"5"', { name: "Acme Status" }),
+      mode: "atomic",
       now,
       persistence,
       work,
@@ -821,6 +943,7 @@ describe("idempotency fingerprint covers whatever the caller passes as `body`, i
 
     await executeIdempotent({
       ...preconditionedRequest('"5"', { name: "Acme Status" }),
+      mode: "atomic",
       now,
       persistence,
       work,
@@ -829,14 +952,12 @@ describe("idempotency fingerprint covers whatever the caller passes as `body`, i
     await expect(
       executeIdempotent({
         ...preconditionedRequest('"6"', { name: "Acme Status" }),
+        mode: "atomic",
         now,
         persistence,
         work,
       })
     ).rejects.toMatchObject({ code: "IDEMPOTENCY_KEY_REUSED" })
-    // The second call never reached work() again. It was rejected before
-    // that point, which is the whole point: it must not silently replay OR
-    // silently rerun, only surface the explicit "mint a new key" signal.
     expect(work).toHaveBeenCalledOnce()
   })
 })

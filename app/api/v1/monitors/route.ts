@@ -113,25 +113,25 @@ export async function POST(request: Request) {
       principalKey: context.principalKey,
       routeKey: "/api/v1/monitors",
       body,
-      work: async ({ transaction }) =>
-        transaction(async (tx) => {
-          try {
-            return {
-              status: 201,
-              body: objectEnvelope(
-                "Monitor",
-                await createMonitor(body, context.principalKey, tx),
-                context.requestId
-              ),
-            }
-          } catch (error) {
-            const stored = storedMonitorError(error, context.requestId)
-            if (stored) {
-              return stored
-            }
-            throw error
+      mode: "atomic",
+      work: async (tx) => {
+        try {
+          return {
+            status: 201,
+            body: objectEnvelope(
+              "Monitor",
+              await createMonitor(body, context.principalKey, tx),
+              context.requestId
+            ),
           }
-        }),
+        } catch (error) {
+          const stored = storedMonitorError(error, context.requestId)
+          if (stored) {
+            return stored
+          }
+          throw error
+        }
+      },
     })
     return apiJson(result.body, { status: result.status })
   } catch (error) {

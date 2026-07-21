@@ -59,15 +59,15 @@ export async function PATCH(request: Request, { params }: Params) {
       principalKey: context.principalKey,
       routeKey: `/api/v1/dependencies/${dependencyId}`,
       body,
-      work: async ({ transaction }) =>
-        transaction(async (tx) => ({
-          status: 200,
-          body: objectEnvelope(
-            "Dependency",
-            await patchDependency(dependencyId, body, {}, tx),
-            context.requestId
-          ),
-        })),
+      mode: "atomic",
+      work: async (tx) => ({
+        status: 200,
+        body: objectEnvelope(
+          "Dependency",
+          await patchDependency(dependencyId, body, {}, tx),
+          context.requestId
+        ),
+      }),
     })
     return apiJson(result.body, { status: result.status })
   } catch (error) {
@@ -96,11 +96,11 @@ export async function DELETE(request: Request, { params }: Params) {
       principalKey: context.principalKey,
       routeKey: `/api/v1/dependencies/${dependencyId}`,
       body: {},
-      work: async ({ transaction }) =>
-        transaction(async (tx) => ({
-          status: 204,
-          body: await removeDependency(dependencyId, {}, tx),
-        })),
+      mode: "atomic",
+      work: async (tx) => ({
+        status: 204,
+        body: await removeDependency(dependencyId, {}, tx),
+      }),
     })
     return result.status === 204
       ? noContent()

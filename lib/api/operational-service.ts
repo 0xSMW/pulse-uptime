@@ -4,7 +4,7 @@ import { and, desc, eq, inArray, isNull, lt, or } from "drizzle-orm"
 import { z } from "zod"
 
 import { findAcceptedSnapshot } from "@/lib/config/accepted-config"
-import { db } from "@/lib/db/client"
+import { type DatabaseHandle, db } from "@/lib/db/client"
 import {
   incidents,
   monitorRegistry,
@@ -182,7 +182,13 @@ export function createOperationalService(
       recipient?: string
       testId: string
       installationName?: string | null
+      /** When supplied, the outbox insert rides this handle with completion. */
+      handle?: DatabaseHandle
     }) {
+      // Reads stay on the service database. Only the outbox insert (and the
+      // conflict lookup that follows) must share the caller's transaction so
+      // enqueue and idempotency completion commit together.
+      const writer = input.handle ?? database
       const monitorQuery = database
         .select({ id: monitorRegistry.id })
         .from(monitorRegistry)
@@ -225,7 +231,7 @@ export function createOperationalService(
       const recipient = normalizeRecipient(parsedRecipient.data)
       const id = crypto.randomUUID()
       const now = new Date()
-      const inserted = await database
+      const inserted = await writer
         .insert(notificationOutbox)
         .values({
           id,
@@ -251,7 +257,7 @@ export function createOperationalService(
       const existing =
         inserted[0] ??
         (
-          await database
+          await writer
             .select({ id: notificationOutbox.id })
             .from(notificationOutbox)
             .where(

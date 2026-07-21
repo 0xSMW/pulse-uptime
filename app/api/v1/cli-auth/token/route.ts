@@ -101,49 +101,49 @@ export async function POST(request: Request) {
       principalKey: deviceKey,
       routeKey: "cli-device-poll",
       body: { deviceCode },
-      work: async ({ operationId, transaction }) =>
-        transaction<PollResponse>(async (tx) => {
-          const credential = deriveBearerToken(
-            credentialDerivationContext({
-              kind: "cli-session",
-              principalKey: deviceKey,
-              idempotencyKey,
-              body: { deviceCode },
-              operationId,
-            }),
-            CLI_SESSION_PREFIX
+      mode: "atomic",
+      work: async (tx, { operationId }) => {
+        const credential = deriveBearerToken(
+          credentialDerivationContext({
+            kind: "cli-session",
+            principalKey: deviceKey,
+            idempotencyKey,
+            body: { deviceCode },
+            operationId,
+          }),
+          CLI_SESSION_PREFIX
+        )
+        try {
+          const session = await pollDeviceAuthorization(
+            deviceCode,
+            new Date(),
+            credential,
+            tx
           )
-          try {
-            const session = await pollDeviceAuthorization(
-              deviceCode,
-              new Date(),
-              credential,
-              tx
-            )
+          return {
+            status: 200,
+            body: {
+              outcome: "session" as const,
+              token: session.token,
+              tokenType: session.tokenType,
+              expiresAt: session.expiresAt.toISOString(),
+              scopes: session.scopes,
+            },
+          }
+        } catch (error) {
+          if (error instanceof DeviceAuthorizationError) {
             return {
-              status: 200,
+              status: 400,
               body: {
-                outcome: "session" as const,
-                token: session.token,
-                tokenType: session.tokenType,
-                expiresAt: session.expiresAt.toISOString(),
-                scopes: session.scopes,
+                outcome: "error" as const,
+                code: error.code,
+                message: error.message,
               },
             }
-          } catch (error) {
-            if (error instanceof DeviceAuthorizationError) {
-              return {
-                status: 400,
-                body: {
-                  outcome: "error" as const,
-                  code: error.code,
-                  message: error.message,
-                },
-              }
-            }
-            throw error
           }
-        }),
+          throw error
+        }
+      },
       persistBody: (body) =>
         body.outcome === "session"
           ? {

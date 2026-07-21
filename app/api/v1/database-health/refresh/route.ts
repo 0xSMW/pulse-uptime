@@ -18,6 +18,7 @@ export async function POST(request: Request) {
       principalKey: context.principalKey,
       routeKey: "/api/v1/database-health/refresh",
       body: {},
+      mode: "conservative",
       work: async () => ({
         status: 200,
         body: objectEnvelope(
