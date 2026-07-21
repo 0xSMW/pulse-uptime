@@ -44,6 +44,7 @@ import {
   type ReportFormErrors,
   type ReportImpact,
   type ReportType,
+  type ReportUpdateData,
   type ReportUpdateStatus,
   STATE_FLIP_COPY,
   type StateFlipDirection,
@@ -145,6 +146,35 @@ export function ReportEditor({
   >(null)
   const [confirmPublish, setConfirmPublish] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  // Older timeline pages loaded through GET .../updates. Cleared on every
+  // mutation success before refresh so the first page stays authoritative.
+  const [olderUpdates, setOlderUpdates] = useState<ReportUpdateData[]>([])
+  const [olderCursor, setOlderCursor] = useState<string | null>(null)
+  const [loadedPastFirstPage, setLoadedPastFirstPage] = useState(false)
+
+  const timelineUpdates = useMemo(() => {
+    if (!report) {
+      return []
+    }
+    if (!loadedPastFirstPage || olderUpdates.length === 0) {
+      return report.updates
+    }
+    const seen = new Set(report.updates.map((update) => update.id))
+    return [
+      ...report.updates,
+      ...olderUpdates.filter((update) => !seen.has(update.id)),
+    ]
+  }, [report, olderUpdates, loadedPastFirstPage])
+
+  const timelineNextCursor = loadedPastFirstPage
+    ? olderCursor
+    : (report?.updatesNextCursor ?? null)
+
+  function resetOlderTimeline() {
+    setOlderUpdates([])
+    setOlderCursor(null)
+    setLoadedPastFirstPage(false)
+  }
 
   const basicsDirty =
     title !== baseline.title ||
@@ -154,7 +184,7 @@ export function ReportEditor({
     impactSignature(impacts) !== impactSignature(baseline.impacts)
   const composerDirty = composerMarkdown.trim() !== ""
   const editingOriginal =
-    editing && report?.updates.find((update) => update.id === editing.id)
+    editing && timelineUpdates.find((update) => update.id === editing.id)
   const editingDirty = editing
     ? !editingOriginal ||
       editing.status !== editingOriginal.status ||
@@ -314,6 +344,7 @@ export function ReportEditor({
         true
       )
       setBaseline({ title: title.trim(), startsAt, endsAt, impacts })
+      resetOlderTimeline()
       setMessage({ text: "Report saved", tone: "info" })
       router.refresh()
     } catch (cause) {
@@ -360,6 +391,7 @@ export function ReportEditor({
       )
       setComposerMarkdown("")
       setComposerPublishedAt(toDatetimeLocal(new Date().toISOString()))
+      resetOlderTimeline()
       setMessage({ text: "Update posted", tone: "info" })
       router.refresh()
     } catch (cause) {
@@ -369,8 +401,32 @@ export function ReportEditor({
     }
   }
 
+  async function loadOlderUpdates() {
+    if (!(report && timelineNextCursor)) {
+      return
+    }
+    setBusy("load-older")
+    setMessage(null)
+    try {
+      const result = await apiRequest<
+        ApiEnvelope<ReportUpdateData[]> & {
+          meta?: { nextCursor?: string | null }
+        }
+      >(
+        `/api/v1/status-reports/${encodeURIComponent(report.id)}/updates?cursor=${encodeURIComponent(timelineNextCursor)}&limit=50`
+      )
+      setOlderUpdates((current) => [...current, ...result.data])
+      setOlderCursor(result.meta?.nextCursor ?? null)
+      setLoadedPastFirstPage(true)
+    } catch (cause) {
+      setMessage({ text: messageForReportError(cause), tone: "error" })
+    } finally {
+      setBusy(null)
+    }
+  }
+
   function startEditUpdate(updateId: string) {
-    const update = report?.updates.find((entry) => entry.id === updateId)
+    const update = timelineUpdates.find((entry) => entry.id === updateId)
     if (!update) {
       return
     }
@@ -404,7 +460,7 @@ export function ReportEditor({
     // datetime-local drops seconds, so round-tripping an untouched value would
     // silently rewrite publishedAt at minute precision. Only send it (and only
     // apply it to the flip check) when the input actually changed.
-    const original = report.updates.find((update) => update.id === editing.id)
+    const original = timelineUpdates.find((update) => update.id === editing.id)
     const publishedAtChanged =
       !original || editing.publishedAt !== toDatetimeLocal(original.publishedAt)
     const publishedAt = publishedAtChanged
@@ -422,7 +478,7 @@ export function ReportEditor({
     const markdownChanged = !original || editing.markdown !== original.markdown
     // An edited timestamp or status that flips the report between Ongoing
     // and Resolved needs an explicit second confirmation.
-    const flip = stateFlipDirection(report.updates, {
+    const flip = stateFlipDirection(timelineUpdates, {
       id: editing.id,
       status: editing.status,
       ...(publishedAtChanged && publishedAt ? { publishedAt } : {}),
@@ -451,6 +507,7 @@ export function ReportEditor({
         true
       )
       setEditing(null)
+      resetOlderTimeline()
       setMessage({ text: "Update saved", tone: "info" })
       router.refresh()
     } catch (cause) {
@@ -473,6 +530,7 @@ export function ReportEditor({
         true
       )
       setConfirmDeleteUpdateId(null)
+      resetOlderTimeline()
       setMessage({ text: "Update deleted", tone: "info" })
       router.refresh()
     } catch (cause) {
@@ -495,6 +553,7 @@ export function ReportEditor({
         true
       )
       setConfirmPublish(false)
+      resetOlderTimeline()
       setMessage({ text: "Report published", tone: "info" })
       router.refresh()
     } catch (cause) {
@@ -785,12 +844,12 @@ export function ReportEditor({
 
               {report ? (
                 <ul className="space-y-4 border-[var(--border)] border-t pt-5">
-                  {report.updates.map((update) => {
+                  {timelineUpdates.map((update) => {
                     // Deleting the latest resolving update can flip the
                     // report back to Ongoing. Warn inside the delete confirm.
                     const deleteFlip =
                       confirmDeleteUpdateId === update.id
-                        ? stateFlipAfterRemoval(report.updates, update.id)
+                        ? stateFlipAfterRemoval(timelineUpdates, update.id)
                         : null
                     return (
                       <li
@@ -986,6 +1045,19 @@ export function ReportEditor({
                     )
                   })}
                 </ul>
+              ) : null}
+              {report && timelineNextCursor ? (
+                <div className="flex justify-center border-[var(--border)] border-t pt-4">
+                  <Button
+                    className="px-2.5"
+                    disabled={anyBusy}
+                    onClick={() => void loadOlderUpdates()}
+                    size="sm"
+                    variant="secondary"
+                  >
+                    {busy === "load-older" ? "Loading…" : "Load older"}
+                  </Button>
+                </div>
               ) : null}
             </CardContent>
           </Card>

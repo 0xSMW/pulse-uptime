@@ -2,8 +2,8 @@ import type { Metadata } from "next"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 
+import { PublicReportUpdates } from "@/components/status-page/public-report-updates"
 import { StatusUnavailableNotice } from "@/components/status-page/status-unavailable-notice"
-import { RestrictedMarkdown } from "@/lib/markdown/restricted-markdown"
 import { formatDuration } from "@/lib/reporting/format"
 import {
   getPublicReportDetail,
@@ -182,40 +182,12 @@ export default async function PublicReportPage({ params }: ReportPageProps) {
         </section>
       ) : null}
 
-      <section aria-labelledby="updates-heading" className="mt-6">
-        <h2 className="font-semibold text-sm" id="updates-heading">
-          Updates
-        </h2>
-        <ol className="mt-4 space-y-5 border-[var(--border)] border-l pl-5">
-          {report.updates.map((update) => (
-            <li className="relative" key={update.id}>
-              <span
-                aria-hidden
-                className="absolute top-1.5 -left-[23px] size-1.5 rounded-full bg-[var(--border-strong)]"
-              />
-              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                <h3 className="font-semibold text-[13px]">
-                  {reportStatusLabels[update.status]}
-                </h3>
-                <time
-                  className="font-data text-[var(--fg-faint)] text-xs"
-                  dateTime={update.publishedAt}
-                >
-                  {formatStatusTimestamp(update.publishedAt, zone.timeZone)}{" "}
-                  {timezoneOffsetLabel(
-                    config.timezone,
-                    new Date(update.publishedAt)
-                  )}
-                </time>
-              </div>
-              <RestrictedMarkdown
-                className="mt-1.5 space-y-2 text-[13px] text-[var(--fg-muted)] leading-[19px] [&_a]:underline [&_a]:underline-offset-2 [&_code]:font-data [&_code]:text-xs"
-                markdown={update.markdown}
-              />
-            </li>
-          ))}
-        </ol>
-      </section>
+      <PublicReportUpdates
+        initialNextCursor={report.updatesNextCursor}
+        initialUpdates={report.updates}
+        reportId={report.id}
+        timezone={zone.timeZone}
+      />
     </main>
   )
 }

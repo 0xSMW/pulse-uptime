@@ -74,6 +74,8 @@ const report: StatusReportData = {
       createdAt: "2026-07-18T10:00:00.000Z",
     },
   ],
+  updatesCount: 1,
+  updatesNextCursor: null,
   affected: [],
   createdAt: "2026-07-18T09:05:00.000Z",
   updatedAt: "2026-07-18T10:00:00.000Z",

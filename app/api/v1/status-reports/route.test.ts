@@ -77,6 +77,8 @@ const report: StatusReportData = {
       createdAt: "2026-07-18T09:05:00.000Z",
     },
   ],
+  updatesCount: 1,
+  updatesNextCursor: null,
   affected: [
     {
       monitorId: "api-prod",

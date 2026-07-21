@@ -50,6 +50,10 @@ export interface ReportData {
   originIncidentId: string | null
   currentStatus: ReportUpdateStatus
   updates: ReportUpdateData[]
+  /** Total updates on the report, including pages past the first. */
+  updatesCount?: number
+  /** Opaque cursor for older timeline pages, or null when complete. */
+  updatesNextCursor?: string | null
   affected: ReportAffectedData[]
   createdAt: string
   updatedAt: string

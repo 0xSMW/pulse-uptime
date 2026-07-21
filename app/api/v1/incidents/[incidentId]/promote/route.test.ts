@@ -71,6 +71,8 @@ const draft: StatusReportData = {
       createdAt: "2026-07-18T09:00:00.000Z",
     },
   ],
+  updatesCount: 1,
+  updatesNextCursor: null,
   affected: [
     {
       monitorId: "api-prod",

@@ -2,7 +2,9 @@ import "server-only"
 
 import {
   classifyPublicReport,
+  compareReportUpdates,
   databaseStatusReportsStore,
+  encodeReportUpdateCursor,
   PUBLIC_RESOLVED_LIMIT,
   type PublicReports,
   type PublicReportsFilter,
@@ -40,8 +42,27 @@ export async function requireStatusReport(
       "Status report was not found"
     )
   }
-  const { updates, affected } = await store.getReportDetails([report.id])
-  return serializeReport(report, updates, affected)
+  const { updates, counts, affected } = await store.getReportDetails([
+    report.id,
+  ])
+  const updatesCount =
+    counts.find((entry) => entry.reportId === report.id)?.count ??
+    updates.length
+  const newestFirst = [...updates].sort((left, right) =>
+    compareReportUpdates(right, left)
+  )
+  const pageLast = newestFirst.at(-1)
+  return serializeReport(report, newestFirst, affected, {
+    updatesCount,
+    updatesNextCursor:
+      updatesCount > newestFirst.length && pageLast
+        ? encodeReportUpdateCursor({
+            publishedAt: pageLast.publishedAt.toISOString(),
+            createdAt: pageLast.createdAt.toISOString(),
+            id: pageLast.id,
+          })
+        : null,
+  })
 }
 
 /**

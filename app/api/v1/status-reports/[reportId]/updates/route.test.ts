@@ -28,6 +28,7 @@ vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
 vi.mock("@/lib/api/status-reports", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/status-reports")>()),
   addReportUpdate: vi.fn(),
+  listStatusReportUpdates: vi.fn(),
 }))
 
 import { revalidatePath } from "next/cache"
@@ -37,18 +38,19 @@ import { executeIdempotent } from "@/lib/api/idempotency"
 import { type ApiContext, authorize } from "@/lib/api/middleware"
 import {
   addReportUpdate,
+  listStatusReportUpdates,
   type StatusReportData,
   StatusReportError,
 } from "@/lib/api/status-reports"
 
-import { POST } from "./route"
+import { GET, POST } from "./route"
 
 const context: ApiContext = {
   principal: {
     type: "human",
     id: "usr-1",
     email: "admin@example.com",
-    scopes: ["reports:write"],
+    scopes: ["reports:read", "reports:write"],
   },
   principalKey: "human:usr-1",
   requestId: "req_update",
@@ -80,6 +82,8 @@ const report: StatusReportData = {
       createdAt: "2026-07-18T09:05:00.000Z",
     },
   ],
+  updatesCount: 2,
+  updatesNextCursor: null,
   affected: [
     {
       monitorId: "api-prod",
@@ -106,7 +110,76 @@ beforeEach(() => {
   vi.mocked(authorize).mockReset().mockResolvedValue(context)
   vi.mocked(revalidatePath).mockReset()
   vi.mocked(addReportUpdate).mockReset().mockResolvedValue(report)
+  vi.mocked(listStatusReportUpdates).mockReset().mockResolvedValue({
+    data: report.updates,
+    nextCursor: null,
+  })
   vi.mocked(executeIdempotent).mockClear()
+})
+
+describe("GET /api/v1/status-reports/{reportId}/updates", () => {
+  it("requires reports:read and returns the list envelope with nextCursor", async () => {
+    vi.mocked(listStatusReportUpdates).mockResolvedValue({
+      data: report.updates,
+      nextCursor: "cursor-next",
+    })
+    const response = await GET(
+      new Request(
+        "https://pulse.test/api/v1/status-reports/rep-1/updates?limit=50"
+      ),
+      params
+    )
+    expect(authorize).toHaveBeenCalledWith(expect.any(Request), {
+      scope: "reports:read",
+    })
+    expect(response.status).toBe(200)
+    const payload = await response.json()
+    expect(payload.kind).toBe("StatusReportUpdateList")
+    expect(payload.data).toEqual(report.updates)
+    expect(payload.meta.nextCursor).toBe("cursor-next")
+    expect(listStatusReportUpdates).toHaveBeenCalledWith("rep-1", {
+      cursor: null,
+      limit: 50,
+    })
+  })
+
+  it("threads the cursor query param and maps INVALID_CURSOR to 400", async () => {
+    const response = await GET(
+      new Request(
+        "https://pulse.test/api/v1/status-reports/rep-1/updates?cursor=abc&limit=25"
+      ),
+      params
+    )
+    expect(listStatusReportUpdates).toHaveBeenCalledWith("rep-1", {
+      cursor: "abc",
+      limit: 25,
+    })
+    expect(response.status).toBe(200)
+
+    vi.mocked(listStatusReportUpdates).mockRejectedValue(
+      new StatusReportError("INVALID_CURSOR", "Cursor is invalid")
+    )
+    const bad = await GET(
+      new Request(
+        "https://pulse.test/api/v1/status-reports/rep-1/updates?cursor=bad"
+      ),
+      params
+    )
+    expect(bad.status).toBe(400)
+    expect((await bad.json()).error.code).toBe("INVALID_CURSOR")
+  })
+
+  it("rejects an out-of-range limit", async () => {
+    const response = await GET(
+      new Request(
+        "https://pulse.test/api/v1/status-reports/rep-1/updates?limit=101"
+      ),
+      params
+    )
+    expect(response.status).toBe(400)
+    expect((await response.json()).error.code).toBe("INVALID_LIMIT")
+    expect(listStatusReportUpdates).not.toHaveBeenCalled()
+  })
 })
 
 describe("POST /api/v1/status-reports/{reportId}/updates", () => {
