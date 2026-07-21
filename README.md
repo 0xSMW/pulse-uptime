@@ -62,6 +62,10 @@ export PULSECTL_TOKEN=pulse_live_...
 pulsectl monitor list --output json
 ```
 
+## OpenAI Build Week
+
+Codex and GPT-5.6 were my engineering counterparts on this project. It started with GPT-5.6 in ChatGPT, where I talked through what I wanted and sharpened those ideas into a plan spec, researching how to stay within the boundaries of Vercel capabilities I was not used to, and how to shape a small database footprint so anyone could run a free version. Once I had a plan I was confident in, I brought it to Codex, started a new project, and ran GPT-5.6 on high to manage a swarm of agents that built it out. With the app up and running, I used Codex for a series of sweeps through the codebase for security and performance. I was responsible for the ideas, the shaping, and the design. Codex handled the rest.
+
 ## Roadmap
 
 Pulse Uptime will grow beyond its single-team HTTP monitoring workflow in these areas:
