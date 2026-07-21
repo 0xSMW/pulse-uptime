@@ -105,7 +105,7 @@ export function evaluateDestructiveChange(
 
 export interface DestructiveChangeApproval {
   targetConfigHash: string
-  action: "destructive_config_change" | "bulk_archive"
+  action: "destructive_config_change"
   expiresAt: Date | string
   consumedAt: Date | string | null
 }
@@ -116,12 +116,7 @@ export function isValidDestructiveChangeApproval(
   now: Date = new Date()
 ): boolean {
   if (
-    !(
-      approval &&
-      (["destructive_config_change", "bulk_archive"] as const).includes(
-        approval.action
-      )
-    ) ||
+    !(approval && approval.action === "destructive_config_change") ||
     approval.targetConfigHash !== targetConfigHash ||
     approval.consumedAt !== null
   ) {

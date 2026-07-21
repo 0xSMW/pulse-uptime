@@ -200,7 +200,7 @@ describe("acceptDesiredConfiguration", () => {
         {
           id: "appr-1",
           targetConfigHash: desiredHash,
-          action: "bulk_archive",
+          action: "destructive_config_change",
           expiresAt: new Date("2026-07-18T04:10:00.000Z"),
           consumedAt: null,
         },
@@ -274,7 +274,7 @@ describe("acceptDesiredConfiguration", () => {
         {
           id: "appr-lost",
           targetConfigHash: desiredHash,
-          action: "bulk_archive",
+          action: "destructive_config_change",
           expiresAt: new Date("2026-07-18T04:10:00.000Z"),
           consumedAt: null,
         },

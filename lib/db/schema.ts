@@ -126,7 +126,7 @@ export const configChangeApprovals = pgTable(
     id: uuid("id").primaryKey(),
     targetConfigHash: text("target_config_hash").notNull(),
     action: text("action", {
-      enum: ["destructive_config_change", "bulk_archive"],
+      enum: ["destructive_config_change"],
     }).notNull(),
     createdByPrincipal: text("created_by_principal").notNull(),
     createdAt: timestamptz("created_at").notNull(),
@@ -136,7 +136,7 @@ export const configChangeApprovals = pgTable(
   (table) => [
     check(
       "config_change_approvals_action",
-      sql`${table.action} in ('destructive_config_change', 'bulk_archive')`
+      sql`${table.action} = 'destructive_config_change'`
     ),
     check(
       "config_change_approvals_expiry_order",

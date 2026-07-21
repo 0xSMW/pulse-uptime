@@ -62,6 +62,7 @@ suite("configuration lock PostgreSQL concurrency", () => {
     const hash = hashMonitoringConfig(config)
     const now = new Date()
     // Wipe dependents first so re-seeds never trip FK order.
+    await clientA`delete from monitor_exceptions`
     await clientA`delete from monitor_state`
     await clientA`delete from monitor_registry`
     await clientA`delete from monitoring_config_snapshots`
@@ -235,7 +236,9 @@ suite("configuration lock PostgreSQL concurrency", () => {
   })
 
   it("keeps snapshot and registry hash equal under interleaved API mutation and cron acceptance", async () => {
-    const now = new Date("2026-07-18T04:00:00.000Z")
+    // Real clock, because the API mutation path stamps registry rows with the
+    // wall clock and the registry ordering constraints compare the two.
+    const now = new Date()
     const apiBump = (config: MonitoringConfig): MonitoringConfig => ({
       ...config,
       schemaVersion: 2,
@@ -297,10 +300,12 @@ suite("configuration lock PostgreSQL concurrency", () => {
     )
   })
 
-  it("consumes bulk-archive approval only when the locked candidate is accepted", async () => {
-    const now = new Date("2026-07-18T04:00:00.000Z")
+  it("consumes the destructive change approval only when the locked candidate is accepted", async () => {
+    // Real clock, because earlier tests seed registry rows with the wall clock
+    // and archiving them at a fixed past instant violates archive ordering.
+    const now = new Date()
     const previous = baseConfig()
-    // Empty monitors is destructive and needs bulk_archive approval.
+    // Empty monitors is destructive and needs an approval row.
     const desired: MonitoringConfig = {
       ...previous,
       schemaVersion: 2,
@@ -312,7 +317,7 @@ suite("configuration lock PostgreSQL concurrency", () => {
     await dbA.insert(schema.configChangeApprovals).values({
       id: crypto.randomUUID(),
       targetConfigHash: desiredHash,
-      action: "bulk_archive",
+      action: "destructive_config_change",
       createdByPrincipal: "human:test",
       createdAt: now,
       expiresAt: new Date(now.getTime() + 600_000),

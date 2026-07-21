@@ -1067,7 +1067,7 @@
       "checkConstraints": {
         "config_change_approvals_action": {
           "name": "config_change_approvals_action",
-          "value": "\"config_change_approvals\".\"action\" in ('destructive_config_change', 'bulk_archive')"
+          "value": "\"config_change_approvals\".\"action\" = 'destructive_config_change'"
         },
         "config_change_approvals_expiry_order": {
           "name": "config_change_approvals_expiry_order",

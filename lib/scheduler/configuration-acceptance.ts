@@ -2,7 +2,7 @@ import "server-only"
 
 import { randomUUID } from "node:crypto"
 
-import { and, desc, eq, gt, inArray, isNull } from "drizzle-orm"
+import { and, desc, eq, gt, isNull } from "drizzle-orm"
 
 import { lockConfiguration } from "@/lib/api/configuration-lock"
 import {
@@ -140,10 +140,7 @@ export async function acceptDesiredConfiguration(
           .where(
             and(
               eq(configChangeApprovals.targetConfigHash, result.candidateHash),
-              inArray(configChangeApprovals.action, [
-                "destructive_config_change",
-                "bulk_archive",
-              ]),
+              eq(configChangeApprovals.action, "destructive_config_change"),
               isNull(configChangeApprovals.consumedAt),
               gt(configChangeApprovals.expiresAt, now)
             )
