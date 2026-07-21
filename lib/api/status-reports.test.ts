@@ -9,18 +9,18 @@ import {
   classifyPublicReport,
   compareReportUpdates,
   createStatusReport,
+  DETAIL_UPDATES_PAGE_SIZE,
   databaseStatusReportsStore,
   decodeReportUpdateCursor,
   deleteReportUpdate,
   deleteStatusReport,
-  DETAIL_UPDATES_PAGE_SIZE,
   deriveResolvedAt,
   editReportUpdate,
   encodeReportUpdateCursor,
   getPublicReports,
   listStatusReportSummaries,
-  listStatusReportUpdates,
   listStatusReports,
+  listStatusReportUpdates,
   MAX_AFFECTED_PER_REPORT,
   parseStatusReportListQuery,
   promoteIncident,
@@ -276,10 +276,12 @@ function memoryStore(
         }
         Object.assign(row, patch, { updatedAt: now })
         if (affectedEntries !== undefined) {
-          const monitors = await store.findMonitors(
+          const affectedMonitors = await store.findMonitors(
             affectedEntries.map((entry) => entry.monitorId)
           )
-          const byId = new Map(monitors.map((monitor) => [monitor.id, monitor]))
+          const byId = new Map(
+            affectedMonitors.map((monitor) => [monitor.id, monitor])
+          )
           const replacement: StatusReportAffectedRow[] = affectedEntries.map(
             (entry) => {
               const monitor = byId.get(entry.monitorId)
@@ -1374,9 +1376,9 @@ describe("updateStatusReport", () => {
     const rejected = results.filter((result) => result.status === "rejected")
     expect(fulfilled).toHaveLength(1)
     expect(rejected).toHaveLength(1)
-    expect(
-      (rejected[0] as PromiseRejectedResult).reason
-    ).toMatchObject({ code: "VALIDATION_ERROR" })
+    expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({
+      code: "VALIDATION_ERROR",
+    })
 
     const final = store.reports.get(created.id)!
     expect(final.endsAt).not.toBeNull()
@@ -2168,11 +2170,11 @@ describe("listStatusReportUpdates pagination", () => {
         publishedAt:
           index < 50
             ? tiedPublished
-            : new Date(`2026-07-18T${String(10 + (index % 10)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}:00.000Z`),
+            : new Date(
+                `2026-07-18T${String(10 + (index % 10)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}:00.000Z`
+              ),
         createdAt:
-          index < 50
-            ? tiedPublished
-            : new Date(NOW.getTime() + index * 1000),
+          index < 50 ? tiedPublished : new Date(NOW.getTime() + index * 1000),
         updatedAt: NOW,
       })
     }
@@ -2213,12 +2215,10 @@ describe("listStatusReportUpdates pagination", () => {
     const decoded = decodeReportUpdateCursor(detail.updatesNextCursor)
     expect(decoded.ok).toBe(true)
     if (decoded.ok && decoded.cursor) {
-      expect(decoded.cursor.id).toBe(
-        detail.updates[detail.updates.length - 1]!.id
+      expect(decoded.cursor.id).toBe(detail.updates.at(-1)!.id)
+      expect(encodeReportUpdateCursor(decoded.cursor)).toBe(
+        detail.updatesNextCursor
       )
-      expect(
-        encodeReportUpdateCursor(decoded.cursor)
-      ).toBe(detail.updatesNextCursor)
     }
   })
 

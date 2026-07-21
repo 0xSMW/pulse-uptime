@@ -41,9 +41,9 @@ describe("configuration advisory lock", () => {
     expect(text).toContain("pg_advisory_xact_lock")
     expect(text).toContain("hashtext")
     // Key is a bound parameter so the constant stays single-sourced.
-    expect(query!.queryChunks.some((chunk) => chunk === CONFIGURATION_LOCK_KEY)).toBe(
-      true
-    )
+    expect(
+      query!.queryChunks.some((chunk) => chunk === CONFIGURATION_LOCK_KEY)
+    ).toBe(true)
   })
 
   it("runs the lock SQL on the provided transaction executor only", async () => {

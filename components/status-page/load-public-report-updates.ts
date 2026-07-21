@@ -43,7 +43,7 @@ export async function loadPublicReportUpdates(
     return listStatusReportUpdates(reportId, { cursor, limit: 50 })
   } catch (error) {
     if (error instanceof StatusReportError) {
-      throw new Error(error.message)
+      throw new Error(error.message, { cause: error })
     }
     throw error
   }

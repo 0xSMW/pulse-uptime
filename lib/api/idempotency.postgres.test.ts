@@ -196,14 +196,10 @@ suite("idempotency PostgreSQL atomicity", () => {
   it("replays the stored response for a repeated key without duplicating the mutation", async () => {
     const key = "00000000-0000-4000-8000-000000000050"
     const body = { name: "replay-lease" }
-    const work = vi.fn(
-      async (tx: {
-        insert: typeof verify.insert
-      }) => {
-        await tx.insert(schema.jobLeases).values(newLease("replay-lease"))
-        return { status: 201, body: { ok: true } }
-      }
-    )
+    const work = vi.fn(async (tx: { insert: typeof verify.insert }) => {
+      await tx.insert(schema.jobLeases).values(newLease("replay-lease"))
+      return { status: 201, body: { ok: true } }
+    })
 
     const first = await executeIdempotent({
       request: request(key),

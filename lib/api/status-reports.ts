@@ -641,15 +641,15 @@ interface ReportUpdateCursorValue {
 // Matches Date.prototype.toISOString() so wire cursors stay stable.
 const UPDATE_CURSOR_TS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 
-export function encodeReportUpdateCursor(value: ReportUpdateCursorValue): string {
+export function encodeReportUpdateCursor(
+  value: ReportUpdateCursorValue
+): string {
   return Buffer.from(JSON.stringify(value), "utf8").toString("base64url")
 }
 
 export function decodeReportUpdateCursor(
   value: string | null
-):
-  | { ok: true; cursor: ReportUpdateCursorValue | null }
-  | { ok: false } {
+): { ok: true; cursor: ReportUpdateCursorValue | null } | { ok: false } {
   if (value === null) {
     return { ok: true, cursor: null }
   }
@@ -703,7 +703,9 @@ export function decodeReportUpdateCursor(
   }
 }
 
-function serializeUpdateRow(update: StatusReportUpdateRow): StatusReportUpdateData {
+function serializeUpdateRow(
+  update: StatusReportUpdateRow
+): StatusReportUpdateData {
   return {
     id: update.id,
     status: update.status,
@@ -841,7 +843,8 @@ async function loadReportData(
     report.id,
   ])
   const updatesCount =
-    counts.find((entry) => entry.reportId === report.id)?.count ?? updates.length
+    counts.find((entry) => entry.reportId === report.id)?.count ??
+    updates.length
   return serializeReport(report, updates, affected, {
     updatesCount,
     updatesNextCursor: nextCursorFromPage(updates, updatesCount),

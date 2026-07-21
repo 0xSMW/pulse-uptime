@@ -47,9 +47,7 @@ export function protocolForMode(mode: IdempotencyMode): number {
 }
 
 export function allowsStaleReclaim(protocol: number): boolean {
-  return (
-    protocol === ATOMIC_PROTOCOL || protocol === REPLAY_SAFE_PROTOCOL
-  )
+  return protocol === ATOMIC_PROTOCOL || protocol === REPLAY_SAFE_PROTOCOL
 }
 
 export interface StoredResponse<T = unknown> {
@@ -106,7 +104,7 @@ export class IdempotencyError extends Error {
   }
 }
 
-type ExecuteIdempotentBase<T> = {
+interface ExecuteIdempotentBase<T> {
   request: Request
   principalKey: string
   routeKey: string
@@ -241,10 +239,9 @@ export async function executeIdempotent<T>(
       return {
         status: existing.responseStatus!,
         body: input.replayBody
-          ? await input.replayBody(
-              existing.responseBody,
-              { operationId: existing.id }
-            )
+          ? await input.replayBody(existing.responseBody, {
+              operationId: existing.id,
+            })
           : (existing.responseBody as T),
         replayed: true,
       }
@@ -285,15 +282,17 @@ export async function executeIdempotent<T>(
       // whole mutation transaction. A concurrent retry that reaches the
       // stale window blocks in claimStale until this transaction settles.
       await persistence.lockOwner(operationId, tx)
-      const result = await input.work(tx, workContext)
+      const workResult = await input.work(tx, workContext)
       await persistence.complete(
         operationId,
-        result.status,
-        input.persistBody ? input.persistBody(result.body) : result.body,
+        workResult.status,
+        input.persistBody
+          ? input.persistBody(workResult.body)
+          : workResult.body,
         new Date(),
         tx
       )
-      return result
+      return workResult
     })
     return { ...result, replayed: false }
   }

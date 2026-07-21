@@ -129,11 +129,7 @@ export async function runStatusReportMutation<T>(input: {
           revalidatePaths = outcome.revalidatePaths ?? []
           return {
             status: outcome.status,
-            body: objectEnvelope(
-              outcome.kind,
-              outcome.data,
-              context.requestId
-            ),
+            body: objectEnvelope(outcome.kind, outcome.data, context.requestId),
           }
         } catch (error) {
           if (error instanceof StatusReportError) {

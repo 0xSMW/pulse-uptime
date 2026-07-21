@@ -5,9 +5,9 @@ vi.mock("server-only", () => ({}))
 import type { DatabaseHandle } from "@/lib/db/client"
 
 import {
-  allowsStaleReclaim,
   ATOMIC_PROTOCOL,
   acquireIdempotencyOwner,
+  allowsStaleReclaim,
   CONSERVATIVE_PROTOCOL,
   executeIdempotent,
   IdempotencyError,
@@ -15,8 +15,8 @@ import {
   type IdempotencyRecord,
   LEGACY_PROTOCOL,
   protocolForMode,
-  reclaimExpiredRecord,
   REPLAY_SAFE_PROTOCOL,
+  reclaimExpiredRecord,
   requireIdempotencyKey,
 } from "./idempotency"
 
