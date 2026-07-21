@@ -34,10 +34,12 @@ function worseState(
  * This is a render-time floor, not a precise per-component state, since the
  * impact vocabulary varies by provider (statuspage and auth0 publish
  * critical/major/minor/none/maintenance, google stores a severity string,
- * others store null). It mirrors auth0's incidentComponentState: critical and
- * major read as OUTAGE, a maintenance impact reads as MAINTENANCE, and every
- * other or unrecognized value reads as DEGRADED, so a matched incident never
- * renders green.
+ * others store null). Matching is case-insensitive. The invariant is that an
+ * impact the provider explicitly declared as "none", statuspage's no-impact
+ * class, contributes OPERATIONAL and leaves the timeline green, while it stays
+ * matched and still lists on the dependency. Critical and major read as
+ * OUTAGE, maintenance reads as MAINTENANCE, and a null or unrecognized impact
+ * keeps the conservative DEGRADED floor.
  */
 export function incidentImpactState(impact: string | null): DependencyState {
   const normalized = impact?.toLowerCase() ?? null
@@ -46,6 +48,9 @@ export function incidentImpactState(impact: string | null): DependencyState {
   }
   if (normalized === "maintenance") {
     return "MAINTENANCE"
+  }
+  if (normalized === "none") {
+    return "OPERATIONAL"
   }
   return "DEGRADED"
 }

@@ -26,11 +26,16 @@ describe("incidentImpactState", () => {
     expect(incidentImpactState("maintenance")).toBe("MAINTENANCE")
   })
 
-  it("maps minor, none, null, and unrecognized impacts to DEGRADED", () => {
+  it("maps minor, null, and unrecognized impacts to DEGRADED", () => {
     expect(incidentImpactState("minor")).toBe("DEGRADED")
-    expect(incidentImpactState("none")).toBe("DEGRADED")
     expect(incidentImpactState(null)).toBe("DEGRADED")
     expect(incidentImpactState("SERVICE_DISRUPTION")).toBe("DEGRADED")
+  })
+
+  it("maps an explicit none impact to OPERATIONAL, case-insensitively", () => {
+    expect(incidentImpactState("none")).toBe("OPERATIONAL")
+    expect(incidentImpactState("None")).toBe("OPERATIONAL")
+    expect(incidentImpactState("NONE")).toBe("OPERATIONAL")
   })
 })
 
@@ -213,6 +218,75 @@ describe("buildStateBuckets with assumed-operational backfill", () => {
     expect(buckets.map((bucket) => bucket.state)).toEqual([
       "OPERATIONAL",
       "OPERATIONAL",
+      "OPERATIONAL",
+      "OPERATIONAL",
+    ])
+  })
+
+  it("keeps a matched none-impact incident green in the assumed window", () => {
+    const incidents: BackfillIncident[] = [
+      {
+        startedAt: at(-3 * HOUR_MS),
+        resolvedAt: at(-2 * HOUR_MS),
+        state: incidentImpactState("none"),
+      },
+    ]
+    const buckets = buildStateBuckets([], 4, HOUR_MS, NOW, {
+      createdAt: NOW,
+      incidents,
+    })
+    // The none-impact incident contributes OPERATIONAL, so every assumed
+    // bucket stays green even where the incident overlaps.
+    expect(buckets.map((bucket) => bucket.state)).toEqual([
+      "OPERATIONAL",
+      "OPERATIONAL",
+      "OPERATIONAL",
+      "OPERATIONAL",
+    ])
+  })
+
+  it("lets a null-impact incident still floor an assumed bucket to DEGRADED", () => {
+    const incidents: BackfillIncident[] = [
+      {
+        startedAt: at(-3 * HOUR_MS),
+        resolvedAt: at(-2 * HOUR_MS),
+        state: incidentImpactState(null),
+      },
+    ]
+    const buckets = buildStateBuckets([], 4, HOUR_MS, NOW, {
+      createdAt: NOW,
+      incidents,
+    })
+    expect(buckets.map((bucket) => bucket.state)).toEqual([
+      "OPERATIONAL",
+      "DEGRADED",
+      "OPERATIONAL",
+      "OPERATIONAL",
+    ])
+  })
+
+  it("never lets a none-impact incident downgrade a worse overlapping state", () => {
+    const incidents: BackfillIncident[] = [
+      {
+        startedAt: at(-3 * HOUR_MS),
+        resolvedAt: at(-2 * HOUR_MS),
+        state: incidentImpactState("critical"),
+      },
+      {
+        startedAt: at(-3 * HOUR_MS),
+        resolvedAt: at(-2 * HOUR_MS),
+        state: incidentImpactState("none"),
+      },
+    ]
+    const buckets = buildStateBuckets([], 4, HOUR_MS, NOW, {
+      createdAt: NOW,
+      incidents,
+    })
+    // The overlapping critical incident wins the bucket, the none-impact one
+    // adds only an OPERATIONAL contribution that cannot lift it back to green.
+    expect(buckets.map((bucket) => bucket.state)).toEqual([
+      "OPERATIONAL",
+      "OUTAGE",
       "OPERATIONAL",
       "OPERATIONAL",
     ])
