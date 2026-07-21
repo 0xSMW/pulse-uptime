@@ -20,6 +20,8 @@ import { writeMonitoringEdgeConfig } from "@/lib/config/edge-config-write"
 import { db } from "@/lib/db/client"
 import { configChangeApprovals, configOperations } from "@/lib/db/schema"
 
+import { lockConfiguration as acquireConfigurationLock } from "./configuration-lock"
+
 export const CONFIG_OPERATION_RETENTION_SECONDS = 7 * 24 * 60 * 60
 
 interface ConfigOperation {
@@ -165,9 +167,7 @@ function createDatabaseStore(): ConfigurationStore {
         async (tx) =>
           await work({
             lockConfiguration: async () => {
-              await tx.execute(
-                sql`select pg_advisory_xact_lock(hashtext('pulse:configuration'))`
-              )
+              await acquireConfigurationLock(tx)
             },
             readAccepted: () => readAcceptedVia(tx as unknown as typeof db),
             findOperation: async (principalKey, idempotencyKey) => {

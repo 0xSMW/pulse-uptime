@@ -1,7 +1,6 @@
 import "server-only"
 
 import { randomUUID } from "node:crypto"
-import { sql as drizzleSql } from "drizzle-orm"
 
 import {
   type AcceptedConfigSnapshot,
@@ -23,6 +22,8 @@ import {
   monitoringConfigSnapshots,
 } from "@/lib/db/schema"
 import { synchronizeRegistry as syncRegistryRows } from "@/lib/scheduler/registry-sync"
+
+import { lockConfiguration } from "./configuration-lock"
 
 type DbTransaction = DatabaseTransaction
 
@@ -88,9 +89,7 @@ export async function mutateConfig(
   handle: DatabaseHandle = db
 ): Promise<MonitoringConfig> {
   return handle.transaction(async (tx) => {
-    await tx.execute(
-      drizzleSql`select pg_advisory_xact_lock(hashtext('pulse:configuration'))`
-    )
+    await lockConfiguration(tx)
     const current = await requireAcceptedConfig(tx as unknown as typeof db)
     const target = validateMonitoringConfig(mutator(current.config))
     const hash = hashMonitoringConfig(target)
