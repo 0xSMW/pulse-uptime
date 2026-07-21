@@ -4,6 +4,7 @@ import {
   buildPaletteGroups,
   filterPaletteGroups,
   nextPaletteIndex,
+  type PaletteDependency,
   type PaletteIncident,
   type PaletteMonitor,
 } from "./command-palette"
@@ -11,6 +12,24 @@ import {
 const monitors: PaletteMonitor[] = [
   { id: "api", name: "Public API", state: "DOWN", latestLatencyMs: 503 },
   { id: "web", name: "Website", state: "UP", latestLatencyMs: 42 },
+]
+const dependencies: PaletteDependency[] = [
+  {
+    id: "stripe",
+    name: "Stripe",
+    state: "OPERATIONAL",
+    pending: false,
+    provider: "Stripe",
+    componentLabel: "Payments",
+  },
+  {
+    id: "s3",
+    name: "S3",
+    state: "OUTAGE",
+    pending: false,
+    provider: "AWS",
+    componentLabel: null,
+  },
 ]
 const incidents: PaletteIncident[] = [
   {
@@ -23,9 +42,10 @@ const incidents: PaletteIncident[] = [
 ]
 
 describe("command palette helpers", () => {
-  it("builds navigation, monitor, and DOWN-only live incident groups", () => {
+  it("builds navigation, monitor, dependency, and DOWN-only live incident groups", () => {
     const groups = buildPaletteGroups(
       monitors,
+      dependencies,
       incidents,
       new Date("2026-07-18T12:00:00.000Z")
     )
@@ -33,10 +53,25 @@ describe("command palette helpers", () => {
     expect(groups.map((group) => group.label)).toEqual([
       "Navigation",
       "Monitors",
+      "Dependencies",
       "Live Incidents",
     ])
     expect(groups[1]!.items.map((item) => item.hint)).toEqual(["Down", "42 ms"])
     expect(groups[2]?.items).toEqual([
+      expect.objectContaining({
+        text: "Stripe",
+        hint: "Stripe · Payments",
+        href: "/dependencies/stripe",
+        dependencyState: "OPERATIONAL",
+      }),
+      expect.objectContaining({
+        text: "S3",
+        hint: "AWS",
+        href: "/dependencies/s3",
+        dependencyState: "OUTAGE",
+      }),
+    ])
+    expect(groups[3]?.items).toEqual([
       expect.objectContaining({
         text: "Public API — HTTP 503",
         hint: "ongoing · 30m 0s",
@@ -45,9 +80,10 @@ describe("command palette helpers", () => {
     ])
   })
 
-  it("omits Live Incidents when no monitor is down", () => {
+  it("omits Dependencies when the account has none", () => {
     const groups = buildPaletteGroups(
       monitors.map((monitor) => ({ ...monitor, state: "UP" })),
+      [],
       []
     )
     expect(groups.map((group) => group.label)).toEqual([
@@ -56,13 +92,39 @@ describe("command palette helpers", () => {
     ])
   })
 
+  it("omits Live Incidents when no monitor is down", () => {
+    const groups = buildPaletteGroups(
+      monitors.map((monitor) => ({ ...monitor, state: "UP" })),
+      dependencies,
+      []
+    )
+    expect(groups.map((group) => group.label)).toEqual([
+      "Navigation",
+      "Monitors",
+      "Dependencies",
+    ])
+  })
+
   it("filters case-insensitively and removes empty groups", () => {
     const filtered = filterPaletteGroups(
-      buildPaletteGroups(monitors, incidents),
+      buildPaletteGroups(monitors, dependencies, incidents),
       "http 503"
     )
     expect(filtered).toHaveLength(1)
     expect(filtered[0]?.label).toBe("Live Incidents")
+  })
+
+  it("matches dependencies on name, provider, and region label", () => {
+    const groups = buildPaletteGroups(monitors, dependencies, incidents)
+    expect(
+      filterPaletteGroups(groups, "payments").map((group) => group.label)
+    ).toEqual(["Dependencies"])
+    expect(
+      filterPaletteGroups(groups, "aws").map((group) => group.label)
+    ).toEqual(["Dependencies"])
+    const byProvider = filterPaletteGroups(groups, "stripe")
+    expect(byProvider).toHaveLength(1)
+    expect(byProvider[0]!.items.map((item) => item.text)).toEqual(["Stripe"])
   })
 
   it("clamps arrow navigation to the available range", () => {
