@@ -22,11 +22,11 @@ export type RollupAvailability = {
   downtimeSeconds: number;
 };
 
-// Raw check_results grouped into 15m buckets, shaped like a rollup so the
-// timeline can fold them in beside real rollups. expected equals completed
-// here because every raw row is a check that ran, so a clean quarter-hour
-// reads up and a failing one reads down. unknown and downtime stay zero,
-// the timeline reads neither from the raw side.
+// Scheduler-derived raw 15m buckets from check_batches bitmaps, shaped like a
+// rollup so the timeline can fold them in beside real rollups. expected is the
+// due count, completed the observed count, and unknown = expected - completed,
+// matching compacted rollups so a closed bucket with incomplete coverage never
+// reads as fully operational. downtime stays zero on the raw side.
 export type RawBucketAvailability = RollupAvailability;
 
 // Folds raw 15m buckets onto rollup buckets, dropping any raw bucket whose

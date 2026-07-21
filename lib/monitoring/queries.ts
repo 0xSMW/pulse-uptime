@@ -1,8 +1,9 @@
 import { and, eq, gte, inArray, isNull, lt, sql as dsql } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
-import { checkResults, incidents, metricRollups, monitorRegistry, monitorState } from "@/lib/db/schema";
+import { incidents, metricRollups, monitorRegistry, monitorState } from "@/lib/db/schema";
 import { isRangeUnlocked, rollupsSinceActivation } from "@/lib/reporting/queries/first-run";
+import { fetchRawAvailabilityBuckets } from "@/lib/reporting/queries/raw-availability";
 import { blendRawAvailability, buildRollupTimeline, type RawBucketAvailability } from "@/lib/reporting/queries/timeline";
 
 const stateOrder = [
@@ -44,29 +45,24 @@ function completed24hWindow() {
   return { start15m: new Date(end15m.getTime() - 86_400_000), end15m };
 }
 
-// uptime24h blends 15m metric_rollups with raw check_results because rollups close
-// at quarter-hour boundaries and lag up to 15 minutes on their own. check_results
-// rows are purged 30 days after creation independently of rollup status
-// (retention in lib/maintenance, compaction reads check_batches in
-// lib/storage), so a raw row and its rollup bucket coexist. The raw side
-// is an anti-join: only raw checks whose own 15m bucket lacks a rollup
-// row are counted, so gaps are covered by raw data, never double-counted.
-// A gap whose raw rows were already purged cannot be recovered here.
-// Both sides are clamped to [start15m, end15m).
-// The window filter and bucket comparison below use check_results.scheduled_at
-// (not checked_at): metric_rollups buckets are date_bin'd from check_batches
-// .scheduled_minute (see COMPACT_15_MINUTE_SQL), and check_results.scheduled_at
-// is set from that same scheduled minute (lib/scheduler/coordinator.ts). A
-// check scheduled just before a 15m boundary but completing after it must be
-// compared on scheduled_at, or it would land in the rollup's earlier bucket
-// while the anti-join probed the later checked_at bucket, double-counting it.
-// Both sides also drop everything before monitor_state.activated_at, matching
-// rollupsSinceActivation which keeps only buckets whose start is at or after
-// activation, so setup-phase failures never reach the value and it agrees with
-// the detail page. A never-activated monitor has a null activated_at, so every
-// comparison is null and the value reads null, the collecting placeholder.
-// The expression must be selected from monitorRegistry left joined to
-// monitorState, it references both tables' columns.
+// uptime24h blends 15m metric_rollups with scheduler-derived raw slots from
+// check_batches because rollups close at quarter-hour boundaries and lag up to
+// 15 minutes on their own. The raw side is an anti-join: only expected minute
+// slots whose own 15m bucket lacks a rollup row are counted, so gaps are covered
+// by raw data, never double-counted. A gap whose check_batches row was already
+// purged cannot be recovered here. Both sides are clamped to [start15m, end15m).
+//
+// Buckets are date_bin'd from check_batches.scheduled_minute, the same column
+// COMPACT_15_MINUTE_SQL uses, so a raw quarter-hour lands in the rollup bucket
+// it would compact into. Uptime is successful/completed only: unknown
+// (expected minus completed) is a separate coverage dimension and never enters
+// the ratio as a failure. Both sides also drop everything before
+// monitor_state.activated_at, matching rollupsSinceActivation, so setup-phase
+// failures never reach the value and it agrees with the detail page. A
+// never-activated monitor has a null activated_at, so every comparison is null
+// and the value reads null, the collecting placeholder. The expression must be
+// selected from monitorRegistry left joined to monitorState, it references both
+// tables' columns.
 function uptime24hSql(start15m: Date, end15m: Date) {
   // Raw sql template params must be bound as ISO strings, never Date objects.
   // Params in dsql templates bypass drizzle's column mappers, and postgres-js
@@ -87,18 +83,38 @@ function uptime24hSql(start15m: Date, end15m: Date) {
             and ${metricRollups.bucketStart} >= ${monitorState.activatedAt}
         ) rollup
         cross join lateral (
-          select count(*) as completed,
-            count(*) filter (where ${checkResults.successful}) as successful
-          from ${checkResults}
-          where ${checkResults.monitorId} = ${monitorRegistry.id}
-            and ${checkResults.scheduledAt} >= ${start15m.toISOString()}
-            and ${checkResults.scheduledAt} < ${end15m.toISOString()}
-            and date_bin('15 minutes', ${checkResults.scheduledAt}, timestamptz '2000-01-01') >= ${monitorState.activatedAt}
+          select
+            count(*) filter (where bit.expected = 1 and bit.completed = 1) as completed,
+            count(*) filter (
+              where bit.expected = 1 and bit.completed = 1 and bit.failed = 0
+            ) as successful
+          from (
+            select
+              date_bin(
+                interval '15 minutes', ranged.scheduled_minute, timestamptz '2000-01-01'
+              ) as bucket_start,
+              ((get_byte(ranged.expected_bitmap, ((ids.position - 1) / 8)::integer)
+                >> (((ids.position - 1) % 8)::integer)) & 1) as expected,
+              ((get_byte(ranged.completed_bitmap, ((ids.position - 1) / 8)::integer)
+                >> (((ids.position - 1) % 8)::integer)) & 1) as completed,
+              ((get_byte(ranged.failure_bitmap, ((ids.position - 1) / 8)::integer)
+                >> (((ids.position - 1) % 8)::integer)) & 1) as failed
+            from (
+              select scheduled_minute, monitor_ids, expected_bitmap, completed_bitmap, failure_bitmap
+              from check_batches
+              where scheduled_minute >= ${start15m.toISOString()}
+                and scheduled_minute < ${end15m.toISOString()}
+            ) ranged
+            cross join lateral unnest(ranged.monitor_ids) with ordinality as ids(monitor_id, position)
+            where ids.monitor_id = ${monitorRegistry.id}
+          ) bit
+          where bit.expected = 1
+            and bit.bucket_start >= ${monitorState.activatedAt}
             and not exists (
               select 1 from ${metricRollups} covered
               where covered.monitor_id = ${monitorRegistry.id}
                 and covered.resolution = '15m'
-                and covered.bucket_start = date_bin('15 minutes', ${checkResults.scheduledAt}, timestamptz '2000-01-01')
+                and covered.bucket_start = bit.bucket_start
             )
         ) raw
       )`;
@@ -148,11 +164,12 @@ export async function listDashboardMonitors() {
     .where(isNull(monitorRegistry.archivedAt));
 
   // One grouped fetch feeds every row's timeline. The bar blends the same two
-  // sources the uptime figure does: 15m rollups, plus raw check_results for any
-  // quarter-hour a rollup has not closed yet. During compaction lag the newest
-  // cells read up or down from raw rather than no-data, so the bar can never
-  // show no-data for a bucket the figure already counts as covered. A bucket
-  // with neither a rollup nor a surviving raw row stays no-data.
+  // sources the uptime figure does: 15m rollups, plus scheduler-derived raw
+  // buckets for any quarter-hour a rollup has not closed yet. During compaction
+  // lag the newest cells read up, down, or verifying from raw rather than
+  // no-data, so the bar can never show no-data for a bucket the figure already
+  // counts as covered. A bucket with neither a rollup nor a surviving raw row
+  // stays no-data.
   const monitorIds = rows.map((row) => row.id);
   const timelineRollups = rows.length
     ? await db
@@ -183,46 +200,21 @@ export async function listDashboardMonitors() {
   }
 
   // One grouped raw scan for the same window and the same monitors, the timeline
-  // twin of the uptime figure's raw side. It reads the (monitor_id, scheduled_at)
-  // unique index over a bounded 24h range and groups into 15m buckets, so it
-  // stays one query no heavier than the rollup fetch above. The anti-join that
-  // keeps a bucket from being counted twice runs in blendRawAvailability below,
-  // against the rollup buckets already in hand, so this fetch needs no rollup
-  // join of its own. scheduled_at (not checked_at) matches the rollup bucketing
-  // in COMPACT_15_MINUTE_SQL, the same column the uptime anti-join compares on.
-  const rawBucketStart = dsql<Date>`date_bin('15 minutes', ${checkResults.scheduledAt}, timestamptz '2000-01-01')`;
+  // twin of the uptime figure's raw side. It decodes check_batches bitmaps over
+  // a bounded 24h range and groups into 15m buckets with the same expected/
+  // completed/failure rules as compaction, so scheduler gaps surface as unknown
+  // rather than perfect coverage. The anti-join that keeps a bucket from being
+  // counted twice runs in blendRawAvailability below, against the rollup buckets
+  // already in hand, so this fetch needs no rollup join of its own.
   const timelineRawBuckets = rows.length
-    ? await db
-      .select({
-        monitorId: checkResults.monitorId,
-        bucketStart: rawBucketStart,
-        completedChecks: dsql<number>`count(*)::int`,
-        successfulChecks: dsql<number>`count(*) filter (where ${checkResults.successful})::int`,
-        failedChecks: dsql<number>`count(*) filter (where not ${checkResults.successful})::int`,
-      })
-      .from(checkResults)
-      .where(and(
-        inArray(checkResults.monitorId, monitorIds),
-        gte(checkResults.scheduledAt, start15m),
-        lt(checkResults.scheduledAt, end15m),
-      ))
-      .groupBy(checkResults.monitorId, rawBucketStart)
+    ? await fetchRawAvailabilityBuckets(monitorIds, start15m, end15m)
     : [];
   const rawByMonitor = new Map<string, RawBucketAvailability[]>();
   for (const raw of timelineRawBuckets) {
-    const completed = Number(raw.completedChecks);
-    const bucket: RawBucketAvailability = {
-      bucketStart: new Date(raw.bucketStart),
-      expectedChecks: completed,
-      completedChecks: completed,
-      successfulChecks: Number(raw.successfulChecks),
-      failedChecks: Number(raw.failedChecks),
-      unknownChecks: 0,
-      downtimeSeconds: 0,
-    };
-    const list = rawByMonitor.get(raw.monitorId);
+    const { monitorId, ...bucket } = raw;
+    const list = rawByMonitor.get(monitorId);
     if (list) list.push(bucket);
-    else rawByMonitor.set(raw.monitorId, [bucket]);
+    else rawByMonitor.set(monitorId, [bucket]);
   }
 
   return rows
@@ -236,7 +228,7 @@ export async function listDashboardMonitors() {
         activeIncidentOpenedAt: row.activeIncidentOpenedAt?.toISOString() ?? null,
         // 32 buckets of 45 minutes each, the table's compact cousin of the
         // detail page's 60-bucket availability bar over the same window. Raw
-        // checks fill any quarter-hour a rollup has not closed, then the
+        // batch buckets fill any quarter-hour a rollup has not closed, then the
         // activation filter drops pre-activation buckets from both sources.
         timeline: buildRollupTimeline(
           rollupsSinceActivation(

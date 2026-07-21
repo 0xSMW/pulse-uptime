@@ -86,12 +86,31 @@ const PRE_ACTIVATION_ROLLUP = rollup({
 });
 const POST_ACTIVATION_ROLLUP = rollup({ bucketStart: POST_BUCKET });
 
+// Route sql.unsafe by statement shape. Detail fans out recent-minute checks and
+// scheduler-derived raw availability in parallel, so order-based Once mocks race.
+function mockUnsafeBySql(options: {
+  recent?: unknown[];
+  availability?: unknown[];
+  tail?: unknown[];
+} = {}) {
+  sqlMock.unsafe.mockImplementation(async (query: string) => {
+    if (query.includes("any($3::text[])") && query.includes("bucket_start")) {
+      return options.availability ?? [];
+    }
+    if (query.includes("$4::timestamptz is null") || query.includes("lastCompletedBucketEnd")) {
+      return options.tail ?? [{ expected: 0, completed: 0, successful: 0, failed: 0 }];
+    }
+    // RECENT_MINUTE_CHECKS_SQL and any other raw path default to recent rows.
+    return options.recent ?? [];
+  });
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(NOW);
   dbMock.select.mockReset();
   sqlMock.unsafe.mockReset();
-  sqlMock.unsafe.mockResolvedValue([]); // no raw minute rows, fall back to rollups
+  mockUnsafeBySql(); // no raw minute rows, fall back to rollups
 });
 
 describe("getMonitorLive p95 and incidents", () => {
@@ -170,16 +189,16 @@ describe("getMonitorDetail latency and response chart", () => {
       .mockReturnValueOnce(selectChain([])) // rollups 15m
       .mockReturnValueOnce(selectChain([])) // rollups hour
       .mockReturnValueOnce(selectChain([])) // rollups day
-      .mockReturnValueOnce(selectChain([])) // accepted config (no incidents select)
-      .mockReturnValueOnce(selectChain([])); // raw availability buckets for the h24 bar
+      .mockReturnValueOnce(selectChain([])); // accepted config (no incidents select)
+    // recent raw checks + scheduler-derived raw availability both use sql.unsafe
 
     const detail = await getMonitorDetail("site-home");
 
     expect(detail!.latestIncident).toBeNull();
     expect(detail!.recentIncidents).toEqual([]);
-    // identity + three rollup fetches + config + the raw availability blend, but
-    // never the incidents table.
-    expect(dbMock.select).toHaveBeenCalledTimes(6);
+    // identity + three rollup fetches + config, never the incidents table. Raw
+    // availability rides sql.unsafe rather than a sixth drizzle select.
+    expect(dbMock.select).toHaveBeenCalledTimes(5);
   });
 });
 
@@ -198,10 +217,9 @@ describe("recent checks activation cutoff", () => {
   };
 
   it("excludes a pre-activation failed minute from the raw recent-checks path", async () => {
-    // The first unsafe call is the recent-checks fetch. The tail-count aggregate
-    // that follows falls back to the empty default, so recentChecks is asserted
-    // independent of the fold.
-    sqlMock.unsafe.mockResolvedValueOnce([PRE_FAILED_RAW, POST_HEALTHY_RAW]);
+    // Recent-minute rows only. Tail-count and raw availability stay empty so
+    // recentChecks is asserted independent of the fold.
+    mockUnsafeBySql({ recent: [PRE_FAILED_RAW, POST_HEALTHY_RAW] });
     dbMock.select
       .mockReturnValueOnce(selectChain([identity({})])) // identity
       .mockReturnValueOnce(selectChain([POST_ACTIVATION_ROLLUP])) // rollups 15m
@@ -220,7 +238,7 @@ describe("recent checks activation cutoff", () => {
   });
 
   it("excludes a pre-activation bucket from the rollup fallback path", async () => {
-    sqlMock.unsafe.mockResolvedValue([]); // no raw rows, fall back to rollups
+    mockUnsafeBySql(); // no raw rows, fall back to rollups
     dbMock.select
       .mockReturnValueOnce(selectChain([identity({})])) // identity
       .mockReturnValueOnce(selectChain([PRE_ACTIVATION_ROLLUP, POST_ACTIVATION_ROLLUP])) // rollups 15m
@@ -239,7 +257,7 @@ describe("recent checks activation cutoff", () => {
   });
 
   it("shows no recent checks for an unactivated monitor even with raw rows", async () => {
-    sqlMock.unsafe.mockResolvedValue([PRE_FAILED_RAW]);
+    mockUnsafeBySql({ recent: [PRE_FAILED_RAW] });
     dbMock.select
       .mockReturnValueOnce(selectChain([identity({ activatedAt: null, state: "PENDING" })])) // identity
       .mockReturnValueOnce(selectChain([PRE_ACTIVATION_ROLLUP])) // rollups 15m
@@ -253,9 +271,9 @@ describe("recent checks activation cutoff", () => {
   });
 
   it("keeps the live poll consistent, dropping a pre-activation raw minute", async () => {
-    // The tail-count aggregate after the recent-checks fetch falls back to the
-    // empty default.
-    sqlMock.unsafe.mockResolvedValueOnce([PRE_FAILED_RAW, POST_HEALTHY_RAW]);
+    // Live poll only reads recent-minute checks via unsafe, not the raw
+    // availability blend.
+    mockUnsafeBySql({ recent: [PRE_FAILED_RAW, POST_HEALTHY_RAW] });
     dbMock.select
       .mockReturnValueOnce(selectChain([identity({})])) // identity
       .mockReturnValueOnce(selectChain([POST_ACTIVATION_ROLLUP])) // rollups 15m
