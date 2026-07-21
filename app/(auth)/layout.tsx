@@ -1,8 +1,7 @@
-import type { ReactNode } from "react";
+import type { ReactNode } from "react"
 
-import { AuthShell } from "./shell";
+import { AuthShell } from "./shell"
 
 export default function Layout({ children }: { children: ReactNode }) {
-  return <AuthShell>{children}</AuthShell>;
+  return <AuthShell>{children}</AuthShell>
 }
-

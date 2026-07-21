@@ -1,25 +1,27 @@
-import { createHash } from "node:crypto";
+import { createHash } from "node:crypto"
 
-export type IncidentNotificationEvent = "opened" | "resolved";
+export type IncidentNotificationEvent = "opened" | "resolved"
 
 export function normalizeRecipient(recipient: string): string {
-  return recipient.trim().toLowerCase();
+  return recipient.trim().toLowerCase()
 }
 
 export function recipientHash(recipient: string): string {
-  return createHash("sha256").update(normalizeRecipient(recipient)).digest("hex");
+  return createHash("sha256")
+    .update(normalizeRecipient(recipient))
+    .digest("hex")
 }
 
 export function incidentNotificationKey(
   incidentId: string,
   event: IncidentNotificationEvent,
-  recipient: string,
+  recipient: string
 ): string {
-  return `incident/${incidentId}/${event}/${recipientHash(recipient)}`;
+  return `incident/${incidentId}/${event}/${recipientHash(recipient)}`
 }
 
 export function testNotificationKey(testId: string, recipient: string): string {
-  return `test/${testId}/${recipientHash(recipient)}`;
+  return `test/${testId}/${recipientHash(recipient)}`
 }
 
 /**
@@ -27,16 +29,20 @@ export function testNotificationKey(testId: string, recipient: string): string {
  * bounds the alert cadence: while a fault persists across many sweep runs, one
  * mail per kind, bucket, and recipient is enqueued rather than one every sweep.
  */
-export function systemAlertKey(kind: string, bucket: string, recipient: string): string {
-  return `system/${kind}/${bucket}/${recipientHash(recipient)}`;
+export function systemAlertKey(
+  kind: string,
+  bucket: string,
+  recipient: string
+): string {
+  return `system/${kind}/${bucket}/${recipientHash(recipient)}`
 }
 
 /** UTC hour stamp (YYYY-MM-DDTHH) used as the default system-alert bucket. */
 export function hourBucket(now: Date): string {
-  return now.toISOString().slice(0, 13);
+  return now.toISOString().slice(0, 13)
 }
 
-export type DependencyNotificationEvent = "incident" | "recovery";
+export type DependencyNotificationEvent = "incident" | "recovery"
 
 /**
  * Dedup key for dependency notifications: source, provider incident id,
@@ -63,8 +69,8 @@ export function dependencyNotificationKey(
   scopeId: string | null,
   event: DependencyNotificationEvent,
   recipient: string,
-  occurrence?: string,
+  occurrence?: string
 ): string {
-  const base = `dependency/${sourceId}/${incidentExternalId}/${catalogId}/${scopeId ?? ""}/${event}/${recipientHash(recipient)}`;
-  return occurrence === undefined ? base : `${base}/${occurrence}`;
+  const base = `dependency/${sourceId}/${incidentExternalId}/${catalogId}/${scopeId ?? ""}/${event}/${recipientHash(recipient)}`
+  return occurrence === undefined ? base : `${base}/${occurrence}`
 }

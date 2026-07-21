@@ -1,5 +1,5 @@
-import { registerHooks } from "node:module";
+import { registerHooks } from "node:module"
 
-import { resolve } from "./loader.mjs";
+import { resolve } from "./loader.mjs"
 
-registerHooks({ resolve });
+registerHooks({ resolve })

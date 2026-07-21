@@ -31,53 +31,59 @@ const CONNECTION_ERROR_CODES = new Set([
   "ENOTFOUND",
   "EAI_AGAIN",
   "ETIMEDOUT",
-]);
+])
 
 const POSTGRES_JS_CONNECTION_CODES = new Set([
   "CONNECT_TIMEOUT",
   "CONNECTION_CLOSED",
   "CONNECTION_DESTROYED",
   "CONNECTION_ENDED",
-]);
+])
 
 const POSTGRES_SQLSTATE_CODES = new Set([
   "28P01", // invalid_password
   "28000", // invalid_authorization_specification
   "42P01", // undefined_table (unapplied migrations)
   "42703", // undefined_column (unapplied migrations)
-]);
+])
 
 function isUnavailableCode(code: unknown): boolean {
-  if (typeof code !== "string" || code.length === 0) return false;
+  if (typeof code !== "string" || code.length === 0) {
+    return false
+  }
   return (
     CONNECTION_ERROR_CODES.has(code) ||
     POSTGRES_JS_CONNECTION_CODES.has(code) ||
     POSTGRES_SQLSTATE_CODES.has(code) ||
     code.startsWith("CONNECTION_")
-  );
+  )
 }
 
 function codesOf(error: object): unknown[] {
-  const codes: unknown[] = [(error as { code?: unknown }).code];
+  const codes: unknown[] = [(error as { code?: unknown }).code]
   // AggregateError (Node's happy-eyeballs dual-stack connect failures) nests
   // the individual attempts under `.errors` rather than `.cause`.
-  const aggregate = (error as { errors?: unknown }).errors;
+  const aggregate = (error as { errors?: unknown }).errors
   if (Array.isArray(aggregate)) {
     for (const inner of aggregate) {
-      if (inner && typeof inner === "object") codes.push((inner as { code?: unknown }).code);
+      if (inner && typeof inner === "object") {
+        codes.push((inner as { code?: unknown }).code)
+      }
     }
   }
-  return codes;
+  return codes
 }
 
 /** True only for the infra-class errors described above. Everything else should be rethrown. */
 export function isDatabaseUnavailableError(error: unknown): boolean {
-  let current: unknown = error;
-  const seen = new Set<unknown>();
+  let current: unknown = error
+  const seen = new Set<unknown>()
   while (current && typeof current === "object" && !seen.has(current)) {
-    seen.add(current);
-    if (codesOf(current).some(isUnavailableCode)) return true;
-    current = (current as { cause?: unknown }).cause;
+    seen.add(current)
+    if (codesOf(current).some(isUnavailableCode)) {
+      return true
+    }
+    current = (current as { cause?: unknown }).cause
   }
-  return false;
+  return false
 }

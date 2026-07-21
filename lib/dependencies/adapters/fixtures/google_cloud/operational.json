@@ -10,12 +10,26 @@
     "severity": "low",
     "status_impact": "SERVICE_DISRUPTION",
     "uri": "incidents/resolvedunrelated01",
-    "affected_products": [{ "id": "unrelatedProductId0001", "title": "An Unrelated Product" }],
+    "affected_products": [
+      { "id": "unrelatedProductId0001", "title": "An Unrelated Product" }
+    ],
     "currently_affected_locations": [],
-    "previously_affected_locations": [{ "id": "us-central1", "title": "Council Bluffs (us-central1)" }],
+    "previously_affected_locations": [
+      { "id": "us-central1", "title": "Council Bluffs (us-central1)" }
+    ],
     "updates": [
-      { "created": "2026-06-01T02:00:00+00:00", "modified": "2026-06-01T02:00:00+00:00", "text": "The issue has been resolved for all affected users.", "status": "AVAILABLE" },
-      { "created": "2026-06-01T00:10:00+00:00", "modified": "2026-06-01T00:10:00+00:00", "text": "We are investigating an issue with an unrelated product.", "status": "SERVICE_DISRUPTION" }
+      {
+        "created": "2026-06-01T02:00:00+00:00",
+        "modified": "2026-06-01T02:00:00+00:00",
+        "text": "The issue has been resolved for all affected users.",
+        "status": "AVAILABLE"
+      },
+      {
+        "created": "2026-06-01T00:10:00+00:00",
+        "modified": "2026-06-01T00:10:00+00:00",
+        "text": "We are investigating an issue with an unrelated product.",
+        "status": "SERVICE_DISRUPTION"
+      }
     ]
   }
 ]

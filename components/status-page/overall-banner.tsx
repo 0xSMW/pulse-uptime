@@ -1,8 +1,8 @@
-import { StatusDot, type MonitorState } from "@/components/monitors/status-dot";
-import type { PublicOverallState } from "@/lib/status-page/reports-display";
-import { cn } from "@/lib/utils";
+import { type MonitorState, StatusDot } from "@/components/monitors/status-dot"
+import type { PublicOverallState } from "@/lib/status-page/reports-display"
+import { cn } from "@/lib/utils"
 
-type OverallState = PublicOverallState;
+type OverallState = PublicOverallState
 
 const presentation: Record<
   OverallState,
@@ -11,7 +11,8 @@ const presentation: Record<
   operational: {
     label: "All Systems Operational",
     monitorState: "UP",
-    className: "border-[color-mix(in_srgb,var(--up)_40%,transparent)] bg-[var(--up-bg)]",
+    className:
+      "border-[color-mix(in_srgb,var(--up)_40%,transparent)] bg-[var(--up-bg)]",
   },
   investigating: {
     label: "Investigating",
@@ -36,29 +37,30 @@ const presentation: Record<
   outage: {
     label: "Major Outage",
     monitorState: "DOWN",
-    className: "border-[color-mix(in_srgb,var(--down)_40%,transparent)] bg-[var(--down-bg)]",
+    className:
+      "border-[color-mix(in_srgb,var(--down)_40%,transparent)] bg-[var(--down-bg)]",
   },
   empty: {
     label: "No Monitors Configured",
     monitorState: "PENDING",
     className: "border-[var(--border-strong)] bg-[var(--chip-bg)]",
   },
-};
+}
 
 export function OverallBanner({ state }: { state: OverallState }) {
-  const current = presentation[state];
+  const current = presentation[state]
 
   return (
     <div
+      aria-label={`Overall status: ${current.label}`}
       className={cn(
-        "flex min-h-14 items-center gap-3 rounded-xl border px-5 py-4 text-[15px] font-semibold",
-        current.className,
+        "flex min-h-14 items-center gap-3 rounded-xl border px-5 py-4 font-semibold text-[15px]",
+        current.className
       )}
       role="status"
-      aria-label={`Overall status: ${current.label}`}
     >
-      <StatusDot state={current.monitorState} size="md" aria-hidden />
+      <StatusDot aria-hidden size="md" state={current.monitorState} />
       <span>{current.label}</span>
     </div>
-  );
+  )
 }

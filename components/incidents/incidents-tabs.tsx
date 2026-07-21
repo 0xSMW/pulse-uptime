@@ -1,9 +1,9 @@
-"use client";
+"use client"
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import Link from "next/link"
+import { usePathname } from "next/navigation"
 
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/utils"
 
 const tabs = [
   {
@@ -16,7 +16,7 @@ const tabs = [
     href: "/incidents/reports",
     isActive: (pathname: string) => pathname.startsWith("/incidents/reports"),
   },
-] as const;
+] as const
 
 /**
  * Section tabs. When a ReportEditor is mounted on the page and dirty, its
@@ -25,27 +25,30 @@ const tabs = [
  * (that would double-confirm). See useNavigationGuard.
  */
 export function IncidentsTabs({ className }: { className?: string }) {
-  const pathname = usePathname() ?? "/incidents";
+  const pathname = usePathname()
   return (
-    <nav aria-label="Incidents sections" className={cn("flex gap-5 border-b border-[var(--border)]", className)}>
+    <nav
+      aria-label="Incidents sections"
+      className={cn("flex gap-5 border-[var(--border)] border-b", className)}
+    >
       {tabs.map((tab) => {
-        const active = tab.isActive(pathname);
+        const active = tab.isActive(pathname)
         return (
           <Link
-            key={tab.href}
-            href={tab.href}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "-mb-px border-b-2 pb-2.5 text-[13px] font-medium",
+              "-mb-px border-b-2 pb-2.5 font-medium text-[13px]",
               active
                 ? "border-[var(--fg)] text-[var(--fg)]"
-                : "border-transparent text-[var(--fg-muted)] hover:text-[var(--fg)]",
+                : "border-transparent text-[var(--fg-muted)] hover:text-[var(--fg)]"
             )}
+            href={tab.href}
+            key={tab.href}
           >
             {tab.label}
           </Link>
-        );
+        )
       })}
     </nav>
-  );
+  )
 }

@@ -1,10 +1,10 @@
-import "server-only";
+import "server-only"
 
-import { isIP } from "node:net";
+import { isIP } from "node:net"
 
 /** First forwarded hop only. Proxies append, so later entries are spoofable. */
 export function firstForwardedIp(forwardedFor: string | null): string | null {
-  return forwardedFor?.split(",")[0]?.trim() || null;
+  return forwardedFor?.split(",")[0]?.trim() || null
 }
 
 /**
@@ -12,15 +12,22 @@ export function firstForwardedIp(forwardedFor: string | null): string | null {
  * the fronting platform and cannot be influenced by the caller, so it wins.
  * The first x-forwarded-for hop is the fallback.
  */
-export function clientIpFromHeaders(headers: { get(name: string): string | null }): string | null {
-  return headers.get("x-real-ip")?.trim() || firstForwardedIp(headers.get("x-forwarded-for"));
+export function clientIpFromHeaders(headers: {
+  get: (name: string) => string | null
+}): string | null {
+  return (
+    headers.get("x-real-ip")?.trim() ||
+    firstForwardedIp(headers.get("x-forwarded-for"))
+  )
 }
 
 /**
  * Same source order as clientIpFromHeaders but rejects anything that is not a
  * valid IPv4 or IPv6 literal, so callers persist a clean address or nothing.
  */
-export function validClientIpFromHeaders(headers: { get(name: string): string | null }): string | null {
-  const ip = clientIpFromHeaders(headers);
-  return ip && isIP(ip) ? ip : null;
+export function validClientIpFromHeaders(headers: {
+  get: (name: string) => string | null
+}): string | null {
+  const ip = clientIpFromHeaders(headers)
+  return ip && isIP(ip) ? ip : null
 }

@@ -1,8 +1,8 @@
-import type { ReactNode } from "react";
+import type { ReactNode } from "react"
 
-import styles from "@/components/status-page/status-page.module.css";
-import { getStatusPageDisplayConfig } from "@/lib/reporting/queries/status";
-import { cn } from "@/lib/utils";
+import styles from "@/components/status-page/status-page.module.css"
+import { getStatusPageDisplayConfig } from "@/lib/reporting/queries/status"
+import { cn } from "@/lib/utils"
 
 /**
  * Public status shell. All personalization here is inert server-rendered
@@ -17,30 +17,45 @@ import { cn } from "@/lib/utils";
  * exists for. This is the documented tradeoff (strict head-only consumers,
  * e.g. some meta-tag verifiers, won't see it).
  */
-export default async function PublicStatusLayout({ children }: { children: ReactNode }) {
-  const config = await getStatusPageDisplayConfig();
-  const forcedTheme = config.theme === "system" ? null : config.theme;
+export default async function PublicStatusLayout({
+  children,
+}: {
+  children: ReactNode
+}) {
+  const config = await getStatusPageDisplayConfig()
+  const forcedTheme = config.theme === "system" ? null : config.theme
 
   return (
     <div
       className={cn(
         styles.shell,
         forcedTheme === "light" && styles.light,
-        forcedTheme === "dark" && styles.dark,
+        forcedTheme === "dark" && styles.dark
       )}
       data-theme={forcedTheme ?? undefined}
     >
       {config.customHead ? (
-        <div data-status-custom-head dangerouslySetInnerHTML={{ __html: config.customHead }} />
+        <div
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: custom head is the status page owner's own configured markup, an intentional customization
+          dangerouslySetInnerHTML={{ __html: config.customHead }}
+          data-status-custom-head
+        />
       ) : null}
-      {config.customCss ? <style dangerouslySetInnerHTML={{ __html: config.customCss }} /> : null}
+      {config.customCss ? (
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: custom css is the status page owner's own configured stylesheet, an intentional customization
+        <style dangerouslySetInnerHTML={{ __html: config.customCss }} />
+      ) : null}
       {children}
       {config.googleTagId ? (
         <>
-          <script async src={`https://www.googletagmanager.com/gtag/js?id=${config.googleTagId}`} />
+          <script
+            async
+            src={`https://www.googletagmanager.com/gtag/js?id=${config.googleTagId}`}
+          />
           <script
             // The tag id is schema-validated (^G(T)?-[A-Z0-9]+$), so it cannot
             // break out of this inline snippet.
+            // biome-ignore lint/security/noDangerouslySetInnerHtml: static gtag bootstrap with a schema-validated tag id, no untrusted data
             dangerouslySetInnerHTML={{
               __html: `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${config.googleTagId}');`,
             }}
@@ -48,5 +63,5 @@ export default async function PublicStatusLayout({ children }: { children: React
         </>
       ) : null}
     </div>
-  );
+  )
 }

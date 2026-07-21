@@ -1,29 +1,42 @@
-import "server-only";
+import "server-only"
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath } from "next/cache"
 
-import type { DatabaseHandle } from "@/lib/db/client";
-import { statusGroupSlug } from "@/lib/reporting/queries/timeline";
+import type { DatabaseHandle } from "@/lib/db/client"
+import { statusGroupSlug } from "@/lib/reporting/queries/timeline"
 
-import { apiError, apiJson, errorEnvelope, objectEnvelope } from "./envelopes";
-import { executeIdempotent, type StoredResponse } from "./idempotency";
-import { routeError } from "./route";
-import { databaseStatusReportsStore, StatusReportError, type StatusReportsStore } from "./status-reports";
+import { apiError, apiJson, errorEnvelope, objectEnvelope } from "./envelopes"
+import { executeIdempotent, type StoredResponse } from "./idempotency"
+import { routeError } from "./route"
+import {
+  databaseStatusReportsStore,
+  StatusReportError,
+  type StatusReportsStore,
+} from "./status-reports"
 
 function statusReportErrorStatus(error: StatusReportError): number {
   return error.code === "VALIDATION_ERROR" || error.code === "INVALID_CURSOR"
     ? 400
     : error.code === "LAST_UPDATE" || error.code === "ALREADY_PUBLISHED"
       ? 409
-      : 404;
+      : 404
 }
 
 /** Shared HTTP mapping for the status-reports route family. */
-export function statusReportRouteError(error: unknown, requestId: string): Response {
+export function statusReportRouteError(
+  error: unknown,
+  requestId: string
+): Response {
   if (error instanceof StatusReportError) {
-    return apiError(requestId, statusReportErrorStatus(error), error.code, error.message, error.details);
+    return apiError(
+      requestId,
+      statusReportErrorStatus(error),
+      error.code,
+      error.message,
+      error.details
+    )
   }
-  return routeError(error, requestId);
+  return routeError(error, requestId)
 }
 
 /**
@@ -34,11 +47,22 @@ export function statusReportRouteError(error: unknown, requestId: string): Respo
  * so they must be recorded as the idempotent operation's own response. See
  * runStatusReportMutation's doc comment for why.
  */
-export function storedStatusReportError(error: StatusReportError, requestId: string): StoredResponse {
-  return { status: statusReportErrorStatus(error), body: errorEnvelope(error.code, error.message, requestId, error.details) };
+function storedStatusReportError(
+  error: StatusReportError,
+  requestId: string
+): StoredResponse {
+  return {
+    status: statusReportErrorStatus(error),
+    body: errorEnvelope(error.code, error.message, requestId, error.details),
+  }
 }
 
-type MutationOutcome<T> = { status: number; kind: string; data: T; revalidatePaths?: readonly string[] };
+interface MutationOutcome<T> {
+  status: number
+  kind: string
+  data: T
+  revalidatePaths?: readonly string[]
+}
 
 /**
  * Runs one idempotent status-report mutation end to end: acquires the
@@ -81,41 +105,56 @@ type MutationOutcome<T> = { status: number; kind: string; data: T; revalidatePat
  *   the original run, so both correctly revalidate nothing.
  */
 export async function runStatusReportMutation<T>(input: {
-  request: Request;
-  context: { principalKey: string; requestId: string };
-  routeKey: string;
-  body: unknown;
-  work: (tx: DatabaseHandle, context: { operationId: string }) => Promise<MutationOutcome<T>>;
+  request: Request
+  context: { principalKey: string; requestId: string }
+  routeKey: string
+  body: unknown
+  work: (
+    tx: DatabaseHandle,
+    context: { operationId: string }
+  ) => Promise<MutationOutcome<T>>
 }): Promise<Response> {
-  const { request, context, routeKey, body, work } = input;
+  const { request, context, routeKey, body, work } = input
   try {
-    let revalidatePaths: readonly string[] = [];
+    let revalidatePaths: readonly string[] = []
     const result = await executeIdempotent({
       request,
       principalKey: context.principalKey,
       routeKey,
       body,
-      work: async (idempotencyContext) => idempotencyContext.transaction(async (tx) => {
-        try {
-          const outcome = await work(tx, idempotencyContext);
-          revalidatePaths = outcome.revalidatePaths ?? [];
-          return { status: outcome.status, body: objectEnvelope(outcome.kind, outcome.data, context.requestId) };
-        } catch (error) {
-          if (error instanceof StatusReportError) return storedStatusReportError(error, context.requestId);
-          throw error;
-        }
-      }),
-    });
+      work: async (idempotencyContext) =>
+        idempotencyContext.transaction(async (tx) => {
+          try {
+            const outcome = await work(tx, idempotencyContext)
+            revalidatePaths = outcome.revalidatePaths ?? []
+            return {
+              status: outcome.status,
+              body: objectEnvelope(
+                outcome.kind,
+                outcome.data,
+                context.requestId
+              ),
+            }
+          } catch (error) {
+            if (error instanceof StatusReportError) {
+              return storedStatusReportError(error, context.requestId)
+            }
+            throw error
+          }
+        }),
+    })
     // Flush revalidation only after the mutation and the idempotency
     // completion commit, and only for a fresh mutation. A StatusReportError
     // left revalidatePaths empty, and a replayed response was already
     // revalidated by the original run, so both revalidate nothing.
     if (!result.replayed) {
-      for (const path of revalidatePaths) revalidatePath(path);
+      for (const path of revalidatePaths) {
+        revalidatePath(path)
+      }
     }
-    return apiJson(result.body, { status: result.status });
+    return apiJson(result.body, { status: result.status })
   } catch (error) {
-    return statusReportRouteError(error, context.requestId);
+    return statusReportRouteError(error, context.requestId)
   }
 }
 
@@ -146,27 +185,36 @@ export async function runStatusReportMutation<T>(input: {
  */
 export async function collectStatusReportPaths(
   report: {
-    id: string;
-    affected: ReadonlyArray<{ monitorId: string; groupName: string | null }>;
+    id: string
+    affected: ReadonlyArray<{ monitorId: string; groupName: string | null }>
   },
-  previousAffected: ReadonlyArray<{ monitorId: string; groupName: string | null }> = [],
-  store: Pick<StatusReportsStore, "findMonitors"> = databaseStatusReportsStore,
+  previousAffected: ReadonlyArray<{
+    monitorId: string
+    groupName: string | null
+  }> = [],
+  store: Pick<StatusReportsStore, "findMonitors"> = databaseStatusReportsStore
 ): Promise<string[]> {
-  const paths = ["/status", `/status/reports/${report.id}`];
-  const combined = [...report.affected, ...previousAffected];
-  const slugs = new Set(combined.map((entry) => statusGroupSlug(entry.groupName ?? "Other")));
-  const monitorIds = [...new Set(combined.map((entry) => entry.monitorId))];
+  const paths = ["/status", `/status/reports/${report.id}`]
+  const combined = [...report.affected, ...previousAffected]
+  const slugs = new Set(
+    combined.map((entry) => statusGroupSlug(entry.groupName ?? "Other"))
+  )
+  const monitorIds = [...new Set(combined.map((entry) => entry.monitorId))]
   if (monitorIds.length > 0) {
     try {
-      const live = await store.findMonitors(monitorIds);
-      for (const monitor of live) slugs.add(statusGroupSlug(monitor.groupName ?? "Other"));
+      const live = await store.findMonitors(monitorIds)
+      for (const monitor of live) {
+        slugs.add(statusGroupSlug(monitor.groupName ?? "Other"))
+      }
     } catch {
       // Path collection is best-effort. The snapshot slugs above are still
       // returned and the 30 s ISR window bounds any staleness.
     }
   }
   for (const slug of slugs) {
-    if (slug) paths.push(`/status/${slug}`);
+    if (slug) {
+      paths.push(`/status/${slug}`)
+    }
   }
-  return paths;
+  return paths
 }

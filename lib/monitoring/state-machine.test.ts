@@ -1,12 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest"
 
-import { transitionMonitor } from "./state-machine";
-import type { CheckTransitionEvent, MonitorStateName, MonitorStateSnapshot } from "./types";
+import { transitionMonitor } from "./state-machine"
+import type {
+  CheckTransitionEvent,
+  MonitorStateName,
+  MonitorStateSnapshot,
+} from "./types"
 
-const epoch = new Date("2026-01-01T00:00:00.000Z");
-const minute = (value: number) => new Date(epoch.getTime() + value * 60_000);
+const epoch = new Date("2026-01-01T00:00:00.000Z")
+const minute = (value: number) => new Date(epoch.getTime() + value * 60_000)
 
-function state(name: MonitorStateName, overrides: Partial<MonitorStateSnapshot> = {}): MonitorStateSnapshot {
+function state(
+  name: MonitorStateName,
+  overrides: Partial<MonitorStateSnapshot> = {}
+): MonitorStateSnapshot {
   return {
     monitorId: "api",
     state: name,
@@ -25,10 +32,14 @@ function state(name: MonitorStateName, overrides: Partial<MonitorStateSnapshot> 
     version: 0,
     updatedAt: epoch,
     ...overrides,
-  };
+  }
 }
 
-function check(successful: boolean, at: Date, overrides: Partial<CheckTransitionEvent> = {}): CheckTransitionEvent {
+function check(
+  successful: boolean,
+  at: Date,
+  overrides: Partial<CheckTransitionEvent> = {}
+): CheckTransitionEvent {
   return {
     type: "check",
     checkedAt: at,
@@ -39,117 +50,187 @@ function check(successful: boolean, at: Date, overrides: Partial<CheckTransition
     failureThreshold: 2,
     recoveryThreshold: 2,
     ...overrides,
-  };
+  }
 }
 
 describe("transitionMonitor", () => {
   it("activates a pending monitor and stamps activatedAt on its first success", () => {
-    const result = transitionMonitor(state("PENDING"), check(true, minute(1)));
-    expect(result.state).toMatchObject({ state: "UP", lastSuccessAt: minute(1), activatedAt: minute(1), version: 1 });
-    expect(result.incident).toBeNull();
-  });
+    const result = transitionMonitor(state("PENDING"), check(true, minute(1)))
+    expect(result.state).toMatchObject({
+      state: "UP",
+      lastSuccessAt: minute(1),
+      activatedAt: minute(1),
+      version: 1,
+    })
+    expect(result.incident).toBeNull()
+  })
 
   it("holds a never-activated monitor in setup and never opens an incident from failures", () => {
-    const first = transitionMonitor(state("PENDING"), check(false, minute(1)));
-    expect(first.state).toMatchObject({ state: "PENDING", consecutiveFailures: 1, firstFailureAt: minute(1), activatedAt: null });
-    expect(first.incident).toBeNull();
+    const first = transitionMonitor(state("PENDING"), check(false, minute(1)))
+    expect(first.state).toMatchObject({
+      state: "PENDING",
+      consecutiveFailures: 1,
+      firstFailureAt: minute(1),
+      activatedAt: null,
+    })
+    expect(first.incident).toBeNull()
 
-    const second = transitionMonitor(first.state, check(false, minute(2)));
-    expect(second.state).toMatchObject({ state: "PENDING", consecutiveFailures: 2, activatedAt: null });
-    expect(second.incident).toBeNull();
+    const second = transitionMonitor(first.state, check(false, minute(2)))
+    expect(second.state).toMatchObject({
+      state: "PENDING",
+      consecutiveFailures: 2,
+      activatedAt: null,
+    })
+    expect(second.incident).toBeNull()
 
-    const third = transitionMonitor(second.state, check(false, minute(3)));
-    expect(third.state.state).toBe("PENDING");
-    expect(third.incident).toBeNull();
-  });
+    const third = transitionMonitor(second.state, check(false, minute(3)))
+    expect(third.state.state).toBe("PENDING")
+    expect(third.incident).toBeNull()
+  })
 
   it("opens an incident once an activated monitor fails past the threshold", () => {
-    const up = state("UP", { activatedAt: minute(1) });
-    const first = transitionMonitor(up, check(false, minute(2)));
-    expect(first.state.state).toBe("VERIFYING_DOWN");
-    const second = transitionMonitor(first.state, check(false, minute(3)));
-    expect(second.state.state).toBe("DOWN");
-    expect(second.incident).toEqual({ type: "open", openedAt: minute(2), firstFailureAt: minute(2) });
-  });
+    const up = state("UP", { activatedAt: minute(1) })
+    const first = transitionMonitor(up, check(false, minute(2)))
+    expect(first.state.state).toBe("VERIFYING_DOWN")
+    const second = transitionMonitor(first.state, check(false, minute(3)))
+    expect(second.state.state).toBe("DOWN")
+    expect(second.incident).toEqual({
+      type: "open",
+      openedAt: minute(2),
+      firstFailureAt: minute(2),
+    })
+  })
 
   it("verifies an outage and clears the sequence when the endpoint recovers early", () => {
-    const failed = transitionMonitor(state("UP"), check(false, minute(1), { failureThreshold: 3 }));
-    expect(failed.state.state).toBe("VERIFYING_DOWN");
-    const recovered = transitionMonitor(failed.state, check(true, minute(2), { failureThreshold: 3 }));
+    const failed = transitionMonitor(
+      state("UP"),
+      check(false, minute(1), { failureThreshold: 3 })
+    )
+    expect(failed.state.state).toBe("VERIFYING_DOWN")
+    const recovered = transitionMonitor(
+      failed.state,
+      check(true, minute(2), { failureThreshold: 3 })
+    )
     expect(recovered.state).toMatchObject({
-      state: "UP", consecutiveFailures: 0, firstFailureAt: null,
-    });
-  });
+      state: "UP",
+      consecutiveFailures: 0,
+      firstFailureAt: null,
+    })
+  })
 
   it("honors a failure threshold of one", () => {
-    const result = transitionMonitor(state("UP"), check(false, minute(1), { failureThreshold: 1 }));
-    expect(result.state.state).toBe("DOWN");
-    expect(result.incident?.type).toBe("open");
-  });
+    const result = transitionMonitor(
+      state("UP"),
+      check(false, minute(1), { failureThreshold: 1 })
+    )
+    expect(result.state.state).toBe("DOWN")
+    expect(result.incident?.type).toBe("open")
+  })
 
   it("does not create another open intent for failures while down", () => {
-    const result = transitionMonitor(state("DOWN", {
-      activeIncidentId: "8c751cd3-bcf0-4cab-8348-c9b5793339ed",
-      consecutiveFailures: 2,
-      firstFailureAt: minute(1),
-    }), check(false, minute(3)));
-    expect(result.state.state).toBe("DOWN");
-    expect(result.incident).toBeNull();
-  });
+    const result = transitionMonitor(
+      state("DOWN", {
+        activeIncidentId: "8c751cd3-bcf0-4cab-8348-c9b5793339ed",
+        consecutiveFailures: 2,
+        firstFailureAt: minute(1),
+      }),
+      check(false, minute(3))
+    )
+    expect(result.state.state).toBe("DOWN")
+    expect(result.incident).toBeNull()
+  })
 
   it("verifies recovery and resolves at the first successful check", () => {
-    const incidentId = "8c751cd3-bcf0-4cab-8348-c9b5793339ed";
-    const down = state("DOWN", { activeIncidentId: incidentId, firstFailureAt: minute(1) });
-    const first = transitionMonitor(down, check(true, minute(3)));
-    expect(first.state).toMatchObject({ state: "VERIFYING_UP", firstSuccessAt: minute(3) });
-    const second = transitionMonitor(first.state, check(true, minute(4)));
-    expect(second.state).toMatchObject({ state: "UP", activeIncidentId: null });
+    const incidentId = "8c751cd3-bcf0-4cab-8348-c9b5793339ed"
+    const down = state("DOWN", {
+      activeIncidentId: incidentId,
+      firstFailureAt: minute(1),
+    })
+    const first = transitionMonitor(down, check(true, minute(3)))
+    expect(first.state).toMatchObject({
+      state: "VERIFYING_UP",
+      firstSuccessAt: minute(3),
+    })
+    const second = transitionMonitor(first.state, check(true, minute(4)))
+    expect(second.state).toMatchObject({ state: "UP", activeIncidentId: null })
     expect(second.incident).toEqual({
-      type: "resolve", incidentId, openedAt: minute(1), firstSuccessAt: minute(3), resolvedAt: minute(3),
-    });
-  });
+      type: "resolve",
+      incidentId,
+      openedAt: minute(1),
+      firstSuccessAt: minute(3),
+      resolvedAt: minute(3),
+    })
+  })
 
   it("resets recovery verification when a check fails", () => {
-    const result = transitionMonitor(state("VERIFYING_UP", {
-      activeIncidentId: "8c751cd3-bcf0-4cab-8348-c9b5793339ed",
-      consecutiveSuccesses: 1,
-      firstFailureAt: minute(1),
-      firstSuccessAt: minute(2),
-    }), check(false, minute(3)));
-    expect(result.state).toMatchObject({ state: "DOWN", consecutiveSuccesses: 0, firstSuccessAt: null });
-    expect(result.incident).toBeNull();
-  });
+    const result = transitionMonitor(
+      state("VERIFYING_UP", {
+        activeIncidentId: "8c751cd3-bcf0-4cab-8348-c9b5793339ed",
+        consecutiveSuccesses: 1,
+        firstFailureAt: minute(1),
+        firstSuccessAt: minute(2),
+      }),
+      check(false, minute(3))
+    )
+    expect(result.state).toMatchObject({
+      state: "DOWN",
+      consecutiveSuccesses: 0,
+      firstSuccessAt: null,
+    })
+    expect(result.incident).toBeNull()
+  })
 
   it("supports one-check recovery", () => {
-    const result = transitionMonitor(state("DOWN", {
-      activeIncidentId: "8c751cd3-bcf0-4cab-8348-c9b5793339ed",
-      firstFailureAt: minute(1),
-    }), check(true, minute(2), { recoveryThreshold: 1 }));
-    expect(result.state.state).toBe("UP");
-    expect(result.incident?.type).toBe("resolve");
-  });
+    const result = transitionMonitor(
+      state("DOWN", {
+        activeIncidentId: "8c751cd3-bcf0-4cab-8348-c9b5793339ed",
+        firstFailureAt: minute(1),
+      }),
+      check(true, minute(2), { recoveryThreshold: 1 })
+    )
+    expect(result.state.state).toBe("UP")
+    expect(result.incident?.type).toBe("resolve")
+  })
 
   it("does not process checks while paused or archived", () => {
     for (const name of ["PAUSED", "ARCHIVED"] as const) {
-      const current = state(name);
-      const result = transitionMonitor(current, check(false, minute(1)));
-      expect(result.state).toBe(current);
-      expect(result.changed).toBe(false);
+      const current = state(name)
+      const result = transitionMonitor(current, check(false, minute(1)))
+      expect(result.state).toBe(current)
+      expect(result.changed).toBe(false)
     }
-  });
+  })
 
   it("handles pause, archive, re-enable, and restore lifecycle transitions", () => {
-    const paused = transitionMonitor(state("UP"), { type: "disable", occurredAt: minute(1) });
-    expect(paused.state.state).toBe("PAUSED");
-    expect(transitionMonitor(paused.state, { type: "enable", occurredAt: minute(2) }).state.state).toBe("PENDING");
+    const paused = transitionMonitor(state("UP"), {
+      type: "disable",
+      occurredAt: minute(1),
+    })
+    expect(paused.state.state).toBe("PAUSED")
+    expect(
+      transitionMonitor(paused.state, { type: "enable", occurredAt: minute(2) })
+        .state.state
+    ).toBe("PENDING")
 
-    const archived = transitionMonitor(state("VERIFYING_DOWN"), { type: "archive", occurredAt: minute(1) });
-    expect(archived.state.state).toBe("ARCHIVED");
-    expect(transitionMonitor(archived.state, { type: "restore", occurredAt: minute(2) }).state.state).toBe("PENDING");
-  });
+    const archived = transitionMonitor(state("VERIFYING_DOWN"), {
+      type: "archive",
+      occurredAt: minute(1),
+    })
+    expect(archived.state.state).toBe("ARCHIVED")
+    expect(
+      transitionMonitor(archived.state, {
+        type: "restore",
+        occurredAt: minute(2),
+      }).state.state
+    ).toBe("PENDING")
+  })
 
   it("rejects invalid thresholds", () => {
-    expect(() => transitionMonitor(state("UP"), check(false, minute(1), { failureThreshold: 0 })))
-      .toThrow("failureThreshold must be a positive integer");
-  });
-});
+    expect(() =>
+      transitionMonitor(
+        state("UP"),
+        check(false, minute(1), { failureThreshold: 0 })
+      )
+    ).toThrow("failureThreshold must be a positive integer")
+  })
+})

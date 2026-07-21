@@ -1,29 +1,50 @@
-import { AccountServiceError, revokeOtherAccountSessions } from "@/lib/api/account";
-import { apiError, apiJson, objectEnvelope } from "@/lib/api/envelopes";
-import { authorize, isApiResponse } from "@/lib/api/middleware";
-import { routeError } from "@/lib/api/route";
-import { getCurrentSession } from "@/lib/auth/session";
+import {
+  AccountServiceError,
+  revokeOtherAccountSessions,
+} from "@/lib/api/account"
+import { apiError, apiJson, objectEnvelope } from "@/lib/api/envelopes"
+import { authorize, isApiResponse } from "@/lib/api/middleware"
+import { routeError } from "@/lib/api/route"
+import { getCurrentSession } from "@/lib/auth/session"
 
 export async function POST(request: Request) {
-  const context = await authorize(request);
-  if (isApiResponse(context)) return context;
-  if (context.principal.type !== "human") {
-    return apiError(context.requestId, 403, "SESSION_REQUIRED", "Account settings require a dashboard session");
+  const context = await authorize(request)
+  if (isApiResponse(context)) {
+    return context
   }
-  const session = await getCurrentSession();
+  if (context.principal.type !== "human") {
+    return apiError(
+      context.requestId,
+      403,
+      "SESSION_REQUIRED",
+      "Account settings require a dashboard session"
+    )
+  }
+  const session = await getCurrentSession()
   if (!session) {
-    return apiError(context.requestId, 401, "AUTHENTICATION_REQUIRED", "Valid authentication is required");
+    return apiError(
+      context.requestId,
+      401,
+      "AUTHENTICATION_REQUIRED",
+      "Valid authentication is required"
+    )
   }
   try {
     const result = await revokeOtherAccountSessions({
       userId: context.principal.id,
       currentSessionId: session.sessionId,
-    });
-    return apiJson(objectEnvelope("SessionRevocation", { revokedCount: result.revokedCount }, context.requestId));
+    })
+    return apiJson(
+      objectEnvelope(
+        "SessionRevocation",
+        { revokedCount: result.revokedCount },
+        context.requestId
+      )
+    )
   } catch (error) {
     if (error instanceof AccountServiceError) {
-      return apiError(context.requestId, 400, error.code, error.message);
+      return apiError(context.requestId, 400, error.code, error.message)
     }
-    return routeError(error, context.requestId);
+    return routeError(error, context.requestId)
   }
 }

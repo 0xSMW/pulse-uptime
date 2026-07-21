@@ -9,9 +9,7 @@
     "ended_at": null,
     "created_at": "2026-07-19T10:00:00.000Z",
     "updated_at": "2026-07-19T10:00:00.000Z",
-    "components": [
-      { "id": 87154, "name": "Sending" }
-    ],
+    "components": [{ "id": 87154, "name": "Sending" }],
     "updates": [
       {
         "id": 51300001,

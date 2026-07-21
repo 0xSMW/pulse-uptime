@@ -12,29 +12,38 @@
 // "verifying" in timeline.ts, which marks a partial-failure bucket. The phases
 // here describe the monitor as a whole, never a single bucket.
 
-export type MonitorPhase = "setup" | "collecting" | "active";
+export type MonitorPhase = "setup" | "collecting" | "active"
 
-export type AvailabilityRange = "h24" | "d7" | "d30" | "d90";
+export type AvailabilityRange = "h24" | "d7" | "d30" | "d90"
 
 // A range unlocks once the completed data window covers its full span.
-export const RANGE_UNLOCK_MS: Record<AvailabilityRange, number> = {
+const RANGE_UNLOCK_MS: Record<AvailabilityRange, number> = {
   h24: 86_400_000,
   d7: 7 * 86_400_000,
   d30: 30 * 86_400_000,
   d90: 90 * 86_400_000,
-};
-
-// The collecting phase spans the first day after activation.
-export const COLLECTING_WINDOW_MS = 86_400_000;
-
-export function observedMs(activatedAt: Date | null, now: Date): number {
-  if (activatedAt === null) return 0;
-  return Math.max(0, now.getTime() - activatedAt.getTime());
 }
 
-export function firstRunPhase(activatedAt: Date | null, now: Date): MonitorPhase {
-  if (activatedAt === null) return "setup";
-  return observedMs(activatedAt, now) < COLLECTING_WINDOW_MS ? "collecting" : "active";
+// The collecting phase spans the first day after activation.
+const COLLECTING_WINDOW_MS = 86_400_000
+
+export function observedMs(activatedAt: Date | null, now: Date): number {
+  if (activatedAt === null) {
+    return 0
+  }
+  return Math.max(0, now.getTime() - activatedAt.getTime())
+}
+
+export function firstRunPhase(
+  activatedAt: Date | null,
+  now: Date
+): MonitorPhase {
+  if (activatedAt === null) {
+    return "setup"
+  }
+  return observedMs(activatedAt, now) < COLLECTING_WINDOW_MS
+    ? "collecting"
+    : "active"
 }
 
 // A range card reads only completed buckets, so unlock compares against the
@@ -45,10 +54,15 @@ export function firstRunPhase(activatedAt: Date | null, now: Date): MonitorPhase
 export function isRangeUnlocked(
   range: AvailabilityRange,
   activatedAt: Date | null,
-  completedRangeEnd: Date,
+  completedRangeEnd: Date
 ): boolean {
-  if (activatedAt === null) return false;
-  return completedRangeEnd.getTime() - RANGE_UNLOCK_MS[range] >= activatedAt.getTime();
+  if (activatedAt === null) {
+    return false
+  }
+  return (
+    completedRangeEnd.getTime() - RANGE_UNLOCK_MS[range] >=
+    activatedAt.getTime()
+  )
 }
 
 // Keeps only rollup buckets whose start is at or after activation. The bucket
@@ -57,45 +71,54 @@ export function isRangeUnlocked(
 // observed data.
 export function rollupsSinceActivation<T extends { bucketStart: Date }>(
   rows: T[],
-  activatedAt: Date | null,
+  activatedAt: Date | null
 ): T[] {
-  if (activatedAt === null) return [];
-  const cutoff = activatedAt.getTime();
-  return rows.filter((row) => row.bucketStart.getTime() >= cutoff);
+  if (activatedAt === null) {
+    return []
+  }
+  const cutoff = activatedAt.getTime()
+  return rows.filter((row) => row.bucketStart.getTime() >= cutoff)
 }
 
-export type ObservedCounts = {
-  expected: number;
-  completed: number;
-  successful: number;
-  failed: number;
-  uptime: number | null;
-  coverage: number | null;
-};
+export interface ObservedCounts {
+  expected: number
+  completed: number
+  successful: number
+  failed: number
+  uptime: number | null
+  coverage: number | null
+}
 
 // Uptime divides successful by completed, so a stalled scheduler cannot inflate
 // it. Coverage divides completed by expected, exposing that stall on its own.
-export function summarizeCounts(rows: Array<{
-  expectedChecks: number;
-  completedChecks: number;
-  successfulChecks: number;
-  failedChecks: number;
-}>): ObservedCounts {
-  const expected = rows.reduce((sum, row) => sum + row.expectedChecks, 0);
-  const completed = rows.reduce((sum, row) => sum + row.completedChecks, 0);
-  const successful = rows.reduce((sum, row) => sum + row.successfulChecks, 0);
-  const failed = rows.reduce((sum, row) => sum + row.failedChecks, 0);
+export function summarizeCounts(
+  rows: Array<{
+    expectedChecks: number
+    completedChecks: number
+    successfulChecks: number
+    failedChecks: number
+  }>
+): ObservedCounts {
+  const expected = rows.reduce((sum, row) => sum + row.expectedChecks, 0)
+  const completed = rows.reduce((sum, row) => sum + row.completedChecks, 0)
+  const successful = rows.reduce((sum, row) => sum + row.successfulChecks, 0)
+  const failed = rows.reduce((sum, row) => sum + row.failedChecks, 0)
   return {
     expected,
     completed,
     successful,
     failed,
-    uptime: completed === 0 ? null : 100 * successful / completed,
+    uptime: completed === 0 ? null : (100 * successful) / completed,
     coverage: expected === 0 ? null : completed / expected,
-  };
+  }
 }
 
-export type UptimeTone = "healthy" | "degraded" | "down" | "collecting" | "unknown";
+export type UptimeTone =
+  | "healthy"
+  | "degraded"
+  | "down"
+  | "collecting"
+  | "unknown"
 
 // Color semantics for an uptime figure.
 //   down       currently down or an ongoing incident.
@@ -104,14 +127,22 @@ export type UptimeTone = "healthy" | "degraded" | "down" | "collecting" | "unkno
 //   unknown    no completed checks in the window.
 //   healthy    currently up with a full, clean window.
 export function uptimeTone(input: {
-  unlocked: boolean;
-  currentlyDown: boolean;
-  recentlyDegraded: boolean;
-  uptime: number | null;
+  unlocked: boolean
+  currentlyDown: boolean
+  recentlyDegraded: boolean
+  uptime: number | null
 }): UptimeTone {
-  if (!input.unlocked) return "collecting";
-  if (input.uptime === null) return "unknown";
-  if (input.currentlyDown) return "down";
-  if (input.recentlyDegraded || input.uptime < 99.9) return "degraded";
-  return "healthy";
+  if (!input.unlocked) {
+    return "collecting"
+  }
+  if (input.uptime === null) {
+    return "unknown"
+  }
+  if (input.currentlyDown) {
+    return "down"
+  }
+  if (input.recentlyDegraded || input.uptime < 99.9) {
+    return "degraded"
+  }
+  return "healthy"
 }

@@ -1,10 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest"
 
 import {
   hasAdvancedMonitorEditErrors,
   type MonitorEditValues,
   validateMonitorEdit,
-} from "./monitor-actions";
+} from "./monitor-actions"
 
 const validValues: MonitorEditValues = {
   name: "Public API",
@@ -19,7 +19,7 @@ const validValues: MonitorEditValues = {
   recoveryThreshold: "2",
   recipients: "ops@example.com\nowner@example.com",
   enabled: true,
-};
+}
 
 describe("validateMonitorEdit", () => {
   it.each([
@@ -31,9 +31,9 @@ describe("validateMonitorEdit", () => {
     "https://example.com:8443",
   ])("rejects private or reserved URL %s", (url) => {
     expect(validateMonitorEdit({ ...validValues, url }).url).toBe(
-      "Enter a public HTTP or HTTPS URL",
-    );
-  });
+      "Enter a public HTTP or HTTPS URL"
+    )
+  })
 
   it("rejects a status maximum below the minimum", () => {
     expect(
@@ -41,25 +41,31 @@ describe("validateMonitorEdit", () => {
         ...validValues,
         expectedStatusMin: "500",
         expectedStatusMax: "200",
-      }).expectedStatusMax,
-    ).toBe("Maximum must be at least the minimum");
-  });
+      }).expectedStatusMax
+    ).toBe("Maximum must be at least the minimum")
+  })
 
   it("rejects duplicate recipients case-insensitively", () => {
     expect(
       validateMonitorEdit({
         ...validValues,
         recipients: "ops@example.com\nOPS@example.com",
-      }).recipients,
-    ).toBe("Remove duplicate recipients");
-  });
+      }).recipients
+    ).toBe("Remove duplicate recipients")
+  })
 
   it("accepts a complete valid form", () => {
-    expect(validateMonitorEdit(validValues)).toEqual({});
-  });
+    expect(validateMonitorEdit(validValues)).toEqual({})
+  })
 
   it("identifies errors hidden inside advanced settings", () => {
-    expect(hasAdvancedMonitorEditErrors({ recipients: "Enter one valid email per line" })).toBe(true);
-    expect(hasAdvancedMonitorEditErrors({ url: "Enter a public HTTP or HTTPS URL" })).toBe(false);
-  });
-});
+    expect(
+      hasAdvancedMonitorEditErrors({
+        recipients: "Enter one valid email per line",
+      })
+    ).toBe(true)
+    expect(
+      hasAdvancedMonitorEditErrors({ url: "Enter a public HTTP or HTTPS URL" })
+    ).toBe(false)
+  })
+})

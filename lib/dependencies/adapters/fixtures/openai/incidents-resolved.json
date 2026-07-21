@@ -1,5 +1,10 @@
 {
-  "page": { "id": "01JMDK9XYNY6RXSED6SDWW50WY", "name": "OpenAI", "url": "https://status.openai.com/", "updated_at": "2026-07-18T12:58:14Z" },
+  "page": {
+    "id": "01JMDK9XYNY6RXSED6SDWW50WY",
+    "name": "OpenAI",
+    "url": "https://status.openai.com/",
+    "updated_at": "2026-07-18T12:58:14Z"
+  },
   "incidents": [
     {
       "id": "01KXT44TAQQ2R0AZDDVSJGAC4H",

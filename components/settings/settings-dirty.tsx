@@ -1,37 +1,49 @@
-"use client";
+"use client"
 
-import Link from "next/link";
-import * as React from "react";
+import Link from "next/link"
+import * as React from "react"
 
-import { useNavigationGuard } from "@/components/navigation/use-navigation-guard";
+import { useNavigationGuard } from "@/components/navigation/use-navigation-guard"
 
-export const DISCARD_PROMPT = "Discard unsaved changes?";
+export const DISCARD_PROMPT = "Discard unsaved changes?"
 
-type SettingsDirtyContextValue = {
-  dirty: boolean;
-  markDirty: (key: string, dirty: boolean) => void;
-};
+interface SettingsDirtyContextValue {
+  dirty: boolean
+  markDirty: (key: string, dirty: boolean) => void
+}
 
-const SettingsDirtyContext = React.createContext<SettingsDirtyContextValue | null>(null);
+const SettingsDirtyContext =
+  React.createContext<SettingsDirtyContextValue | null>(null)
 
 /**
  * Settings-shell dirty state. Any dirty form suppresses the Esc exit and makes
  * "Back to app" and sidebar navigation confirm before discarding.
  */
-export function SettingsDirtyProvider({ children }: { children: React.ReactNode }) {
-  const [dirtyKeys, setDirtyKeys] = React.useState<ReadonlySet<string>>(() => new Set());
+export function SettingsDirtyProvider({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  const [dirtyKeys, setDirtyKeys] = React.useState<ReadonlySet<string>>(
+    () => new Set()
+  )
 
-  const markDirty = React.useCallback((key: string, dirty: boolean) => {
+  const markDirty = React.useCallback((key: string, isDirty: boolean) => {
     setDirtyKeys((current) => {
-      if (current.has(key) === dirty) return current;
-      const next = new Set(current);
-      if (dirty) next.add(key);
-      else next.delete(key);
-      return next;
-    });
-  }, []);
+      if (current.has(key) === isDirty) {
+        return current
+      }
+      const next = new Set(current)
+      if (isDirty) {
+        next.add(key)
+      } else {
+        next.delete(key)
+      }
+      return next
+    })
+  }, [])
 
-  const dirty = dirtyKeys.size > 0;
+  const dirty = dirtyKeys.size > 0
 
   // Guards every way a user can leave while dirty: hard navigations
   // (beforeunload), browser Back/Forward (same-document history
@@ -44,24 +56,21 @@ export function SettingsDirtyProvider({ children }: { children: React.ReactNode 
     description: DISCARD_PROMPT,
     confirmLabel: "Discard",
     cancelLabel: "Keep Editing",
-  });
+  })
 
-  const value = React.useMemo(
-    () => ({ dirty, markDirty }),
-    [dirty, markDirty],
-  );
+  const value = React.useMemo(() => ({ dirty, markDirty }), [dirty, markDirty])
 
   return (
     <SettingsDirtyContext.Provider value={value}>
       {children}
       {guardDialog}
     </SettingsDirtyContext.Provider>
-  );
+  )
 }
 
 /** Null outside the settings shell so shared components stay reusable. */
 export function useSettingsDirty(): SettingsDirtyContextValue | null {
-  return React.useContext(SettingsDirtyContext);
+  return React.useContext(SettingsDirtyContext)
 }
 
 /**
@@ -74,16 +83,19 @@ export function useSettingsDirty(): SettingsDirtyContextValue | null {
  * later.
  */
 export function GuardedLink(props: React.ComponentProps<typeof Link>) {
-  return <Link {...props} />;
+  return <Link {...props} />
 }
 
 /** Registers a form's dirty state with the settings shell while mounted. */
 export function useDirtyGuard(key: string, isDirty: boolean) {
-  const context = useSettingsDirty();
-  const markDirty = context?.markDirty;
+  const context = useSettingsDirty()
+  const markDirty = context?.markDirty
   React.useEffect(() => {
-    if (!markDirty) return;
-    markDirty(key, isDirty);
-    return () => markDirty(key, false);
-  }, [markDirty, key, isDirty]);
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: markDirty is undefined outside the settings provider
+    if (!markDirty) {
+      return
+    }
+    markDirty(key, isDirty)
+    return () => markDirty(key, false)
+  }, [markDirty, key, isDirty])
 }

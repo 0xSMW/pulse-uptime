@@ -1,19 +1,19 @@
-export type IncidentFilter = "all" | "ongoing" | "resolved";
+export type IncidentFilter = "all" | "ongoing" | "resolved"
 
-export type NotificationState = "sent" | "retrying" | "dead" | "none";
+type NotificationState = "sent" | "retrying" | "dead" | "none"
 
 export interface IncidentSummary {
-  id: string;
-  monitorId: string;
-  monitorName: string;
-  openedAt: string;
-  resolvedAt: string | null;
-  durationSeconds: number;
-  openingFailure: string;
+  id: string
+  monitorId: string
+  monitorName: string
+  openedAt: string
+  resolvedAt: string | null
+  durationSeconds: number
+  openingFailure: string
   notificationSummary: {
-    state: NotificationState;
-    sentCount: number;
-  };
+    state: NotificationState
+    sentCount: number
+  }
 }
 
 export type IncidentEventType =
@@ -24,11 +24,11 @@ export type IncidentEventType =
   | "first_success"
   | "recovery_confirmed"
   | "recovery_queued"
-  | "recovery_sent";
+  | "recovery_sent"
 
 export interface IncidentEvent {
-  type: IncidentEventType;
-  at: string;
+  type: IncidentEventType
+  at: string
 }
 
 /**
@@ -37,19 +37,19 @@ export interface IncidentEvent {
  * source only, never a causal claim.
  */
 export interface DependencyIncidentOverlap {
-  dependencyId: string;
-  dependencyName: string;
-  provider: string;
-  incidentId: string;
-  incidentTitle: string;
-  providerStartedAt: string;
-  providerResolvedAt: string | null;
-  canonicalUrl: string | null;
-  matchKind: string;
-  offsetSeconds: number;
+  dependencyId: string
+  dependencyName: string
+  provider: string
+  incidentId: string
+  incidentTitle: string
+  providerStartedAt: string
+  providerResolvedAt: string | null
+  canonicalUrl: string | null
+  matchKind: string
+  offsetSeconds: number
 }
 
 export interface IncidentDetail extends IncidentSummary {
-  events: IncidentEvent[];
-  overlaps: DependencyIncidentOverlap[];
+  events: IncidentEvent[]
+  overlaps: DependencyIncidentOverlap[]
 }

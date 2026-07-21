@@ -23,9 +23,9 @@
  * @property {string} message
  */
 
-const ALLOWED_SCHEMES = new Set(["postgres:", "postgresql:"]);
+const ALLOWED_SCHEMES = new Set(["postgres:", "postgresql:"])
 
-const FALSEY_PARAM = new Set(["", "0", "false", "no", "off"]);
+const FALSEY_PARAM = new Set(["", "0", "false", "no", "off"])
 
 /**
  * Neon pooler hosts put `-pooler` on the first DNS label
@@ -33,9 +33,11 @@ const FALSEY_PARAM = new Set(["", "0", "false", "no", "off"]);
  * @param {string} hostname
  */
 function isPoolerHostname(hostname) {
-  const firstLabel = hostname.split(".")[0]?.toLowerCase() ?? "";
-  if (!firstLabel) return false;
-  return firstLabel === "pooler" || firstLabel.endsWith("-pooler");
+  const firstLabel = hostname.split(".")[0]?.toLowerCase() ?? ""
+  if (!firstLabel) {
+    return false
+  }
+  return firstLabel === "pooler" || firstLabel.endsWith("-pooler")
 }
 
 /**
@@ -44,25 +46,29 @@ function isPoolerHostname(hostname) {
  */
 function hasExplicitPoolerOptions(searchParams) {
   for (const [rawKey, rawValue] of searchParams.entries()) {
-    const key = rawKey.toLowerCase();
-    const value = rawValue.toLowerCase();
+    const key = rawKey.toLowerCase()
+    const value = rawValue.toLowerCase()
 
     if (key === "pgbouncer" && !FALSEY_PARAM.has(value)) {
-      return true;
+      return true
     }
 
-    if (key === "pool_mode" && (value === "transaction" || value === "statement")) {
-      return true;
+    if (
+      key === "pool_mode" &&
+      (value === "transaction" || value === "statement")
+    ) {
+      return true
     }
 
     if (
       key === "options" &&
-      (/pgbouncer/i.test(rawValue) || /pool_mode\s*=\s*(transaction|statement)/i.test(rawValue))
+      (/pgbouncer/i.test(rawValue) ||
+        /pool_mode\s*=\s*(transaction|statement)/i.test(rawValue))
     ) {
-      return true;
+      return true
     }
   }
-  return false;
+  return false
 }
 
 /**
@@ -70,9 +76,11 @@ function hasExplicitPoolerOptions(searchParams) {
  * @param {string} pathname
  */
 function databaseNameFromPath(pathname) {
-  const trimmed = pathname.replace(/^\/+/, "").replace(/\/+$/, "");
-  if (!trimmed) return "";
-  return trimmed.split("/")[0] ?? "";
+  const trimmed = pathname.replace(/^\/+/, "").replace(/\/+$/, "")
+  if (!trimmed) {
+    return ""
+  }
+  return trimmed.split("/")[0] ?? ""
 }
 
 /**
@@ -87,19 +95,19 @@ export function validateDirectMigrationUrl(connectionString) {
       ok: false,
       code: "invalid_url",
       message: "Connection string is empty or not a string",
-    };
+    }
   }
 
   /** @type {URL} */
-  let url;
+  let url
   try {
-    url = new URL(connectionString);
+    url = new URL(connectionString)
   } catch {
     return {
       ok: false,
       code: "invalid_url",
       message: "Connection string is not a parseable URL",
-    };
+    }
   }
 
   if (!ALLOWED_SCHEMES.has(url.protocol)) {
@@ -107,25 +115,25 @@ export function validateDirectMigrationUrl(connectionString) {
       ok: false,
       code: "invalid_scheme",
       message: `Scheme must be postgres: or postgresql: (got ${url.protocol || "none"})`,
-    };
+    }
   }
 
-  const hostname = url.hostname;
+  const hostname = url.hostname
   if (!hostname) {
     return {
       ok: false,
       code: "missing_hostname",
       message: "Hostname is missing or not parseable",
-    };
+    }
   }
 
-  const database = databaseNameFromPath(url.pathname);
+  const database = databaseNameFromPath(url.pathname)
   if (!database) {
     return {
       ok: false,
       code: "missing_database",
       message: "Database name is missing from the URL path",
-    };
+    }
   }
 
   if (isPoolerHostname(hostname)) {
@@ -134,7 +142,7 @@ export function validateDirectMigrationUrl(connectionString) {
       code: "pooler_hostname",
       message:
         "Hostname identifies a pooler endpoint. Use the direct (unpooled) host for migrations",
-    };
+    }
   }
 
   if (hasExplicitPoolerOptions(url.searchParams)) {
@@ -143,7 +151,7 @@ export function validateDirectMigrationUrl(connectionString) {
       code: "pooler_options",
       message:
         "Connection options request PgBouncer or transaction pooling. Use a direct session connection",
-    };
+    }
   }
 
   return {
@@ -152,5 +160,5 @@ export function validateDirectMigrationUrl(connectionString) {
     hostname,
     database,
     connectionString,
-  };
+  }
 }

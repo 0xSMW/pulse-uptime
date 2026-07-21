@@ -1,21 +1,24 @@
-import { Resend } from "resend";
-import type { NotificationMessage } from "./message";
+import { Resend } from "resend"
+import type { NotificationMessage } from "./message"
 
-export interface NotificationSendResult {
-  providerMessageId: string;
+interface NotificationSendResult {
+  providerMessageId: string
 }
 
 export interface NotificationSender {
-  send(message: NotificationMessage, idempotencyKey: string): Promise<NotificationSendResult>;
+  send: (
+    message: NotificationMessage,
+    idempotencyKey: string
+  ) => Promise<NotificationSendResult>
 }
 
 export class NotificationProviderError extends Error {
   constructor(
     readonly code: string,
-    readonly retryable: boolean,
+    readonly retryable: boolean
   ) {
-    super(code);
-    this.name = "NotificationProviderError";
+    super(code)
+    this.name = "NotificationProviderError"
   }
 }
 
@@ -26,36 +29,37 @@ const RETRYABLE_CODES = new Set([
   "internal_server_error",
   "monthly_quota_exceeded",
   "rate_limit_exceeded",
-]);
+])
 
 export function createResendSender(options: {
-  apiKey: string;
-  from: string;
+  apiKey: string
+  from: string
 }): NotificationSender {
-  if (!options.apiKey || !options.from) {
+  if (!(options.apiKey && options.from)) {
     return {
       async send() {
-        throw new NotificationProviderError("email_not_configured", false);
+        throw new NotificationProviderError("email_not_configured", false)
       },
-    };
+    }
   }
-  const resend = new Resend(options.apiKey);
+  const resend = new Resend(options.apiKey)
   return {
     async send(message, idempotencyKey) {
       const response = await resend.emails.send(
         { ...message, from: options.from },
-        { idempotencyKey },
-      );
+        { idempotencyKey }
+      )
       if (response.error) {
         throw new NotificationProviderError(
           response.error.name,
           RETRYABLE_CODES.has(response.error.name) ||
             response.error.statusCode === 408 ||
             response.error.statusCode === 429 ||
-            (response.error.statusCode !== null && response.error.statusCode >= 500),
-        );
+            (response.error.statusCode !== null &&
+              response.error.statusCode >= 500)
+        )
       }
-      return { providerMessageId: response.data.id };
+      return { providerMessageId: response.data.id }
     },
-  };
+  }
 }

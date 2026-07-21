@@ -5,8 +5,8 @@
  * of PublicStatusReport in lib/api/status-reports.ts (string timestamps).
  */
 
-export type ReportImpact = "down" | "degraded" | "maintenance";
-export type ReportKind = "incident" | "maintenance";
+export type ReportImpact = "down" | "degraded" | "maintenance"
+export type ReportKind = "incident" | "maintenance"
 export type ReportUpdateStatus =
   | "investigating"
   | "identified"
@@ -14,40 +14,40 @@ export type ReportUpdateStatus =
   | "resolved"
   | "scheduled"
   | "in_progress"
-  | "completed";
-export type ReportPhase = "ongoing" | "upcoming" | "window_ended" | "resolved";
+  | "completed"
+export type ReportPhase = "ongoing" | "upcoming" | "window_ended" | "resolved"
 
-export type PublicReportEntry = {
-  id: string;
-  type: ReportKind;
-  title: string;
-  startsAt: string;
-  endsAt: string | null;
-  publishedAt: string;
-  resolvedAt: string | null;
-  originIncidentId: string | null;
-  currentStatus: ReportUpdateStatus;
-  phase: ReportPhase;
+export interface PublicReportEntry {
+  id: string
+  type: ReportKind
+  title: string
+  startsAt: string
+  endsAt: string | null
+  publishedAt: string
+  resolvedAt: string | null
+  originIncidentId: string | null
+  currentStatus: ReportUpdateStatus
+  phase: ReportPhase
   latestUpdate: {
-    id: string;
-    status: ReportUpdateStatus;
-    markdown: string;
-    publishedAt: string;
-  } | null;
+    id: string
+    status: ReportUpdateStatus
+    markdown: string
+    publishedAt: string
+  } | null
   affected: Array<{
-    monitorId: string;
-    monitorName: string;
-    groupName: string | null;
-    impact: ReportImpact;
-  }>;
-};
+    monitorId: string
+    monitorName: string
+    groupName: string | null
+    impact: ReportImpact
+  }>
+}
 
-export type PublicReportsView = {
-  ongoing: PublicReportEntry[];
-  upcoming: PublicReportEntry[];
-  windowEnded: PublicReportEntry[];
-  resolved: PublicReportEntry[];
-};
+export interface PublicReportsView {
+  ongoing: PublicReportEntry[]
+  upcoming: PublicReportEntry[]
+  windowEnded: PublicReportEntry[]
+  resolved: PublicReportEntry[]
+}
 
 export const reportStatusLabels: Record<ReportUpdateStatus, string> = {
   investigating: "Investigating",
@@ -57,13 +57,13 @@ export const reportStatusLabels: Record<ReportUpdateStatus, string> = {
   scheduled: "Scheduled",
   in_progress: "In progress",
   completed: "Completed",
-};
+}
 
 export const reportImpactLabels: Record<ReportImpact, string> = {
   down: "Down",
   degraded: "Degraded",
   maintenance: "Maintenance",
-};
+}
 
 /**
  * Overall banner tiers ordered by severity: a machine
@@ -77,7 +77,7 @@ export type PublicOverallState =
   | "maintenance"
   | "investigating"
   | "degraded"
-  | "outage";
+  | "outage"
 
 const overallSeverity: Record<PublicOverallState, number> = {
   empty: 0,
@@ -86,10 +86,13 @@ const overallSeverity: Record<PublicOverallState, number> = {
   investigating: 2,
   degraded: 3,
   outage: 4,
-};
+}
 
-function worse(left: PublicOverallState, right: PublicOverallState): PublicOverallState {
-  return overallSeverity[right] > overallSeverity[left] ? right : left;
+function worse(
+  left: PublicOverallState,
+  right: PublicOverallState
+): PublicOverallState {
+  return overallSeverity[right] > overallSeverity[left] ? right : left
 }
 
 /**
@@ -100,10 +103,14 @@ function worse(left: PublicOverallState, right: PublicOverallState): PublicOvera
  * a maintenance window is expected, not an outage.
  */
 export function reportBannerTier(
-  report: Pick<PublicReportEntry, "type" | "affected">,
+  report: Pick<PublicReportEntry, "type" | "affected">
 ): "maintenance" | "degraded" | "outage" {
-  if (report.type === "maintenance") return "maintenance";
-  return report.affected.some((entry) => entry.impact === "down") ? "outage" : "degraded";
+  if (report.type === "maintenance") {
+    return "maintenance"
+  }
+  return report.affected.some((entry) => entry.impact === "down")
+    ? "outage"
+    : "degraded"
 }
 
 /**
@@ -121,54 +128,67 @@ export function reportBannerTier(
  */
 export function deriveOverallState(
   machineStates: readonly string[],
-  ongoingReports: ReadonlyArray<Pick<PublicReportEntry, "type" | "affected">>,
+  ongoingReports: readonly Pick<PublicReportEntry, "type" | "affected">[]
 ): PublicOverallState {
-  if (machineStates.length === 0 && ongoingReports.length === 0) return "empty";
-  let overall: PublicOverallState = machineStates.length === 0
-    ? "operational"
-    : machineStates.includes("DOWN")
-      ? "outage"
-      : machineStates.some((state) => state === "VERIFYING_DOWN" || state === "VERIFYING_UP")
-        ? "investigating"
-        : "operational";
-  for (const report of ongoingReports) {
-    overall = worse(overall, reportBannerTier(report));
+  if (machineStates.length === 0 && ongoingReports.length === 0) {
+    return "empty"
   }
-  return overall;
+  let overall: PublicOverallState =
+    machineStates.length === 0
+      ? "operational"
+      : machineStates.includes("DOWN")
+        ? "outage"
+        : machineStates.some(
+              (state) => state === "VERIFYING_DOWN" || state === "VERIFYING_UP"
+            )
+          ? "investigating"
+          : "operational"
+  for (const report of ongoingReports) {
+    overall = worse(overall, reportBannerTier(report))
+  }
+  return overall
 }
 
 /** Incident ids already represented by a published report (dedupe). */
 export function promotedIncidentIds(
-  reports: ReadonlyArray<Pick<PublicReportEntry, "originIncidentId">>,
+  reports: readonly Pick<PublicReportEntry, "originIncidentId">[]
 ): Set<string> {
-  const ids = new Set<string>();
+  const ids = new Set<string>()
   for (const report of reports) {
-    if (report.originIncidentId) ids.add(report.originIncidentId);
+    if (report.originIncidentId) {
+      ids.add(report.originIncidentId)
+    }
   }
-  return ids;
+  return ids
 }
 
 export function excludePromotedIncidents<T extends { id: string }>(
   incidents: readonly T[],
-  promoted: ReadonlySet<string>,
+  promoted: ReadonlySet<string>
 ): T[] {
-  if (promoted.size === 0) return [...incidents];
-  return incidents.filter((incident) => !promoted.has(incident.id));
+  if (promoted.size === 0) {
+    return [...incidents]
+  }
+  return incidents.filter((incident) => !promoted.has(incident.id))
 }
 
-export type MonitorReportAnnotation = {
-  reportId: string;
-  impact: ReportImpact;
-  label: string;
-};
+export interface MonitorReportAnnotation {
+  reportId: string
+  impact: ReportImpact
+  label: string
+}
 
 const annotationLabels: Record<ReportImpact, string> = {
   down: "Down — see report",
   degraded: "Degraded — see report",
   maintenance: "Maintenance — see report",
-};
+}
 
-const impactSeverity: Record<ReportImpact, number> = { maintenance: 0, degraded: 1, down: 2 };
+const impactSeverity: Record<ReportImpact, number> = {
+  maintenance: 0,
+  degraded: 1,
+  down: 2,
+}
 
 /**
  * Row annotations while a report is ongoing: monitor id → the worst declared
@@ -176,21 +196,26 @@ const impactSeverity: Record<ReportImpact, number> = { maintenance: 0, degraded:
  * dot, never overrides it.
  */
 export function monitorReportAnnotations(
-  ongoingReports: ReadonlyArray<Pick<PublicReportEntry, "id" | "affected">>,
+  ongoingReports: readonly Pick<PublicReportEntry, "id" | "affected">[]
 ): Map<string, MonitorReportAnnotation> {
-  const annotations = new Map<string, MonitorReportAnnotation>();
+  const annotations = new Map<string, MonitorReportAnnotation>()
   for (const report of ongoingReports) {
     for (const entry of report.affected) {
-      const existing = annotations.get(entry.monitorId);
-      if (existing && impactSeverity[existing.impact] >= impactSeverity[entry.impact]) continue;
+      const existing = annotations.get(entry.monitorId)
+      if (
+        existing &&
+        impactSeverity[existing.impact] >= impactSeverity[entry.impact]
+      ) {
+        continue
+      }
       annotations.set(entry.monitorId, {
         reportId: report.id,
         impact: entry.impact,
         label: annotationLabels[entry.impact],
-      });
+      })
     }
   }
-  return annotations;
+  return annotations
 }
 
 /**
@@ -208,28 +233,46 @@ export function monitorReportAnnotations(
  */
 export function publicReportPhase(
   report: {
-    type: ReportKind;
-    startsAt: string;
-    endsAt: string | null;
-    resolvedAt: string | null;
+    type: ReportKind
+    startsAt: string
+    endsAt: string | null
+    resolvedAt: string | null
   },
-  now: Date,
+  now: Date
 ): ReportPhase {
-  if (report.resolvedAt) return "resolved";
-  if (Date.parse(report.startsAt) > now.getTime()) return "upcoming";
-  if (report.type === "maintenance" && report.endsAt && Date.parse(report.endsAt) <= now.getTime()) {
-    return "window_ended";
+  if (report.resolvedAt) {
+    return "resolved"
   }
-  return "ongoing";
+  if (Date.parse(report.startsAt) > now.getTime()) {
+    return "upcoming"
+  }
+  if (
+    report.type === "maintenance" &&
+    report.endsAt &&
+    Date.parse(report.endsAt) <= now.getTime()
+  ) {
+    return "window_ended"
+  }
+  return "ongoing"
 }
 
 /** Duration of a resolved report for the history list (start → resolution). */
-export function reportDurationSeconds(report: { startsAt: string; resolvedAt: string | null }): number {
-  if (!report.resolvedAt) return 0;
-  return Math.max(0, Math.floor((Date.parse(report.resolvedAt) - Date.parse(report.startsAt)) / 1_000));
+export function reportDurationSeconds(report: {
+  startsAt: string
+  resolvedAt: string | null
+}): number {
+  if (!report.resolvedAt) {
+    return 0
+  }
+  return Math.max(
+    0,
+    Math.floor(
+      (Date.parse(report.resolvedAt) - Date.parse(report.startsAt)) / 1000
+    )
+  )
 }
 
 /** Public permalink route for a report id. */
 export function statusReportUrl(reportId: string): string {
-  return `/status/reports/${encodeURIComponent(reportId)}`;
+  return `/status/reports/${encodeURIComponent(reportId)}`
 }

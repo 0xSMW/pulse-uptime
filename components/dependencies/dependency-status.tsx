@@ -1,5 +1,13 @@
-import type { DependencyFidelity, DependencyState } from "@/lib/dependencies/types";
-import { cn } from "@/lib/utils";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import type {
+  DependencyFidelity,
+  DependencyState,
+} from "@/lib/dependencies/types"
+import { cn } from "@/lib/utils"
 
 // Shown on an incident_only dependency: its source publishes provider incident
 // prose but no structured component state, so this muted chip tells the reader
@@ -7,35 +15,47 @@ import { cn } from "@/lib/utils";
 // chip style matches the neutral chips already used across the dependency
 // surfaces (Provider reported, the UNKNOWN badge): --chip-bg on --fg-muted,
 // color communicates no state.
-export const INCIDENT_FEED_ONLY_LABEL = "Incident feed only";
+export const INCIDENT_FEED_ONLY_LABEL = "Incident feed only"
+
+// Plain-language tooltip on the chip so a reader knows what they actually get.
+const INCIDENT_FEED_ONLY_HINT =
+  "Provider posts incident notices, not per-component health"
 
 export function DependencyFidelityBadge({
   fidelity,
   className,
 }: {
-  fidelity: DependencyFidelity;
-  className?: string;
+  fidelity: DependencyFidelity
+  className?: string
 }) {
-  if (fidelity !== "incident_only") return null;
+  if (fidelity !== "incident_only") {
+    return null
+  }
+  // Button trigger so the explanation is reachable by keyboard focus, not just
+  // hover, inside the interactive catalog and dependency rows.
   return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap text-[var(--fg-muted)]",
-        className,
-      )}
-    >
-      {INCIDENT_FEED_ONLY_LABEL}
-    </span>
-  );
+    <Tooltip>
+      <TooltipTrigger
+        className={cn(
+          "inline-flex items-center whitespace-nowrap rounded bg-[var(--chip-bg)] px-1.5 py-0.5 font-medium text-[11px] text-[var(--fg-muted)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]",
+          className
+        )}
+        type="button"
+      >
+        {INCIDENT_FEED_ONLY_LABEL}
+      </TooltipTrigger>
+      <TooltipContent>{INCIDENT_FEED_ONLY_HINT}</TooltipContent>
+    </Tooltip>
+  )
 }
 
 export interface DependencyStatusDotProps {
-  state: DependencyState;
-  pending?: boolean;
-  size?: "sm" | "md";
-  className?: string;
-  "aria-label"?: string;
-  "aria-hidden"?: boolean;
+  state: DependencyState
+  pending?: boolean
+  size?: "sm" | "md"
+  className?: string
+  "aria-label"?: string
+  "aria-hidden"?: boolean
 }
 
 // Decision 5, Docs/DEPENDENCY-MONITORING.md "Implementation plan": dependency
@@ -48,7 +68,7 @@ const dotStyles: Record<DependencyState, string> = {
   OUTAGE: "status-dot-pulse bg-[var(--down)] text-[var(--down)]",
   MAINTENANCE: "bg-[var(--neutral-state)] text-[var(--neutral-state)]",
   UNKNOWN: "bg-[var(--neutral-state)] text-[var(--neutral-state)]",
-};
+}
 
 export const dependencyStateLabels: Record<DependencyState, string> = {
   OPERATIONAL: "Operational",
@@ -56,20 +76,23 @@ export const dependencyStateLabels: Record<DependencyState, string> = {
   OUTAGE: "Outage",
   MAINTENANCE: "Maintenance",
   UNKNOWN: "Unknown",
-};
+}
 
 // Shown while pendingFirstPoll is true, before the first successful poll lands.
 // A fresh dependency has no reading yet, so it reads as an in-progress check
 // rather than Unknown, which is reserved for a poll that succeeded but could
 // not resolve the component. The dot reuses the neutral in-progress treatment,
 // matching the monitor PENDING dot, so no new color is introduced.
-export const dependencyPendingLabel = "Checking";
-const pendingDotStyle = "bg-[var(--neutral-state)] text-[var(--neutral-state)]";
-const pendingBadgeStyle = "bg-[var(--chip-bg)] text-[var(--fg-muted)]";
+export const dependencyPendingLabel = "Checking"
+const pendingDotStyle = "bg-[var(--neutral-state)] text-[var(--neutral-state)]"
+const pendingBadgeStyle = "bg-[var(--chip-bg)] text-[var(--fg-muted)]"
 
 /** Status text for a dependency, showing the checking state before the first poll lands. */
-export function dependencyStatusLabel(state: DependencyState, pending: boolean): string {
-  return pending ? dependencyPendingLabel : dependencyStateLabels[state];
+export function dependencyStatusLabel(
+  state: DependencyState,
+  pending: boolean
+): string {
+  return pending ? dependencyPendingLabel : dependencyStateLabels[state]
 }
 
 export function DependencyStatusDot({
@@ -81,18 +104,23 @@ export function DependencyStatusDot({
   "aria-hidden": ariaHidden,
 }: DependencyStatusDotProps) {
   return (
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: role img is set whenever aria-label is present, both guarded by aria-hidden
     <span
-      role={ariaHidden ? undefined : "img"}
       aria-hidden={ariaHidden}
-      aria-label={ariaHidden ? undefined : (ariaLabel ?? dependencyStatusLabel(state, pending))}
+      aria-label={
+        ariaHidden
+          ? undefined
+          : (ariaLabel ?? dependencyStatusLabel(state, pending))
+      }
       className={cn(
         "relative inline-block shrink-0 rounded-full",
         size === "sm" ? "size-2" : "size-2.5",
         pending ? pendingDotStyle : dotStyles[state],
-        className,
+        className
       )}
+      role={ariaHidden ? undefined : "img"}
     />
-  );
+  )
 }
 
 const badgeStyles: Record<DependencyState, string> = {
@@ -101,27 +129,32 @@ const badgeStyles: Record<DependencyState, string> = {
   OUTAGE: "bg-[var(--down-bg)] text-[var(--down-text)]",
   MAINTENANCE: "bg-[var(--chip-bg)] text-[var(--fg-muted)]",
   UNKNOWN: "bg-[var(--chip-bg)] text-[var(--fg-muted)]",
-};
+}
 
 export function DependencyStatusBadge({
   state,
   pending = false,
   className,
 }: {
-  state: DependencyState;
-  pending?: boolean;
-  className?: string;
+  state: DependencyState
+  pending?: boolean
+  className?: string
 }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs leading-4 font-medium whitespace-nowrap",
+        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 font-medium text-xs leading-4",
         pending ? pendingBadgeStyle : badgeStyles[state],
-        className,
+        className
       )}
     >
-      <DependencyStatusDot state={state} pending={pending} size="sm" aria-hidden />
+      <DependencyStatusDot
+        aria-hidden
+        pending={pending}
+        size="sm"
+        state={state}
+      />
       {dependencyStatusLabel(state, pending)}
     </span>
-  );
+  )
 }

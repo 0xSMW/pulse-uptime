@@ -6,25 +6,40 @@
 // catalog-validation concern, not a polling concern, so this adapter never
 // reads it.
 
-import { z } from "zod";
+import { z } from "zod"
 
-import type { DependencySourceManifest } from "../manifest";
-import type { CatalogComponentDirectory, CatalogDirectoryOption, NormalizedProviderSnapshot } from "../types";
-import { scopeFromComponentIds } from "../types";
+import type { DependencySourceManifest } from "../manifest"
+import type {
+  CatalogComponentDirectory,
+  CatalogDirectoryOption,
+  NormalizedProviderSnapshot,
+} from "../types"
+import { scopeFromComponentIds } from "../types"
 
-import type { AdapterRequestDescriptor, CatalogDirectoryInput, DependencyAdapter, NormalizeInput } from "./index";
-import { catalogDirectoryFromNormalize } from "./shared";
-import { AdapterParseError, latestTimestamp, requireIsoTimestamp, requireJson, toBoundedPlainText } from "./shared";
+import type {
+  AdapterRequestDescriptor,
+  CatalogDirectoryInput,
+  DependencyAdapter,
+  NormalizeInput,
+} from "./index"
+import {
+  AdapterParseError,
+  catalogDirectoryFromNormalize,
+  latestTimestamp,
+  requireIsoTimestamp,
+  requireJson,
+  toBoundedPlainText,
+} from "./shared"
 
-const productRefSchema = z.object({ id: z.string().min(1) });
-const locationRefSchema = z.object({ id: z.string().min(1) });
+const productRefSchema = z.object({ id: z.string().min(1) })
+const locationRefSchema = z.object({ id: z.string().min(1) })
 
 const updateSchema = z.object({
   created: z.string(),
   modified: z.string(),
   text: z.string().nullable().optional(),
   status: z.string().optional(),
-});
+})
 
 const incidentSchema = z.object({
   id: z.string().min(1),
@@ -36,29 +51,46 @@ const incidentSchema = z.object({
   status_impact: z.string(),
   uri: z.string(),
   affected_products: z.array(productRefSchema).optional().default([]),
-  currently_affected_locations: z.array(locationRefSchema).optional().default([]),
-  previously_affected_locations: z.array(locationRefSchema).optional().default([]),
+  currently_affected_locations: z
+    .array(locationRefSchema)
+    .optional()
+    .default([]),
+  previously_affected_locations: z
+    .array(locationRefSchema)
+    .optional()
+    .default([]),
   updates: z.array(updateSchema).optional().default([]),
-});
+})
 
-const incidentsDocSchema = z.array(incidentSchema);
+const incidentsDocSchema = z.array(incidentSchema)
 
-type Incident = z.infer<typeof incidentSchema>;
+type Incident = z.infer<typeof incidentSchema>
 
-type ComponentState = "OPERATIONAL" | "DEGRADED" | "OUTAGE" | "MAINTENANCE";
+type ComponentState = "OPERATIONAL" | "DEGRADED" | "OUTAGE" | "MAINTENANCE"
 
-const SEVERITY_RANK: Record<ComponentState, number> = { OPERATIONAL: 0, MAINTENANCE: 1, DEGRADED: 2, OUTAGE: 3 };
+const SEVERITY_RANK: Record<ComponentState, number> = {
+  OPERATIONAL: 0,
+  MAINTENANCE: 1,
+  DEGRADED: 2,
+  OUTAGE: 3,
+}
 
 /** SERVICE_OUTAGE, SERVICE_DISRUPTION, and SERVICE_INFORMATION (while active) are Google's complete impact vocabulary. */
-function mapStatusImpact(statusImpact: string, sourceId: string): ComponentState {
+function mapStatusImpact(
+  statusImpact: string,
+  sourceId: string
+): ComponentState {
   switch (statusImpact) {
     case "SERVICE_OUTAGE":
-      return "OUTAGE";
+      return "OUTAGE"
     case "SERVICE_DISRUPTION":
     case "SERVICE_INFORMATION":
-      return "DEGRADED";
+      return "DEGRADED"
     default:
-      throw new AdapterParseError("UNKNOWN_STATUS", `${sourceId}: unrecognized status_impact "${statusImpact}"`);
+      throw new AdapterParseError(
+        "UNKNOWN_STATUS",
+        `${sourceId}: unrecognized status_impact "${statusImpact}"`
+      )
   }
 }
 
@@ -70,11 +102,13 @@ function mapStatusImpact(statusImpact: string, sourceId: string): ComponentState
  * finer signal), resolved incidents to "resolved".
  */
 function incidentState(incident: Incident): "identified" | "resolved" {
-  return incident.end ? "resolved" : "identified";
+  return incident.end ? "resolved" : "identified"
 }
 
-function updateState(update: z.infer<typeof updateSchema>): "resolved" | "identified" {
-  return update.status === "AVAILABLE" ? "resolved" : "identified";
+function updateState(
+  update: z.infer<typeof updateSchema>
+): "resolved" | "identified" {
+  return update.status === "AVAILABLE" ? "resolved" : "identified"
 }
 
 /**
@@ -90,35 +124,61 @@ function updateState(update: z.infer<typeof updateSchema>): "resolved" | "identi
  * dependencies still match it as history.
  */
 function componentIdsForIncident(incident: Incident): string[] {
-  const productIds = incident.affected_products.map((product) => product.id);
+  const productIds = incident.affected_products.map((product) => product.id)
   const locationRefs = incident.end
-    ? [...incident.currently_affected_locations, ...incident.previously_affected_locations]
-    : incident.currently_affected_locations;
-  const locationIds = locationRefs.map((location) => location.id);
-  const composites = productIds.flatMap((productId) => locationIds.map((locationId) => `${productId}@${locationId}`));
-  return [...new Set([...productIds, ...composites])];
+    ? [
+        ...incident.currently_affected_locations,
+        ...incident.previously_affected_locations,
+      ]
+    : incident.currently_affected_locations
+  const locationIds = locationRefs.map((location) => location.id)
+  const composites = productIds.flatMap((productId) =>
+    locationIds.map((locationId) => `${productId}@${locationId}`)
+  )
+  return [...new Set([...productIds, ...composites])]
 }
 
-function mapIncident(incident: Incident, sourceId: string): NormalizedProviderSnapshot["incidents"][number] {
+function mapIncident(
+  incident: Incident,
+  sourceId: string
+): NormalizedProviderSnapshot["incidents"][number] {
   return {
     externalId: incident.id,
-    title: toBoundedPlainText(incident.external_desc) || "Google Cloud incident",
+    title:
+      toBoundedPlainText(incident.external_desc) || "Google Cloud incident",
     state: incidentState(incident),
     impact: incident.severity ?? null,
     startedAt: requireIsoTimestamp(incident.begin, sourceId, "incident.begin"),
-    resolvedAt: incident.end ? requireIsoTimestamp(incident.end, sourceId, "incident.end") : null,
-    updatedAt: requireIsoTimestamp(incident.modified, sourceId, "incident.modified"),
-    canonicalUrl: new URL(incident.uri, "https://status.cloud.google.com/").toString(),
+    resolvedAt: incident.end
+      ? requireIsoTimestamp(incident.end, sourceId, "incident.end")
+      : null,
+    updatedAt: requireIsoTimestamp(
+      incident.modified,
+      sourceId,
+      "incident.modified"
+    ),
+    canonicalUrl: new URL(
+      incident.uri,
+      "https://status.cloud.google.com/"
+    ).toString(),
     scope: scopeFromComponentIds(componentIdsForIncident(incident)),
     updates: incident.updates.map((update) => ({
       // Google updates have no id of their own; the creation timestamp is the stable, immutable identity.
       externalId: update.created,
       state: updateState(update),
       bodyText: toBoundedPlainText(update.text),
-      createdAt: requireIsoTimestamp(update.created, sourceId, "update.created"),
-      updatedAt: requireIsoTimestamp(update.modified, sourceId, "update.modified"),
+      createdAt: requireIsoTimestamp(
+        update.created,
+        sourceId,
+        "update.created"
+      ),
+      updatedAt: requireIsoTimestamp(
+        update.modified,
+        sourceId,
+        "update.modified"
+      ),
     })),
-  };
+  }
 }
 
 /**
@@ -127,43 +187,72 @@ function mapIncident(incident: Incident, sourceId: string): NormalizedProviderSn
  * per-product locations feed discovered_locations scopes when present.
  * Returns null when the payload is not a product list.
  */
-export function googleProductsCatalogDirectory(json: unknown): CatalogComponentDirectory | null {
-  let products: unknown[] | null = null;
+export function googleProductsCatalogDirectory(
+  json: unknown
+): CatalogComponentDirectory | null {
+  let products: unknown[] | null = null
   if (Array.isArray(json)) {
-    products = json;
-  } else if (json !== null && typeof json === "object" && Array.isArray((json as { products?: unknown }).products)) {
-    products = (json as { products: unknown[] }).products;
+    products = json
+  } else if (
+    json !== null &&
+    typeof json === "object" &&
+    Array.isArray((json as { products?: unknown }).products)
+  ) {
+    products = (json as { products: unknown[] }).products
   }
-  if (!products) return null;
+  if (!products) {
+    return null
+  }
 
-  const componentIds = new Set<string>();
-  const locationsByProduct = new Map<string, CatalogDirectoryOption[]>();
+  const componentIds = new Set<string>()
+  const locationsByProduct = new Map<string, CatalogDirectoryOption[]>()
 
   for (const entry of products) {
-    if (entry === null || typeof entry !== "object") continue;
-    const product = entry as {
-      id?: unknown;
-      title?: unknown;
-      name?: unknown;
-      locations?: unknown;
-    };
-    if (typeof product.id !== "string" || product.id.length === 0) continue;
-    componentIds.add(product.id);
-
-    if (!Array.isArray(product.locations)) continue;
-    const locations: CatalogDirectoryOption[] = [];
-    for (const locationEntry of product.locations) {
-      if (locationEntry === null || typeof locationEntry !== "object") continue;
-      const location = locationEntry as { id?: unknown; title?: unknown; name?: unknown };
-      if (typeof location.id !== "string" || location.id.length === 0) continue;
-      const label = typeof location.title === "string" && location.title.length > 0
-        ? location.title
-        : typeof location.name === "string" && location.name.length > 0
-          ? location.name
-          : location.id;
-      locations.push({ id: location.id, label, metadata: { productId: product.id } });
+    if (entry === null || typeof entry !== "object") {
+      continue
     }
-    if (locations.length > 0) locationsByProduct.set(product.id, locations);
+    const product = entry as {
+      id?: unknown
+      title?: unknown
+      name?: unknown
+      locations?: unknown
+    }
+    if (typeof product.id !== "string" || product.id.length === 0) {
+      continue
+    }
+    componentIds.add(product.id)
+
+    if (!Array.isArray(product.locations)) {
+      continue
+    }
+    const locations: CatalogDirectoryOption[] = []
+    for (const locationEntry of product.locations) {
+      if (locationEntry === null || typeof locationEntry !== "object") {
+        continue
+      }
+      const location = locationEntry as {
+        id?: unknown
+        title?: unknown
+        name?: unknown
+      }
+      if (typeof location.id !== "string" || location.id.length === 0) {
+        continue
+      }
+      const label =
+        typeof location.title === "string" && location.title.length > 0
+          ? location.title
+          : typeof location.name === "string" && location.name.length > 0
+            ? location.name
+            : location.id
+      locations.push({
+        id: location.id,
+        label,
+        metadata: { productId: product.id },
+      })
+    }
+    if (locations.length > 0) {
+      locationsByProduct.set(product.id, locations)
+    }
   }
 
   return {
@@ -172,12 +261,12 @@ export function googleProductsCatalogDirectory(json: unknown): CatalogComponentD
     locationsByProduct,
     complete: true,
     tracksComponents: true,
-  };
+  }
 }
 
 export const googleCloudStatusAdapter: DependencyAdapter = {
   requests(source: DependencySourceManifest): AdapterRequestDescriptor[] {
-    return [{ kind: "current", url: source.currentUrl, optional: false }];
+    return [{ kind: "current", url: source.currentUrl, optional: false }]
   },
 
   catalogDirectory(input: CatalogDirectoryInput) {
@@ -185,33 +274,42 @@ export const googleCloudStatusAdapter: DependencyAdapter = {
     // validation uses products.json through googleProductsCatalogDirectory.
     // This path still returns whatever product ids normalize would see so
     // callers that pass incidents documents get a consistent incomplete map.
-    return catalogDirectoryFromNormalize(googleCloudStatusAdapter, input);
+    return catalogDirectoryFromNormalize(googleCloudStatusAdapter, input)
   },
 
   normalize(input: NormalizeInput): NormalizedProviderSnapshot {
-    const { source, documents, observedAt } = input;
-    const document = documents[0];
-    const json = requireJson(document, source.id, "incidents");
-    const result = incidentsDocSchema.safeParse(json);
+    const { source, documents, observedAt } = input
+    const document = documents[0]
+    const json = requireJson(document, source.id, "incidents")
+    const result = incidentsDocSchema.safeParse(json)
     if (!result.success) {
-      throw new AdapterParseError("SCHEMA_INVALID", `${source.id}: incidents.json failed schema validation: ${result.error.message}`);
+      throw new AdapterParseError(
+        "SCHEMA_INVALID",
+        `${source.id}: incidents.json failed schema validation: ${result.error.message}`
+      )
     }
-    const rawIncidents = result.data;
+    const rawIncidents = result.data
 
-    const components: NormalizedProviderSnapshot["components"] = {};
+    const components: NormalizedProviderSnapshot["components"] = {}
     for (const incident of rawIncidents) {
-      if (incident.end) continue; // only active incidents contribute to current component state
-      const state = mapStatusImpact(incident.status_impact, source.id);
+      if (incident.end) {
+        continue // only active incidents contribute to current component state
+      }
+      const state = mapStatusImpact(incident.status_impact, source.id)
       for (const product of incident.affected_products) {
-        const existing = components[product.id];
+        const existing = components[product.id]
         if (!existing || SEVERITY_RANK[state] > SEVERITY_RANK[existing.state]) {
-          components[product.id] = { state, updatedAt: incident.modified };
+          components[product.id] = { state, updatedAt: incident.modified }
         }
       }
     }
 
-    const incidents = rawIncidents.map((incident) => mapIncident(incident, source.id));
-    const providerUpdatedAt = latestTimestamp(incidents.map((incident) => incident.updatedAt));
+    const incidents = rawIncidents.map((incident) =>
+      mapIncident(incident, source.id)
+    )
+    const providerUpdatedAt = latestTimestamp(
+      incidents.map((incident) => incident.updatedAt)
+    )
 
     return {
       sourceId: source.id,
@@ -230,6 +328,6 @@ export const googleCloudStatusAdapter: DependencyAdapter = {
       incidents,
       maintenances: [],
       cache: { etag: null, lastModified: null },
-    };
+    }
   },
-};
+}

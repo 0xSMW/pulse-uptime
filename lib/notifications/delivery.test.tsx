@@ -1,12 +1,14 @@
-import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
-import { NotificationProviderError, type NotificationSender } from "./provider";
-import { deliverPendingNotifications, retryAt } from "./delivery";
-import { incidentUrl, createNotificationMessage } from "./message";
-import type { SqlExecutor } from "./sql";
-import type { ClaimedNotification, DeliveryLogEntry } from "./types";
+import { renderToStaticMarkup } from "react-dom/server"
+import { describe, expect, it, vi } from "vitest"
+import { deliverPendingNotifications, retryAt } from "./delivery"
+import { createNotificationMessage, incidentUrl } from "./message"
+import { NotificationProviderError, type NotificationSender } from "./provider"
+import type { SqlExecutor } from "./sql"
+import type { ClaimedNotification, DeliveryLogEntry } from "./types"
 
-function claimed(overrides: Partial<ClaimedNotification> = {}): ClaimedNotification {
+function claimed(
+  overrides: Partial<ClaimedNotification> = {}
+): ClaimedNotification {
   return {
     id: "notification-1",
     incidentId: "incident-1",
@@ -25,10 +27,13 @@ function claimed(overrides: Partial<ClaimedNotification> = {}): ClaimedNotificat
     attemptCount: 1,
     claimToken: "claim-1",
     ...overrides,
-  };
+  }
 }
 
-function dbReturning(rows: ClaimedNotification[], finalize = true): SqlExecutor {
+function dbReturning(
+  rows: ClaimedNotification[],
+  finalize = true
+): SqlExecutor {
   return {
     async query<T>(text: string): Promise<readonly T[]> {
       if (text.includes("with due as")) {
@@ -42,113 +47,136 @@ function dbReturning(rows: ClaimedNotification[], finalize = true): SqlExecutor 
           payload: row.payload,
           attempt_count: row.attemptCount,
           claim_token: row.claimToken,
-        })) as T[];
+        })) as T[]
       }
-      return (finalize ? [{ id: "updated" }] : []) as T[];
+      return (finalize ? [{ id: "updated" }] : []) as T[]
     },
-  };
+  }
 }
 
 describe("notification messages", () => {
   it("links outage email to the canonical incident route", () => {
-    expect(incidentUrl("https://pulse.example.com/base?old=1", "incident/1"))
-      .toBe("https://pulse.example.com/incidents/incident%2F1");
-    const message = createNotificationMessage(claimed(), "https://pulse.example.com");
-    const html = renderToStaticMarkup(message.react);
-    expect(message.subject).toBe("Public API is down");
-    expect(html).toContain("https://pulse.example.com/incidents/incident-1");
-    expect(html).toContain("Connection timed out");
-  });
+    expect(
+      incidentUrl("https://pulse.example.com/base?old=1", "incident/1")
+    ).toBe("https://pulse.example.com/incidents/incident%2F1")
+    const message = createNotificationMessage(
+      claimed(),
+      "https://pulse.example.com"
+    )
+    const html = renderToStaticMarkup(message.react)
+    expect(message.subject).toBe("Public API is down")
+    expect(html).toContain("https://pulse.example.com/incidents/incident-1")
+    expect(html).toContain("Connection timed out")
+  })
 
   it("builds concise recovery and test messages", () => {
-    const recovery = createNotificationMessage(claimed({
-      eventType: "incident.resolved",
-      payload: {
-        type: "incident.resolved",
-        monitorName: "Public API",
-        incidentId: "incident-1",
-        recoveredAt: "Jul 18 at 07:08 UTC",
-        duration: "8 minutes",
-      },
-    }), "https://pulse.example.com");
-    expect(recovery.subject).toBe("Public API recovered");
-    expect(renderToStaticMarkup(recovery.react)).toContain("8 minutes");
+    const recovery = createNotificationMessage(
+      claimed({
+        eventType: "incident.resolved",
+        payload: {
+          type: "incident.resolved",
+          monitorName: "Public API",
+          incidentId: "incident-1",
+          recoveredAt: "Jul 18 at 07:08 UTC",
+          duration: "8 minutes",
+        },
+      }),
+      "https://pulse.example.com"
+    )
+    expect(recovery.subject).toBe("Public API recovered")
+    expect(renderToStaticMarkup(recovery.react)).toContain("8 minutes")
 
-    const test = createNotificationMessage(claimed({
-      eventType: "notification.test",
-      incidentId: null,
-      payload: { type: "notification.test", installationName: "Production" },
-    }), "https://pulse.example.com");
-    expect(test.subject).toBe("Pulse notification test");
-    expect(renderToStaticMarkup(test.react)).toContain("Production can deliver");
-  });
+    const test = createNotificationMessage(
+      claimed({
+        eventType: "notification.test",
+        incidentId: null,
+        payload: { type: "notification.test", installationName: "Production" },
+      }),
+      "https://pulse.example.com"
+    )
+    expect(test.subject).toBe("Pulse notification test")
+    expect(renderToStaticMarkup(test.react)).toContain("Production can deliver")
+  })
 
   it("renders a dependency incident notification with neutral provider-reported wording", () => {
-    const message = createNotificationMessage(claimed({
-      eventType: "dependency.incident",
-      incidentId: null,
-      monitorId: null,
-      dependencyId: "dep-1",
-      payload: {
-        type: "dependency.incident",
-        dependencyName: "Vercel Runtime",
-        provider: "Vercel",
-        incidentTitle: "Elevated function errors",
-        state: "OUTAGE",
-        canonicalUrl: "https://www.vercel-status.com/incidents/inc-1",
-        providerTimestamp: "Jul 19 at 12:00 UTC",
-      },
-    }), "https://pulse.example.com");
-    expect(message.subject).toBe("Vercel Runtime: provider reported incident");
-    const html = renderToStaticMarkup(message.react);
-    expect(html).toContain("Vercel reports Elevated function errors");
-    expect(html).toContain("https://www.vercel-status.com/incidents/inc-1");
-    expect(html).toContain("not an independent Pulse check");
-  });
+    const message = createNotificationMessage(
+      claimed({
+        eventType: "dependency.incident",
+        incidentId: null,
+        monitorId: null,
+        dependencyId: "dep-1",
+        payload: {
+          type: "dependency.incident",
+          dependencyName: "Vercel Runtime",
+          provider: "Vercel",
+          incidentTitle: "Elevated function errors",
+          state: "OUTAGE",
+          canonicalUrl: "https://www.vercel-status.com/incidents/inc-1",
+          providerTimestamp: "Jul 19 at 12:00 UTC",
+        },
+      }),
+      "https://pulse.example.com"
+    )
+    expect(message.subject).toBe("Vercel Runtime: provider reported incident")
+    const html = renderToStaticMarkup(message.react)
+    expect(html).toContain("Vercel reports Elevated function errors")
+    expect(html).toContain("https://www.vercel-status.com/incidents/inc-1")
+    expect(html).toContain("not an independent Pulse check")
+  })
 
   it("renders a dependency recovery notification", () => {
-    const message = createNotificationMessage(claimed({
-      eventType: "dependency.recovery",
-      incidentId: null,
-      monitorId: null,
-      dependencyId: "dep-1",
-      payload: {
-        type: "dependency.recovery",
-        dependencyName: "Vercel Runtime",
-        provider: "Vercel",
-        incidentTitle: "Elevated function errors",
-        state: "OPERATIONAL",
-        canonicalUrl: null,
-        providerTimestamp: "Jul 19 at 12:30 UTC",
-      },
-    }), "https://pulse.example.com");
-    expect(message.subject).toBe("Vercel Runtime: provider incident resolved");
-    expect(renderToStaticMarkup(message.react)).toContain("Elevated function errors resolved");
-  });
+    const message = createNotificationMessage(
+      claimed({
+        eventType: "dependency.recovery",
+        incidentId: null,
+        monitorId: null,
+        dependencyId: "dep-1",
+        payload: {
+          type: "dependency.recovery",
+          dependencyName: "Vercel Runtime",
+          provider: "Vercel",
+          incidentTitle: "Elevated function errors",
+          state: "OPERATIONAL",
+          canonicalUrl: null,
+          providerTimestamp: "Jul 19 at 12:30 UTC",
+        },
+      }),
+      "https://pulse.example.com"
+    )
+    expect(message.subject).toBe("Vercel Runtime: provider incident resolved")
+    expect(renderToStaticMarkup(message.react)).toContain(
+      "Elevated function errors resolved"
+    )
+  })
 
   it("rejects a payload whose type does not match its event", () => {
-    expect(() => createNotificationMessage(claimed({
-      eventType: "dependency.incident",
-      incidentId: null,
-      payload: {
-        type: "dependency.recovery",
-        dependencyName: "Vercel Runtime",
-        provider: "Vercel",
-        incidentTitle: "x",
-        state: "OPERATIONAL",
-        canonicalUrl: null,
-        providerTimestamp: "now",
-      },
-    }), "https://pulse.example.com")).toThrow(/does not match/);
-  });
-});
+    expect(() =>
+      createNotificationMessage(
+        claimed({
+          eventType: "dependency.incident",
+          incidentId: null,
+          payload: {
+            type: "dependency.recovery",
+            dependencyName: "Vercel Runtime",
+            provider: "Vercel",
+            incidentTitle: "x",
+            state: "OPERATIONAL",
+            canonicalUrl: null,
+            providerTimestamp: "now",
+          },
+        }),
+        "https://pulse.example.com"
+      )
+    ).toThrow(/does not match/)
+  })
+})
 
 describe("outbox delivery", () => {
-  const now = new Date("2026-07-18T00:00:00Z");
+  const now = new Date("2026-07-18T00:00:00Z")
 
   it("passes the permanent key to the sender and records a safe sent event", async () => {
-    const send = vi.fn(async () => ({ providerMessageId: "email-1" }));
-    const logs: DeliveryLogEntry[] = [];
+    const send = vi.fn(async () => ({ providerMessageId: "email-1" }))
+    const logs: DeliveryLogEntry[] = []
     const result = await deliverPendingNotifications({
       db: dbReturning([claimed()]),
       sender: { send },
@@ -156,107 +184,146 @@ describe("outbox delivery", () => {
       now: () => now,
       createClaimToken: () => "claim-1",
       log: (entry) => logs.push(entry),
-    });
-    expect(result).toEqual({ claimed: 1, sent: 1, failed: 0, dead: 0, lostClaims: 0 });
-    expect(send).toHaveBeenCalledWith(expect.objectContaining({ to: "ops@example.com" }), "incident/incident-1/opened/hash");
-    expect(logs).toEqual([expect.objectContaining({ event: "notification.sent", notificationId: "notification-1" })]);
-    expect(JSON.stringify(logs)).not.toContain("ops@example.com");
-  });
+    })
+    expect(result).toEqual({
+      claimed: 1,
+      sent: 1,
+      failed: 0,
+      dead: 0,
+      lostClaims: 0,
+    })
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "ops@example.com" }),
+      "incident/incident-1/opened/hash"
+    )
+    expect(logs).toEqual([
+      expect.objectContaining({
+        event: "notification.sent",
+        notificationId: "notification-1",
+      }),
+    ])
+    expect(JSON.stringify(logs)).not.toContain("ops@example.com")
+  })
 
   it("retries transient failures with backoff and never logs provider messages", async () => {
-    const logs: DeliveryLogEntry[] = [];
+    const logs: DeliveryLogEntry[] = []
     const sender: NotificationSender = {
       async send() {
-        throw new NotificationProviderError("rate_limit_exceeded", true);
+        throw new NotificationProviderError("rate_limit_exceeded", true)
       },
-    };
+    }
     const result = await deliverPendingNotifications({
-      db: dbReturning([claimed()]), sender, appUrl: "https://pulse.example.com",
-      now: () => now, log: (entry) => logs.push(entry),
-    });
-    expect(result.failed).toBe(1);
-    expect(result.dead).toBe(0);
-    expect(logs[0]).toMatchObject({ errorCode: "rate_limit_exceeded" });
-    expect(retryAt(now, 1)).toEqual(new Date("2026-07-18T00:01:00Z"));
-    expect(retryAt(now, 4)).toEqual(new Date("2026-07-18T02:00:00Z"));
-  });
+      db: dbReturning([claimed()]),
+      sender,
+      appUrl: "https://pulse.example.com",
+      now: () => now,
+      log: (entry) => logs.push(entry),
+    })
+    expect(result.failed).toBe(1)
+    expect(result.dead).toBe(0)
+    expect(logs[0]).toMatchObject({ errorCode: "rate_limit_exceeded" })
+    expect(retryAt(now, 1)).toEqual(new Date("2026-07-18T00:01:00Z"))
+    expect(retryAt(now, 4)).toEqual(new Date("2026-07-18T02:00:00Z"))
+  })
 
   it("marks permanent errors and exhausted retries dead", async () => {
     const permanent: NotificationSender = {
-      async send() { throw new NotificationProviderError("invalid_from_address", false); },
-    };
+      async send() {
+        throw new NotificationProviderError("invalid_from_address", false)
+      },
+    }
     const exhausted: NotificationSender = {
-      async send() { throw new NotificationProviderError("internal_server_error", true); },
-    };
+      async send() {
+        throw new NotificationProviderError("internal_server_error", true)
+      },
+    }
     const permanentResult = await deliverPendingNotifications({
-      db: dbReturning([claimed()]), sender: permanent, appUrl: "https://pulse.example.com", now: () => now,
-    });
+      db: dbReturning([claimed()]),
+      sender: permanent,
+      appUrl: "https://pulse.example.com",
+      now: () => now,
+    })
     const exhaustedResult = await deliverPendingNotifications({
-      db: dbReturning([claimed({ attemptCount: 5 })]), sender: exhausted,
-      appUrl: "https://pulse.example.com", now: () => now,
-    });
-    expect(permanentResult.dead).toBe(1);
-    expect(exhaustedResult.dead).toBe(1);
-  });
+      db: dbReturning([claimed({ attemptCount: 5 })]),
+      sender: exhausted,
+      appUrl: "https://pulse.example.com",
+      now: () => now,
+    })
+    expect(permanentResult.dead).toBe(1)
+    expect(exhaustedResult.dead).toBe(1)
+  })
 
   it("caps concurrency and reports token-guarded updates that lose their claim", async () => {
-    let active = 0;
-    let peak = 0;
+    let active = 0
+    let peak = 0
     const sender: NotificationSender = {
       async send() {
-        active += 1;
-        peak = Math.max(peak, active);
-        await Promise.resolve();
-        active -= 1;
-        return { providerMessageId: "email" };
+        active += 1
+        peak = Math.max(peak, active)
+        await Promise.resolve()
+        active -= 1
+        return { providerMessageId: "email" }
       },
-    };
-    const rows = Array.from({ length: 8 }, (_, index) => claimed({ id: `n-${index}` }));
-    const result = await deliverPendingNotifications({
-      db: dbReturning(rows, false), sender, appUrl: "https://pulse.example.com", now: () => now,
-    }, { concurrency: 3 });
-    expect(peak).toBeLessThanOrEqual(3);
-    expect(result.lostClaims).toBe(8);
-    expect(result.sent).toBe(0);
-  });
+    }
+    const rows = Array.from({ length: 8 }, (_, index) =>
+      claimed({ id: `n-${index}` })
+    )
+    const result = await deliverPendingNotifications(
+      {
+        db: dbReturning(rows, false),
+        sender,
+        appUrl: "https://pulse.example.com",
+        now: () => now,
+      },
+      { concurrency: 3 }
+    )
+    expect(peak).toBeLessThanOrEqual(3)
+    expect(result.lostClaims).toBe(8)
+    expect(result.sent).toBe(0)
+  })
 
   it("forwards eventTypes into the claim path", async () => {
     const query = vi.fn(async (text: string, values: readonly unknown[]) => {
-      void values;
+      void values
       if (text.includes("with due as")) {
-        return [{
-          id: "system-1",
-          incident_id: null,
-          monitor_id: null,
-          dependency_id: null,
-          event_type: "system.alert",
-          recipient: "ops@example.com",
-          idempotency_key: "system-key",
-          payload: {
-            type: "system.alert",
-            title: "Loop down",
-            detail: "detail",
-            reason: "stale",
-            detectedAt: "2026-07-18T00:00:00.000Z",
+        return [
+          {
+            id: "system-1",
+            incident_id: null,
+            monitor_id: null,
+            dependency_id: null,
+            event_type: "system.alert",
+            recipient: "ops@example.com",
+            idempotency_key: "system-key",
+            payload: {
+              type: "system.alert",
+              title: "Loop down",
+              detail: "detail",
+              reason: "stale",
+              detectedAt: "2026-07-18T00:00:00.000Z",
+            },
+            attempt_count: 1,
+            claim_token: "claim-1",
           },
-          attempt_count: 1,
-          claim_token: "claim-1",
-        }];
+        ]
       }
-      return [{ id: "updated" }];
-    });
-    const send = vi.fn(async () => ({ providerMessageId: "email-1" }));
-    const result = await deliverPendingNotifications({
-      db: { query } as SqlExecutor,
-      sender: { send },
-      appUrl: "https://pulse.example.com",
-      now: () => now,
-      createClaimToken: () => "claim-1",
-    }, { eventTypes: ["system.alert"], limit: 50, concurrency: 5 });
-    expect(result.sent).toBe(1);
+      return [{ id: "updated" }]
+    })
+    const send = vi.fn(async () => ({ providerMessageId: "email-1" }))
+    const result = await deliverPendingNotifications(
+      {
+        db: { query } as SqlExecutor,
+        sender: { send },
+        appUrl: "https://pulse.example.com",
+        now: () => now,
+        createClaimToken: () => "claim-1",
+      },
+      { eventTypes: ["system.alert"], limit: 50, concurrency: 5 }
+    )
+    expect(result.sent).toBe(1)
     expect(query).toHaveBeenCalledWith(
       expect.stringMatching(/event_type = any\(\$4\)/i),
-      [now, 50, "claim-1", ["system.alert"]],
-    );
-  });
-});
+      [now, 50, "claim-1", ["system.alert"]]
+    )
+  })
+})

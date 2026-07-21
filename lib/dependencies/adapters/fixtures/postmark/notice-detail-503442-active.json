@@ -9,9 +9,7 @@
     "ended_at": null,
     "created_at": "2026-07-18T09:00:00.000Z",
     "updated_at": "2026-07-18T09:10:00.000Z",
-    "components": [
-      { "id": 93625, "name": "Webhooks" }
-    ],
+    "components": [{ "id": 93625, "name": "Webhooks" }],
     "updates": [
       {
         "id": 51400001,

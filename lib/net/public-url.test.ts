@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest"
 
-import { isPublicHttpUrl } from "./public-url";
+import { isPublicHttpUrl } from "./public-url"
 
 describe("isPublicHttpUrl", () => {
   it.each([
@@ -10,8 +10,8 @@ describe("isPublicHttpUrl", () => {
     "http://example.com:80/path",
     "http://8.8.8.8/health",
   ])("accepts public destination %s", (url) => {
-    expect(isPublicHttpUrl(url)).toBe(true);
-  });
+    expect(isPublicHttpUrl(url)).toBe(true)
+  })
 
   it.each([
     "ftp://example.com",
@@ -33,14 +33,14 @@ describe("isPublicHttpUrl", () => {
     "http://[::ffff:192.168.0.1]/health",
     "http://[2001:db8::1]/health",
   ])("rejects reserved or unsupported destination %s", (url) => {
-    expect(isPublicHttpUrl(url)).toBe(false);
-  });
+    expect(isPublicHttpUrl(url)).toBe(false)
+  })
 
   it.each([
     ["disallowed port", "https://example.com:8443"],
     ["http on the https port", "http://example.com:443"],
     ["https on the http port", "https://example.com:80"],
   ])("enforces the port policy: %s", (_label, url) => {
-    expect(isPublicHttpUrl(url)).toBe(false);
-  });
-});
+    expect(isPublicHttpUrl(url)).toBe(false)
+  })
+})

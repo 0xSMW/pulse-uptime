@@ -1,7 +1,7 @@
-import type { CheckErrorCode } from "@/lib/checker/types";
-import type { monitorStates } from "@/lib/db/schema";
+import type { CheckErrorCode } from "@/lib/checker/types"
+import type { monitorStates } from "@/lib/db/schema"
 
-export type MonitorStateName = (typeof monitorStates)[number];
+export type MonitorStateName = (typeof monitorStates)[number]
 
 export type MonitorState =
   | "UP"
@@ -9,109 +9,111 @@ export type MonitorState =
   | "VERIFYING_UP"
   | "DOWN"
   | "PENDING"
-  | "PAUSED";
+  | "PAUSED"
 
-export type TimelineBucket = {
-  state: "up" | "down" | "verifying" | "paused" | "no-data";
-  label: string;
-  checks: number;
-  failures: number;
-  downtimeSeconds?: number;
+export interface TimelineBucket {
+  state: "up" | "down" | "verifying" | "paused" | "no-data"
+  label: string
+  checks: number
+  failures: number
+  downtimeSeconds?: number
   // Epoch millis of the bucket's covered range. Carried so the timeline
   // tooltip can render a human date and time range in the viewer's zone
   // without reparsing the ISO label. Optional because label-only call sites
   // (the dependency timeline) still build buckets without them.
-  startMs?: number;
-  endMs?: number;
-};
+  startMs?: number
+  endMs?: number
+}
 
-export type HealthWarning = {
-  code: string;
-  message: string;
-  action: string;
-};
+export interface HealthWarning {
+  code: string
+  message: string
+  action: string
+}
 
-export type MonitorStateSnapshot = {
-  monitorId: string;
-  state: MonitorStateName;
-  consecutiveFailures: number;
-  consecutiveSuccesses: number;
-  activatedAt: Date | null;
-  firstFailureAt: Date | null;
-  firstSuccessAt: Date | null;
-  lastCheckedAt: Date | null;
-  lastSuccessAt: Date | null;
-  lastFailureAt: Date | null;
-  lastStatusCode: number | null;
-  lastLatencyMs: number | null;
-  lastErrorCode: string | null;
-  activeIncidentId: string | null;
-  version: number;
-  updatedAt: Date;
-};
+export interface MonitorStateSnapshot {
+  monitorId: string
+  state: MonitorStateName
+  consecutiveFailures: number
+  consecutiveSuccesses: number
+  activatedAt: Date | null
+  firstFailureAt: Date | null
+  firstSuccessAt: Date | null
+  lastCheckedAt: Date | null
+  lastSuccessAt: Date | null
+  lastFailureAt: Date | null
+  lastStatusCode: number | null
+  lastLatencyMs: number | null
+  lastErrorCode: string | null
+  activeIncidentId: string | null
+  version: number
+  updatedAt: Date
+}
 
-export type CheckTransitionEvent = {
-  type: "check";
-  checkedAt: Date;
-  successful: boolean;
-  statusCode: number | null;
-  latencyMs: number;
-  errorCode: CheckErrorCode | null;
-  failureThreshold: number;
-  recoveryThreshold: number;
-};
+export interface CheckTransitionEvent {
+  type: "check"
+  checkedAt: Date
+  successful: boolean
+  statusCode: number | null
+  latencyMs: number
+  errorCode: CheckErrorCode | null
+  failureThreshold: number
+  recoveryThreshold: number
+}
 
-export type LifecycleTransitionEvent = {
-  type: "disable" | "archive" | "enable" | "restore";
-  occurredAt: Date;
-};
+interface LifecycleTransitionEvent {
+  type: "disable" | "archive" | "enable" | "restore"
+  occurredAt: Date
+}
 
-export type MonitorTransitionEvent = CheckTransitionEvent | LifecycleTransitionEvent;
+export type MonitorTransitionEvent =
+  | CheckTransitionEvent
+  | LifecycleTransitionEvent
 
 export type IncidentIntent =
   | { type: "open"; openedAt: Date; firstFailureAt: Date }
   | {
-      type: "resolve";
-      incidentId: string;
-      openedAt: Date;
-      resolvedAt: Date;
-      firstSuccessAt: Date;
+      type: "resolve"
+      incidentId: string
+      openedAt: Date
+      resolvedAt: Date
+      firstSuccessAt: Date
     }
-  | null;
+  | null
 
-export type StateTransition = {
-  previousState: MonitorStateName;
-  state: MonitorStateSnapshot;
-  changed: boolean;
-  incident: IncidentIntent;
-};
+export interface StateTransition {
+  previousState: MonitorStateName
+  state: MonitorStateSnapshot
+  changed: boolean
+  incident: IncidentIntent
+}
 
-export type ScheduledCheck = {
-  monitorId: string;
-  monitorName: string;
-  runId: string;
-  scheduledAt: Date;
-  checkedAt: Date;
-  successful: boolean;
-  statusCode: number | null;
-  latencyMs: number;
-  effectiveUrl: string | null;
-  redirectCount: number;
-  resolvedAddress: string | null;
-  errorCode: CheckErrorCode | null;
-  errorMessage: string | null;
-  failureThreshold: number;
-  recoveryThreshold: number;
-  recipients: string[];
-};
+export interface ScheduledCheck {
+  monitorId: string
+  monitorName: string
+  runId: string
+  scheduledAt: Date
+  checkedAt: Date
+  successful: boolean
+  statusCode: number | null
+  latencyMs: number
+  effectiveUrl: string | null
+  redirectCount: number
+  resolvedAddress: string | null
+  errorCode: CheckErrorCode | null
+  errorMessage: string | null
+  failureThreshold: number
+  recoveryThreshold: number
+  recipients: string[]
+}
 
 export type ProcessCheckResult =
   | { status: "duplicate"; monitorId: string; scheduledAt: Date }
   | {
-      status: "processed";
-      monitorId: string;
-      previousState: MonitorStateName;
-      state: MonitorStateName;
-      incidentId: string | null;
-      event: "incident.opened" | "incident.resolved" | null;
-    };
+      status: "processed"
+      monitorId: string
+      previousState: MonitorStateName
+      state: MonitorStateName
+      incidentId: string | null
+      event: "incident.opened" | "incident.resolved" | null
+    }

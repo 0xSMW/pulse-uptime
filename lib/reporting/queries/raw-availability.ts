@@ -1,7 +1,7 @@
-import { sql } from "@/lib/db/client";
-import { portableQueryValues } from "@/lib/db/query-values";
+import { sql } from "@/lib/db/client"
+import { portableQueryValues } from "@/lib/db/query-values"
 
-import type { RawBucketAvailability } from "./timeline";
+import type { RawBucketAvailability } from "./timeline"
 
 // Scheduler-derived raw availability: 15m buckets decoded from check_batches
 // bitmaps. expected/completed/failure bits are the source of coverage, so a
@@ -59,29 +59,31 @@ from slots
 where slots.expected = 1
 group by slots.monitor_id, slots.bucket_start
 order by slots.monitor_id, slots.bucket_start
-`;
+`
 
-export type RawAvailabilityBucketDbRow = {
-  monitor_id: string;
-  bucket_start: Date | string;
-  expected_checks: number | string;
-  completed_checks: number | string;
-  successful_checks: number | string;
-  failed_checks: number | string;
-  unknown_checks: number | string;
-};
+export interface RawAvailabilityBucketDbRow {
+  monitor_id: string
+  bucket_start: Date | string
+  expected_checks: number | string
+  completed_checks: number | string
+  successful_checks: number | string
+  failed_checks: number | string
+  unknown_checks: number | string
+}
 
 export type RawAvailabilityBucket = RawBucketAvailability & {
-  monitorId: string;
-};
+  monitorId: string
+}
 
 function toDate(value: Date | string): Date {
   return Object.prototype.toString.call(value) === "[object Date]"
-    ? value as Date
-    : new Date(value);
+    ? (value as Date)
+    : new Date(value)
 }
 
-export function mapRawAvailabilityRow(row: RawAvailabilityBucketDbRow): RawAvailabilityBucket {
+export function mapRawAvailabilityRow(
+  row: RawAvailabilityBucketDbRow
+): RawAvailabilityBucket {
   return {
     monitorId: row.monitor_id,
     bucketStart: toDate(row.bucket_start),
@@ -93,7 +95,7 @@ export function mapRawAvailabilityRow(row: RawAvailabilityBucketDbRow): RawAvail
     // Incidents are not joined on the raw side. Downtime lands once the
     // quarter-hour compacts into a rollup.
     downtimeSeconds: 0,
-  };
+  }
 }
 
 // One bounded check_batches scan for every requested monitor. Empty ids skip
@@ -102,29 +104,33 @@ export function mapRawAvailabilityRow(row: RawAvailabilityBucketDbRow): RawAvail
 export async function fetchRawAvailabilityBuckets(
   monitorIds: readonly string[],
   start: Date,
-  end: Date,
+  end: Date
 ): Promise<RawAvailabilityBucket[]> {
-  if (monitorIds.length === 0) return [];
-  if (start.getTime() >= end.getTime()) return [];
+  if (monitorIds.length === 0) {
+    return []
+  }
+  if (start.getTime() >= end.getTime()) {
+    return []
+  }
   try {
-    const rows = await sql.unsafe(
+    const rows = (await sql.unsafe(
       RAW_AVAILABILITY_BUCKETS_SQL,
-      portableQueryValues([start, end, [...monitorIds]]) as never[],
-    ) as unknown as RawAvailabilityBucketDbRow[];
-    return rows.map(mapRawAvailabilityRow);
+      portableQueryValues([start, end, [...monitorIds]]) as never[]
+    )) as unknown as RawAvailabilityBucketDbRow[]
+    return rows.map(mapRawAvailabilityRow)
   } catch {
-    return [];
+    return []
   }
 }
 
 export async function fetchRawAvailabilityBucketsForMonitor(
   monitorId: string,
   start: Date,
-  end: Date,
+  end: Date
 ): Promise<RawBucketAvailability[]> {
-  const rows = await fetchRawAvailabilityBuckets([monitorId], start, end);
+  const rows = await fetchRawAvailabilityBuckets([monitorId], start, end)
   return rows.map(({ monitorId: _id, ...bucket }) => {
-    void _id;
-    return bucket;
-  });
+    void _id
+    return bucket
+  })
 }

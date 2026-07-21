@@ -1,6 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest"
 
-import { BlockedTargetError, assertPublicAddress, isPublicAddress } from "./ip-policy";
+import {
+  assertPublicAddress,
+  BlockedTargetError,
+  isPublicAddress,
+} from "./ip-policy"
 
 describe("public address policy", () => {
   it.each([
@@ -23,17 +27,17 @@ describe("public address policy", () => {
     "::ffff:127.0.0.1",
     "::ffff:169.254.169.254",
   ])("blocks %s", (address) => {
-    expect(isPublicAddress(address)).toBe(false);
-    expect(() => assertPublicAddress(address)).toThrow(BlockedTargetError);
-  });
+    expect(isPublicAddress(address)).toBe(false)
+    expect(() => assertPublicAddress(address)).toThrow(BlockedTargetError)
+  })
 
   it.each(["8.8.8.8", "1.1.1.1", "2001:4860:4860::8888", "::ffff:8.8.8.8"])(
     "allows publicly routed address %s",
-    (address) => expect(isPublicAddress(address)).toBe(true),
-  );
+    (address) => expect(isPublicAddress(address)).toBe(true)
+  )
 
   it("rejects malformed addresses", () => {
-    expect(isPublicAddress("example.com")).toBe(false);
-    expect(isPublicAddress("fe80::1%lo0")).toBe(false);
-  });
-});
+    expect(isPublicAddress("example.com")).toBe(false)
+    expect(isPublicAddress("fe80::1%lo0")).toBe(false)
+  })
+})

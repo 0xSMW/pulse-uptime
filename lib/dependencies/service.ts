@@ -1,11 +1,11 @@
-import "server-only";
+import "server-only"
 
-import { randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto"
 
-import { and, asc, desc, eq, gte, isNull, sql } from "drizzle-orm";
-import { z } from "zod";
+import { and, asc, desc, eq, gte, isNull, sql } from "drizzle-orm"
+import { z } from "zod"
 
-import { db, type DatabaseHandle } from "@/lib/db/client";
+import { type DatabaseHandle, db } from "@/lib/db/client"
 import {
   dependencies,
   dependencyCatalog,
@@ -13,16 +13,20 @@ import {
   dependencySources,
   dependencyState,
   dependencyStateIntervals,
-} from "@/lib/db/schema";
+} from "@/lib/db/schema"
 
-import { getDependencyDetail as queryDependencyDetail, listCatalog as queryListCatalog, listDependenciesForDashboard } from "./queries";
-import type { DependencyScope, DependencyState } from "./types";
+import {
+  listDependenciesForDashboard,
+  getDependencyDetail as queryDependencyDetail,
+  listCatalog as queryListCatalog,
+} from "./queries"
+import type { DependencyScope, DependencyState } from "./types"
 
 // Install semantics per Docs/Specs/DEPENDENCY-MONITORING.md "One-click installation
 // path": no provider credentials, one transaction, and a fresh-snapshot rule
 // so a brand-new install never has to lie about its state.
 
-const FRESHNESS_WINDOW_MS = 10 * 60_000;
+const FRESHNESS_WINDOW_MS = 10 * 60_000
 
 export class DependencyApiError extends Error {
   constructor(
@@ -37,17 +41,18 @@ export class DependencyApiError extends Error {
       | "DEPENDENCY_NOT_FOUND",
     message: string,
     readonly details: Record<string, unknown> = {},
+    options?: ErrorOptions
   ) {
-    super(message);
-    this.name = "DependencyApiError";
+    super(message, options)
+    this.name = "DependencyApiError"
   }
 }
 
-export type DiscoveredScopeOptionRow = {
-  scopeId: string;
-  label: string;
-  available: boolean;
-};
+interface DiscoveredScopeOptionRow {
+  scopeId: string
+  label: string
+  available: boolean
+}
 
 /**
  * Thrown instead of returning false when a unique-violation lands on a
@@ -58,45 +63,51 @@ export type DiscoveredScopeOptionRow = {
  * statement on it.
  */
 export class DependencyInstallConflictError extends DependencyApiError {
-  constructor(message: string, details: Record<string, unknown> = {}) {
-    super("DEPENDENCY_EXISTS", message, details);
-    this.name = "DependencyInstallConflictError";
+  constructor(
+    message: string,
+    details: Record<string, unknown> = {},
+    options?: ErrorOptions
+  ) {
+    super("DEPENDENCY_EXISTS", message, details, options)
+    this.name = "DependencyInstallConflictError"
   }
 }
 
-export type DependencyPresetRow = {
-  id: string;
-  sourceId: string;
-  enabled: boolean;
-  validatedAt: Date | null;
-  validationError: string | null;
-  scope: DependencyScope | null;
-};
+export interface DependencyPresetRow {
+  id: string
+  sourceId: string
+  enabled: boolean
+  validatedAt: Date | null
+  validationError: string | null
+  scope: DependencyScope | null
+}
 
-export type DependencyRow = {
-  id: string;
-  catalogId: string;
-  scopeId: string | null;
-  notificationsEnabled: boolean;
-  createdAt: Date;
-  removedAt: Date | null;
-};
+interface DependencyRow {
+  id: string
+  catalogId: string
+  scopeId: string | null
+  notificationsEnabled: boolean
+  createdAt: Date
+  removedAt: Date | null
+}
 
-export type DependencyStateSnapshot = {
-  state: DependencyState;
-  pendingFirstPoll: boolean;
-  observedAt: Date;
-  providerUpdatedAt: Date | null;
-};
+export interface DependencyStateSnapshot {
+  state: DependencyState
+  pendingFirstPoll: boolean
+  observedAt: Date
+  providerUpdatedAt: Date | null
+}
 
 export interface DependenciesStore {
-  loadPreset(presetId: string): Promise<DependencyPresetRow | null>;
+  loadPreset: (presetId: string) => Promise<DependencyPresetRow | null>
   /**
    * Discovered scope options for a preset, including unavailable ones kept
    * after a complete directory refresh. Empty when discovery has not yet
    * materialised any row for this catalog id.
    */
-  loadDiscoveredScopeOptions(catalogId: string): Promise<DiscoveredScopeOptionRow[]>;
+  loadDiscoveredScopeOptions: (
+    catalogId: string
+  ) => Promise<DiscoveredScopeOptionRow[]>
   /**
    * Seeds a fresh install from the most recent observation of the SAME
    * (catalogId, scopeId) pair, when one is fresh. Only a previously removed
@@ -106,7 +117,11 @@ export interface DependenciesStore {
    * a needless UNKNOWN bounce, while a stale or first-ever install still
    * falls through to UNKNOWN with pendingFirstPoll set.
    */
-  loadRecentStateForCatalogScope(catalogId: string, scopeId: string | null, freshAfter: Date): Promise<DependencyStateSnapshot | null>;
+  loadRecentStateForCatalogScope: (
+    catalogId: string,
+    scopeId: string | null,
+    freshAfter: Date
+  ) => Promise<DependencyStateSnapshot | null>
   /**
    * Inserts the dependency, its opening state, and its opening interval, and
    * schedules the source for immediate polling. With no handle given, this
@@ -117,16 +132,16 @@ export interface DependenciesStore {
    * statement, it throws DependencyInstallConflictError instead, since the
    * caller has no live handle left to act on a plain false with.
    */
-  insertDependency(input: {
-    dependency: DependencyRow;
-    state: DependencyStateSnapshot;
-    intervalId: string;
-    sourceId: string;
-    now: Date;
-    handle?: DatabaseHandle;
-  }): Promise<boolean>;
-  touchSourceNextPoll(sourceId: string, now: Date): Promise<void>;
-  loadSourceIdForDependency(id: string): Promise<string | null>;
+  insertDependency: (input: {
+    dependency: DependencyRow
+    state: DependencyStateSnapshot
+    intervalId: string
+    sourceId: string
+    now: Date
+    handle?: DatabaseHandle
+  }) => Promise<boolean>
+  touchSourceNextPoll: (sourceId: string, now: Date) => Promise<void>
+  loadSourceIdForDependency: (id: string) => Promise<string | null>
   /**
    * Soft removal: sets removedAt and closes the open interval. With no handle
    * given this runs in its own transaction; with a caller-supplied handle
@@ -134,23 +149,31 @@ export interface DependenciesStore {
    * the idempotency record commit together, mirroring insertDependency.
    * Returns false when no active dependency matches.
    */
-  removeDependency(id: string, now: Date, handle?: DatabaseHandle): Promise<boolean>;
-  patchNotifications(id: string, notificationsEnabled: boolean, handle?: DatabaseHandle): Promise<boolean>;
+  removeDependency: (
+    id: string,
+    now: Date,
+    handle?: DatabaseHandle
+  ) => Promise<boolean>
+  patchNotifications: (
+    id: string,
+    notificationsEnabled: boolean,
+    handle?: DatabaseHandle
+  ) => Promise<boolean>
 }
 
-export type DependencyServiceDeps = {
-  store?: DependenciesStore;
-  now?: () => Date;
-  newId?: () => string;
+export interface DependencyServiceDeps {
+  store?: DependenciesStore
+  now?: () => Date
+  newId?: () => string
   /** Pins the installed dependency's own id to the idempotency operationId, mirroring status-reports' reportId pinning, so a crash-recovery retry finds the same row instead of inserting a second one. */
-  dependencyId?: string;
-};
+  dependencyId?: string
+}
 
-export type AddDependencyInput = {
-  presetId: string;
-  scopeId?: string | null;
-  notificationsEnabled?: boolean;
-};
+export interface AddDependencyInput {
+  presetId: string
+  scopeId?: string | null
+  notificationsEnabled?: boolean
+}
 
 /**
  * Validates the requested scopeId against the preset's scope contract.
@@ -164,75 +187,110 @@ async function validateScope(
   store: DependenciesStore,
   catalogId: string,
   scope: DependencyScope | null,
-  scopeId: string | null | undefined,
+  scopeId: string | null | undefined
 ): Promise<string | null> {
   if (!scope) {
-    if (scopeId) throw new DependencyApiError("INVALID_SCOPE", "This preset does not accept a scope");
-    return null;
+    if (scopeId) {
+      throw new DependencyApiError(
+        "INVALID_SCOPE",
+        "This preset does not accept a scope"
+      )
+    }
+    return null
   }
   if (scope.kind === "required_options") {
-    if (!scopeId) throw new DependencyApiError("SCOPE_REQUIRED", "This preset requires a scopeId");
-    if (!scope.options.some((option) => option.id === scopeId)) {
-      throw new DependencyApiError("INVALID_SCOPE", "scopeId is not one of the preset's validated options");
+    if (!scopeId) {
+      throw new DependencyApiError(
+        "SCOPE_REQUIRED",
+        "This preset requires a scopeId"
+      )
     }
-    return scopeId;
+    if (!scope.options.some((option) => option.id === scopeId)) {
+      throw new DependencyApiError(
+        "INVALID_SCOPE",
+        "scopeId is not one of the preset's validated options"
+      )
+    }
+    return scopeId
   }
 
   // discovered_children | discovered_locations
   if (scope.required && !scopeId) {
-    throw new DependencyApiError("SCOPE_REQUIRED", "This preset requires a scopeId");
+    throw new DependencyApiError(
+      "SCOPE_REQUIRED",
+      "This preset requires a scopeId"
+    )
   }
-  if (!scopeId) return null;
+  if (!scopeId) {
+    return null
+  }
 
-  const options = await store.loadDiscoveredScopeOptions(catalogId);
+  const options = await store.loadDiscoveredScopeOptions(catalogId)
   if (options.length === 0) {
     throw new DependencyApiError(
       "SCOPE_OPTIONS_UNAVAILABLE",
-      "Scope options have not been discovered yet for this preset",
-    );
+      "Scope options have not been discovered yet for this preset"
+    )
   }
-  const match = options.find((option) => option.scopeId === scopeId);
+  const match = options.find((option) => option.scopeId === scopeId)
   if (!match) {
-    throw new DependencyApiError("INVALID_SCOPE", "scopeId is not one of the preset's discovered options");
+    throw new DependencyApiError(
+      "INVALID_SCOPE",
+      "scopeId is not one of the preset's discovered options"
+    )
   }
   if (!match.available) {
     throw new DependencyApiError(
       "SCOPE_NO_LONGER_AVAILABLE",
-      "The selected scope is no longer available from the provider",
-    );
+      "The selected scope is no longer available from the provider"
+    )
   }
-  return scopeId;
+  return scopeId
 }
 
 export async function addDependency(
   input: AddDependencyInput,
   deps: DependencyServiceDeps = {},
-  handle: DatabaseHandle = db,
+  handle: DatabaseHandle = db
 ) {
-  const store = deps.store ?? databaseDependenciesStore;
-  const now = deps.now?.() ?? new Date();
-  const newId = deps.newId ?? (() => randomUUID());
+  const store = deps.store ?? databaseDependenciesStore
+  const now = deps.now?.() ?? new Date()
+  const newId = deps.newId ?? (() => randomUUID())
 
-  const preset = await store.loadPreset(input.presetId);
-  if (!preset) throw new DependencyApiError("PRESET_NOT_FOUND", "Preset was not found");
+  const preset = await store.loadPreset(input.presetId)
+  if (!preset) {
+    throw new DependencyApiError("PRESET_NOT_FOUND", "Preset was not found")
+  }
   // Catalog validation is drift detection against a preset already shipped in
   // the curated bundled catalog, not pre-clearance for installing it. A
   // never-validated preset (validatedAt and validationError both null) is
   // installable. Only a disabled preset or one with a recorded validation
   // error is blocked.
   if (!preset.enabled || preset.validationError) {
-    throw new DependencyApiError("PRESET_UNAVAILABLE", "Preset is disabled or catalog validation found it no longer matches its upstream feed");
+    throw new DependencyApiError(
+      "PRESET_UNAVAILABLE",
+      "Preset is disabled or catalog validation found it no longer matches its upstream feed"
+    )
   }
-  const scopeId = await validateScope(store, preset.id, preset.scope, input.scopeId);
+  const scopeId = await validateScope(
+    store,
+    preset.id,
+    preset.scope,
+    input.scopeId
+  )
 
-  const freshAfter = new Date(now.getTime() - FRESHNESS_WINDOW_MS);
-  const recent = await store.loadRecentStateForCatalogScope(preset.id, scopeId, freshAfter);
+  const freshAfter = new Date(now.getTime() - FRESHNESS_WINDOW_MS)
+  const recent = await store.loadRecentStateForCatalogScope(
+    preset.id,
+    scopeId,
+    freshAfter
+  )
   const state: DependencyStateSnapshot = recent ?? {
     state: "UNKNOWN",
     pendingFirstPoll: true,
     observedAt: now,
     providerUpdatedAt: null,
-  };
+  }
 
   const dependency: DependencyRow = {
     id: deps.dependencyId ?? newId(),
@@ -241,7 +299,7 @@ export async function addDependency(
     notificationsEnabled: input.notificationsEnabled ?? true,
     createdAt: now,
     removedAt: null,
-  };
+  }
 
   const inserted = await store.insertDependency({
     dependency,
@@ -250,121 +308,179 @@ export async function addDependency(
     sourceId: preset.sourceId,
     now,
     handle,
-  });
+  })
   if (!inserted) {
-    throw new DependencyApiError("DEPENDENCY_EXISTS", "An active dependency already exists for this preset and scope");
+    throw new DependencyApiError(
+      "DEPENDENCY_EXISTS",
+      "An active dependency already exists for this preset and scope"
+    )
   }
 
   // Reads back on the same handle as the insert above, so an install running
   // inside a caller's transaction sees its own uncommitted row instead of a
   // second pooled connection that has not yet observed it.
-  const detail = await queryDependencyDetail(dependency.id, handle);
-  if (!detail) throw new Error("Dependency vanished immediately after insert");
-  return detail;
+  const detail = await queryDependencyDetail(dependency.id, handle)
+  if (!detail) {
+    throw new Error("Dependency vanished immediately after insert")
+  }
+  return detail
 }
 
 export async function listDependencies() {
-  return listDependenciesForDashboard();
+  return listDependenciesForDashboard()
 }
 
 export async function requireDependencyDetail(id: string) {
-  const detail = await queryDependencyDetail(id);
-  if (!detail) throw new DependencyApiError("DEPENDENCY_NOT_FOUND", "Dependency was not found");
-  return detail;
+  const detail = await queryDependencyDetail(id)
+  if (!detail) {
+    throw new DependencyApiError(
+      "DEPENDENCY_NOT_FOUND",
+      "Dependency was not found"
+    )
+  }
+  return detail
 }
 
 export async function listCatalog() {
-  return queryListCatalog();
+  return queryListCatalog()
 }
 
-const patchSchema = z.object({ notificationsEnabled: z.boolean() }).strict();
+const patchSchema = z.object({ notificationsEnabled: z.boolean() }).strict()
 
 export async function patchDependency(
   id: string,
   input: unknown,
   deps: DependencyServiceDeps = {},
-  handle: DatabaseHandle = db,
+  handle: DatabaseHandle = db
 ) {
-  const store = deps.store ?? databaseDependenciesStore;
-  const parsed = patchSchema.parse(input);
-  const patched = await store.patchNotifications(id, parsed.notificationsEnabled, handle);
-  if (!patched) throw new DependencyApiError("DEPENDENCY_NOT_FOUND", "Dependency was not found");
+  const store = deps.store ?? databaseDependenciesStore
+  const parsed = patchSchema.parse(input)
+  const patched = await store.patchNotifications(
+    id,
+    parsed.notificationsEnabled,
+    handle
+  )
+  if (!patched) {
+    throw new DependencyApiError(
+      "DEPENDENCY_NOT_FOUND",
+      "Dependency was not found"
+    )
+  }
   // Reads back on the same handle as the update above, so a patch running
   // inside a caller's transaction sees its own uncommitted row rather than a
   // second pooled connection that has not observed it, mirroring
   // addDependency's read-back.
-  const detail = await queryDependencyDetail(id, handle);
-  if (!detail) throw new DependencyApiError("DEPENDENCY_NOT_FOUND", "Dependency was not found");
-  return detail;
+  const detail = await queryDependencyDetail(id, handle)
+  if (!detail) {
+    throw new DependencyApiError(
+      "DEPENDENCY_NOT_FOUND",
+      "Dependency was not found"
+    )
+  }
+  return detail
 }
 
 export async function removeDependency(
   id: string,
   deps: DependencyServiceDeps = {},
-  handle: DatabaseHandle = db,
+  handle: DatabaseHandle = db
 ) {
-  const store = deps.store ?? databaseDependenciesStore;
-  const now = deps.now?.() ?? new Date();
-  const removed = await store.removeDependency(id, now, handle);
-  if (!removed) throw new DependencyApiError("DEPENDENCY_NOT_FOUND", "Dependency was not found");
-  return { id, removed: true };
+  const store = deps.store ?? databaseDependenciesStore
+  const now = deps.now?.() ?? new Date()
+  const removed = await store.removeDependency(id, now, handle)
+  if (!removed) {
+    throw new DependencyApiError(
+      "DEPENDENCY_NOT_FOUND",
+      "Dependency was not found"
+    )
+  }
+  return { id, removed: true }
 }
 
 /** Sets the source's next_poll_at to now and returns immediately; the cron picks up the fetch, so this route never touches the network. */
 export async function scheduleDependencyPoll(
   id: string,
-  deps: DependencyServiceDeps = {},
+  deps: DependencyServiceDeps = {}
 ) {
-  const store = deps.store ?? databaseDependenciesStore;
-  const now = deps.now?.() ?? new Date();
-  const sourceId = await store.loadSourceIdForDependency(id);
-  if (!sourceId) throw new DependencyApiError("DEPENDENCY_NOT_FOUND", "Dependency was not found");
-  await store.touchSourceNextPoll(sourceId, now);
-  return { id, queued: true };
+  const store = deps.store ?? databaseDependenciesStore
+  const now = deps.now?.() ?? new Date()
+  const sourceId = await store.loadSourceIdForDependency(id)
+  if (!sourceId) {
+    throw new DependencyApiError(
+      "DEPENDENCY_NOT_FOUND",
+      "Dependency was not found"
+    )
+  }
+  await store.touchSourceNextPoll(sourceId, now)
+  return { id, queued: true }
 }
 
 export const databaseDependenciesStore: DependenciesStore = {
   async loadPreset(presetId) {
-    const [row] = await db.select({
-      id: dependencyCatalog.id,
-      sourceId: dependencyCatalog.sourceId,
-      enabled: dependencyCatalog.enabled,
-      validatedAt: dependencyCatalog.validatedAt,
-      validationError: dependencyCatalog.validationError,
-      scope: dependencyCatalog.scopeOptions,
-    }).from(dependencyCatalog).where(eq(dependencyCatalog.id, presetId)).limit(1);
-    return row ? { ...row, scope: (row.scope as DependencyScope | null) ?? null } : null;
+    const [row] = await db
+      .select({
+        id: dependencyCatalog.id,
+        sourceId: dependencyCatalog.sourceId,
+        enabled: dependencyCatalog.enabled,
+        validatedAt: dependencyCatalog.validatedAt,
+        validationError: dependencyCatalog.validationError,
+        scope: dependencyCatalog.scopeOptions,
+      })
+      .from(dependencyCatalog)
+      .where(eq(dependencyCatalog.id, presetId))
+      .limit(1)
+    return row
+      ? { ...row, scope: (row.scope as DependencyScope | null) ?? null }
+      : null
   },
 
   async loadDiscoveredScopeOptions(catalogId) {
-    return db.select({
-      scopeId: dependencyDiscoveredScopeOptions.scopeId,
-      label: dependencyDiscoveredScopeOptions.label,
-      available: dependencyDiscoveredScopeOptions.available,
-    }).from(dependencyDiscoveredScopeOptions)
+    return db
+      .select({
+        scopeId: dependencyDiscoveredScopeOptions.scopeId,
+        label: dependencyDiscoveredScopeOptions.label,
+        available: dependencyDiscoveredScopeOptions.available,
+      })
+      .from(dependencyDiscoveredScopeOptions)
       .where(eq(dependencyDiscoveredScopeOptions.catalogId, catalogId))
-      .orderBy(asc(dependencyDiscoveredScopeOptions.label));
+      .orderBy(asc(dependencyDiscoveredScopeOptions.label))
   },
 
   async loadRecentStateForCatalogScope(catalogId, scopeId, freshAfter) {
-    const [row] = await db.select({
-      state: dependencyState.state,
-      pendingFirstPoll: dependencyState.pendingFirstPoll,
-      observedAt: dependencyState.observedAt,
-      providerUpdatedAt: dependencyState.providerUpdatedAt,
-    }).from(dependencyState)
-      .innerJoin(dependencies, eq(dependencies.id, dependencyState.dependencyId))
-      .where(and(
-        eq(dependencies.catalogId, catalogId),
-        scopeId === null ? isNull(dependencies.scopeId) : eq(dependencies.scopeId, scopeId),
-        gte(dependencyState.observedAt, freshAfter),
-      ))
+    const [row] = await db
+      .select({
+        state: dependencyState.state,
+        pendingFirstPoll: dependencyState.pendingFirstPoll,
+        observedAt: dependencyState.observedAt,
+        providerUpdatedAt: dependencyState.providerUpdatedAt,
+      })
+      .from(dependencyState)
+      .innerJoin(
+        dependencies,
+        eq(dependencies.id, dependencyState.dependencyId)
+      )
+      .where(
+        and(
+          eq(dependencies.catalogId, catalogId),
+          scopeId === null
+            ? isNull(dependencies.scopeId)
+            : eq(dependencies.scopeId, scopeId),
+          gte(dependencyState.observedAt, freshAfter)
+        )
+      )
       .orderBy(desc(dependencyState.observedAt))
-      .limit(1);
-    return row ? { ...row, state: row.state as DependencyState } : null;
+      .limit(1)
+    return row ? { ...row, state: row.state as DependencyState } : null
   },
 
-  async insertDependency({ dependency, state, intervalId, sourceId, now, handle }) {
+  async insertDependency({
+    dependency,
+    state,
+    intervalId,
+    sourceId,
+    now,
+    handle,
+  }) {
     // Runs the writes on the caller's transaction when one is supplied (the
     // idempotency path) so the dependency and its idempotency record commit
     // atomically, or opens its own transaction otherwise. Either way the
@@ -372,14 +488,23 @@ export const databaseDependenciesStore: DependenciesStore = {
     // with the partial unique index as the last-resort backstop for the
     // race a pre-check cannot close.
     const runInsert = async (tx: DatabaseHandle): Promise<boolean> => {
-      const [existing] = await tx.select({ id: dependencies.id }).from(dependencies)
-        .where(and(
-          eq(dependencies.catalogId, dependency.catalogId),
-          dependency.scopeId === null ? isNull(dependencies.scopeId) : eq(dependencies.scopeId, dependency.scopeId),
-          isNull(dependencies.removedAt),
-        )).limit(1);
-      if (existing) return false;
-      await tx.insert(dependencies).values(dependency);
+      const [existing] = await tx
+        .select({ id: dependencies.id })
+        .from(dependencies)
+        .where(
+          and(
+            eq(dependencies.catalogId, dependency.catalogId),
+            dependency.scopeId === null
+              ? isNull(dependencies.scopeId)
+              : eq(dependencies.scopeId, dependency.scopeId),
+            isNull(dependencies.removedAt)
+          )
+        )
+        .limit(1)
+      if (existing) {
+        return false
+      }
+      await tx.insert(dependencies).values(dependency)
       await tx.insert(dependencyState).values({
         dependencyId: dependency.id,
         state: state.state,
@@ -388,7 +513,7 @@ export const databaseDependenciesStore: DependenciesStore = {
         providerUpdatedAt: state.providerUpdatedAt,
         observedAt: state.observedAt,
         lastSuccessfulPollAt: null,
-      });
+      })
       await tx.insert(dependencyStateIntervals).values({
         id: intervalId,
         dependencyId: dependency.id,
@@ -396,15 +521,18 @@ export const databaseDependenciesStore: DependenciesStore = {
         startedAt: now,
         endedAt: null,
         sourceObservedAt: state.observedAt,
-      });
+      })
       // Clearing etag/lastModified alongside next_poll_at forces the next
       // poll to a 200 with a full body: a stale validator would otherwise
       // let the provider answer 304, leaving this freshly installed
       // dependency stuck UNKNOWN with pendingFirstPoll set and nothing to
       // adopt state from.
-      await tx.update(dependencySources).set({ nextPollAt: now, etag: null, lastModified: null }).where(eq(dependencySources.id, sourceId));
-      return true;
-    };
+      await tx
+        .update(dependencySources)
+        .set({ nextPollAt: now, etag: null, lastModified: null })
+        .where(eq(dependencySources.id, sourceId))
+      return true
+    }
     // A handle equal to this module's own db is the unset default, so this
     // store owns the transaction boundary and maps a unique violation to a
     // plain false. A handle that differs is the caller's own, already-open
@@ -413,69 +541,100 @@ export const databaseDependenciesStore: DependenciesStore = {
     // return value with no live handle left to act on it.
     if (handle && handle !== db) {
       try {
-        return await runInsert(handle);
+        return await runInsert(handle)
       } catch (error) {
         if ((error as { code?: string }).code === "23505") {
-          throw new DependencyInstallConflictError("An active dependency already exists for this preset and scope");
+          // biome-ignore lint/style/useErrorCause: cause is threaded through the error options arg, biome only detects the native second-argument position
+          throw new DependencyInstallConflictError(
+            "An active dependency already exists for this preset and scope",
+            {},
+            { cause: error }
+          )
         }
-        throw error;
+        throw error
       }
     }
     try {
-      return await db.transaction(runInsert);
+      return await db.transaction(runInsert)
     } catch (error) {
-      if ((error as { code?: string }).code === "23505") return false;
-      throw error;
+      if ((error as { code?: string }).code === "23505") {
+        return false
+      }
+      throw error
     }
   },
 
   async touchSourceNextPoll(sourceId, now) {
     // Same validator clearing as insertDependency: a manual refresh must
     // force a 200, not risk a 304 that leaves the dependency's state stale.
-    await db.update(dependencySources).set({ nextPollAt: now, etag: null, lastModified: null }).where(eq(dependencySources.id, sourceId));
+    await db
+      .update(dependencySources)
+      .set({ nextPollAt: now, etag: null, lastModified: null })
+      .where(eq(dependencySources.id, sourceId))
   },
 
   async loadSourceIdForDependency(id) {
-    const [row] = await db.select({ sourceId: dependencyCatalog.sourceId })
+    const [row] = await db
+      .select({ sourceId: dependencyCatalog.sourceId })
       .from(dependencies)
-      .innerJoin(dependencyCatalog, eq(dependencyCatalog.id, dependencies.catalogId))
+      .innerJoin(
+        dependencyCatalog,
+        eq(dependencyCatalog.id, dependencies.catalogId)
+      )
       .where(and(eq(dependencies.id, id), isNull(dependencies.removedAt)))
-      .limit(1);
-    return row?.sourceId ?? null;
+      .limit(1)
+    return row?.sourceId ?? null
   },
 
   async removeDependency(id, now, handle) {
     const run = async (tx: DatabaseHandle): Promise<boolean> => {
-      const updated = await tx.update(dependencies).set({ removedAt: now })
+      const updated = await tx
+        .update(dependencies)
+        .set({ removedAt: now })
         .where(and(eq(dependencies.id, id), isNull(dependencies.removedAt)))
-        .returning({ id: dependencies.id });
-      if (!updated[0]) return false;
+        .returning({ id: dependencies.id })
+      if (!updated[0]) {
+        return false
+      }
       // greatest(now, started_at) mirrors the poll path (see persist.ts): a
       // slightly-behind now under cross-instance clock skew must not land
       // before the interval's own started_at and fail the
       // ended_at >= started_at check, which would abort this transaction.
       // Bound as an ISO string, never a Date: raw sql params bypass drizzle's
       // column mappers and postgres-js rejects a Date at the wire layer.
-      await tx.update(dependencyStateIntervals).set({ endedAt: sql`greatest(${now.toISOString()}, ${dependencyStateIntervals.startedAt})` })
-        .where(and(eq(dependencyStateIntervals.dependencyId, id), isNull(dependencyStateIntervals.endedAt)));
-      return true;
-    };
+      await tx
+        .update(dependencyStateIntervals)
+        .set({
+          endedAt: sql`greatest(${now.toISOString()}, ${dependencyStateIntervals.startedAt})`,
+        })
+        .where(
+          and(
+            eq(dependencyStateIntervals.dependencyId, id),
+            isNull(dependencyStateIntervals.endedAt)
+          )
+        )
+      return true
+    }
     // Runs on the caller's transaction when one is supplied (the idempotency
     // path) so the removal and the idempotency record commit atomically, or
     // opens its own transaction otherwise. Mirrors insertDependency's handle
     // choice: a handle equal to this module's own db is the unset default.
-    if (handle && handle !== db) return run(handle);
-    return db.transaction(run);
+    if (handle && handle !== db) {
+      return run(handle)
+    }
+    return db.transaction(run)
   },
 
   async patchNotifications(id, notificationsEnabled, handle) {
     // A single conditional update, so the caller's transaction handle (the
     // idempotency path) or the pooled db each commit it on their own. Passing
     // the handle keeps the update atomic with the idempotency record.
-    const executor = handle && handle !== db ? handle : db;
-    const updated = await executor.update(dependencies).set({ notificationsEnabled })
+    const executor = handle && handle !== db ? handle : db
+    const updated = await executor
+      .update(dependencies)
+      .set({ notificationsEnabled })
       .where(and(eq(dependencies.id, id), isNull(dependencies.removedAt)))
-      .returning({ id: dependencies.id });
-    return Boolean(updated[0]);
+      .returning({ id: dependencies.id })
+    return Boolean(updated[0])
   },
-};
+}

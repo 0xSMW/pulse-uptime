@@ -1,48 +1,48 @@
-import { createClient } from "@vercel/edge-config";
-import { Resend } from "resend";
-import type { ReadinessResult } from "./types";
-import { withTimeout } from "./service";
+import { createClient } from "@vercel/edge-config"
+import { Resend } from "resend"
+import { withTimeout } from "./service"
+import type { ReadinessResult } from "./types"
 
-const PROBE_TIMEOUT_MS = 8_000;
+const PROBE_TIMEOUT_MS = 8000
 
-type DatabaseProbe = () => Promise<void>;
+type DatabaseProbe = () => Promise<void>
 
-type ResendProbeClient = Pick<Resend, "domains" | "emails">;
+type ResendProbeClient = Pick<Resend, "domains" | "emails">
 
 export function createVercelProbe(
-  env: Record<string, string | undefined> = process.env,
+  env: Record<string, string | undefined> = process.env
 ): () => Promise<ReadinessResult> {
   return async () => {
-    const appUrl = env.NEXT_PUBLIC_APP_URL;
+    const appUrl = env.NEXT_PUBLIC_APP_URL
     const required = [
       env.CRON_SECRET,
       env.EDGE_CONFIG,
       env.EDGE_CONFIG_ID,
       env.VERCEL_API_TOKEN,
-    ];
+    ]
 
     const secureUrl = (() => {
       try {
-        return appUrl ? new URL(appUrl).protocol === "https:" : false;
+        return appUrl ? new URL(appUrl).protocol === "https:" : false
       } catch {
-        return false;
+        return false
       }
-    })();
+    })()
 
     if (!secureUrl || required.some((value) => !value)) {
       return blocked(
         "vercel",
         "VERCEL_CONFIGURATION_INCOMPLETE",
-        "Complete the Vercel environment setup",
-      );
+        "Complete the Vercel environment setup"
+      )
     }
 
-    return ready("vercel", "VERCEL_READY");
-  };
+    return ready("vercel", "VERCEL_READY")
+  }
 }
 
 export function createDatabaseProbe(
-  probe: DatabaseProbe,
+  probe: DatabaseProbe
 ): () => Promise<ReadinessResult> {
   return () =>
     withTimeout(
@@ -51,41 +51,43 @@ export function createDatabaseProbe(
       blocked(
         "database",
         "DATABASE_TIMEOUT",
-        "Check Neon connectivity and migrations",
-      ),
+        "Check Neon connectivity and migrations"
+      )
     ).catch(() =>
       blocked(
         "database",
         "DATABASE_UNAVAILABLE",
-        "Connect Neon and run migrations",
-      ),
-    );
+        "Connect Neon and run migrations"
+      )
+    )
 }
 
 export function createEdgeConfigProbe(
   env: Record<string, string | undefined> = process.env,
-  fetcher: typeof fetch = fetch,
+  fetcher: typeof fetch = fetch
 ): () => Promise<ReadinessResult> {
   return async () => {
-    const connection = env.EDGE_CONFIG;
-    const configId = env.EDGE_CONFIG_ID;
-    const token = env.VERCEL_API_TOKEN;
-    if (!connection || !configId || !token) {
+    const connection = env.EDGE_CONFIG
+    const configId = env.EDGE_CONFIG_ID
+    const token = env.VERCEL_API_TOKEN
+    if (!(connection && configId && token)) {
       return blocked(
         "edge",
         "EDGE_CONFIGURATION_INCOMPLETE",
-        "Connect a writable Edge Config store",
-      );
+        "Connect a writable Edge Config store"
+      )
     }
 
     try {
-      const client = createClient(connection);
-      const items = await withTimeout(client.getAll(), PROBE_TIMEOUT_MS, null);
-      if (!items) throw new Error("Edge Config read timed out");
+      const client = createClient(connection)
+      const items = await withTimeout(client.getAll(), PROBE_TIMEOUT_MS, null)
+      if (!items) {
+        throw new Error("Edge Config read timed out")
+      }
 
       const teamQuery = env.VERCEL_TEAM_ID
         ? `?teamId=${encodeURIComponent(env.VERCEL_TEAM_ID)}`
-        : "";
+        : ""
       // Verify write access against a dedicated sentinel key. Never echo `monitoring`
       // back: reading it and PATCH-upserting the read value races a concurrent
       // legitimate config write and can silently roll it back.
@@ -107,39 +109,48 @@ export function createEdgeConfigProbe(
             ],
           }),
           signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-        },
-      );
-      if (!response?.ok) throw new Error("Edge Config write failed");
-      return ready("edge", "EDGE_READY");
+        }
+      )
+      if (!response?.ok) {
+        throw new Error("Edge Config write failed")
+      }
+      return ready("edge", "EDGE_READY")
     } catch {
       return blocked(
         "edge",
         "EDGE_UNAVAILABLE",
-        "Check Edge Config read and write access",
-      );
+        "Check Edge Config read and write access"
+      )
     }
-  };
+  }
 }
 
 export function createEmailProbe(
   env: Record<string, string | undefined> = process.env,
-  createClient: (apiKey: string) => ResendProbeClient = (apiKey) => new Resend(apiKey),
+  createEmailClient: (apiKey: string) => ResendProbeClient = (apiKey) =>
+    new Resend(apiKey)
 ): () => Promise<ReadinessResult> {
   return async () => {
-    const key = env.RESEND_API_KEY;
-    const from = env.RESEND_FROM_EMAIL;
-    if (!key || !from) return emailWarning("EMAIL_CONFIGURATION_INCOMPLETE");
+    const key = env.RESEND_API_KEY
+    const from = env.RESEND_FROM_EMAIL
+    if (!(key && from)) {
+      return emailWarning("EMAIL_CONFIGURATION_INCOMPLETE")
+    }
 
     try {
-      const domain = from.split("@")[1]?.toLowerCase();
-      if (!domain) return emailWarning("EMAIL_SENDER_INVALID");
-      const resend = createClient(key);
+      const domain = from.split("@")[1]?.toLowerCase()
+      if (!domain) {
+        return emailWarning("EMAIL_SENDER_INVALID")
+      }
+      const resend = createEmailClient(key)
       const result = await withTimeout(
         resend.domains.list(),
         PROBE_TIMEOUT_MS,
-        null,
-      );
-      if (!result) return emailWarning("EMAIL_API_UNAVAILABLE");
+        null
+      )
+      if (!result) {
+        return emailWarning("EMAIL_API_UNAVAILABLE")
+      }
       if (result.error) {
         const delivery = await withTimeout(
           resend.emails.send(
@@ -149,41 +160,41 @@ export function createEmailProbe(
               subject: "Pulse email readiness check",
               text: "Pulse verified this sender for outage and recovery alerts.",
             },
-            { idempotencyKey: `pulse-readiness-${domain}` },
+            { idempotencyKey: `pulse-readiness-${domain}` }
           ),
           PROBE_TIMEOUT_MS,
-          null,
-        );
+          null
+        )
         return delivery && !delivery.error
           ? ready("email", "EMAIL_READY")
-          : emailWarning("EMAIL_API_UNAVAILABLE");
+          : emailWarning("EMAIL_API_UNAVAILABLE")
       }
       const verified = result.data?.data.some(
         (entry) =>
-          entry.name.toLowerCase() === domain && entry.status === "verified",
-      );
+          entry.name.toLowerCase() === domain && entry.status === "verified"
+      )
       return verified
         ? ready("email", "EMAIL_READY")
-        : emailWarning("EMAIL_DOMAIN_UNVERIFIED");
+        : emailWarning("EMAIL_DOMAIN_UNVERIFIED")
     } catch {
-      return emailWarning("EMAIL_API_UNAVAILABLE");
+      return emailWarning("EMAIL_API_UNAVAILABLE")
     }
-  };
+  }
 }
 
 function ready(
   system: ReadinessResult["system"],
-  code: string,
+  code: string
 ): ReadinessResult {
-  return { system, state: "ready", code };
+  return { system, state: "ready", code }
 }
 
 function blocked(
   system: ReadinessResult["system"],
   code: string,
-  remediation: string,
+  remediation: string
 ): ReadinessResult {
-  return { system, state: "blocked", code, remediation };
+  return { system, state: "blocked", code, remediation }
 }
 
 function emailWarning(code: string): ReadinessResult {
@@ -192,5 +203,5 @@ function emailWarning(code: string): ReadinessResult {
     state: "warning",
     code,
     remediation: "Verify your Resend sender",
-  };
+  }
 }

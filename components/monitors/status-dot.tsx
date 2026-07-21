@@ -1,14 +1,14 @@
-import type { MonitorState } from "@/lib/monitoring/types";
-import { cn } from "@/lib/utils";
+import type { MonitorState } from "@/lib/monitoring/types"
+import { cn } from "@/lib/utils"
 
-export type { MonitorState };
+export type { MonitorState }
 
-export interface StatusDotProps {
-  state: MonitorState;
-  size?: "sm" | "md";
-  className?: string;
-  "aria-label"?: string;
-  "aria-hidden"?: boolean;
+interface StatusDotProps {
+  state: MonitorState
+  size?: "sm" | "md"
+  className?: string
+  "aria-label"?: string
+  "aria-hidden"?: boolean
 }
 
 const stateStyles: Record<MonitorState, string> = {
@@ -20,7 +20,7 @@ const stateStyles: Record<MonitorState, string> = {
   DOWN: "status-dot-pulse bg-[var(--down)] text-[var(--down)]",
   PENDING: "bg-[var(--neutral-state)] text-[var(--neutral-state)]",
   PAUSED: "bg-[var(--neutral-state)] text-[var(--neutral-state)]",
-};
+}
 
 const stateLabels: Record<MonitorState, string> = {
   UP: "Up",
@@ -29,7 +29,7 @@ const stateLabels: Record<MonitorState, string> = {
   DOWN: "Down",
   PENDING: "Pending",
   PAUSED: "Paused",
-};
+}
 
 function StatusDot({
   state,
@@ -39,18 +39,19 @@ function StatusDot({
   "aria-hidden": ariaHidden,
 }: StatusDotProps) {
   return (
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: role img is set whenever aria-label is present, both guarded by aria-hidden
     <span
-      role={ariaHidden ? undefined : "img"}
       aria-hidden={ariaHidden}
       aria-label={ariaHidden ? undefined : (ariaLabel ?? stateLabels[state])}
       className={cn(
         "relative inline-block shrink-0 rounded-full",
         size === "sm" ? "size-2" : "size-2.5",
         stateStyles[state],
-        className,
+        className
       )}
+      role={ariaHidden ? undefined : "img"}
     />
-  );
+  )
 }
 
-export { StatusDot, stateLabels };
+export { StatusDot, stateLabels }

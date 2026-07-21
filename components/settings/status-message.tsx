@@ -1,11 +1,14 @@
-"use client";
+"use client"
 
-import * as React from "react";
+import type * as React from "react"
 
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/utils"
 
 /** Mirrors the Message shape in components/incidents/report-editor.tsx. */
-export type Message = { text: string; tone: "info" | "error" };
+export interface Message {
+  text: string
+  tone: "info" | "error"
+}
 
 /**
  * The one status live region per settings card. Always mounted (empty when
@@ -18,23 +21,26 @@ export function StatusMessage({
   className,
   ref,
 }: {
-  message: Message | null;
-  className?: string;
-  ref?: React.Ref<HTMLParagraphElement>;
+  message: Message | null
+  className?: string
+  ref?: React.Ref<HTMLParagraphElement>
 }) {
   return (
     <p
-      ref={ref}
-      tabIndex={-1}
       aria-live="polite"
-      role={message?.tone === "error" ? "alert" : undefined}
       className={cn(
         "min-h-5 text-[13px] outline-none",
-        message?.tone === "error" ? "text-[var(--down-text)]" : "text-[var(--fg-muted)]",
-        className,
+        message?.tone === "error"
+          ? "text-[var(--down-text)]"
+          : "text-[var(--fg-muted)]",
+        className
       )}
+      ref={ref}
+      role={message?.tone === "error" ? "alert" : undefined}
+      tabIndex={-1}
     >
+      {/* biome-ignore lint/suspicious/noUnnecessaryConditions: message is null when the card is idle */}
       {message?.text ?? ""}
     </p>
-  );
+  )
 }

@@ -1,32 +1,51 @@
-import { revalidatePath } from "next/cache";
+import { revalidatePath } from "next/cache"
 
-import { apiError, apiJson, errorEnvelope, objectEnvelope } from "@/lib/api/envelopes";
-import { executeIdempotent, type StoredResponse } from "@/lib/api/idempotency";
-import { authorize, isApiResponse } from "@/lib/api/middleware";
-import { routeError } from "@/lib/api/route";
+import {
+  apiError,
+  apiJson,
+  errorEnvelope,
+  objectEnvelope,
+} from "@/lib/api/envelopes"
+import { executeIdempotent, type StoredResponse } from "@/lib/api/idempotency"
+import { authorize, isApiResponse } from "@/lib/api/middleware"
+import { routeError } from "@/lib/api/route"
 import {
   getStatusPageConfig,
   putStatusPageConfig,
-  statusPageConfigEtag,
-  StatusPageConfigError,
   type StatusPageConfigData,
-} from "@/lib/api/status-page-config";
+  StatusPageConfigError,
+  statusPageConfigEtag,
+} from "@/lib/api/status-page-config"
 
-function configResponse(data: StatusPageConfigData, etag: string, requestId: string) {
-  const response = apiJson(objectEnvelope("StatusPageConfig", data, requestId));
-  response.headers.set("ETag", etag);
-  return response;
+function configResponse(
+  data: StatusPageConfigData,
+  etag: string,
+  requestId: string
+) {
+  const response = apiJson(objectEnvelope("StatusPageConfig", data, requestId))
+  response.headers.set("ETag", etag)
+  return response
 }
 
 function statusPageConfigErrorStatus(error: StatusPageConfigError): number {
-  return error.code === "PRECONDITION_FAILED" ? 412 : error.code === "CONFIG_UNAVAILABLE" ? 503 : 400;
+  return error.code === "PRECONDITION_FAILED"
+    ? 412
+    : error.code === "CONFIG_UNAVAILABLE"
+      ? 503
+      : 400
 }
 
 function configError(error: unknown, requestId: string) {
   if (error instanceof StatusPageConfigError) {
-    return apiError(requestId, statusPageConfigErrorStatus(error), error.code, error.message, error.details);
+    return apiError(
+      requestId,
+      statusPageConfigErrorStatus(error),
+      error.code,
+      error.message,
+      error.details
+    )
   }
-  return routeError(error, requestId);
+  return routeError(error, requestId)
 }
 
 /**
@@ -38,40 +57,50 @@ function configError(error: unknown, requestId: string) {
  * executeIdempotent, since a thrown error would leave the idempotency record
  * running forever instead of completed.
  */
-function storedConfigError(error: StatusPageConfigError, requestId: string): StoredResponse<unknown> {
-  return { status: statusPageConfigErrorStatus(error), body: errorEnvelope(error.code, error.message, requestId, error.details) };
+function storedConfigError(
+  error: StatusPageConfigError,
+  requestId: string
+): StoredResponse<unknown> {
+  return {
+    status: statusPageConfigErrorStatus(error),
+    body: errorEnvelope(error.code, error.message, requestId, error.details),
+  }
 }
 
 /** Recomputes the ETag from the persisted document's version, stable across replay. */
 function etagFor(data: StatusPageConfigData): string {
-  return statusPageConfigEtag(data.version);
+  return statusPageConfigEtag(data.version)
 }
 
 export async function GET(request: Request) {
-  const context = await authorize(request, { scope: "config:read" });
-  if (isApiResponse(context)) return context;
+  const context = await authorize(request, { scope: "config:read" })
+  if (isApiResponse(context)) {
+    return context
+  }
   try {
-    const { data, etag } = await getStatusPageConfig();
-    return configResponse(data, etag, context.requestId);
+    const { data, etag } = await getStatusPageConfig()
+    return configResponse(data, etag, context.requestId)
   } catch (error) {
-    return configError(error, context.requestId);
+    return configError(error, context.requestId)
   }
 }
 
 export async function PUT(request: Request) {
-  const context = await authorize(request, { scope: "config:write" });
-  if (isApiResponse(context)) return context;
-  const ifMatch = request.headers.get("if-match")?.trim();
+  const context = await authorize(request, { scope: "config:write" })
+  if (isApiResponse(context)) {
+    return context
+  }
+  const ifMatch = request.headers.get("if-match")?.trim()
   if (!ifMatch) {
     return apiError(
       context.requestId,
       428,
       "PRECONDITION_REQUIRED",
-      "The If-Match header is required; read the configuration and resend with its ETag",
-    );
+      "The If-Match header is required; read the configuration and resend with its ETag"
+    )
   }
   try {
-    const body = await request.json();
+    const body = await request.json()
     const result = await executeIdempotent({
       request,
       principalKey: context.principalKey,
@@ -88,18 +117,23 @@ export async function PUT(request: Request) {
       // stale replay. `work` below closes over the real `body` and `ifMatch`
       // directly, so this composite is used only for hashing.
       body: { ifMatch, document: body },
-      work: async ({ transaction }) => transaction(async (tx) => {
-        try {
-          const { data } = await putStatusPageConfig(body, ifMatch, { handle: tx });
-          return { status: 200, body: data };
-        } catch (error) {
-          if (error instanceof StatusPageConfigError) return storedConfigError(error, context.requestId);
-          throw error;
-        }
-      }),
-    });
+      work: async ({ transaction }) =>
+        transaction(async (tx) => {
+          try {
+            const { data } = await putStatusPageConfig(body, ifMatch, {
+              handle: tx,
+            })
+            return { status: 200, body: data }
+          } catch (error) {
+            if (error instanceof StatusPageConfigError) {
+              return storedConfigError(error, context.requestId)
+            }
+            throw error
+          }
+        }),
+    })
     if (result.status !== 200) {
-      return apiJson(result.body, { status: result.status });
+      return apiJson(result.body, { status: result.status })
     }
     // Revalidate only after the guarded write and the idempotency completion
     // commit, so a public status visit in the window never reads the old
@@ -111,14 +145,14 @@ export async function PUT(request: Request) {
     // the cleaner match for Next 15 semantics here than enumerating each
     // surface the way report mutations do in collectStatusReportPaths.
     if (!result.replayed) {
-      revalidatePath("/status", "layout");
+      revalidatePath("/status", "layout")
     }
     // The ETag is derived from the persisted version, not stored separately,
     // so a replayed idempotency key still returns a correct header without
     // re-running the write (and re-triggering the If-Match check) below.
-    const data = result.body as StatusPageConfigData;
-    return configResponse(data, etagFor(data), context.requestId);
+    const data = result.body as StatusPageConfigData
+    return configResponse(data, etagFor(data), context.requestId)
   } catch (error) {
-    return configError(error, context.requestId);
+    return configError(error, context.requestId)
   }
 }

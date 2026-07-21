@@ -9,12 +9,26 @@
     "severity": "high",
     "status_impact": "SERVICE_OUTAGE",
     "uri": "incidents/cloudrunoutage01",
-    "affected_products": [{ "id": "9D7d2iNBQWN24zc1VamE", "title": "Google Cloud Run" }],
-    "currently_affected_locations": [{ "id": "europe-west4", "title": "Eemshaven (europe-west4)" }],
+    "affected_products": [
+      { "id": "9D7d2iNBQWN24zc1VamE", "title": "Google Cloud Run" }
+    ],
+    "currently_affected_locations": [
+      { "id": "europe-west4", "title": "Eemshaven (europe-west4)" }
+    ],
     "previously_affected_locations": [],
     "updates": [
-      { "created": "2026-07-19T09:45:00+00:00", "modified": "2026-07-19T09:45:00+00:00", "text": "The outage continues. Engineers have identified the cause and are working on mitigation.", "status": "SERVICE_OUTAGE" },
-      { "created": "2026-07-19T09:10:00+00:00", "modified": "2026-07-19T09:10:00+00:00", "text": "We are investigating a service outage affecting Cloud Run request serving.", "status": "SERVICE_OUTAGE" }
+      {
+        "created": "2026-07-19T09:45:00+00:00",
+        "modified": "2026-07-19T09:45:00+00:00",
+        "text": "The outage continues. Engineers have identified the cause and are working on mitigation.",
+        "status": "SERVICE_OUTAGE"
+      },
+      {
+        "created": "2026-07-19T09:10:00+00:00",
+        "modified": "2026-07-19T09:10:00+00:00",
+        "text": "We are investigating a service outage affecting Cloud Run request serving.",
+        "status": "SERVICE_OUTAGE"
+      }
     ]
   }
 ]

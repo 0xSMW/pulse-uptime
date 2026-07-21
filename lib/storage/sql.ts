@@ -1,5 +1,5 @@
-import { GOVERNOR_THRESHOLD_PERCENTS } from "./governor";
-import type { GovernorMode } from "./governor";
+import type { GovernorMode } from "./governor"
+import { GOVERNOR_THRESHOLD_PERCENTS } from "./governor"
 
 export const FILL_SCHEDULER_GAPS_SQL = `
 with coverage as (
@@ -77,7 +77,7 @@ select md5('scheduler_gap/' || monitor_id || '/' || scheduled_minute::text)::uui
   monitor_id, 'scheduler_gap', 'SCHEDULER_GAP', decode(md5('scheduler_gap/' || monitor_id || '/' || scheduled_minute::text), 'hex'),
   scheduled_minute, scheduled_minute, 1
 from gap_events on conflict do nothing
-`;
+`
 
 export const COMPACT_15_MINUTE_SQL = `
 with minute_slots as (
@@ -146,7 +146,7 @@ on conflict (monitor_id, resolution, bucket_start) do update set
   latency_max_ms = excluded.latency_max_ms, latency_histogram = excluded.latency_histogram,
   histogram_version = excluded.histogram_version, has_incident = excluded.has_incident,
   compacted_at = excluded.compacted_at
-`;
+`
 
 export const PROMOTE_ROLLUP_SQL = `
 insert into metric_rollups (
@@ -182,7 +182,7 @@ on conflict (monitor_id, resolution, bucket_start) do update set
   latency_max_ms = excluded.latency_max_ms, latency_histogram = excluded.latency_histogram,
   histogram_version = excluded.histogram_version, has_incident = excluded.has_incident,
   compacted_at = excluded.compacted_at
-`;
+`
 
 export const MEASURE_USAGE_SQL = `
 with relations as (
@@ -249,7 +249,7 @@ on conflict (captured_at) do update set
   scheduler_coverage = excluded.scheduler_coverage,
   provider_metrics_captured_at = excluded.provider_metrics_captured_at
 returning governor_mode
-`;
+`
 
 // Recent per-check rows for a single monitor, decoded straight from
 // check_batches instead of the 15-minute rollups. expected = 1 already
@@ -282,7 +282,7 @@ from bits
 where bits.expected = 1
 order by bits.scheduled_minute desc
 limit $4
-`;
+`
 
 // Aggregated per-check counts for a single monitor over [$2, $3), read straight
 // from check_batches, minus the counted rollup middle [$4, $5). The collecting
@@ -322,6 +322,8 @@ select
   count(*) filter (where bits.expected = 1 and bits.completed = 1 and bits.failed = 0)::integer successful,
   count(*) filter (where bits.expected = 1 and bits.completed = 1 and bits.failed = 1)::integer failed
 from bits
-`;
+`
 
-export type UsageModeRow = { governor_mode: GovernorMode };
+export interface UsageModeRow {
+  governor_mode: GovernorMode
+}

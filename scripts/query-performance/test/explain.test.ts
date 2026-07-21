@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest"
 
-import { sampleFromExplainOutput } from "../src/explain";
+import { sampleFromExplainOutput } from "../src/explain"
 
 // The root buffer counters already include all child activity.
 function nestedExplainOutput() {
@@ -51,56 +51,56 @@ function nestedExplainOutput() {
     },
     "Planning Time": 0.4,
     "Execution Time": 12.1,
-  };
+  }
 }
 
 describe("sampleFromExplainOutput", () => {
   it("uses root plan buffer counters instead of summing nested nodes", () => {
-    const output = nestedExplainOutput();
-    const sample = sampleFromExplainOutput(output);
+    const output = nestedExplainOutput()
+    const sample = sampleFromExplainOutput(output)
 
     // Query totals come from the root counters.
-    expect(sample.sharedHitBlocks).toBe(100);
-    expect(sample.sharedReadBlocks).toBe(20);
-    expect(sample.sharedDirtiedBlocks).toBe(3);
-    expect(sample.sharedWrittenBlocks).toBe(1);
+    expect(sample.sharedHitBlocks).toBe(100)
+    expect(sample.sharedReadBlocks).toBe(20)
+    expect(sample.sharedDirtiedBlocks).toBe(3)
+    expect(sample.sharedWrittenBlocks).toBe(1)
 
     // Summing every node would double-count the buffers.
-    const summedHits = 100 + 40 + 60 + 55;
-    const summedReads = 20 + 8 + 12 + 10;
-    expect(summedHits).toBe(255);
-    expect(summedReads).toBe(50);
-    expect(sample.sharedHitBlocks).not.toBe(summedHits);
-    expect(sample.sharedReadBlocks).not.toBe(summedReads);
-  });
+    const summedHits = 100 + 40 + 60 + 55
+    const summedReads = 20 + 8 + 12 + 10
+    expect(summedHits).toBe(255)
+    expect(summedReads).toBe(50)
+    expect(sample.sharedHitBlocks).not.toBe(summedHits)
+    expect(sample.sharedReadBlocks).not.toBe(summedReads)
+  })
 
   it("still flattens nested plans for nodeCount and topNodes", () => {
-    const sample = sampleFromExplainOutput(nestedExplainOutput());
+    const sample = sampleFromExplainOutput(nestedExplainOutput())
 
-    expect(sample.nodeCount).toBe(4);
-    expect(sample.topNodes).toHaveLength(4);
+    expect(sample.nodeCount).toBe(4)
+    expect(sample.topNodes).toHaveLength(4)
     expect(sample.topNodes.map((node) => node.nodeType)).toEqual([
       "Hash Join",
       "Seq Scan",
       "Hash",
       "Index Scan",
-    ]);
+    ])
 
     // Top-node summaries keep their own counters.
-    expect(sample.topNodes[0]!.sharedHitBlocks).toBe(100);
-    expect(sample.topNodes[1]!.sharedHitBlocks).toBe(40);
-    expect(sample.topNodes[2]!.sharedHitBlocks).toBe(60);
-    expect(sample.topNodes[3]!.sharedHitBlocks).toBe(55);
-  });
+    expect(sample.topNodes[0]!.sharedHitBlocks).toBe(100)
+    expect(sample.topNodes[1]!.sharedHitBlocks).toBe(40)
+    expect(sample.topNodes[2]!.sharedHitBlocks).toBe(60)
+    expect(sample.topNodes[3]!.sharedHitBlocks).toBe(55)
+  })
 
   it("preserves timing and root row fields from the explain output", () => {
-    const sample = sampleFromExplainOutput(nestedExplainOutput());
+    const sample = sampleFromExplainOutput(nestedExplainOutput())
 
-    expect(sample.planningTimeMs).toBe(0.4);
-    expect(sample.executionTimeMs).toBe(12.1);
-    expect(sample.totalTimeMs).toBeCloseTo(12.5);
-    expect(sample.rootRows).toBe(100);
-  });
+    expect(sample.planningTimeMs).toBe(0.4)
+    expect(sample.executionTimeMs).toBe(12.1)
+    expect(sample.totalTimeMs).toBeCloseTo(12.5)
+    expect(sample.rootRows).toBe(100)
+  })
 
   it("defaults missing buffer counters on a leaf root plan to zero", () => {
     const sample = sampleFromExplainOutput({
@@ -112,15 +112,15 @@ describe("sampleFromExplainOutput", () => {
       },
       "Planning Time": 0.1,
       "Execution Time": 0.01,
-    });
+    })
 
-    expect(sample.sharedHitBlocks).toBe(0);
-    expect(sample.sharedReadBlocks).toBe(0);
-    expect(sample.sharedDirtiedBlocks).toBe(0);
-    expect(sample.sharedWrittenBlocks).toBe(0);
-    expect(sample.nodeCount).toBe(1);
-    expect(sample.topNodes).toHaveLength(1);
-  });
+    expect(sample.sharedHitBlocks).toBe(0)
+    expect(sample.sharedReadBlocks).toBe(0)
+    expect(sample.sharedDirtiedBlocks).toBe(0)
+    expect(sample.sharedWrittenBlocks).toBe(0)
+    expect(sample.nodeCount).toBe(1)
+    expect(sample.topNodes).toHaveLength(1)
+  })
 
   it("caps topNodes at five while counting the full nested tree", () => {
     const sample = sampleFromExplainOutput({
@@ -138,10 +138,10 @@ describe("sampleFromExplainOutput", () => {
       },
       "Planning Time": 0,
       "Execution Time": 1,
-    });
-    expect(sample.nodeCount).toBe(7);
-    expect(sample.topNodes).toHaveLength(5);
-    expect(sample.sharedHitBlocks).toBe(6);
-    expect(sample.sharedReadBlocks).toBe(0);
-  });
-});
+    })
+    expect(sample.nodeCount).toBe(7)
+    expect(sample.topNodes).toHaveLength(5)
+    expect(sample.sharedHitBlocks).toBe(6)
+    expect(sample.sharedReadBlocks).toBe(0)
+  })
+})

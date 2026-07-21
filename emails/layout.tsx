@@ -9,17 +9,22 @@ import {
   Preview,
   Section,
   Text,
-} from "@react-email/components";
-import type { ReactNode } from "react";
+} from "@react-email/components"
+import type { ReactNode } from "react"
 
 interface EmailLayoutProps {
-  preview: string;
-  heading: string;
-  children: ReactNode;
-  action?: { label: string; url: string };
+  preview: string
+  heading: string
+  children: ReactNode
+  action?: { label: string; url: string }
 }
 
-export function EmailLayout({ preview, heading, children, action }: EmailLayoutProps) {
+export function EmailLayout({
+  preview,
+  heading,
+  children,
+  action,
+}: EmailLayoutProps) {
   return (
     <Html>
       <Head />
@@ -30,14 +35,16 @@ export function EmailLayout({ preview, heading, children, action }: EmailLayoutP
           <Heading style={styles.heading}>{heading}</Heading>
           <Section>{children}</Section>
           {action ? (
-            <Button href={action.url} style={styles.button}>{action.label}</Button>
+            <Button href={action.url} style={styles.button}>
+              {action.label}
+            </Button>
           ) : null}
           <Hr style={styles.rule} />
           <Text style={styles.footer}>Sent by Pulse Uptime</Text>
         </Container>
       </Body>
     </Html>
-  );
+  )
 }
 
 export const emailTextStyle = {
@@ -45,7 +52,7 @@ export const emailTextStyle = {
   fontSize: "15px",
   lineHeight: "24px",
   margin: "0 0 14px",
-};
+}
 
 export const emailMetaStyle = {
   color: "#71717a",
@@ -53,7 +60,7 @@ export const emailMetaStyle = {
   fontSize: "13px",
   lineHeight: "20px",
   margin: "0 0 6px",
-};
+}
 
 const styles = {
   body: {
@@ -95,4 +102,4 @@ const styles = {
   },
   rule: { borderColor: "#e4e4e7", margin: "30px 0 18px" },
   footer: { color: "#a1a1aa", fontSize: "12px", margin: 0 },
-};
+}

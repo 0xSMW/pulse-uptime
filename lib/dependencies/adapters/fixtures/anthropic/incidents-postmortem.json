@@ -1,5 +1,11 @@
 {
-  "page": { "id": "tymt9n04zgry", "name": "Claude", "url": "https://status.anthropic.com", "time_zone": "Etc/UTC", "updated_at": "2026-07-15T12:00:00.000Z" },
+  "page": {
+    "id": "tymt9n04zgry",
+    "name": "Claude",
+    "url": "https://status.anthropic.com",
+    "time_zone": "Etc/UTC",
+    "updated_at": "2026-07-15T12:00:00.000Z"
+  },
   "incidents": [
     {
       "id": "pm7x3incident01",
@@ -13,7 +19,11 @@
       "impact": "minor",
       "shortlink": "https://stspg.io/pm7x3short01",
       "components": [
-        { "id": "k8w3r06qmzrp", "name": "Claude API (api.anthropic.com)", "status": "operational" }
+        {
+          "id": "k8w3r06qmzrp",
+          "name": "Claude API (api.anthropic.com)",
+          "status": "operational"
+        }
       ],
       "incident_updates": [
         {

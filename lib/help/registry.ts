@@ -12,20 +12,20 @@ export type HelpDemoKey =
   | "pause-toggle"
   | "email-test"
   | "cli-link"
-  | "agent-connect";
+  | "agent-connect"
 
-export type HelpEntry = {
-  kind: "concept" | "guide";
-  slug: string;
-  title: string;
-  summary: string;
-  steps?: string[];
-  demo: HelpDemoKey;
-  relatedLinks: Array<{ label: string; href: string }>;
-};
+export interface HelpEntry {
+  kind: "concept" | "guide"
+  slug: string
+  title: string
+  summary: string
+  steps?: string[]
+  demo: HelpDemoKey
+  relatedLinks: Array<{ label: string; href: string }>
+}
 
 export function helpEntryId(entry: Pick<HelpEntry, "kind" | "slug">): string {
-  return `${entry.kind}-${entry.slug}`;
+  return `${entry.kind}-${entry.slug}`
 }
 
 const concepts: HelpEntry[] = [
@@ -50,7 +50,10 @@ const concepts: HelpEntry[] = [
       "Every monitor is in exactly one state. Pending means no completed checks yet. Up means the endpoint is passing checks. Verifying means a change is being confirmed before the state flips. Down means consecutive failures reached the failure threshold. Paused means checks are suspended and no alerts are sent.",
     demo: "monitor-states",
     relatedLinks: [
-      { label: "Checks and thresholds", href: "#concept-checks-and-thresholds" },
+      {
+        label: "Checks and thresholds",
+        href: "#concept-checks-and-thresholds",
+      },
       { label: "Pause or resume monitoring", href: "#guide-pause-monitor" },
     ],
   },
@@ -124,7 +127,10 @@ const concepts: HelpEntry[] = [
     demo: "status-page",
     relatedLinks: [
       { label: "Status reports", href: "/incidents/reports" },
-      { label: "Publish a status report", href: "#guide-publish-status-report" },
+      {
+        label: "Publish a status report",
+        href: "#guide-publish-status-report",
+      },
       { label: "Public status page", href: "#concept-status-page" },
     ],
   },
@@ -154,7 +160,7 @@ const concepts: HelpEntry[] = [
       { label: "Read Database Health", href: "#guide-database-health" },
     ],
   },
-];
+]
 
 const guides: HelpEntry[] = [
   {
@@ -192,7 +198,10 @@ const guides: HelpEntry[] = [
     demo: "check-settings",
     relatedLinks: [
       { label: "Monitors in Settings", href: "/settings/monitors" },
-      { label: "Checks and thresholds", href: "#concept-checks-and-thresholds" },
+      {
+        label: "Checks and thresholds",
+        href: "#concept-checks-and-thresholds",
+      },
     ],
   },
   {
@@ -209,7 +218,10 @@ const guides: HelpEntry[] = [
     demo: "test-monitor",
     relatedLinks: [
       { label: "Overview", href: "/" },
-      { label: "Checks and thresholds", href: "#concept-checks-and-thresholds" },
+      {
+        label: "Checks and thresholds",
+        href: "#concept-checks-and-thresholds",
+      },
     ],
   },
   {
@@ -290,7 +302,7 @@ const guides: HelpEntry[] = [
     slug: "share-status-page",
     title: "Share the status page",
     summary:
-      "The status page is public by design: viewers need no account and always see live states. Share it instead of answering \"is it down?\" by hand.",
+      'The status page is public by design: viewers need no account and always see live states. Share it instead of answering "is it down?" by hand.',
     steps: [
       "Open Status Page from the top navigation.",
       "Copy the page address from the browser.",
@@ -338,7 +350,10 @@ const guides: HelpEntry[] = [
     demo: "status-page",
     relatedLinks: [
       { label: "Status reports", href: "/incidents/reports" },
-      { label: "Publish a status report", href: "#guide-publish-status-report" },
+      {
+        label: "Publish a status report",
+        href: "#guide-publish-status-report",
+      },
     ],
   },
   {
@@ -393,7 +408,10 @@ const guides: HelpEntry[] = [
     demo: "cli-link",
     relatedLinks: [
       { label: "pulsectl documentation", href: "/docs/cli" },
-      { label: "API tokens and agents", href: "#concept-api-tokens-and-agents" },
+      {
+        label: "API tokens and agents",
+        href: "#concept-api-tokens-and-agents",
+      },
     ],
   },
   {
@@ -475,24 +493,27 @@ const guides: HelpEntry[] = [
       "Select Reset later to return to the account time zone.",
     ],
     demo: "timeline",
-    relatedLinks: [
-      { label: "Account in Settings", href: "/settings/account" },
-    ],
+    relatedLinks: [{ label: "Account in Settings", href: "/settings/account" }],
   },
-];
+]
 
-export type HelpGroup = { label: string; entries: HelpEntry[] };
+export interface HelpGroup {
+  label: string
+  entries: HelpEntry[]
+}
 
 export const helpGroups: HelpGroup[] = [
   { label: "Core Concepts", entries: concepts },
   { label: "How-to Guides", entries: guides },
-];
+]
 
-export const helpEntries: HelpEntry[] = helpGroups.flatMap((group) => group.entries);
+export const helpEntries: HelpEntry[] = helpGroups.flatMap(
+  (group) => group.entries
+)
 
 export function findHelpEntryId(hash: string): string | null {
-  const id = hash.replace(/^#/, "");
-  return helpEntries.some((entry) => helpEntryId(entry) === id) ? id : null;
+  const id = hash.replace(/^#/, "")
+  return helpEntries.some((entry) => helpEntryId(entry) === id) ? id : null
 }
 
 /**
@@ -504,14 +525,21 @@ export function activeHelpSectionId(
   positions: Array<{ id: string; top: number }>,
   scrollY: number,
   offset: number,
-  atBottom = false,
+  atBottom = false
 ): string | null {
-  if (positions.length === 0) return null;
-  if (atBottom) return positions[positions.length - 1]!.id;
-  let active = positions[0]!.id;
-  for (const position of positions) {
-    if (position.top <= scrollY + offset) active = position.id;
-    else break;
+  if (positions.length === 0) {
+    return null
   }
-  return active;
+  if (atBottom) {
+    return positions.at(-1)!.id
+  }
+  let active = positions[0]!.id
+  for (const position of positions) {
+    if (position.top <= scrollY + offset) {
+      active = position.id
+    } else {
+      break
+    }
+  }
+  return active
 }

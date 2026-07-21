@@ -1,35 +1,44 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html data-theme="dark" lang="en">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta charset="UTF-8">
+    <meta content="width=device-width, initial-scale=1" name="viewport">
     <meta
-      name="description"
       content="Pulse is a self-hosted uptime monitor for people and agents"
-    />
+      name="description"
+    >
     <title>Pulse — Own your uptime</title>
-    <meta property="og:title" content="Pulse — Own your uptime" />
-    <meta property="og:description" content="Pulse is a self-hosted uptime monitor for people and agents" />
-    <meta property="og:type" content="website" />
-    <meta name="twitter:card" content="summary" />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='5.5' fill='%2300ca50'/%3E%3C/svg%3E" />
+    <meta content="Pulse — Own your uptime" property="og:title">
+    <meta
+      content="Pulse is a self-hosted uptime monitor for people and agents"
+      property="og:description"
+    >
+    <meta content="website" property="og:type">
+    <meta content="summary" name="twitter:card">
+    <link
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='5.5' fill='%2300ca50'/%3E%3C/svg%3E"
+      rel="icon"
+    >
     <script>
-      try {
-        document.documentElement.dataset.theme = localStorage.getItem("pulse-marketing-theme") || "dark";
-      } catch (error) {
-        /* private mode */
-      }
+    "use strict"
+    try {
+      document.documentElement.dataset.theme =
+        localStorage.getItem("pulse-marketing-theme") || "dark"
+    } catch {
+      /* private mode */
+    }
     </script>
-    <link rel="stylesheet" href="./styles.css" />
-    <script src="./script.js" defer></script>
+    <link href="./styles.css" rel="stylesheet">
+    <script defer src="./script.js"></script>
   </head>
+
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
 
     <header class="site-header">
-      <nav class="nav shell" aria-label="Main navigation">
-        <a class="brand" href="#top" aria-label="Pulse home">
-          <span class="status-dot up" aria-hidden="true"></span>
+      <nav aria-label="Main navigation" class="nav shell">
+        <a aria-label="Pulse home" class="brand" href="#top">
+          <span aria-hidden="true" class="status-dot up"></span>
           <span>Pulse</span>
         </a>
 
@@ -39,22 +48,90 @@
           <a href="#cli">CLI</a>
           <a href="#architecture">Architecture</a>
           <a href="./docs.html">Docs</a>
-          <a class="menu-cta button primary" href="https://github.com/0xSMW/pulse-uptime" target="_blank" rel="noreferrer">
-            <svg class="github-mark" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+          <a
+            class="menu-cta button primary"
+            href="https://github.com/0xSMW/pulse-uptime"
+            rel="noreferrer"
+            target="_blank"
+          >
+            <svg aria-hidden="true" class="github-mark" viewBox="0 0 16 16">
+              <path
+                d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
+                fill="currentColor"
+              />
+            </svg>
             Deploy Pulse
           </a>
         </div>
 
         <div class="nav-actions">
-          <a class="icon-button" href="https://github.com/0xSMW/pulse-uptime" target="_blank" rel="noreferrer" aria-label="View Pulse on GitHub" data-tooltip="View on GitHub">
-            <svg class="github-mark" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+          <a
+            aria-label="View Pulse on GitHub"
+            class="icon-button"
+            data-tooltip="View on GitHub"
+            href="https://github.com/0xSMW/pulse-uptime"
+            rel="noreferrer"
+            target="_blank"
+          >
+            <svg aria-hidden="true" class="github-mark" viewBox="0 0 16 16">
+              <path
+                d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
+                fill="currentColor"
+              />
+            </svg>
           </a>
-          <button class="icon-button" id="theme-toggle" type="button" aria-label="Use light theme" data-tooltip="Light theme">
-            <svg class="theme-toggle-icon icon-sun" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="8" cy="8" r="3.1" /><path d="M8 1.2v1.6M8 13.2v1.6M1.2 8h1.6M13.2 8h1.6M3.4 3.4l1.2 1.2M11.4 11.4l1.2 1.2M12.6 3.4l-1.2 1.2M4.6 11.4l-1.2 1.2" /></svg>
-            <svg class="theme-toggle-icon icon-moon" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M13.54 9.63a.55.55 0 0 0-.62-.18 4.9 4.9 0 0 1-1.67.29 5 5 0 0 1-5-4.99c0-.55.09-1.1.27-1.62a.55.55 0 0 0-.7-.7A6.1 6.1 0 0 0 1.9 8.18 6.1 6.1 0 0 0 8 14.1a6.1 6.1 0 0 0 5.66-3.85.55.55 0 0 0-.12-.62Z"/></svg>
+          <button
+            aria-label="Use light theme"
+            class="icon-button"
+            data-tooltip="Light theme"
+            id="theme-toggle"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="theme-toggle-icon icon-sun"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-width="1.4"
+              viewBox="0 0 16 16"
+            >
+              <circle cx="8" cy="8" r="3.1" />
+              <path
+                d="M8 1.2v1.6M8 13.2v1.6M1.2 8h1.6M13.2 8h1.6M3.4 3.4l1.2 1.2M11.4 11.4l1.2 1.2M12.6 3.4l-1.2 1.2M4.6 11.4l-1.2 1.2"
+              />
+            </svg>
+            <svg
+              aria-hidden="true"
+              class="theme-toggle-icon icon-moon"
+              viewBox="0 0 16 16"
+            >
+              <path
+                d="M13.54 9.63a.55.55 0 0 0-.62-.18 4.9 4.9 0 0 1-1.67.29 5 5 0 0 1-5-4.99c0-.55.09-1.1.27-1.62a.55.55 0 0 0-.7-.7A6.1 6.1 0 0 0 1.9 8.18 6.1 6.1 0 0 0 8 14.1a6.1 6.1 0 0 0 5.66-3.85.55.55 0 0 0-.12-.62Z"
+                fill="currentColor"
+              />
+            </svg>
           </button>
-          <button class="icon-button menu-toggle" id="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="nav-links">
-            <svg class="menu-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path class="menu-line menu-line-top" d="M2.5 5.5h11" /><path class="menu-line menu-line-bottom" d="M2.5 10.5h11" /></svg>
+          <button
+            aria-controls="nav-links"
+            aria-expanded="false"
+            aria-label="Open navigation"
+            class="icon-button menu-toggle"
+            id="menu-toggle"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="menu-icon"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-width="1.4"
+              viewBox="0 0 16 16"
+            >
+              <path class="menu-line menu-line-top" d="M2.5 5.5h11" />
+              <path class="menu-line menu-line-bottom" d="M2.5 10.5h11" />
+            </svg>
           </button>
         </div>
       </nav>
@@ -63,38 +140,118 @@
     <main id="main">
       <section class="hero shell" id="top">
         <div class="hero-copy" data-reveal>
-          <a class="eyebrow release-link" href="https://github.com/0xSMW/pulse-uptime/releases" target="_blank" rel="noreferrer">
-            <span class="status-dot up" aria-hidden="true"></span>
-            Latest update · v0.2.0 released
-            <svg class="arrow-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" /></svg>
+          <a
+            class="eyebrow release-link"
+            href="https://github.com/0xSMW/pulse-uptime/releases"
+            rel="noreferrer"
+            target="_blank"
+          >
+            <span aria-hidden="true" class="status-dot up"></span>
+            Latest update · v0.2.1 released
+            <svg
+              aria-hidden="true"
+              class="arrow-icon"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.4"
+              viewBox="0 0 16 16"
+            >
+              <path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" />
+            </svg>
           </a>
           <h1>Own your uptime</h1>
-          <p class="lede">Pulse checks your endpoints, opens incidents, and tracks the providers behind them — one control plane for people and agents</p>
+          <p class="lede">
+            Pulse checks your endpoints, opens incidents, and tracks the
+            providers behind them — one control plane for people and agents
+          </p>
           <div class="hero-actions">
-            <a class="button primary" href="https://github.com/0xSMW/pulse-uptime" target="_blank" rel="noreferrer">
-              <svg class="github-mark" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+            <a
+              class="button primary"
+              href="https://github.com/0xSMW/pulse-uptime"
+              rel="noreferrer"
+              target="_blank"
+            >
+              <svg aria-hidden="true" class="github-mark" viewBox="0 0 16 16">
+                <path
+                  d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
+                  fill="currentColor"
+                />
+              </svg>
               Deploy Pulse
             </a>
             <a class="text-link" href="./docs.html">
               Read the docs
-              <svg class="arrow-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" /></svg>
+              <svg
+                aria-hidden="true"
+                class="arrow-icon"
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.4"
+                viewBox="0 0 16 16"
+              >
+                <path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" />
+              </svg>
             </a>
           </div>
         </div>
 
-        <div class="product-frame hero-dashboard" id="product" aria-label="Interactive Pulse dashboard" data-reveal>
+        <div
+          aria-label="Interactive Pulse dashboard"
+          class="product-frame hero-dashboard"
+          data-reveal
+          id="product"
+          role="group"
+        >
           <div class="app-bar">
             <a class="brand app-brand" href="#top">
-              <span class="status-dot up" aria-hidden="true"></span>
+              <span aria-hidden="true" class="status-dot up"></span>
               <span>Pulse</span>
             </a>
-            <div class="app-tabs" aria-label="Product demo navigation">
+            <div
+              aria-label="Product demo navigation"
+              class="app-tabs"
+              role="toolbar"
+            >
               <button class="app-tab active" type="button">Overview</button>
-              <button class="app-tab" type="button" data-scroll-to="response">Incidents</button>
-              <button class="app-tab" type="button" data-scroll-to="database">Settings</button>
-              <button class="app-tab" type="button" data-scroll-to="status-page">Status Page <svg class="arrow-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" /></svg></button>
+              <button class="app-tab" data-scroll-to="response" type="button">
+                Incidents
+              </button>
+              <button class="app-tab" data-scroll-to="database" type="button">
+                Settings
+              </button>
+              <button
+                class="app-tab"
+                data-scroll-to="status-page"
+                type="button"
+              >
+                Status Page
+                <svg
+                  aria-hidden="true"
+                  class="arrow-icon"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="1.4"
+                  viewBox="0 0 16 16"
+                >
+                  <path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" />
+                </svg>
+              </button>
             </div>
-            <button class="command-key" type="button" data-open-palette data-tooltip="Command menu · ⌘K" aria-label="Open command menu (Command K)">⌘K</button>
+            <button
+              aria-label="Open command menu (Command K)"
+              class="command-key"
+              data-open-palette
+              data-tooltip="Command menu · ⌘K"
+              type="button"
+            >
+              ⌘K
+            </button>
           </div>
 
           <div class="dashboard-body">
@@ -103,7 +260,13 @@
                 <p class="app-kicker">Overview</p>
                 <h2>All systems</h2>
               </div>
-              <button class="button primary compact" type="button" data-open-monitor>New Monitor</button>
+              <button
+                class="button primary compact"
+                data-open-monitor
+                type="button"
+              >
+                New Monitor
+              </button>
             </div>
 
             <div class="table-shell">
@@ -131,106 +294,496 @@
 
             <div class="dep-rows">
               <div class="dep-row">
-                <span class="dep-status"><span class="status-dot up" aria-hidden="true"></span>Operational</span>
-                <span class="dep-name"><svg class="dep-mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4519l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg><span class="dep-name-text"><strong>OpenAI API</strong><small>OpenAI</small></span></span>
-                <div class="mini-timeline dep-timeline" aria-label="OpenAI API provider-reported timeline"><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span></div>
+                <span class="dep-status"
+                  ><span
+                    aria-hidden="true"
+                    class="status-dot up"
+                  ></span>Operational</span
+                >
+                <span class="dep-name"
+                  ><svg aria-hidden="true" class="dep-mark" viewBox="0 0 24 24">
+                    <path
+                      d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4519l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"
+                      fill="currentColor"
+                    />
+                  </svg><span class="dep-name-text"
+                    ><strong>OpenAI API</strong><small>OpenAI</small></span
+                  ></span
+                >
+                <div
+                  aria-label="OpenAI API provider-reported timeline"
+                  class="mini-timeline dep-timeline"
+                  role="img"
+                >
+                  <span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span>
+                </div>
                 <span class="dep-incident mono"></span>
               </div>
               <div class="dep-row">
-                <span class="dep-status"><span class="status-dot up" aria-hidden="true"></span>Operational</span>
-                <span class="dep-name"><svg class="dep-mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M13.976 9.15c-2.172-.806-3.356-1.426-3.356-2.409 0-.831.683-1.305 1.901-1.305 2.227 0 4.515.858 6.09 1.631l.89-5.494C18.252.975 15.697 0 12.165 0 9.667 0 7.589.654 6.104 1.872 4.56 3.147 3.757 4.992 3.757 7.218c0 4.039 2.467 5.76 6.476 7.219 2.585.92 3.445 1.574 3.445 2.583 0 .98-.84 1.545-2.354 1.545-1.875 0-4.965-.921-6.99-2.109l-.9 5.555C5.175 22.99 8.385 24 11.714 24c2.641 0 4.843-.624 6.328-1.813 1.664-1.305 2.525-3.236 2.525-5.732 0-4.128-2.524-5.851-6.594-7.305h.003z"/></svg><span class="dep-name-text"><strong>Stripe API</strong><small>Stripe</small></span></span>
-                <div class="mini-timeline dep-timeline" aria-label="Stripe API provider-reported timeline"><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span></div>
+                <span class="dep-status"
+                  ><span
+                    aria-hidden="true"
+                    class="status-dot up"
+                  ></span>Operational</span
+                >
+                <span class="dep-name"
+                  ><svg aria-hidden="true" class="dep-mark" viewBox="0 0 24 24">
+                    <path
+                      d="M13.976 9.15c-2.172-.806-3.356-1.426-3.356-2.409 0-.831.683-1.305 1.901-1.305 2.227 0 4.515.858 6.09 1.631l.89-5.494C18.252.975 15.697 0 12.165 0 9.667 0 7.589.654 6.104 1.872 4.56 3.147 3.757 4.992 3.757 7.218c0 4.039 2.467 5.76 6.476 7.219 2.585.92 3.445 1.574 3.445 2.583 0 .98-.84 1.545-2.354 1.545-1.875 0-4.965-.921-6.99-2.109l-.9 5.555C5.175 22.99 8.385 24 11.714 24c2.641 0 4.843-.624 6.328-1.813 1.664-1.305 2.525-3.236 2.525-5.732 0-4.128-2.524-5.851-6.594-7.305h.003z"
+                      fill="currentColor"
+                    />
+                  </svg><span class="dep-name-text"
+                    ><strong>Stripe API</strong><small>Stripe</small></span
+                  ></span
+                >
+                <div
+                  aria-label="Stripe API provider-reported timeline"
+                  class="mini-timeline dep-timeline"
+                  role="img"
+                >
+                  <span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span>
+                </div>
                 <span class="dep-incident mono"></span>
               </div>
               <div class="dep-row">
-                <span class="dep-status"><span class="status-dot neutral pulse" aria-hidden="true"></span>Checking</span>
-                <span class="dep-name"><svg class="dep-mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m12 1.608 12 20.784H0Z"/></svg><span class="dep-name-text"><strong>Vercel Runtime</strong><small>Vercel</small></span></span>
-                <div class="mini-timeline dep-timeline" aria-label="Vercel Runtime provider-reported timeline"><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span><span class="timeline-segment up" aria-hidden="true"></span></div>
+                <span class="dep-status"
+                  ><span
+                    aria-hidden="true"
+                    class="status-dot neutral pulse"
+                  ></span>Checking</span
+                >
+                <span class="dep-name"
+                  ><svg aria-hidden="true" class="dep-mark" viewBox="0 0 24 24">
+                    <path d="m12 1.608 12 20.784H0Z" fill="currentColor" />
+                  </svg><span class="dep-name-text"
+                    ><strong>Vercel Runtime</strong><small>Vercel</small></span
+                  ></span
+                >
+                <div
+                  aria-label="Vercel Runtime provider-reported timeline"
+                  class="mini-timeline dep-timeline"
+                  role="img"
+                >
+                  <span aria-hidden="true" class="timeline-segment"></span
+                  ><span aria-hidden="true" class="timeline-segment"></span
+                  ><span aria-hidden="true" class="timeline-segment"></span
+                  ><span aria-hidden="true" class="timeline-segment"></span
+                  ><span aria-hidden="true" class="timeline-segment"></span
+                  ><span aria-hidden="true" class="timeline-segment"></span
+                  ><span aria-hidden="true" class="timeline-segment"></span
+                  ><span aria-hidden="true" class="timeline-segment"></span
+                  ><span aria-hidden="true" class="timeline-segment"></span
+                  ><span aria-hidden="true" class="timeline-segment"></span
+                  ><span aria-hidden="true" class="timeline-segment"></span
+                  ><span aria-hidden="true" class="timeline-segment"></span
+                  ><span aria-hidden="true" class="timeline-segment"></span
+                  ><span aria-hidden="true" class="timeline-segment"></span
+                  ><span aria-hidden="true" class="timeline-segment"></span
+                  ><span aria-hidden="true" class="timeline-segment"></span
+                  ><span aria-hidden="true" class="timeline-segment"></span
+                  ><span aria-hidden="true" class="timeline-segment"></span
+                  ><span aria-hidden="true" class="timeline-segment"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span
+                  ><span aria-hidden="true" class="timeline-segment up"></span>
+                </div>
                 <span class="dep-incident mono"></span>
               </div>
             </div>
           </div>
-          <div class="frame-fade" aria-hidden="true"></div>
+          <div aria-hidden="true" class="frame-fade"></div>
         </div>
       </section>
 
-      <section class="principles shell section-rule" aria-label="Pulse principles">
+      <section
+        aria-label="Pulse principles"
+        class="principles shell section-rule"
+      >
         <article data-reveal>
           <p class="figure">FIG 0.1</p>
-          <svg class="principle-mark perimeter" viewBox="10 14 180 162" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect class="p-boundary fade" x="18" y="23" width="164" height="144" rx="18" style="--d:120ms"/>
-            <rect class="p-orbit" x="18" y="23" width="164" height="144" rx="18" pathLength="1"/>
+          <svg
+            aria-hidden="true"
+            class="principle-mark perimeter"
+            fill="none"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.2"
+            viewBox="10 14 180 162"
+          >
+            <rect
+              class="p-boundary fade"
+              height="144"
+              rx="18"
+              style="--d:120ms"
+              width="164"
+              x="18"
+              y="23"
+            />
+            <rect
+              class="p-orbit"
+              height="144"
+              pathLength="1"
+              rx="18"
+              width="164"
+              x="18"
+              y="23"
+            />
             <g class="p-server-g">
-              <rect class="draw" x="62" y="63" width="76" height="64" rx="8" pathLength="1" style="--d:260ms"/>
-              <path class="draw" d="M62 84.3h76" pathLength="1" style="--d:520ms"/>
-              <path class="draw" d="M62 105.7h76" pathLength="1" style="--d:600ms"/>
-              <path class="draw" d="M118 73.6h12M118 95h12M118 116.4h12" pathLength="1" style="--d:700ms"/>
-              <circle class="p-led dot" cx="73" cy="73.6" r="2.2" style="--d:840ms"/>
-              <circle class="p-led dot" cx="73" cy="95" r="2.2" style="--d:920ms"/>
-              <circle class="p-led dot" cx="73" cy="116.4" r="2.2" style="--d:1000ms"/>
+              <rect
+                class="draw"
+                height="64"
+                pathLength="1"
+                rx="8"
+                style="--d:260ms"
+                width="76"
+                x="62"
+                y="63"
+              />
+              <path
+                class="draw"
+                d="M62 84.3h76"
+                pathLength="1"
+                style="--d:520ms"
+              />
+              <path
+                class="draw"
+                d="M62 105.7h76"
+                pathLength="1"
+                style="--d:600ms"
+              />
+              <path
+                class="draw"
+                d="M118 73.6h12M118 95h12M118 116.4h12"
+                pathLength="1"
+                style="--d:700ms"
+              />
+              <circle
+                class="p-led dot"
+                cx="73"
+                cy="73.6"
+                r="2.2"
+                style="--d:840ms"
+              />
+              <circle
+                class="p-led dot"
+                cx="73"
+                cy="95"
+                r="2.2"
+                style="--d:920ms"
+              />
+              <circle
+                class="p-led dot"
+                cx="73"
+                cy="116.4"
+                r="2.2"
+                style="--d:1000ms"
+              />
             </g>
-            <circle class="p-ring" cx="100" cy="95" r="12"/>
+            <circle class="p-ring" cx="100" cy="95" r="12" />
           </svg>
           <h3>Built for ownership</h3>
-          <p>Deploy to your infrastructure and keep control of your operational data</p>
+          <p>
+            Deploy to your infrastructure and keep control of your operational
+            data
+          </p>
         </article>
         <article data-reveal>
           <p class="figure">FIG 0.2</p>
-          <svg class="principle-mark relay" viewBox="10 14 180 162" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path class="r-wire draw" d="M48 37C82 37 88 95 122 95" pathLength="1" style="--d:620ms"/>
-            <path class="r-wire draw" d="M48 95H122" pathLength="1" style="--d:760ms"/>
-            <path class="r-wire draw" d="M48 153C82 153 88 95 122 95" pathLength="1" style="--d:900ms"/>
-            <path class="r-pulse r-p1" d="M48 37C82 37 88 95 122 95" pathLength="1"/>
-            <path class="r-pulse r-p2" d="M48 95H122" pathLength="1"/>
-            <path class="r-pulse r-p3" d="M48 153C82 153 88 95 122 95" pathLength="1"/>
+          <svg
+            aria-hidden="true"
+            class="principle-mark relay"
+            fill="none"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.2"
+            viewBox="10 14 180 162"
+          >
+            <path
+              class="r-wire draw"
+              d="M48 37C82 37 88 95 122 95"
+              pathLength="1"
+              style="--d:620ms"
+            />
+            <path
+              class="r-wire draw"
+              d="M48 95H122"
+              pathLength="1"
+              style="--d:760ms"
+            />
+            <path
+              class="r-wire draw"
+              d="M48 153C82 153 88 95 122 95"
+              pathLength="1"
+              style="--d:900ms"
+            />
+            <path
+              class="r-pulse r-p1"
+              d="M48 37C82 37 88 95 122 95"
+              pathLength="1"
+            />
+            <path class="r-pulse r-p2" d="M48 95H122" pathLength="1" />
+            <path
+              class="r-pulse r-p3"
+              d="M48 153C82 153 88 95 122 95"
+              pathLength="1"
+            />
             <g class="r-node-g">
-              <rect class="draw" x="14" y="20" width="34" height="34" rx="9" pathLength="1" style="--d:140ms"/>
-              <circle class="draw" cx="31" cy="31" r="4.5" pathLength="1" style="--d:480ms"/>
-              <path class="draw" d="M23.5 45c0-6 15-6 15 0" pathLength="1" style="--d:560ms"/>
-              <circle class="r-port dot" cx="48" cy="37" r="1.8" style="--d:980ms"/>
+              <rect
+                class="draw"
+                height="34"
+                pathLength="1"
+                rx="9"
+                style="--d:140ms"
+                width="34"
+                x="14"
+                y="20"
+              />
+              <circle
+                class="draw"
+                cx="31"
+                cy="31"
+                pathLength="1"
+                r="4.5"
+                style="--d:480ms"
+              />
+              <path
+                class="draw"
+                d="M23.5 45c0-6 15-6 15 0"
+                pathLength="1"
+                style="--d:560ms"
+              />
+              <circle
+                class="r-port dot"
+                cx="48"
+                cy="37"
+                r="1.8"
+                style="--d:980ms"
+              />
             </g>
             <g class="r-node-g">
-              <rect class="draw" x="14" y="78" width="34" height="34" rx="9" pathLength="1" style="--d:260ms"/>
-              <path class="draw" d="m24.5 90 5.5 5-5.5 5" pathLength="1" style="--d:600ms"/>
-              <path class="draw" d="M34 100h6.5" pathLength="1" style="--d:680ms"/>
-              <circle class="r-port dot" cx="48" cy="95" r="1.8" style="--d:1060ms"/>
+              <rect
+                class="draw"
+                height="34"
+                pathLength="1"
+                rx="9"
+                style="--d:260ms"
+                width="34"
+                x="14"
+                y="78"
+              />
+              <path
+                class="draw"
+                d="m24.5 90 5.5 5-5.5 5"
+                pathLength="1"
+                style="--d:600ms"
+              />
+              <path
+                class="draw"
+                d="M34 100h6.5"
+                pathLength="1"
+                style="--d:680ms"
+              />
+              <circle
+                class="r-port dot"
+                cx="48"
+                cy="95"
+                r="1.8"
+                style="--d:1060ms"
+              />
             </g>
             <g class="r-node-g">
-              <rect class="draw" x="14" y="136" width="34" height="34" rx="9" pathLength="1" style="--d:380ms"/>
-              <path class="draw" d="M31 146.5v13M25.4 149.75l11.2 6.5M36.6 149.75l-11.2 6.5" pathLength="1" style="--d:720ms"/>
-              <circle class="r-port dot" cx="48" cy="153" r="1.8" style="--d:1140ms"/>
+              <rect
+                class="draw"
+                height="34"
+                pathLength="1"
+                rx="9"
+                style="--d:380ms"
+                width="34"
+                x="14"
+                y="136"
+              />
+              <path
+                class="draw"
+                d="M31 146.5v13M25.4 149.75l11.2 6.5M36.6 149.75l-11.2 6.5"
+                pathLength="1"
+                style="--d:720ms"
+              />
+              <circle
+                class="r-port dot"
+                cx="48"
+                cy="153"
+                r="1.8"
+                style="--d:1140ms"
+              />
             </g>
             <g class="r-hub-g">
-              <rect class="draw" x="122" y="63" width="64" height="64" rx="12" pathLength="1" style="--d:320ms"/>
-              <path class="draw" d="M134 83h40" pathLength="1" style="--d:640ms"/>
-              <path class="draw" d="M134 95h28" pathLength="1" style="--d:720ms"/>
-              <path class="draw" d="M134 107h34" pathLength="1" style="--d:800ms"/>
-              <circle class="r-port dot" cx="122" cy="95" r="2.2" style="--d:1220ms"/>
+              <rect
+                class="draw"
+                height="64"
+                pathLength="1"
+                rx="12"
+                style="--d:320ms"
+                width="64"
+                x="122"
+                y="63"
+              />
+              <path
+                class="draw"
+                d="M134 83h40"
+                pathLength="1"
+                style="--d:640ms"
+              />
+              <path
+                class="draw"
+                d="M134 95h28"
+                pathLength="1"
+                style="--d:720ms"
+              />
+              <path
+                class="draw"
+                d="M134 107h34"
+                pathLength="1"
+                style="--d:800ms"
+              />
+              <circle
+                class="r-port dot"
+                cx="122"
+                cy="95"
+                r="2.2"
+                style="--d:1220ms"
+              />
             </g>
           </svg>
           <h3>Ready for agents</h3>
-          <p>One typed API and CLI for people, scripts, and autonomous workflows</p>
+          <p>
+            One typed API and CLI for people, scripts, and autonomous workflows
+          </p>
         </article>
         <article data-reveal>
           <p class="figure">FIG 0.3</p>
-          <svg class="principle-mark spike" viewBox="10 14 180 162" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path class="s-threshold fade" d="M14 96h172" style="--d:600ms"/>
-            <path class="s-base draw" d="M14 150h172" pathLength="1" style="--d:140ms"/>
-            <path class="s-ticks draw" d="M18 150v-10M25 150v-13M32 150v-9M39 150v-15M46 150v-11M53 150v-8M60 150v-14M67 150v-10M74 150v-16M81 150v-12M88 150v-9M95 150v-13M102 150v-10M109 150v-15M116 150v-11M123 150v-9M137 150v-12M144 150v-9M151 150v-14M158 150v-10M165 150v-13M172 150v-9" pathLength="1" style="--d:380ms"/>
+          <svg
+            aria-hidden="true"
+            class="principle-mark spike"
+            fill="none"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.2"
+            viewBox="10 14 180 162"
+          >
+            <path class="s-threshold fade" d="M14 96h172" style="--d:600ms" />
+            <path
+              class="s-base draw"
+              d="M14 150h172"
+              pathLength="1"
+              style="--d:140ms"
+            />
+            <path
+              class="s-ticks draw"
+              d="M18 150v-10M25 150v-13M32 150v-9M39 150v-15M46 150v-11M53 150v-8M60 150v-14M67 150v-10M74 150v-16M81 150v-12M88 150v-9M95 150v-13M102 150v-10M109 150v-15M116 150v-11M123 150v-9M137 150v-12M144 150v-9M151 150v-14M158 150v-10M165 150v-13M172 150v-9"
+              pathLength="1"
+              style="--d:380ms"
+            />
             <g class="s-spike-g">
-              <line class="s-spike draw" x1="130" y1="150" x2="130" y2="62" pathLength="1" style="--d:820ms"/>
-              <line class="s-climb" x1="130" y1="150" x2="130" y2="62" pathLength="1"/>
-              <circle class="s-halo" cx="130" cy="58" r="7"/>
-              <circle class="s-head dot" cx="130" cy="58" r="3" style="--d:1040ms"/>
+              <line
+                class="s-spike draw"
+                pathLength="1"
+                style="--d:820ms"
+                x1="130"
+                x2="130"
+                y1="150"
+                y2="62"
+              />
+              <line
+                class="s-climb"
+                pathLength="1"
+                x1="130"
+                x2="130"
+                y1="150"
+                y2="62"
+              />
+              <circle class="s-halo" cx="130" cy="58" r="7" />
+              <circle
+                class="s-head dot"
+                cx="130"
+                cy="58"
+                r="3"
+                style="--d:1040ms"
+              />
             </g>
             <g class="s-label-g">
-              <path class="s-leader draw" d="M134 54 150 38h6" pathLength="1" style="--d:1140ms"/>
-              <rect class="s-label-box draw" x="156" y="29" width="32" height="18" rx="5" pathLength="1" style="--d:1240ms"/>
-              <path class="s-label-text draw" d="M162 35h20M162 41h13" pathLength="1" style="--d:1380ms"/>
+              <path
+                class="s-leader draw"
+                d="M134 54 150 38h6"
+                pathLength="1"
+                style="--d:1140ms"
+              />
+              <rect
+                class="s-label-box draw"
+                height="18"
+                pathLength="1"
+                rx="5"
+                style="--d:1240ms"
+                width="32"
+                x="156"
+                y="29"
+              />
+              <path
+                class="s-label-text draw"
+                d="M162 35h20M162 41h13"
+                pathLength="1"
+                style="--d:1380ms"
+              />
             </g>
           </svg>
           <h3>Focused on incidents</h3>
-          <p>Compact routine checks and preserve the failures that need attention</p>
+          <p>
+            Compact routine checks and preserve the failures that need attention
+          </p>
         </article>
       </section>
 
@@ -240,11 +793,14 @@
             <p class="section-number">1.0 &nbsp; Monitor</p>
             <h2>Monitor what matters</h2>
           </div>
-          <p>Add an endpoint in seconds. Pulse keeps the first decision simple and tucks the rest away.</p>
+          <p>
+            Add an endpoint in seconds. Pulse keeps the first decision simple
+            and tucks the rest away.
+          </p>
         </div>
 
         <div class="monitor-scene scene-panel" data-reveal>
-          <div class="scene-context" aria-hidden="true">
+          <div aria-hidden="true" class="scene-context">
             <div class="ghost-row"><span></span><span></span><span></span></div>
             <div class="ghost-row"><span></span><span></span><span></span></div>
             <div class="ghost-row"><span></span><span></span><span></span></div>
@@ -261,11 +817,16 @@
 
             <label class="field">
               <span>Name</span>
-              <input name="name" value="API" autocomplete="off" required />
+              <input autocomplete="off" name="name" required value="Inference">
             </label>
             <label class="field">
               <span>URL</span>
-              <input name="url" type="url" value="https://api.example.com/health" required />
+              <input
+                name="url"
+                required
+                type="url"
+                value="https://inference.superposition.app/health"
+              >
             </label>
             <div class="field-grid">
               <label class="field">
@@ -288,25 +849,60 @@
             </div>
 
             <details class="advanced">
-              <summary>Advanced <svg class="chevron-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="m4 6 4 4 4-4" /></svg></summary>
+              <summary>
+                Advanced
+                <svg
+                  aria-hidden="true"
+                  class="chevron-icon"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="1.4"
+                  viewBox="0 0 16 16"
+                >
+                  <path d="m4 6 4 4 4-4" />
+                </svg>
+              </summary>
               <div class="advanced-fields">
                 <label class="field">
                   <span>Method</span>
-                  <select name="method"><option>GET</option><option>HEAD</option></select>
+                  <select name="method">
+                    <option>GET</option>
+                    <option>HEAD</option>
+                  </select>
                 </label>
                 <label class="field">
                   <span>Timeout ms</span>
-                  <input name="timeout" type="number" value="8000" min="1000" />
+                  <input min="1000" name="timeout" type="number" value="8000">
                 </label>
               </div>
             </details>
 
-            <button class="button primary full" type="submit">Save Monitor</button>
-            <p class="form-note" id="monitor-form-note" aria-live="polite">Runs locally in this demo</p>
-            <div class="monitor-added" id="monitor-added" aria-live="polite" hidden>
-              <span class="status-dot pulse" id="monitor-added-dot" aria-hidden="true"></span>
-              <span class="monitor-added-text"><strong id="monitor-added-name"></strong><small id="monitor-added-url"></small></span>
-              <span class="monitor-added-state mono" id="monitor-added-state">first check running</span>
+            <button class="button primary full" type="submit">
+              Save Monitor
+            </button>
+            <p aria-live="polite" class="form-note" id="monitor-form-note">
+              Runs locally in this demo
+            </p>
+            <div
+              aria-live="polite"
+              class="monitor-added"
+              hidden
+              id="monitor-added"
+            >
+              <span
+                aria-hidden="true"
+                class="status-dot pulse"
+                id="monitor-added-dot"
+              ></span>
+              <span class="monitor-added-text"
+                ><strong id="monitor-added-name"></strong
+                ><small id="monitor-added-url"></small></span
+              >
+              <span class="monitor-added-state mono" id="monitor-added-state"
+                >first check running</span
+              >
             </div>
           </form>
         </div>
@@ -318,7 +914,10 @@
             <p class="section-number">2.0 &nbsp; Detect</p>
             <h2>From failure to recovery</h2>
           </div>
-          <p>Play the outage or step through it check by check. Every surface follows the same monitor state.</p>
+          <p>
+            Play the outage or step through it check by check. Every surface
+            follows the same monitor state.
+          </p>
         </div>
 
         <div class="simulation-grid">
@@ -326,26 +925,49 @@
             <div class="simulator-header">
               <div>
                 <p class="app-kicker">Live Monitor</p>
-                <h3>API</h3>
+                <h3>Inference</h3>
               </div>
-              <div class="status-badge" id="sim-status-badge"><span class="status-dot up"></span><span>Up</span></div>
+              <div class="status-badge" id="sim-status-badge">
+                <span class="status-dot up"></span><span>Up</span>
+              </div>
             </div>
 
             <div class="endpoint-line">
               <span class="mono">GET</span>
-              <span class="mono">api.example.com/health</span>
+              <span class="mono">inference.superposition.app/health</span>
               <span class="mono" id="sim-latency">42 ms</span>
             </div>
 
-            <div class="large-timeline" id="large-timeline" aria-label="Recent monitor checks"></div>
-            <div class="timeline-labels mono"><span>24 hours ago</span><span>Now</span></div>
+            <div
+              aria-label="Recent monitor checks"
+              class="large-timeline"
+              id="large-timeline"
+              role="img"
+            ></div>
+            <div class="timeline-labels mono">
+              <span>24 hours ago</span><span>Now</span>
+            </div>
 
-            <div class="state-track" aria-label="Outage simulation progress">
-              <div class="state-step active" data-stage="0"><span></span><small>Up</small></div>
-              <div class="state-step" data-stage="1"><span></span><small>Verifying</small></div>
-              <div class="state-step" data-stage="2"><span></span><small>Down</small></div>
-              <div class="state-step" data-stage="3"><span></span><small>Verifying</small></div>
-              <div class="state-step" data-stage="4"><span></span><small>Recovered</small></div>
+            <div
+              aria-label="Outage simulation progress"
+              class="state-track"
+              role="img"
+            >
+              <div class="state-step active" data-stage="0">
+                <span></span><small>Up</small>
+              </div>
+              <div class="state-step" data-stage="1">
+                <span></span><small>Verifying</small>
+              </div>
+              <div class="state-step" data-stage="2">
+                <span></span><small>Down</small>
+              </div>
+              <div class="state-step" data-stage="3">
+                <span></span><small>Verifying</small>
+              </div>
+              <div class="state-step" data-stage="4">
+                <span></span><small>Recovered</small>
+              </div>
             </div>
           </div>
 
@@ -353,25 +975,93 @@
             <p class="app-kicker">Demo Control</p>
             <h3 id="control-heading">Service is healthy</h3>
             <p class="control-hint" id="control-hint">
-              <span class="status-dot up" id="control-hint-dot" aria-hidden="true"></span>
+              <span
+                aria-hidden="true"
+                class="status-dot up"
+                id="control-hint-dot"
+              ></span>
               <span class="hint-caption">
-                <span class="hint-default">Every surface on this page follows this state</span>
-                <span class="hint-alt mono" aria-hidden="true">dashboard · incident · status page · CLI</span>
+                <span class="hint-default"
+                  >Every surface on this page follows this state</span
+                >
+                <span aria-hidden="true" class="hint-alt mono"
+                  >dashboard · incident · status page · CLI</span
+                >
               </span>
             </p>
-            <p id="control-copy">Every check is passing. Press play to watch Pulse work through an outage.</p>
+            <p id="control-copy">
+              Every check is passing. Press play to watch Pulse work through an
+              outage.
+            </p>
             <div class="player-controls">
-              <button class="icon-button player-step" id="step-back" type="button" aria-label="Previous step">
-                <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5 5.5 8l4.5 4.5" /></svg>
+              <button
+                aria-label="Previous step"
+                class="icon-button player-step"
+                id="step-back"
+                type="button"
+              >
+                <svg
+                  aria-hidden="true"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="1.4"
+                  viewBox="0 0 16 16"
+                >
+                  <path d="M10 3.5 5.5 8l4.5 4.5" />
+                </svg>
               </button>
-              <button class="button primary player-play" id="play-demo" type="button" aria-label="Play demo">
-                <svg class="icon-play" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M5 3.2v9.6c0 .5.55.8.97.53l7.04-4.8a.62.62 0 0 0 0-1.06L5.97 2.67A.62.62 0 0 0 5 3.2Z"/></svg>
-                <svg class="icon-pause" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M4.4 3h2.3v10H4.4zM9.3 3h2.3v10H9.3z"/></svg>
+              <button
+                aria-label="Play demo"
+                class="button primary player-play"
+                id="play-demo"
+                type="button"
+              >
+                <svg aria-hidden="true" class="icon-play" viewBox="0 0 16 16">
+                  <path
+                    d="M5 3.2v9.6c0 .5.55.8.97.53l7.04-4.8a.62.62 0 0 0 0-1.06L5.97 2.67A.62.62 0 0 0 5 3.2Z"
+                    fill="currentColor"
+                  />
+                </svg>
+                <svg aria-hidden="true" class="icon-pause" viewBox="0 0 16 16">
+                  <path
+                    d="M4.4 3h2.3v10H4.4zM9.3 3h2.3v10H9.3z"
+                    fill="currentColor"
+                  />
+                </svg>
                 <span id="play-label">Play</span>
               </button>
-              <button class="icon-button player-step" id="step-forward" type="button" aria-label="Next step">
-                <svg class="icon-next" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 3.5 4.5 4.5L6 12.5" /></svg>
-                <svg class="icon-restart" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.6 8a5.4 5.4 0 1 0 1.6-3.8M4.1 1.6v2.7h2.7" /></svg>
+              <button
+                aria-label="Next step"
+                class="icon-button player-step"
+                id="step-forward"
+                type="button"
+              >
+                <svg
+                  aria-hidden="true"
+                  class="icon-next"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="1.4"
+                  viewBox="0 0 16 16"
+                >
+                  <path d="m6 3.5 4.5 4.5L6 12.5" />
+                </svg>
+                <svg
+                  aria-hidden="true"
+                  class="icon-restart"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="1.4"
+                  viewBox="0 0 16 16"
+                >
+                  <path d="M2.6 8a5.4 5.4 0 1 0 1.6-3.8M4.1 1.6v2.7h2.7" />
+                </svg>
               </button>
             </div>
           </aside>
@@ -382,39 +1072,70 @@
         <div class="section-intro" data-reveal>
           <div>
             <p class="section-number">3.0 &nbsp; Respond</p>
-            <h2>Every failure has a history</h2>
+            <h2>Automatic history</h2>
           </div>
-          <p>Pulse confirms outages, records each transition, and sends one clear alert.</p>
+          <p>
+            Pulse confirms outages, records each transition, and sends one clear
+            alert.
+          </p>
         </div>
 
         <div class="response-scene">
-          <article class="incident-panel panel" id="incident-panel" data-reveal>
+          <article class="incident-panel panel" data-reveal id="incident-panel">
             <div class="incident-header">
               <div>
                 <p class="app-kicker">Incident</p>
-                <h3>API availability</h3>
+                <h3>Inference availability</h3>
               </div>
               <span class="neutral-badge" id="incident-badge">No incident</span>
             </div>
             <dl class="incident-stats">
-              <div><dt>Started</dt><dd class="mono" id="incident-started">—</dd></div>
-              <div><dt>Duration</dt><dd class="mono" id="incident-duration">—</dd></div>
-              <div><dt>Cause</dt><dd class="mono" id="incident-cause">—</dd></div>
+              <div>
+                <dt>Started</dt>
+                <dd class="mono" id="incident-started">—</dd>
+              </div>
+              <div>
+                <dt>Duration</dt>
+                <dd class="mono" id="incident-duration">—</dd>
+              </div>
+              <div>
+                <dt>Cause</dt>
+                <dd class="mono" id="incident-cause">—</dd>
+              </div>
             </dl>
             <div class="event-trail" id="event-trail">
-              <div class="empty-trail"><span class="status-dot up"></span><p>No incidents yet</p></div>
+              <div class="empty-trail">
+                <span class="status-dot up"></span>
+                <p>No incidents yet</p>
+              </div>
             </div>
 
-            <div class="overlap-card" id="overlap-card" hidden>
+            <div class="overlap-card" hidden id="overlap-card">
               <p class="app-kicker">Possible dependency overlap</p>
               <div class="overlap-line">
-                <span class="overlap-icon" id="overlap-icon" aria-hidden="true"></span>
+                <span
+                  aria-hidden="true"
+                  class="overlap-icon"
+                  id="overlap-icon"
+                ></span>
                 <div class="overlap-copy">
                   <strong>Vercel Runtime</strong>
                   <p>Provider incident began 3 minutes before this outage</p>
                 </div>
-                <span class="text-link overlap-link">View Provider Incident
-                  <svg class="arrow-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" /></svg>
+                <span class="text-link overlap-link"
+                  >View Provider Incident
+                  <svg
+                    aria-hidden="true"
+                    class="arrow-icon"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.4"
+                    viewBox="0 0 16 16"
+                  >
+                    <path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" />
+                  </svg>
                 </span>
               </div>
             </div>
@@ -422,24 +1143,42 @@
 
           <aside class="status-preview panel" data-reveal>
             <div class="status-preview-head">
-              <span class="mini-brand"><span class="status-dot up"></span> Pulse Status</span>
-              <span class="mono">status.example.com</span>
+              <span class="mini-brand"
+                ><span class="status-dot up"></span>
+                Pulse Status</span
+              >
+              <span class="mono">status.superposition.app</span>
             </div>
             <div class="public-state up-state" id="public-state">
               <span class="status-dot up"></span>
               <strong>All systems operational</strong>
             </div>
             <div class="public-monitor">
-              <div><strong>API</strong><span class="mono">api.example.com</span></div>
+              <div>
+                <strong>Inference</strong
+                ><span class="mono">inference.superposition.app</span>
+              </div>
               <span id="public-monitor-status">Operational</span>
             </div>
           </aside>
 
-          <article class="email-card" id="email-card" aria-live="polite" data-reveal>
-            <div class="email-meta"><span>Pulse</span><span class="mono">Now</span></div>
+          <article
+            aria-live="polite"
+            class="email-card"
+            data-reveal
+            id="email-card"
+          >
+            <div class="email-meta">
+              <span>Pulse</span><span class="mono">Now</span>
+            </div>
             <h3 id="email-title">Your services are operational</h3>
-            <p id="email-copy">Pulse will send one clear alert when the state changes.</p>
-            <div class="email-footer"><span class="status-dot up"></span><span id="email-state">API is up</span></div>
+            <p id="email-copy">
+              Pulse will send one clear alert when the state changes.
+            </p>
+            <div class="email-footer">
+              <span class="status-dot up"></span
+              ><span id="email-state">Inference is up</span>
+            </div>
           </article>
         </div>
       </section>
@@ -448,9 +1187,12 @@
         <div class="section-intro" data-reveal>
           <div>
             <p class="section-number">4.0 &nbsp; Attribute</p>
-            <h2>Is it us,<br />or them?</h2>
+            <h2>Is it us,<br>or them?</h2>
           </div>
-          <p>Add OpenAI, Stripe, or 20+ services in one click. Incidents appear beside your own checks.</p>
+          <p>
+            Add OpenAI, Stripe, or 20+ services in one click. Incidents appear
+            beside your own checks.
+          </p>
         </div>
 
         <div class="dependency-grid">
@@ -462,8 +1204,25 @@
               </div>
             </div>
             <div class="dep-search">
-              <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="7" cy="7" r="4.4" /><path d="m10.4 10.4 3.1 3.1" /></svg>
-              <input id="dep-search" type="text" placeholder="Search services…" autocomplete="off" spellcheck="false" aria-label="Search dependency catalog" />
+              <svg
+                aria-hidden="true"
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-width="1.4"
+                viewBox="0 0 16 16"
+              >
+                <circle cx="7" cy="7" r="4.4" />
+                <path d="m10.4 10.4 3.1 3.1" />
+              </svg>
+              <input
+                aria-label="Search dependency catalog"
+                autocomplete="off"
+                id="dep-search"
+                placeholder="Search services…"
+                spellcheck="false"
+                type="text"
+              >
             </div>
             <div class="dep-catalog" id="dep-catalog"></div>
           </div>
@@ -477,11 +1236,19 @@
               <span class="provider-tag mono">Provider reported</span>
             </div>
             <div class="dep-rows" id="dependency-rows"></div>
-            <p class="dep-note">No uptime percentage. Provider criteria differ, so Pulse never invents a cross-provider number.</p>
+            <p class="dep-note">
+              Pulse mirrors each provider's published status in real time
+            </p>
           </div>
         </div>
 
-        <div class="logo-strip" id="logo-strip" data-reveal aria-label="Supported providers"></div>
+        <div
+          aria-label="Supported providers"
+          class="logo-strip"
+          data-reveal
+          id="logo-strip"
+          role="img"
+        ></div>
         <p class="logo-caption">Works with the services you already run on</p>
       </section>
 
@@ -489,23 +1256,46 @@
         <div class="section-intro" data-reveal>
           <div>
             <p class="section-number">5.0 &nbsp; Publish</p>
-            <h2>A status page users trust</h2>
+            <h2>Status users trust</h2>
           </div>
-          <p>Every deployment serves a public status page from live monitor state. Nothing extra to run.</p>
+          <p>
+            Every deployment serves a public status page from live monitor
+            state. Nothing extra to run.
+          </p>
         </div>
 
-        <div class="product-frame status-frame" data-reveal aria-label="Public status page preview">
+        <div
+          aria-label="Public status page preview"
+          class="product-frame status-frame"
+          data-reveal
+          role="group"
+        >
           <div class="browser-bar">
-            <div class="terminal-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+            <div aria-hidden="true" class="terminal-dots">
+              <i></i><i></i><i></i>
+            </div>
             <span class="url-pill mono">
-              <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="7" width="9" height="6" rx="1.5" /><path d="M5.5 7V5.4a2.5 2.5 0 0 1 5 0V7" /></svg>
-              status.example.com
+              <svg
+                aria-hidden="true"
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.3"
+                viewBox="0 0 16 16"
+              >
+                <rect height="6" rx="1.5" width="9" x="3.5" y="7" />
+                <path d="M5.5 7V5.4a2.5 2.5 0 0 1 5 0V7" />
+              </svg>
+              status.superposition.app
             </span>
           </div>
           <div class="status-page-body">
             <header class="sp-head">
               <h3>System Status</h3>
-              <span class="sp-updated mono" id="sp-updated">Last updated 12:04:52 UTC</span>
+              <span class="sp-updated mono" id="sp-updated"
+                >Last updated 12:04:52 UTC</span
+              >
             </header>
 
             <div class="sp-banner up-state" id="sp-banner" role="status">
@@ -513,13 +1303,20 @@
               <strong>All Systems Operational</strong>
             </div>
 
-            <article class="sp-incident" id="sp-incident" hidden>
-              <div class="sp-incident-head"><span class="status-dot down pulse"></span><strong>API</strong></div>
-              <p>Ongoing since <span class="mono">12:04 UTC</span> · <span class="mono" id="sp-incident-duration">42s</span> elapsed</p>
+            <article class="sp-incident" hidden id="sp-incident">
+              <div class="sp-incident-head">
+                <span class="status-dot down pulse"></span
+                ><strong>Inference</strong>
+              </div>
+              <p>
+                Ongoing since <span class="mono">12:04 UTC</span> ·
+                <span class="mono" id="sp-incident-duration">42s</span>
+                elapsed
+              </p>
               <p class="sp-cause mono">Connection timeout</p>
             </article>
 
-            <section class="sp-card" aria-label="System availability">
+            <section aria-label="System availability" class="sp-card">
               <div class="sp-card-head">
                 <h4>Production</h4>
                 <span class="sp-link">View Group</span>
@@ -527,7 +1324,7 @@
               <div id="sp-monitors"></div>
             </section>
 
-            <section class="sp-card" aria-label="Recent incidents">
+            <section aria-label="Recent incidents" class="sp-card">
               <div class="sp-card-head">
                 <h4>Recent Incidents</h4>
               </div>
@@ -543,36 +1340,94 @@
         <div class="section-intro" data-reveal>
           <div>
             <p class="section-number">6.0 &nbsp; Automate</p>
-            <h2>Same controls everywhere</h2>
+            <h2>Human first, agent first</h2>
           </div>
-          <p>Run <span class="mono">pulsectl</span> yourself, or hand your agent the CLI and let it manage the whole setup.</p>
+          <p>
+            Run <span class="mono">pulsectl</span> yourself, or hand your agent
+            the CLI and let it manage the whole setup.
+          </p>
         </div>
 
         <div class="cli-grid">
           <div class="terminal panel" data-reveal>
             <div class="terminal-bar">
-              <div class="terminal-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+              <div aria-hidden="true" class="terminal-dots">
+                <i></i><i></i><i></i>
+              </div>
               <span class="mono">pulsectl</span>
-              <button class="copy-button" type="button" id="copy-command" data-copy-value="pulsectl me">
-                <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="7.5" height="7.5" rx="1.5" /><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H4.5A1.5 1.5 0 0 0 3 3v4.5A1.5 1.5 0 0 0 4.5 9H5" /></svg>
+              <button
+                class="copy-button"
+                data-copy-value="pulsectl me"
+                id="copy-command"
+                type="button"
+              >
+                <svg
+                  aria-hidden="true"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="1.3"
+                  viewBox="0 0 16 16"
+                >
+                  <rect height="7.5" rx="1.5" width="7.5" x="5.5" y="5.5" />
+                  <path
+                    d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H4.5A1.5 1.5 0 0 0 3 3v4.5A1.5 1.5 0 0 0 4.5 9H5"
+                  />
+                </svg>
                 Copy
               </button>
-              <div class="output-toggle" role="group" aria-label="CLI output format">
-                <button class="active" type="button" data-output="table">Table</button>
-                <button type="button" data-output="json">JSON</button>
+              <div
+                aria-label="CLI output format"
+                class="output-toggle"
+                role="toolbar"
+              >
+                <button class="active" data-output="table" type="button">
+                  Table
+                </button>
+                <button data-output="json" type="button">JSON</button>
               </div>
             </div>
             <div class="terminal-body">
-              <div class="command-list" aria-label="Example CLI commands">
-                <button class="command active" type="button" data-command="me"><span class="mono">pulsectl me</span><span>Run</span></button>
-                <button class="command" type="button" data-command="monitors"><span class="mono">pulsectl monitor list</span><span>Run</span></button>
-                <button class="command" type="button" data-command="incidents"><span class="mono">pulsectl incident list</span><span>Run</span></button>
-                <button class="command" type="button" data-command="deps"><span class="mono">pulsectl dependency list</span><span>Run</span></button>
+              <div
+                aria-label="Example CLI commands"
+                class="command-list"
+                role="toolbar"
+              >
+                <button class="command active" data-command="me" type="button">
+                  <span class="mono">pulsectl me</span><span>Run</span>
+                </button>
+                <button class="command" data-command="monitors" type="button">
+                  <span class="mono">pulsectl monitor list</span
+                  ><span>Run</span>
+                </button>
+                <button class="command" data-command="incidents" type="button">
+                  <span class="mono">pulsectl incident list</span
+                  ><span>Run</span>
+                </button>
+                <button class="command" data-command="deps" type="button">
+                  <span class="mono">pulsectl dependency list</span
+                  ><span>Run</span>
+                </button>
               </div>
-              <pre class="terminal-output" id="terminal-output" aria-live="polite"></pre>
+              <pre
+                aria-live="polite"
+                class="terminal-output"
+                id="terminal-output"
+              ></pre>
               <div class="terminal-prompt">
                 <span class="t-prompt mono">$</span>
-                <input id="terminal-input" class="mono" type="text" autocomplete="off" spellcheck="false" autocapitalize="none" enterkeyhint="go" aria-label="Type a command" placeholder="type help" />
+                <input
+                  aria-label="Type a command"
+                  autocapitalize="none"
+                  autocomplete="off"
+                  class="mono"
+                  enterkeyhint="go"
+                  id="terminal-input"
+                  placeholder="type help"
+                  spellcheck="false"
+                  type="text"
+                >
               </div>
             </div>
           </div>
@@ -580,10 +1435,23 @@
           <aside class="agent-card panel" data-reveal>
             <p class="app-kicker">Agents</p>
             <h3>Ask your agent to run it</h3>
-            <p>Paste one prompt and your agent installs the CLI, links your deployment, and manages monitors and incidents for you.</p>
+            <p>
+              Paste one prompt and your agent installs the CLI, links your
+              deployment, and manages monitors and incidents for you.
+            </p>
             <div class="agent-prompt" id="agent-prompt">
-              <code>Install pulsectl, run pulsectl me to link this deployment, then inspect current monitor and incident status. Ask before making changes.</code>
-              <button class="copy-button" type="button" data-copy-target="agent-prompt">Copy Prompt</button>
+              <code
+                >Install pulsectl, run pulsectl me to link this deployment, then
+                inspect current monitor and incident status. Ask before making
+                changes.</code
+              >
+              <button
+                class="copy-button"
+                data-copy-target="agent-prompt"
+                type="button"
+              >
+                Copy Prompt
+              </button>
             </div>
           </aside>
         </div>
@@ -595,7 +1463,10 @@
             <p class="section-number">7.0 &nbsp; Operate</p>
             <h2>Built to stay small</h2>
           </div>
-          <p>Pulse compacts routine checks and preserves incident history within a clear storage budget.</p>
+          <p>
+            Pulse compacts routine checks and preserves incident history within
+            a clear storage budget.
+          </p>
         </div>
 
         <div class="database-panel panel" data-reveal>
@@ -603,39 +1474,116 @@
             <div>
               <p class="app-kicker">Database Health</p>
               <h3 id="db-health-title">Healthy</h3>
-              <p id="db-health-copy">Storage remains within its configured budget</p>
+              <p id="db-health-copy">
+                Storage remains within its configured budget
+              </p>
             </div>
-            <span class="health-label healthy" id="db-health-label">Healthy</span>
+            <span class="health-label healthy" id="db-health-label"
+              >Healthy</span
+            >
           </div>
 
           <div class="storage-overview">
-            <div class="storage-stat"><strong class="mono" id="storage-value">118 MB</strong><span>of 500 MB</span></div>
+            <div class="storage-stat">
+              <strong class="mono" id="storage-value">118 MB</strong
+              ><span>of 500 MB</span>
+            </div>
             <span class="mono" id="storage-percent">24%</span>
           </div>
-          <div class="storage-bar"><span id="storage-fill" style="width: 24%"></span></div>
+          <div class="storage-bar">
+            <span id="storage-fill" style="width: 24%"></span>
+          </div>
           <div class="range-wrap" data-tooltip="Drag right to preview growth">
-            <input class="storage-range" id="storage-range" type="range" min="10" max="98" value="24" aria-label="Projected storage percentage" />
+            <input
+              aria-label="Projected storage percentage"
+              class="storage-range"
+              id="storage-range"
+              max="98"
+              min="10"
+              type="range"
+              value="24"
+            >
           </div>
 
           <div class="database-grid">
             <div>
               <p class="meta-heading">Data Breakdown</p>
               <div class="breakdown-list">
-                <div data-breakdown="rollups"><span>Rollups</span><span class="bar"><i style="width:23%"></i></span><span class="breakdown-value"><span class="mono value-mb">62 MB</span><span class="mono value-pct" aria-hidden="true">53%</span></span></div>
-                <div data-breakdown="exceptions"><span>Exceptions</span><span class="bar"><i style="width:7%"></i></span><span class="breakdown-value"><span class="mono value-mb">18 MB</span><span class="mono value-pct" aria-hidden="true">15%</span></span></div>
-                <div data-breakdown="incidents"><span>Incidents</span><span class="bar"><i style="width:3%"></i></span><span class="breakdown-value"><span class="mono value-mb">9 MB</span><span class="mono value-pct" aria-hidden="true">8%</span></span></div>
-                <div data-breakdown="recent"><span>Recent checks</span><span class="bar"><i style="width:1%"></i></span><span class="breakdown-value"><span class="mono value-mb">3 MB</span><span class="mono value-pct" aria-hidden="true">3%</span></span></div>
-                <div data-breakdown="core"><span>Core and indexes</span><span class="bar"><i style="width:9%"></i></span><span class="breakdown-value"><span class="mono value-mb">22 MB</span><span class="mono value-pct" aria-hidden="true">21%</span></span></div>
+                <div data-breakdown="rollups">
+                  <span>Rollups</span
+                  ><span class="bar"><i style="width:23%"></i></span
+                  ><span class="breakdown-value"
+                    ><span class="mono value-mb">62 MB</span
+                    ><span aria-hidden="true" class="mono value-pct"
+                      >53%</span
+                    ></span
+                  >
+                </div>
+                <div data-breakdown="exceptions">
+                  <span>Exceptions</span
+                  ><span class="bar"><i style="width:7%"></i></span
+                  ><span class="breakdown-value"
+                    ><span class="mono value-mb">18 MB</span
+                    ><span aria-hidden="true" class="mono value-pct"
+                      >15%</span
+                    ></span
+                  >
+                </div>
+                <div data-breakdown="incidents">
+                  <span>Incidents</span
+                  ><span class="bar"><i style="width:3%"></i></span
+                  ><span class="breakdown-value"
+                    ><span class="mono value-mb">9 MB</span
+                    ><span aria-hidden="true" class="mono value-pct"
+                      >8%</span
+                    ></span
+                  >
+                </div>
+                <div data-breakdown="recent">
+                  <span>Recent checks</span
+                  ><span class="bar"><i style="width:1%"></i></span
+                  ><span class="breakdown-value"
+                    ><span class="mono value-mb">3 MB</span
+                    ><span aria-hidden="true" class="mono value-pct"
+                      >3%</span
+                    ></span
+                  >
+                </div>
+                <div data-breakdown="core">
+                  <span>Core and indexes</span
+                  ><span class="bar"><i style="width:9%"></i></span
+                  ><span class="breakdown-value"
+                    ><span class="mono value-mb">22 MB</span
+                    ><span aria-hidden="true" class="mono value-pct"
+                      >21%</span
+                    ></span
+                  >
+                </div>
               </div>
             </div>
             <div>
               <p class="meta-heading">Automatic Management</p>
               <dl class="retention-list">
-                <div><dt>Mode</dt><dd id="governor-mode">Full detail</dd></div>
-                <div><dt>Recent checks</dt><dd class="mono" id="minute-retention">48 hours</dd></div>
-                <div><dt>Hourly rollups</dt><dd class="mono" id="hourly-retention">30 days</dd></div>
-                <div><dt>Scheduler coverage</dt><dd class="mono">99.99%</dd></div>
-                <div><dt>Next action</dt><dd id="governor-action">None required</dd></div>
+                <div>
+                  <dt>Mode</dt>
+                  <dd id="governor-mode">Full detail</dd>
+                </div>
+                <div>
+                  <dt>Recent checks</dt>
+                  <dd class="mono" id="minute-retention">48 hours</dd>
+                </div>
+                <div>
+                  <dt>Hourly rollups</dt>
+                  <dd class="mono" id="hourly-retention">30 days</dd>
+                </div>
+                <div>
+                  <dt>Scheduler coverage</dt>
+                  <dd class="mono">99.99%</dd>
+                </div>
+                <div>
+                  <dt>Next action</dt>
+                  <dd id="governor-action">None required</dd>
+                </div>
               </dl>
             </div>
           </div>
@@ -646,64 +1594,218 @@
         <div class="section-intro architecture-intro" data-reveal>
           <div>
             <p class="section-number">8.0 &nbsp; Architecture</p>
-            <h2>Runs where your app runs</h2>
+            <h2>Vercel native</h2>
           </div>
-          <p>Pulse is Vercel-native, Postgres-backed, and small enough to understand end to end.</p>
+          <p>
+            Pulse is Vercel-native, Postgres-backed, and small enough to
+            understand end to end.
+          </p>
         </div>
 
-        <div class="architecture-map" aria-label="Pulse system architecture" data-reveal>
-          <button class="system-node vercel" type="button" data-node="cron" data-system="Vercel Cron schedules one packed check batch each minute">
+        <div
+          aria-label="Pulse system architecture"
+          class="architecture-map"
+          data-reveal
+          role="group"
+        >
+          <button
+            class="system-node vercel"
+            data-node="cron"
+            data-system="Vercel Cron schedules one packed check batch each minute"
+            type="button"
+          >
             <span class="node-index mono">01</span><strong>Vercel Cron</strong>
-            <span class="node-caption"><small>Schedules checks</small><small class="caption-hover" aria-hidden="true">View details</small></span>
-            <svg class="node-arrow" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" /></svg>
+            <span class="node-caption"
+              ><small>Schedules checks</small
+              ><small aria-hidden="true" class="caption-hover"
+                >View details</small
+              ></span
+            >
+            <svg
+              aria-hidden="true"
+              class="node-arrow"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.4"
+              viewBox="0 0 16 16"
+            >
+              <path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" />
+            </svg>
           </button>
-          <div class="connector horizontal first" aria-hidden="true"><i></i></div>
-          <button class="system-node pulse-node" type="button" data-node="pulse" data-system="Pulse checks endpoints, resolves state, and serves every interface">
+          <div aria-hidden="true" class="connector horizontal first">
+            <i></i>
+          </div>
+          <button
+            class="system-node pulse-node"
+            data-node="pulse"
+            data-system="Pulse checks endpoints, resolves state, and serves every interface"
+            type="button"
+          >
             <span class="node-index mono">02</span><strong>Pulse</strong>
-            <span class="node-caption"><small>Coordinates state</small><small class="caption-hover" aria-hidden="true">View details</small></span>
-            <svg class="node-arrow" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" /></svg>
+            <span class="node-caption"
+              ><small>Coordinates state</small
+              ><small aria-hidden="true" class="caption-hover"
+                >View details</small
+              ></span
+            >
+            <svg
+              aria-hidden="true"
+              class="node-arrow"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.4"
+              viewBox="0 0 16 16"
+            >
+              <path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" />
+            </svg>
           </button>
-          <div class="connector branch" aria-hidden="true"><i></i><i></i><i></i></div>
+          <div aria-hidden="true" class="connector branch">
+            <i></i><i></i><i></i>
+          </div>
           <div class="destination-nodes">
-            <button class="system-node" type="button" data-node="neon" data-system="Neon stores incidents, exceptions, and compact rollups">
+            <button
+              class="system-node"
+              data-node="neon"
+              data-system="Neon stores incidents, exceptions, and compact rollups"
+              type="button"
+            >
               <span class="node-index mono">03</span><strong>Neon</strong>
-              <span class="node-caption"><small>Durable history</small><small class="caption-hover" aria-hidden="true">View details</small></span>
-              <svg class="node-arrow" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" /></svg>
+              <span class="node-caption"
+                ><small>Durable history</small
+                ><small aria-hidden="true" class="caption-hover"
+                  >View details</small
+                ></span
+              >
+              <svg
+                aria-hidden="true"
+                class="node-arrow"
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.4"
+                viewBox="0 0 16 16"
+              >
+                <path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" />
+              </svg>
             </button>
-            <button class="system-node" type="button" data-node="edge" data-system="Edge Config feeds the scheduler and status page without touching the database">
-              <span class="node-index mono">04</span><strong>Edge Config</strong>
-              <span class="node-caption"><small>Zero-DB reads</small><small class="caption-hover" aria-hidden="true">View details</small></span>
-              <svg class="node-arrow" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" /></svg>
+            <button
+              class="system-node"
+              data-node="edge"
+              data-system="Edge Config feeds the scheduler and status page without touching the database"
+              type="button"
+            >
+              <span class="node-index mono">04</span
+              ><strong>Edge Config</strong>
+              <span class="node-caption"
+                ><small>Zero-DB reads</small
+                ><small aria-hidden="true" class="caption-hover"
+                  >View details</small
+                ></span
+              >
+              <svg
+                aria-hidden="true"
+                class="node-arrow"
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.4"
+                viewBox="0 0 16 16"
+              >
+                <path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" />
+              </svg>
             </button>
-            <button class="system-node" type="button" data-node="resend" data-system="Resend delivers outage and recovery notifications">
+            <button
+              class="system-node"
+              data-node="resend"
+              data-system="Resend delivers outage and recovery notifications"
+              type="button"
+            >
               <span class="node-index mono">05</span><strong>Resend</strong>
-              <span class="node-caption"><small>Notifications</small><small class="caption-hover" aria-hidden="true">View details</small></span>
-              <svg class="node-arrow" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" /></svg>
+              <span class="node-caption"
+                ><small>Notifications</small
+                ><small aria-hidden="true" class="caption-hover"
+                  >View details</small
+                ></span
+              >
+              <svg
+                aria-hidden="true"
+                class="node-arrow"
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.4"
+                viewBox="0 0 16 16"
+              >
+                <path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" />
+              </svg>
             </button>
           </div>
-          <p class="system-description" id="system-description" aria-live="polite">Hover a system for its role. Click to zoom in.</p>
+          <p
+            aria-live="polite"
+            class="system-description"
+            id="system-description"
+          >
+            Hover a system for its role. Click to zoom in.
+          </p>
 
-          <div class="system-detail" id="system-detail" role="group" aria-label="System detail" hidden>
-            <button class="icon-button detail-close" type="button" data-close-detail aria-label="Back to all systems">
-              <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="m4 4 8 8M12 4l-8 8" /></svg>
+          <div
+            aria-label="System detail"
+            class="system-detail"
+            hidden
+            id="system-detail"
+            role="group"
+          >
+            <button
+              aria-label="Back to all systems"
+              class="icon-button detail-close"
+              data-close-detail
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-width="1.4"
+                viewBox="0 0 16 16"
+              >
+                <path d="m4 4 8 8M12 4l-8 8" />
+              </svg>
             </button>
             <div class="detail-inner">
               <div class="detail-text">
                 <p class="app-kicker" id="detail-kicker"></p>
+                <!-- biome-ignore lint/a11y/useHeadingContent: filled at runtime from the selected system -->
                 <h3 id="detail-title"></h3>
                 <p class="detail-copy" id="detail-copy"></p>
                 <dl class="detail-stats" id="detail-stats"></dl>
                 <p class="detail-flow mono" id="detail-flow"></p>
               </div>
-              <div class="detail-visual" id="detail-visual" hidden></div>
+              <div class="detail-visual" hidden id="detail-visual"></div>
             </div>
           </div>
         </div>
 
         <div class="architecture-principles" data-reveal>
-          <div><span class="mono">01</span><strong>Vercel-native</strong><p>Deploy with the platform you already use</p></div>
-          <div><span class="mono">02</span><strong>Exception-first history</strong><p>Keep detail where it carries meaning</p></div>
-          <div><span class="mono">03</span><strong>One control plane</strong><p>Serve people and agents consistently</p></div>
+          <div>
+            <span class="mono">01</span><strong>Minimal design</strong>
+            <p>No queues, no workers, no servers to babysit</p>
+          </div>
+          <div>
+            <span class="mono">02</span><strong>Exception-first history</strong>
+            <p>Keep detail where it carries meaning</p>
+          </div>
+          <div>
+            <span class="mono">03</span><strong>One control plane</strong>
+            <p>Serve people and agents consistently</p>
+          </div>
         </div>
       </section>
 
@@ -713,46 +1815,84 @@
             <p class="section-number">9.0 &nbsp; Harden</p>
             <h2>Trust nothing</h2>
           </div>
-          <p>Every target, response, redirect, and DNS answer is treated as hostile by design.</p>
+          <p>
+            Every target, response, redirect, and DNS answer is treated as
+            hostile by design.
+          </p>
         </div>
 
         <div class="security-scene" data-reveal>
           <div class="security-callouts callouts-left">
             <div class="callout">
               <h3>SSRF-proof checking</h3>
-              <p>Only publicly routable addresses. Every DNS answer is validated and the socket is pinned to it.</p>
+              <p>
+                Only publicly routable addresses. Every DNS answer is validated
+                and the socket is pinned to it.
+              </p>
             </div>
             <div class="callout">
               <h3>Hardened auth</h3>
-              <p>Argon2id passwords, gated first-admin bootstrap, rate-limited login, hashed tokens with lineage.</p>
+              <p>
+                Argon2id passwords, gated first-admin bootstrap, rate-limited
+                login, hashed tokens with lineage.
+              </p>
             </div>
             <div class="callout">
               <h3>Hostile-proof CLI</h3>
-              <p><code>pulsectl</code> treats server responses as untrusted and rejects control characters outright.</p>
+              <p>
+                <code>pulsectl</code>
+                treats server responses as untrusted and rejects control
+                characters outright.
+              </p>
             </div>
           </div>
 
           <div class="security-window">
             <div class="dv-head">
-              <span class="terminal-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span aria-hidden="true" class="terminal-dots"
+                ><i></i><i></i><i></i></span
+              >
               <span>lib · checker</span>
-              <span class="dv-live"><span class="status-dot info"></span>enforcing</span>
+              <span class="dv-live"
+                ><span class="status-dot info"></span>enforcing</span
+              >
             </div>
             <div class="security-body">
-              <div class="security-tree mono" role="tablist" aria-label="Security modules">
-                <button type="button" data-file="ip-policy">ip-policy.ts</button>
-                <button type="button" class="active" data-file="secure-lookup">secure-lookup.ts</button>
-                <button type="button" data-file="validation">validation.ts</button>
-                <button type="button" data-file="credentials">credentials.ts</button>
-                <button type="button" data-file="rate-limit">rate-limit.ts</button>
+              <div
+                aria-label="Security modules"
+                class="security-tree mono"
+                role="tablist"
+              >
+                <button data-file="ip-policy" type="button">
+                  ip-policy.ts
+                </button>
+                <button class="active" data-file="secure-lookup" type="button">
+                  secure-lookup.ts
+                </button>
+                <button data-file="validation" type="button">
+                  validation.ts
+                </button>
+                <button data-file="credentials" type="button">
+                  credentials.ts
+                </button>
+                <button data-file="rate-limit" type="button">
+                  rate-limit.ts
+                </button>
               </div>
-              <pre class="dv-code security-trace" id="security-trace"><span class="t-prompt">$</span> check https://api.example.com/health
+              <pre
+                class="dv-code security-trace"
+                id="security-trace"
+              ><span class="t-prompt">$</span> check
+                            https://inference.superposition.app/health
 
-<span class="t-label">resolve</span>  api.example.com → 93.184.216.34
-<span class="t-label">policy</span>   <span class="t-up">public range</span> · not private, not link-local
-<span class="t-label">pin</span>      socket pinned to validated address
-<span class="t-label">tls</span>      TLS 1.3 · certificate valid
-<span class="t-label">result</span>   <span class="t-up">200 OK</span> in 42 ms → <span class="t-up">UP</span></pre>
+                            <span class="t-label">resolve</span> inference.superposition.app → 172.64.3.14
+                            <span class="t-label">policy</span> <span class="t-up">public range</span> · not private,
+                            not link-local
+                            <span class="t-label">pin</span> socket pinned to validated address
+                            <span class="t-label">tls</span> TLS 1.3 · certificate valid
+                            <span class="t-label">result</span> <span class="t-up">200 OK</span> in 42 ms → <span
+                                class="t-up">UP</span>
+                        </pre>
             </div>
             <div class="security-blocked">
               <div class="blocked-head">
@@ -760,8 +1900,16 @@
                 <span class="mono" id="security-attempts">2 attempts</span>
               </div>
               <div id="security-blocked-rows">
-                <div class="blocked-row mono"><span class="t-down">✗</span> redirect → 169.254.169.254 <span class="blocked-why">link-local · BLOCKED_TARGET</span></div>
-                <div class="blocked-row mono"><span class="t-down">✗</span> target resolves to 10.0.0.8 <span class="blocked-why">private range · refused</span></div>
+                <div class="blocked-row mono">
+                  <span class="t-down">✗</span>
+                  redirect → 169.254.169.254
+                  <span class="blocked-why">link-local · BLOCKED_TARGET</span>
+                </div>
+                <div class="blocked-row mono">
+                  <span class="t-down">✗</span>
+                  target resolves to 10.0.0.8
+                  <span class="blocked-why">private range · refused</span>
+                </div>
               </div>
             </div>
           </div>
@@ -769,15 +1917,24 @@
           <div class="security-callouts callouts-right">
             <div class="callout">
               <h3>Untrusted providers</h3>
-              <p>Status feeds read allowlisted hosts only. No cross-host redirects, 512 KB caps, XML entities off.</p>
+              <p>
+                Status feeds read allowlisted hosts only. No cross-host
+                redirects, 512 KB caps, XML entities off.
+              </p>
             </div>
             <div class="callout">
               <h3>Locked-down browser</h3>
-              <p>Strict CSP, frame-ancestors none, nosniff, and preloaded HSTS on every response.</p>
+              <p>
+                Strict CSP, frame-ancestors none, nosniff, and preloaded HSTS on
+                every response.
+              </p>
             </div>
             <div class="callout">
               <h3>Abuse containment</h3>
-              <p>Rate limits without amplification. Scheduler leases and dedup make duplicate alerts impossible.</p>
+              <p>
+                Rate limits without amplification. Scheduler leases and dedup
+                make duplicate alerts impossible.
+              </p>
             </div>
           </div>
         </div>
@@ -786,7 +1943,18 @@
           Ship it locked down.
           <a class="text-link" href="./docs.html#hardening">
             Read the hardening guide
-            <svg class="arrow-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" /></svg>
+            <svg
+              aria-hidden="true"
+              class="arrow-icon"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.4"
+              viewBox="0 0 16 16"
+            >
+              <path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" />
+            </svg>
           </a>
         </p>
       </section>
@@ -797,49 +1965,125 @@
             <p class="section-number">10.0 &nbsp; Accelerate</p>
             <h2>Fast by doing less</h2>
           </div>
-          <p>Fewer renders, fewer fetches, fewer statements. First paint to cron tick, every layer does less.</p>
+          <p>
+            Fewer renders, fewer fetches, fewer statements. First paint to cron
+            tick, every layer does less.
+          </p>
         </div>
 
-        <div class="perf-cards" id="perf-cards" data-reveal>
+        <div class="perf-cards" data-reveal id="perf-cards">
           <div class="perf-col">
-            <div class="perf-principle"><span class="mono">01</span><strong>Runtime</strong><p>Shells stream while data loads. Revisits render from cache and rows prefetch on hover.</p></div>
+            <div class="perf-principle">
+              <span class="mono">01</span><strong>Runtime</strong>
+              <p>
+                Shells stream while data loads. Revisits render from cache and
+                rows prefetch on hover.
+              </p>
+            </div>
             <article class="perf-card panel">
-              <div class="dv-head"><span>shell</span><span class="perf-metric">600 ms → <span data-count-from="600" data-count-to="0">0</span></span></div>
+              <div class="dv-head">
+                <span>shell</span
+                ><span class="perf-metric"
+                  >600 ms →
+                  <span data-count-from="600" data-count-to="0">0</span></span
+                >
+              </div>
               <div class="perf-card-rows">
-                <div class="perf-line"><span>shell painted</span><span>0 ms</span></div>
-                <div class="perf-line"><span>rollup read · 24h</span><span>0.078 ms</span></div>
-                <div class="perf-line"><span>hover</span><span>prefetched</span></div>
-                <div class="perf-line"><span>revisit</span><span>cache hit</span></div>
+                <div class="perf-line">
+                  <span>shell painted</span><span>0 ms</span>
+                </div>
+                <div class="perf-line">
+                  <span>rollup read · 24h</span><span>0.078 ms</span>
+                </div>
+                <div class="perf-line">
+                  <span>hover</span><span>prefetched</span>
+                </div>
+                <div class="perf-line">
+                  <span>revisit</span><span>cache hit</span>
+                </div>
               </div>
               <div class="perf-foot">paint first, fetch later</div>
             </article>
           </div>
           <div class="perf-col">
-            <div class="perf-principle"><span class="mono">02</span><strong>Scale</strong><p>Cost follows change, not fleet size. More monitors do not mean more round trips.</p></div>
+            <div class="perf-principle">
+              <span class="mono">02</span><strong>Scale</strong>
+              <p>
+                Cost follows change, not fleet size. More monitors do not mean
+                more round trips.
+              </p>
+            </div>
             <article class="perf-card panel">
-              <div class="dv-head"><span>cron tick</span><span class="perf-metric">401 → <span data-count-from="401" data-count-to="5">5</span></span></div>
+              <div class="dv-head">
+                <span>cron tick</span
+                ><span class="perf-metric"
+                  >401 →
+                  <span data-count-from="401" data-count-to="5">5</span></span
+                >
+              </div>
               <div class="perf-card-rows">
-                <div class="perf-line"><span>read config</span><span>edge config</span></div>
-                <div class="perf-line"><span>registry sync</span><span>5 stmts</span></div>
-                <div class="perf-line"><span>alert fan-out</span><span>1 insert</span></div>
-                <div class="perf-line"><span>outbox claim</span><span>0.627 ms</span></div>
-                <div class="perf-line"><span>tick complete</span><span>steady state</span></div>
+                <div class="perf-line">
+                  <span>read config</span><span>edge config</span>
+                </div>
+                <div class="perf-line">
+                  <span>registry sync</span><span>5 stmts</span>
+                </div>
+                <div class="perf-line">
+                  <span>alert fan-out</span><span>1 insert</span>
+                </div>
+                <div class="perf-line">
+                  <span>outbox claim</span><span>0.627 ms</span>
+                </div>
+                <div class="perf-line">
+                  <span>tick complete</span><span>steady state</span>
+                </div>
               </div>
               <div class="perf-foot">same cost at any fleet size</div>
             </article>
           </div>
           <div class="perf-col">
-            <div class="perf-principle"><span class="mono">03</span><strong>Database</strong><p>Set-based SQL and rollup reads. One statement does what four hundred used to.</p></div>
+            <div class="perf-principle">
+              <span class="mono">03</span><strong>Database</strong>
+              <p>
+                Set-based SQL and rollup reads. One statement does what four
+                hundred used to.
+              </p>
+            </div>
             <article class="perf-card panel">
-              <div class="dv-head"><span>queries</span><span class="perf-metric"><span data-count-from="4.894" data-count-to="0.082" data-count-decimals="3">0.082</span> ms median</span></div>
+              <div class="dv-head">
+                <span>queries</span
+                ><span class="perf-metric"
+                  ><span
+                    data-count-decimals="3"
+                    data-count-from="4.894"
+                    data-count-to="0.082"
+                    >0.082</span
+                  >
+                  ms median</span
+                >
+              </div>
               <div class="perf-card-rows">
-                <div class="perf-line"><span>uptime 24h</span><span>4.894 ms</span></div>
-                <div class="perf-line"><span>status rollups</span><span>0.684 ms</span></div>
-                <div class="perf-line"><span>outbox claim</span><span>0.627 ms</span></div>
-                <div class="perf-line"><span>detail rollups 30d</span><span>0.288 ms</span></div>
-                <div class="perf-line"><span>detail rollups 7d</span><span>0.122 ms</span></div>
-                <div class="perf-line"><span>incidents list</span><span>0.119 ms</span></div>
-                <div class="perf-line"><span>palette lookup</span><span>0.108 ms</span></div>
+                <div class="perf-line">
+                  <span>uptime 24h</span><span>4.894 ms</span>
+                </div>
+                <div class="perf-line">
+                  <span>status rollups</span><span>0.684 ms</span>
+                </div>
+                <div class="perf-line">
+                  <span>outbox claim</span><span>0.627 ms</span>
+                </div>
+                <div class="perf-line">
+                  <span>detail rollups 30d</span><span>0.288 ms</span>
+                </div>
+                <div class="perf-line">
+                  <span>detail rollups 7d</span><span>0.122 ms</span>
+                </div>
+                <div class="perf-line">
+                  <span>incidents list</span><span>0.119 ms</span>
+                </div>
+                <div class="perf-line">
+                  <span>palette lookup</span><span>0.108 ms</span>
+                </div>
               </div>
               <div class="perf-foot">+12 more · none over 5 ms</div>
             </article>
@@ -850,22 +2094,68 @@
       <section class="final-cta" id="deploy">
         <div class="shell section-rule" data-reveal>
           <p class="section-number">One prompt · Live in 5 minutes</p>
-          <h2>Deploy monitoring<br />you control</h2>
+          <h2>Deploy monitoring<br>you control</h2>
           <p>Codex discovers every app you run and monitors them all.</p>
-          <button class="cta-command" id="deploy-command" type="button" aria-label="Copy the full agent deploy command">
+          <button
+            aria-label="Copy the full agent deploy command"
+            class="cta-command"
+            id="deploy-command"
+            type="button"
+          >
             <span class="t-prompt">$</span>
             <span>codex "deploy pulse"</span>
-            <span class="cta-command-copy" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="7.5" height="7.5" rx="1.5" /><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H4.5A1.5 1.5 0 0 0 3 3v4.5A1.5 1.5 0 0 0 4.5 9H5" /></svg></span>
+            <span aria-hidden="true" class="cta-command-copy"
+              ><svg
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.3"
+                viewBox="0 0 16 16"
+              >
+                <rect height="7.5" rx="1.5" width="7.5" x="5.5" y="5.5" />
+                <path
+                  d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H4.5A1.5 1.5 0 0 0 3 3v4.5A1.5 1.5 0 0 0 4.5 9H5"
+                />
+              </svg></span
+            >
           </button>
           <p class="cta-command-note">Copies the full agent deploy prompt</p>
           <div class="cta-links">
             <a class="text-link" href="./docs.html">
               Read the docs
-              <svg class="arrow-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" /></svg>
+              <svg
+                aria-hidden="true"
+                class="arrow-icon"
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.4"
+                viewBox="0 0 16 16"
+              >
+                <path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" />
+              </svg>
             </a>
-            <a class="text-link" href="https://github.com/0xSMW/pulse-uptime" target="_blank" rel="noreferrer">
+            <a
+              class="text-link"
+              href="https://github.com/0xSMW/pulse-uptime"
+              rel="noreferrer"
+              target="_blank"
+            >
               View the code
-              <svg class="arrow-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" /></svg>
+              <svg
+                aria-hidden="true"
+                class="arrow-icon"
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.4"
+                viewBox="0 0 16 16"
+              >
+                <path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" />
+              </svg>
             </a>
           </div>
         </div>
@@ -874,46 +2164,117 @@
 
     <footer class="footer">
       <div class="shell footer-inner">
-        <a class="brand" href="#top"><span class="status-dot up"></span>Pulse</a>
+        <a class="brand" href="#top"
+          ><span class="status-dot up"></span>Pulse</a
+        >
         <p>Open-source uptime monitoring</p>
-        <div><a href="#product">Product</a><a href="#cli">CLI</a><a href="./docs.html">Docs</a><a href="https://github.com/0xSMW/pulse-uptime" target="_blank" rel="noreferrer">GitHub</a><a href="https://smw.ai" target="_blank" rel="noreferrer">SMW.AI</a></div>
+        <div>
+          <a href="#product">Product</a><a href="#cli">CLI</a
+          ><a href="./docs.html">Docs</a
+          ><a
+            href="https://github.com/0xSMW/pulse-uptime"
+            rel="noreferrer"
+            target="_blank"
+            >GitHub</a
+          ><a href="https://smw.ai" rel="noreferrer" target="_blank">SMW.AI</a>
+        </div>
       </div>
     </footer>
 
     <dialog class="monitor-dialog" id="monitor-dialog">
       <form class="dialog-card" id="dialog-monitor-form" method="dialog">
         <div class="sheet-heading">
-          <div><p class="app-kicker">New Monitor</p><h3>Add an endpoint</h3></div>
-          <button class="icon-button" type="button" data-close-monitor aria-label="Close new monitor">
-            <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="m4 4 8 8M12 4l-8 8" /></svg>
+          <div>
+            <p class="app-kicker">New Monitor</p>
+            <h3>Add an endpoint</h3>
+          </div>
+          <button
+            aria-label="Close new monitor"
+            class="icon-button"
+            data-close-monitor
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-width="1.4"
+              viewBox="0 0 16 16"
+            >
+              <path d="m4 4 8 8M12 4l-8 8" />
+            </svg>
           </button>
         </div>
-        <label class="field"><span>Name</span><input name="name" value="Web app" autofocus required /></label>
-        <label class="field"><span>URL</span><input name="url" type="url" value="https://app.example.com" required /></label>
-        <label class="field"><span>Group</span><select name="group"><option>Production</option><option>Marketing</option><option>Ungrouped</option></select></label>
+        <label class="field"
+          ><span>Name</span>
+          <input autofocus name="name" required value="Console"></label
+        >
+        <label class="field"
+          ><span>URL</span>
+          <input
+            name="url"
+            required
+            type="url"
+            value="https://console.superposition.app"
+          ></label
+        >
+        <label class="field"
+          ><span>Group</span
+          ><select name="group">
+            <option>Production</option>
+            <option>Marketing</option>
+            <option>Ungrouped</option>
+          </select></label
+        >
         <div class="dialog-actions">
-          <button class="button secondary" type="button" data-close-monitor>Cancel</button>
+          <button class="button secondary" data-close-monitor type="button">
+            Cancel
+          </button>
           <button class="button primary" type="submit">Save Monitor</button>
         </div>
       </form>
     </dialog>
 
-    <dialog class="command-palette" id="command-palette" aria-label="Command menu">
+    <dialog
+      aria-label="Command menu"
+      class="command-palette"
+      id="command-palette"
+    >
       <div class="palette-card">
         <div class="palette-input-row">
-          <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="7" cy="7" r="4.4" /><path d="m10.4 10.4 3.1 3.1" /></svg>
-          <input id="palette-input" type="text" placeholder="Type a command…" autocomplete="off" spellcheck="false" />
+          <svg
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-width="1.4"
+            viewBox="0 0 16 16"
+          >
+            <circle cx="7" cy="7" r="4.4" />
+            <path d="m10.4 10.4 3.1 3.1" />
+          </svg>
+          <input
+            autocomplete="off"
+            id="palette-input"
+            placeholder="Type a command…"
+            spellcheck="false"
+            type="text"
+          >
           <kbd>esc</kbd>
         </div>
         <ul class="palette-list" id="palette-list" role="listbox"></ul>
         <div class="palette-footer">
           <span id="palette-count"></span>
-          <span class="palette-keys"><kbd>↑↓</kbd><span>navigate</span><kbd>↵</kbd><span>run</span><kbd>esc</kbd><span>close</span></span>
+          <span class="palette-keys"
+            ><kbd>↑↓</kbd><span>navigate</span><kbd>↵</kbd><span>run</span
+            ><kbd>esc</kbd><span>close</span></span
+          >
         </div>
       </div>
     </dialog>
 
-    <script type="text/plain" id="deploy-prompt-fallback">
+    <script id="deploy-prompt-fallback" type="text/plain">
 codex \
   -m gpt-5.6-sol \
   -c model_reasoning_effort='"low"' \
@@ -925,6 +2286,6 @@ PROMPT
 )"
     </script>
 
-    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <div aria-live="polite" class="toast" id="toast" role="status"></div>
   </body>
 </html>

@@ -1,6 +1,11 @@
 {
   "notices": [
-    { "id": 503441, "type": "unplanned", "state": "investigating", "timeline_state": "present" }
+    {
+      "id": 503441,
+      "type": "unplanned",
+      "state": "investigating",
+      "timeline_state": "present"
+    }
   ],
   "meta": { "count": 1, "total_count": 2, "next_page": null }
 }

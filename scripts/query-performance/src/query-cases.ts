@@ -2,58 +2,77 @@
 // with the shared schema and gated connection. Modules that connect during
 // import are avoided. Excluded paths are documented in `excludedQueries`.
 
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, sql as dsql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  sql as dsql,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+} from "drizzle-orm"
 
-import * as schema from "../../../lib/db/schema";
-import { CLAIM_NOTIFICATIONS_SQL, RECONCILE_STALE_CLAIMS_SQL } from "../../../lib/notifications/sql";
-import type { GatedConnection } from "./db-connection";
-import type { SampleContext } from "./sample-context";
+import * as schema from "../../../lib/db/schema"
+import {
+  CLAIM_NOTIFICATIONS_SQL,
+  RECONCILE_STALE_CLAIMS_SQL,
+} from "../../../lib/notifications/sql"
+import type { GatedConnection } from "./db-connection"
+import type { SampleContext } from "./sample-context"
 
 export interface ResolvedQuery {
-  text: string;
-  params: unknown[];
+  text: string
+  params: unknown[]
 }
 
 export interface QueryCase {
-  name: string;
-  description: string;
-  source: string;
+  name: string
+  description: string
+  source: string
   /** Runs mutating cases in a transaction that always rolls back. */
-  mutating: boolean;
-  build: (conn: GatedConnection, ctx: SampleContext) => ResolvedQuery;
+  mutating: boolean
+  build: (conn: GatedConnection, ctx: SampleContext) => ResolvedQuery
 }
 
 export interface ExcludedQuery {
-  name: string;
-  source: string;
-  reason: string;
+  name: string
+  source: string
+  reason: string
 }
 
-function toSQL(query: { toSQL(): { sql: string; params: unknown[] } }): ResolvedQuery {
-  const built = query.toSQL();
-  return { text: built.sql, params: built.params };
+function toSQL(query: {
+  toSQL: () => { sql: string; params: unknown[] }
+}): ResolvedQuery {
+  const built = query.toSQL()
+  return { text: built.sql, params: built.params }
 }
 
 export const queryCases: QueryCase[] = [
   {
     name: "dashboard-monitors-uptime24h",
-    description: "Dashboard monitor list with the rollup+raw-check blended 24h uptime subquery, the activation cutoff both sides apply, and the active-incident left join production performs alongside it.",
+    description:
+      "Dashboard monitor list with the rollup+raw-check blended 24h uptime subquery, the activation cutoff both sides apply, and the active-incident left join production performs alongside it.",
     source: "lib/monitoring/queries.ts:listDashboardMonitors",
     mutating: false,
     build: (conn, ctx) => {
       // Use fixture time so plans read seeded rollups.
-      const end15m = new Date(ctx.now);
-      end15m.setUTCMinutes(Math.floor(end15m.getUTCMinutes() / 15) * 15, 0, 0);
-      const start15m = new Date(end15m.getTime() - 86_400_000);
-      return toSQL(conn.db.select({
-        id: schema.monitorRegistry.id,
-        name: schema.monitorRegistry.name,
-        url: schema.monitorRegistry.url,
-        state: schema.monitorState.state,
-        lastLatencyMs: schema.monitorState.lastLatencyMs,
-        lastCheckedAt: schema.monitorState.lastCheckedAt,
-        activeIncidentOpenedAt: schema.incidents.openedAt,
-        uptime24h: dsql<number | null>`(
+      const end15m = new Date(ctx.now)
+      end15m.setUTCMinutes(Math.floor(end15m.getUTCMinutes() / 15) * 15, 0, 0)
+      const start15m = new Date(end15m.getTime() - 86_400_000)
+      return toSQL(
+        conn.db
+          .select({
+            id: schema.monitorRegistry.id,
+            name: schema.monitorRegistry.name,
+            url: schema.monitorRegistry.url,
+            state: schema.monitorState.state,
+            lastLatencyMs: schema.monitorState.lastLatencyMs,
+            lastCheckedAt: schema.monitorState.lastCheckedAt,
+            activeIncidentOpenedAt: schema.incidents.openedAt,
+            uptime24h: dsql<number | null>`(
           select case when coalesce(rollup.completed, 0) + coalesce(raw.completed, 0) = 0 then null
             else 100.0 * (coalesce(rollup.successful, 0) + coalesce(raw.successful, 0))
               / (coalesce(rollup.completed, 0) + coalesce(raw.completed, 0)) end
@@ -83,85 +102,136 @@ export const queryCases: QueryCase[] = [
               )
           ) raw
         )`,
-      }).from(schema.monitorRegistry)
-        .leftJoin(schema.monitorState, eq(schema.monitorState.monitorId, schema.monitorRegistry.id))
-        .leftJoin(
-          schema.incidents,
-          and(eq(schema.incidents.monitorId, schema.monitorRegistry.id), isNull(schema.incidents.resolvedAt)),
-        )
-        .where(isNull(schema.monitorRegistry.archivedAt)));
+          })
+          .from(schema.monitorRegistry)
+          .leftJoin(
+            schema.monitorState,
+            eq(schema.monitorState.monitorId, schema.monitorRegistry.id)
+          )
+          .leftJoin(
+            schema.incidents,
+            and(
+              eq(schema.incidents.monitorId, schema.monitorRegistry.id),
+              isNull(schema.incidents.resolvedAt)
+            )
+          )
+          .where(isNull(schema.monitorRegistry.archivedAt))
+      )
     },
   },
   {
     name: "command-palette-monitors",
-    description: "Slim monitor projection for the command palette (no rollup join).",
+    description:
+      "Slim monitor projection for the command palette (no rollup join).",
     source: "lib/monitoring/queries.ts:listCommandPaletteMonitors",
     mutating: false,
-    build: (conn) => toSQL(conn.db.select({
-      id: schema.monitorRegistry.id,
-      name: schema.monitorRegistry.name,
-      state: schema.monitorState.state,
-      lastLatencyMs: schema.monitorState.lastLatencyMs,
-    }).from(schema.monitorRegistry)
-      .leftJoin(schema.monitorState, eq(schema.monitorState.monitorId, schema.monitorRegistry.id))
-      .where(isNull(schema.monitorRegistry.archivedAt))),
+    build: (conn) =>
+      toSQL(
+        conn.db
+          .select({
+            id: schema.monitorRegistry.id,
+            name: schema.monitorRegistry.name,
+            state: schema.monitorState.state,
+            lastLatencyMs: schema.monitorState.lastLatencyMs,
+          })
+          .from(schema.monitorRegistry)
+          .leftJoin(
+            schema.monitorState,
+            eq(schema.monitorState.monitorId, schema.monitorRegistry.id)
+          )
+          .where(isNull(schema.monitorRegistry.archivedAt))
+      ),
   },
   {
     name: "monitor-identity-lookup",
-    description: "Single monitor identity lookup by primary key, joined to current state.",
+    description:
+      "Single monitor identity lookup by primary key, joined to current state.",
     source: "lib/reporting/queries/monitors.ts:getMonitorIdentity",
     mutating: false,
-    build: (conn, ctx) => toSQL(conn.db.select({
-      id: schema.monitorRegistry.id,
-      name: schema.monitorRegistry.name,
-      url: schema.monitorRegistry.url,
-      state: schema.monitorState.state,
-      latestLatencyMs: schema.monitorState.lastLatencyMs,
-    }).from(schema.monitorRegistry)
-      .leftJoin(schema.monitorState, eq(schema.monitorState.monitorId, schema.monitorRegistry.id))
-      .where(and(eq(schema.monitorRegistry.id, ctx.monitorIds[0]!), isNull(schema.monitorRegistry.archivedAt)))
-      .limit(1)),
+    build: (conn, ctx) =>
+      toSQL(
+        conn.db
+          .select({
+            id: schema.monitorRegistry.id,
+            name: schema.monitorRegistry.name,
+            url: schema.monitorRegistry.url,
+            state: schema.monitorState.state,
+            latestLatencyMs: schema.monitorState.lastLatencyMs,
+          })
+          .from(schema.monitorRegistry)
+          .leftJoin(
+            schema.monitorState,
+            eq(schema.monitorState.monitorId, schema.monitorRegistry.id)
+          )
+          .where(
+            and(
+              eq(schema.monitorRegistry.id, ctx.monitorIds[0]!),
+              isNull(schema.monitorRegistry.archivedAt)
+            )
+          )
+          .limit(1)
+      ),
   },
   ...(["15m", "hour", "day"] as const).flatMap((resolution) => {
     // Scan windows match production. The 15m query scans seven days before
     // deriving the 24h view from those results.
-    const windowsByResolution: Record<typeof resolution, { label: string; durationMs: number }> = {
+    const windowsByResolution: Record<
+      typeof resolution,
+      { label: string; durationMs: number }
+    > = {
       "15m": { label: "7d", durationMs: 7 * 86_400_000 },
       hour: { label: "30d", durationMs: 30 * 86_400_000 },
       day: { label: "90d", durationMs: 90 * 86_400_000 },
-    };
-    const window = windowsByResolution[resolution];
-    return [{
-      name: `monitor-detail-rollups-${window.label}`,
-      description: resolution === "15m"
-        ? "Monitor detail page 15m-resolution rollup scan over the actual 7-day window fetchRollups() issues; production derives its 24h view in-memory from this superset instead of querying it separately."
-        : `Monitor detail page rollup series at ${resolution} resolution over a ${window.label} window.`,
-      source: "lib/reporting/queries/monitors.ts:fetchRollups call sites in getMonitorDetail and getMonitorLive",
-      mutating: false,
-      build: (conn: GatedConnection, ctx: SampleContext) => {
-        const end = new Date(ctx.now);
-        if (resolution === "day") end.setUTCHours(0, 0, 0, 0);
-        else if (resolution === "hour") end.setUTCMinutes(0, 0, 0);
-        else end.setUTCMinutes(Math.floor(end.getUTCMinutes() / 15) * 15, 0, 0);
-        return toSQL(conn.db.select({
-          bucketStart: schema.metricRollups.bucketStart,
-          expectedChecks: schema.metricRollups.expectedChecks,
-          completedChecks: schema.metricRollups.completedChecks,
-          successfulChecks: schema.metricRollups.successfulChecks,
-          failedChecks: schema.metricRollups.failedChecks,
-          latencyCount: schema.metricRollups.latencyCount,
-          latencySumMs: schema.metricRollups.latencySumMs,
-          latencyHistogram: schema.metricRollups.latencyHistogram,
-        }).from(schema.metricRollups)
-          .where(and(
-            eq(schema.metricRollups.monitorId, ctx.monitorIds[0]!),
-            eq(schema.metricRollups.resolution, resolution),
-            gte(schema.metricRollups.bucketStart, new Date(end.getTime() - window.durationMs)),
-            lt(schema.metricRollups.bucketStart, end),
-          ))
-          .orderBy(asc(schema.metricRollups.bucketStart)));
+    }
+    const window = windowsByResolution[resolution]
+    return [
+      {
+        name: `monitor-detail-rollups-${window.label}`,
+        description:
+          resolution === "15m"
+            ? "Monitor detail page 15m-resolution rollup scan over the actual 7-day window fetchRollups() issues; production derives its 24h view in-memory from this superset instead of querying it separately."
+            : `Monitor detail page rollup series at ${resolution} resolution over a ${window.label} window.`,
+        source:
+          "lib/reporting/queries/monitors.ts:fetchRollups call sites in getMonitorDetail and getMonitorLive",
+        mutating: false,
+        build: (conn: GatedConnection, ctx: SampleContext) => {
+          const end = new Date(ctx.now)
+          if (resolution === "day") {
+            end.setUTCHours(0, 0, 0, 0)
+          } else if (resolution === "hour") {
+            end.setUTCMinutes(0, 0, 0)
+          } else {
+            end.setUTCMinutes(Math.floor(end.getUTCMinutes() / 15) * 15, 0, 0)
+          }
+          return toSQL(
+            conn.db
+              .select({
+                bucketStart: schema.metricRollups.bucketStart,
+                expectedChecks: schema.metricRollups.expectedChecks,
+                completedChecks: schema.metricRollups.completedChecks,
+                successfulChecks: schema.metricRollups.successfulChecks,
+                failedChecks: schema.metricRollups.failedChecks,
+                latencyCount: schema.metricRollups.latencyCount,
+                latencySumMs: schema.metricRollups.latencySumMs,
+                latencyHistogram: schema.metricRollups.latencyHistogram,
+              })
+              .from(schema.metricRollups)
+              .where(
+                and(
+                  eq(schema.metricRollups.monitorId, ctx.monitorIds[0]!),
+                  eq(schema.metricRollups.resolution, resolution),
+                  gte(
+                    schema.metricRollups.bucketStart,
+                    new Date(end.getTime() - window.durationMs)
+                  ),
+                  lt(schema.metricRollups.bucketStart, end)
+                )
+              )
+              .orderBy(asc(schema.metricRollups.bucketStart))
+          )
+        },
       },
-    }];
+    ]
   }),
   {
     name: "monitor-detail-recent-incidents",
@@ -170,11 +240,15 @@ export const queryCases: QueryCase[] = [
     mutating: false,
     build: (conn, ctx) => {
       // Use the seeded incident owner when available.
-      const monitorId = ctx.incidentMonitorId ?? ctx.monitorIds[0]!;
-      return toSQL(conn.db.select().from(schema.incidents)
-        .where(eq(schema.incidents.monitorId, monitorId))
-        .orderBy(desc(schema.incidents.openedAt))
-        .limit(5));
+      const monitorId = ctx.incidentMonitorId ?? ctx.monitorIds[0]!
+      return toSQL(
+        conn.db
+          .select()
+          .from(schema.incidents)
+          .where(eq(schema.incidents.monitorId, monitorId))
+          .orderBy(desc(schema.incidents.openedAt))
+          .limit(5)
+      )
     },
   },
   {
@@ -182,62 +256,91 @@ export const queryCases: QueryCase[] = [
     description: "Latest accepted monitoring config snapshot lookup.",
     source: "lib/reporting/queries/monitors.ts:getMonitorDetail",
     mutating: false,
-    build: (conn) => toSQL(conn.db.select({ configJson: schema.monitoringConfigSnapshots.configJson })
-      .from(schema.monitoringConfigSnapshots)
-      .where(eq(schema.monitoringConfigSnapshots.status, "accepted"))
-      .orderBy(desc(schema.monitoringConfigSnapshots.acceptedAt))
-      .limit(1)),
+    build: (conn) =>
+      toSQL(
+        conn.db
+          .select({ configJson: schema.monitoringConfigSnapshots.configJson })
+          .from(schema.monitoringConfigSnapshots)
+          .where(eq(schema.monitoringConfigSnapshots.status, "accepted"))
+          .orderBy(desc(schema.monitoringConfigSnapshots.acceptedAt))
+          .limit(1)
+      ),
   },
   {
     name: "incidents-list-all",
     description: "Incident list page, unfiltered, most recent 100.",
     source: "lib/reporting/queries/incidents.ts:listIncidents",
     mutating: false,
-    build: (conn) => toSQL(conn.db.select({
-      id: schema.incidents.id,
-      monitorId: schema.incidents.monitorId,
-      monitorName: schema.monitorRegistry.name,
-      openedAt: schema.incidents.openedAt,
-      resolvedAt: schema.incidents.resolvedAt,
-    }).from(schema.incidents)
-      .innerJoin(schema.monitorRegistry, eq(schema.monitorRegistry.id, schema.incidents.monitorId))
-      .orderBy(desc(schema.incidents.openedAt))
-      .limit(100)),
+    build: (conn) =>
+      toSQL(
+        conn.db
+          .select({
+            id: schema.incidents.id,
+            monitorId: schema.incidents.monitorId,
+            monitorName: schema.monitorRegistry.name,
+            openedAt: schema.incidents.openedAt,
+            resolvedAt: schema.incidents.resolvedAt,
+          })
+          .from(schema.incidents)
+          .innerJoin(
+            schema.monitorRegistry,
+            eq(schema.monitorRegistry.id, schema.incidents.monitorId)
+          )
+          .orderBy(desc(schema.incidents.openedAt))
+          .limit(100)
+      ),
   },
   {
     name: "incidents-list-ongoing",
     description: "Incident list page filtered to ongoing incidents.",
     source: "lib/reporting/queries/incidents.ts:listIncidents",
     mutating: false,
-    build: (conn) => toSQL(conn.db.select({
-      id: schema.incidents.id,
-      monitorId: schema.incidents.monitorId,
-      monitorName: schema.monitorRegistry.name,
-      openedAt: schema.incidents.openedAt,
-    }).from(schema.incidents)
-      .innerJoin(schema.monitorRegistry, eq(schema.monitorRegistry.id, schema.incidents.monitorId))
-      .where(isNull(schema.incidents.resolvedAt))
-      .orderBy(desc(schema.incidents.openedAt))
-      .limit(100)),
+    build: (conn) =>
+      toSQL(
+        conn.db
+          .select({
+            id: schema.incidents.id,
+            monitorId: schema.incidents.monitorId,
+            monitorName: schema.monitorRegistry.name,
+            openedAt: schema.incidents.openedAt,
+          })
+          .from(schema.incidents)
+          .innerJoin(
+            schema.monitorRegistry,
+            eq(schema.monitorRegistry.id, schema.incidents.monitorId)
+          )
+          .where(isNull(schema.incidents.resolvedAt))
+          .orderBy(desc(schema.incidents.openedAt))
+          .limit(100)
+      ),
   },
   {
     name: "incidents-notification-summary",
-    description: "Bulk sent/dead/unsent aggregate for a page of incidents (avoids N+1 outbox scans).",
+    description:
+      "Bulk sent/dead/unsent aggregate for a page of incidents (avoids N+1 outbox scans).",
     source: "lib/reporting/queries/incidents.ts:listIncidents",
     mutating: false,
     build: (conn, ctx) => {
       // Bind every listed incident ID, or a sentinel for an empty page.
-      const incidentIds = ctx.incidentIds.length > 0
-        ? ctx.incidentIds
-        : ["00000000-0000-0000-0000-000000000000"];
-      return toSQL(conn.db.select({
-        incidentId: schema.notificationOutbox.incidentId,
-        sentCount: dsql<number>`count(*) filter (where ${schema.notificationOutbox.status} = 'sent')`.mapWith(Number),
-        anyDead: dsql<boolean>`bool_or(${schema.notificationOutbox.status} = 'dead')`,
-        anyUnsent: dsql<boolean>`bool_or(${schema.notificationOutbox.status} <> 'sent')`,
-      }).from(schema.notificationOutbox)
-        .where(inArray(schema.notificationOutbox.incidentId, incidentIds))
-        .groupBy(schema.notificationOutbox.incidentId));
+      const incidentIds =
+        ctx.incidentIds.length > 0
+          ? ctx.incidentIds
+          : ["00000000-0000-0000-0000-000000000000"]
+      return toSQL(
+        conn.db
+          .select({
+            incidentId: schema.notificationOutbox.incidentId,
+            sentCount:
+              dsql<number>`count(*) filter (where ${schema.notificationOutbox.status} = 'sent')`.mapWith(
+                Number
+              ),
+            anyDead: dsql<boolean>`bool_or(${schema.notificationOutbox.status} = 'dead')`,
+            anyUnsent: dsql<boolean>`bool_or(${schema.notificationOutbox.status} <> 'sent')`,
+          })
+          .from(schema.notificationOutbox)
+          .where(inArray(schema.notificationOutbox.incidentId, incidentIds))
+          .groupBy(schema.notificationOutbox.incidentId)
+      )
     },
   },
   {
@@ -245,114 +348,192 @@ export const queryCases: QueryCase[] = [
     description: "Single incident detail row, joined to monitor name.",
     source: "lib/reporting/queries/incidents.ts:getIncidentDetail",
     mutating: false,
-    build: (conn, ctx) => toSQL(conn.db.select({
-      id: schema.incidents.id,
-      monitorId: schema.incidents.monitorId,
-      monitorName: schema.monitorRegistry.name,
-      openedAt: schema.incidents.openedAt,
-      resolvedAt: schema.incidents.resolvedAt,
-    }).from(schema.incidents)
-      .innerJoin(schema.monitorRegistry, eq(schema.monitorRegistry.id, schema.incidents.monitorId))
-      .where(eq(schema.incidents.id, ctx.ongoingIncidentId ?? ctx.resolvedIncidentId ?? "00000000-0000-0000-0000-000000000000"))
-      .limit(1)),
+    build: (conn, ctx) =>
+      toSQL(
+        conn.db
+          .select({
+            id: schema.incidents.id,
+            monitorId: schema.incidents.monitorId,
+            monitorName: schema.monitorRegistry.name,
+            openedAt: schema.incidents.openedAt,
+            resolvedAt: schema.incidents.resolvedAt,
+          })
+          .from(schema.incidents)
+          .innerJoin(
+            schema.monitorRegistry,
+            eq(schema.monitorRegistry.id, schema.incidents.monitorId)
+          )
+          .where(
+            eq(
+              schema.incidents.id,
+              ctx.ongoingIncidentId ??
+                ctx.resolvedIncidentId ??
+                "00000000-0000-0000-0000-000000000000"
+            )
+          )
+          .limit(1)
+      ),
   },
   {
     name: "incident-detail-notifications",
-    description: "Notification timeline rows for a single incident's detail page.",
+    description:
+      "Notification timeline rows for a single incident's detail page.",
     source: "lib/reporting/queries/incidents.ts:getIncidentDetail",
     mutating: false,
-    build: (conn, ctx) => toSQL(conn.db.select({
-      eventType: schema.notificationOutbox.eventType,
-      status: schema.notificationOutbox.status,
-      createdAt: schema.notificationOutbox.createdAt,
-      sentAt: schema.notificationOutbox.sentAt,
-    }).from(schema.notificationOutbox)
-      .where(eq(schema.notificationOutbox.incidentId, ctx.ongoingIncidentId ?? ctx.resolvedIncidentId ?? "00000000-0000-0000-0000-000000000000"))
-      .orderBy(asc(schema.notificationOutbox.createdAt))
-      .limit(40)),
+    build: (conn, ctx) =>
+      toSQL(
+        conn.db
+          .select({
+            eventType: schema.notificationOutbox.eventType,
+            status: schema.notificationOutbox.status,
+            createdAt: schema.notificationOutbox.createdAt,
+            sentAt: schema.notificationOutbox.sentAt,
+          })
+          .from(schema.notificationOutbox)
+          .where(
+            eq(
+              schema.notificationOutbox.incidentId,
+              ctx.ongoingIncidentId ??
+                ctx.resolvedIncidentId ??
+                "00000000-0000-0000-0000-000000000000"
+            )
+          )
+          .orderBy(asc(schema.notificationOutbox.createdAt))
+          .limit(40)
+      ),
   },
   {
     name: "public-status-monitors",
-    description: "Public status page: enabled, non-archived monitors, capped at 100.",
+    description:
+      "Public status page: enabled, non-archived monitors, capped at 100.",
     source: "lib/reporting/queries/status.ts:loadPublicStatus",
     mutating: false,
-    build: (conn) => toSQL(conn.db.select({
-      id: schema.monitorRegistry.id,
-      name: schema.monitorRegistry.name,
-      groupName: schema.monitorRegistry.groupName,
-      state: schema.monitorState.state,
-    }).from(schema.monitorRegistry)
-      .leftJoin(schema.monitorState, eq(schema.monitorState.monitorId, schema.monitorRegistry.id))
-      .where(and(eq(schema.monitorRegistry.enabled, true), isNull(schema.monitorRegistry.archivedAt)))
-      .limit(100)),
+    build: (conn) =>
+      toSQL(
+        conn.db
+          .select({
+            id: schema.monitorRegistry.id,
+            name: schema.monitorRegistry.name,
+            groupName: schema.monitorRegistry.groupName,
+            state: schema.monitorState.state,
+          })
+          .from(schema.monitorRegistry)
+          .leftJoin(
+            schema.monitorState,
+            eq(schema.monitorState.monitorId, schema.monitorRegistry.id)
+          )
+          .where(
+            and(
+              eq(schema.monitorRegistry.enabled, true),
+              isNull(schema.monitorRegistry.archivedAt)
+            )
+          )
+          .limit(100)
+      ),
   },
   {
     name: "public-status-rollups-90d",
-    description: "Public status page: day-resolution rollups across up to 100 monitors over 90 days.",
+    description:
+      "Public status page: day-resolution rollups across up to 100 monitors over 90 days.",
     source: "lib/reporting/queries/status.ts:loadPublicStatus",
     mutating: false,
     build: (conn, ctx) => {
-      const completedDay = new Date(ctx.now);
-      completedDay.setUTCHours(0, 0, 0, 0);
-      const earliest = new Date(completedDay.getTime() - 90 * 86_400_000);
-      return toSQL(conn.db.select({
-        monitorId: schema.metricRollups.monitorId,
-        bucketStart: schema.metricRollups.bucketStart,
-        expectedChecks: schema.metricRollups.expectedChecks,
-        completedChecks: schema.metricRollups.completedChecks,
-        successfulChecks: schema.metricRollups.successfulChecks,
-        downtimeSeconds: schema.metricRollups.downtimeSeconds,
-      }).from(schema.metricRollups)
-        .where(and(
-          inArray(schema.metricRollups.monitorId, ctx.monitorIds),
-          eq(schema.metricRollups.resolution, "day"),
-          gte(schema.metricRollups.bucketStart, earliest),
-          lt(schema.metricRollups.bucketStart, completedDay),
-        ))
-        .orderBy(asc(schema.metricRollups.bucketStart))
-        .limit(9_000));
+      const completedDay = new Date(ctx.now)
+      completedDay.setUTCHours(0, 0, 0, 0)
+      const earliest = new Date(completedDay.getTime() - 90 * 86_400_000)
+      return toSQL(
+        conn.db
+          .select({
+            monitorId: schema.metricRollups.monitorId,
+            bucketStart: schema.metricRollups.bucketStart,
+            expectedChecks: schema.metricRollups.expectedChecks,
+            completedChecks: schema.metricRollups.completedChecks,
+            successfulChecks: schema.metricRollups.successfulChecks,
+            downtimeSeconds: schema.metricRollups.downtimeSeconds,
+          })
+          .from(schema.metricRollups)
+          .where(
+            and(
+              inArray(schema.metricRollups.monitorId, ctx.monitorIds),
+              eq(schema.metricRollups.resolution, "day"),
+              gte(schema.metricRollups.bucketStart, earliest),
+              lt(schema.metricRollups.bucketStart, completedDay)
+            )
+          )
+          .orderBy(asc(schema.metricRollups.bucketStart))
+          .limit(9000)
+      )
     },
   },
   {
     name: "public-status-current-incidents",
-    description: "Public status page: currently-open incidents across the visible monitor set, overfetched to CURRENT_INCIDENTS_FETCH_LIMIT (500) because promoted-report exclusion runs after this query returns.",
+    description:
+      "Public status page: currently-open incidents across the visible monitor set, overfetched to CURRENT_INCIDENTS_FETCH_LIMIT (500) because promoted-report exclusion runs after this query returns.",
     source: "lib/reporting/queries/status.ts:loadPublicStatus",
     mutating: false,
     // LIMIT mirrors CURRENT_INCIDENTS_FETCH_LIMIT in lib/reporting/queries/
     // status.ts. That module connects during import, so the value is inlined.
-    build: (conn, ctx) => toSQL(conn.db.select({
-      id: schema.incidents.id,
-      monitorName: schema.monitorRegistry.name,
-      openedAt: schema.incidents.openedAt,
-      openingStatusCode: schema.incidents.openingStatusCode,
-    }).from(schema.incidents)
-      .innerJoin(schema.monitorRegistry, eq(schema.monitorRegistry.id, schema.incidents.monitorId))
-      .where(and(inArray(schema.incidents.monitorId, ctx.monitorIds), isNull(schema.incidents.resolvedAt)))
-      .orderBy(desc(schema.incidents.openedAt))
-      .limit(500)),
+    build: (conn, ctx) =>
+      toSQL(
+        conn.db
+          .select({
+            id: schema.incidents.id,
+            monitorName: schema.monitorRegistry.name,
+            openedAt: schema.incidents.openedAt,
+            openingStatusCode: schema.incidents.openingStatusCode,
+          })
+          .from(schema.incidents)
+          .innerJoin(
+            schema.monitorRegistry,
+            eq(schema.monitorRegistry.id, schema.incidents.monitorId)
+          )
+          .where(
+            and(
+              inArray(schema.incidents.monitorId, ctx.monitorIds),
+              isNull(schema.incidents.resolvedAt)
+            )
+          )
+          .orderBy(desc(schema.incidents.openedAt))
+          .limit(500)
+      ),
   },
   {
     name: "public-status-recent-incidents-resolved",
-    description: "Public status page: resolved-incident history overfetch of RECENT_INCIDENTS_FETCH_LIMIT (60) rows that production filters for duration and promotion, then slices to 10 in JS.",
+    description:
+      "Public status page: resolved-incident history overfetch of RECENT_INCIDENTS_FETCH_LIMIT (60) rows that production filters for duration and promotion, then slices to 10 in JS.",
     source: "lib/reporting/queries/status.ts:loadPublicStatus",
     mutating: false,
     // LIMIT mirrors RECENT_INCIDENTS_FETCH_LIMIT in lib/reporting/queries/
     // status.ts, not the display count of 10. The short-duration and
     // promoted-origin filters run in JS over this overfetch before the slice.
-    build: (conn, ctx) => toSQL(conn.db.select({
-      id: schema.incidents.id,
-      monitorName: schema.monitorRegistry.name,
-      openedAt: schema.incidents.openedAt,
-      resolvedAt: schema.incidents.resolvedAt,
-    }).from(schema.incidents)
-      .innerJoin(schema.monitorRegistry, eq(schema.monitorRegistry.id, schema.incidents.monitorId))
-      .where(and(inArray(schema.incidents.monitorId, ctx.monitorIds), isNotNull(schema.incidents.resolvedAt)))
-      .orderBy(desc(schema.incidents.resolvedAt))
-      .limit(60)),
+    build: (conn, ctx) =>
+      toSQL(
+        conn.db
+          .select({
+            id: schema.incidents.id,
+            monitorName: schema.monitorRegistry.name,
+            openedAt: schema.incidents.openedAt,
+            resolvedAt: schema.incidents.resolvedAt,
+          })
+          .from(schema.incidents)
+          .innerJoin(
+            schema.monitorRegistry,
+            eq(schema.monitorRegistry.id, schema.incidents.monitorId)
+          )
+          .where(
+            and(
+              inArray(schema.incidents.monitorId, ctx.monitorIds),
+              isNotNull(schema.incidents.resolvedAt)
+            )
+          )
+          .orderBy(desc(schema.incidents.resolvedAt))
+          .limit(60)
+      ),
   },
   {
     name: "notification-outbox-claim",
-    description: "Scheduler-style claim of due outbox rows with FOR UPDATE SKIP LOCKED.",
+    description:
+      "Scheduler-style claim of due outbox rows with FOR UPDATE SKIP LOCKED.",
     source: "lib/notifications/sql.ts:CLAIM_NOTIFICATIONS_SQL",
     mutating: true,
     build: (_conn, ctx) => ({
@@ -362,71 +543,89 @@ export const queryCases: QueryCase[] = [
   },
   {
     name: "notification-outbox-reconcile-stale",
-    description: "Reconciliation sweep for outbox rows stuck in 'sending' past the stale-claim cutoff.",
+    description:
+      "Reconciliation sweep for outbox rows stuck in 'sending' past the stale-claim cutoff.",
     source: "lib/notifications/sql.ts:RECONCILE_STALE_CLAIMS_SQL",
     mutating: true,
     build: (_conn, ctx) => {
-      const cutoff = new Date(ctx.now.getTime() - 5 * 60_000);
-      const safeRetryCutoff = new Date(ctx.now.getTime() - (24 * 60 * 60_000 - 5 * 60_000));
-      return { text: RECONCILE_STALE_CLAIMS_SQL, params: [ctx.now, cutoff, safeRetryCutoff] };
+      const cutoff = new Date(ctx.now.getTime() - 5 * 60_000)
+      const safeRetryCutoff = new Date(
+        ctx.now.getTime() - (24 * 60 * 60_000 - 5 * 60_000)
+      )
+      return {
+        text: RECONCILE_STALE_CLAIMS_SQL,
+        params: [ctx.now, cutoff, safeRetryCutoff],
+      }
     },
   },
-];
+]
 
 export const excludedQueries: ExcludedQuery[] = [
   {
     name: "public-status-report-rows",
     source: "lib/api/status-reports.ts:getPublicReportRows",
-    reason: "loadPublicStatus always runs this UNION ALL of the unresolved and resolved published-report branches via getPublicReports, but the fixture seeds no status_reports rows, so EXPLAIN would only ever see degenerate empty-table scans that say nothing about the production partial-index and ordered-bucket shape. Benchmarking it honestly requires seeding reports, updates, and affected rows with their own cardinality checks, deferred until report volume becomes a measured concern.",
+    reason:
+      "loadPublicStatus always runs this UNION ALL of the unresolved and resolved published-report branches via getPublicReports, but the fixture seeds no status_reports rows, so EXPLAIN would only ever see degenerate empty-table scans that say nothing about the production partial-index and ordered-bucket shape. Benchmarking it honestly requires seeding reports, updates, and affected rows with their own cardinality checks, deferred until report volume becomes a measured concern.",
   },
   {
     name: "public-status-latest-updates",
     source: "lib/api/status-reports.ts:getLatestUpdates",
-    reason: "DISTINCT ON over status_report_updates fanned out over the report ids getPublicReportRows returns. The fixture seeds no status reports, so the id list is always empty and production short-circuits before issuing this query at all, leaving nothing representative to measure.",
+    reason:
+      "DISTINCT ON over status_report_updates fanned out over the report ids getPublicReportRows returns. The fixture seeds no status reports, so the id list is always empty and production short-circuits before issuing this query at all, leaving nothing representative to measure.",
   },
   {
     name: "public-status-affected-rows",
     source: "lib/api/status-reports.ts:getAffected",
-    reason: "Bounded IN scan over status_report_affected keyed by the same report ids as public-status-latest-updates. Excluded for the same reason, the fixture seeds no status reports and production skips this query entirely when the id list is empty.",
+    reason:
+      "Bounded IN scan over status_report_affected keyed by the same report ids as public-status-latest-updates. Excluded for the same reason, the fixture seeds no status reports and production skips this query entirely when the id list is empty.",
   },
   {
     name: "scheduler-fill-gaps",
     source: "lib/storage/sql.ts:FILL_SCHEDULER_GAPS_SQL",
-    reason: "Multi-CTE maintenance query whose correctness depends on bit-packed check_batches state built up minute-by-minute by the live scheduler; synthetic params risk producing a misleading plan (or none) without duplicating that runtime logic here.",
+    reason:
+      "Multi-CTE maintenance query whose correctness depends on bit-packed check_batches state built up minute-by-minute by the live scheduler; synthetic params risk producing a misleading plan (or none) without duplicating that runtime logic here.",
   },
   {
     name: "scheduler-compact-15-minute",
     source: "lib/storage/sql.ts:COMPACT_15_MINUTE_SQL",
-    reason: "Same bit-packed check_batches coupling as scheduler-fill-gaps — the bitmap decode logic in the query only means something over batches the fixture doesn't reconstruct byte-for-byte.",
+    reason:
+      "Same bit-packed check_batches coupling as scheduler-fill-gaps — the bitmap decode logic in the query only means something over batches the fixture doesn't reconstruct byte-for-byte.",
   },
   {
     name: "scheduler-promote-rollup",
     source: "lib/storage/sql.ts:PROMOTE_ROLLUP_SQL",
-    reason: "Depends on an upstream compaction pass having produced a specific bucket history; benchmarking it in isolation from scheduler-compact-15-minute would measure an unrepresentative input shape.",
+    reason:
+      "Depends on an upstream compaction pass having produced a specific bucket history; benchmarking it in isolation from scheduler-compact-15-minute would measure an unrepresentative input shape.",
   },
   {
     name: "auth-login-password-verify",
     source: "lib/auth/service.ts",
-    reason: "Dominated by argon2 hashing cost, not SQL; the DB portion is a trivial unique-indexed email lookup already covered in shape by monitor-identity-lookup.",
+    reason:
+      "Dominated by argon2 hashing cost, not SQL; the DB portion is a trivial unique-indexed email lookup already covered in shape by monitor-identity-lookup.",
   },
   {
     name: "token-verification-lookup",
     source: "lib/api/token-service.ts",
-    reason: "Trivial unique-index point lookup on tokenDigest — same shape as monitor-identity-lookup, no incremental benchmarking value.",
+    reason:
+      "Trivial unique-index point lookup on tokenDigest — same shape as monitor-identity-lookup, no incremental benchmarking value.",
   },
   {
     name: "rate-limit-increment",
     source: "lib/api/rate-limit.ts",
-    reason: "Single-row upsert on a composite PK that mutates a counter every call; it's correctness-critical but not sensitive to the kind of query-shape optimization this hillclimb targets.",
+    reason:
+      "Single-row upsert on a composite PK that mutates a counter every call; it's correctness-critical but not sensitive to the kind of query-shape optimization this hillclimb targets.",
   },
   {
     name: "idempotency-claim-upsert",
     source: "lib/api/idempotency.ts",
-    reason: "Single-row upsert/point-lookup keyed by a unique index; same category as rate-limit-increment.",
+    reason:
+      "Single-row upsert/point-lookup keyed by a unique index; same category as rate-limit-increment.",
   },
   {
     name: "notification-mark-sent-or-failed",
-    source: "lib/notifications/sql.ts:MARK_NOTIFICATION_SENT_SQL / MARK_NOTIFICATION_FAILED_SQL",
-    reason: "Single-row conditional update keyed by primary key + claim token; correctness-critical but not query-shape sensitive.",
+    source:
+      "lib/notifications/sql.ts:MARK_NOTIFICATION_SENT_SQL / MARK_NOTIFICATION_FAILED_SQL",
+    reason:
+      "Single-row conditional update keyed by primary key + claim token; correctness-critical but not query-shape sensitive.",
   },
-];
+]

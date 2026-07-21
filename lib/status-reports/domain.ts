@@ -1,4 +1,4 @@
-import { statusGroupSlug } from "@/lib/reporting/queries/timeline";
+import { statusGroupSlug } from "@/lib/reporting/queries/timeline"
 
 /**
  * Pure, client-safe status-report vocabulary: the type/update-status/impact
@@ -10,7 +10,7 @@ import { statusGroupSlug } from "@/lib/reporting/queries/timeline";
  * source of truth instead of keeping divergent copies.
  */
 
-export type ReportType = "incident" | "maintenance";
+export type ReportType = "incident" | "maintenance"
 
 export type ReportUpdateStatus =
   | "investigating"
@@ -19,19 +19,31 @@ export type ReportUpdateStatus =
   | "resolved"
   | "scheduled"
   | "in_progress"
-  | "completed";
+  | "completed"
 
-export type ReportImpact = "down" | "degraded" | "maintenance";
+export type ReportImpact = "down" | "degraded" | "maintenance"
 
 /** Ordered update-status vocabulary per report type. */
-export const INCIDENT_UPDATE_STATUSES = ["investigating", "identified", "monitoring", "resolved"] as const;
-export const MAINTENANCE_UPDATE_STATUSES = ["scheduled", "in_progress", "completed"] as const;
+export const INCIDENT_UPDATE_STATUSES = [
+  "investigating",
+  "identified",
+  "monitoring",
+  "resolved",
+] as const
+export const MAINTENANCE_UPDATE_STATUSES = [
+  "scheduled",
+  "in_progress",
+  "completed",
+] as const
 
 /** Per-type ordered status lists, keyed by report type. */
-export const REPORT_STATUSES: Record<ReportType, readonly ReportUpdateStatus[]> = {
+export const REPORT_STATUSES: Record<
+  ReportType,
+  readonly [ReportUpdateStatus, ...ReportUpdateStatus[]]
+> = {
   incident: INCIDENT_UPDATE_STATUSES,
   maintenance: MAINTENANCE_UPDATE_STATUSES,
-};
+}
 
 export const REPORT_STATUS_LABELS: Record<ReportUpdateStatus, string> = {
   investigating: "Investigating",
@@ -41,13 +53,16 @@ export const REPORT_STATUS_LABELS: Record<ReportUpdateStatus, string> = {
   scheduled: "Scheduled",
   in_progress: "In progress",
   completed: "Completed",
-};
+}
 
 /** The statuses whose position as the latest update resolves a report. */
-export const RESOLVING_STATUSES: readonly ReportUpdateStatus[] = ["resolved", "completed"];
+export const RESOLVING_STATUSES: readonly ReportUpdateStatus[] = [
+  "resolved",
+  "completed",
+]
 
 export function isResolvingStatus(status: ReportUpdateStatus): boolean {
-  return RESOLVING_STATUSES.includes(status);
+  return RESOLVING_STATUSES.includes(status)
 }
 
 /**
@@ -59,22 +74,24 @@ export function isResolvingStatus(status: ReportUpdateStatus): boolean {
 export const IMPACT_BY_TYPE: Record<ReportType, readonly ReportImpact[]> = {
   incident: ["down", "degraded"],
   maintenance: ["maintenance", "degraded"],
-};
+}
 
 /** Impact picker options for the report editor, scoped to the report type. */
-export function impactOptions(type: ReportType): Array<{ value: ReportImpact | "none"; label: string }> {
+export function impactOptions(
+  type: ReportType
+): Array<{ value: ReportImpact | "none"; label: string }> {
   if (type === "incident") {
     return [
       { value: "none", label: "Not affected" },
       { value: "degraded", label: "Degraded" },
       { value: "down", label: "Down" },
-    ];
+    ]
   }
   return [
     { value: "none", label: "Not affected" },
     { value: "maintenance", label: "Maintenance" },
     { value: "degraded", label: "Degraded" },
-  ];
+  ]
 }
 
 /**
@@ -87,16 +104,21 @@ export function impactOptions(type: ReportType): Array<{ value: ReportImpact | "
  * collapse to the "Other" bucket exactly as the page groups live monitors.
  */
 export function filterReportsForGroup<
-  T extends { affected: ReadonlyArray<{ monitorId: string; groupName: string | null }> },
+  T extends {
+    affected: ReadonlyArray<{ monitorId: string; groupName: string | null }>
+  },
 >(
   reports: readonly T[],
-  { slug, visibleMonitorIds }: { slug: string; visibleMonitorIds: ReadonlySet<string> },
+  {
+    slug,
+    visibleMonitorIds,
+  }: { slug: string; visibleMonitorIds: ReadonlySet<string> }
 ): T[] {
   return reports.filter((report) =>
     report.affected.some(
       (entry) =>
         visibleMonitorIds.has(entry.monitorId) ||
-        statusGroupSlug(entry.groupName ?? "Other") === slug,
-    ),
-  );
+        statusGroupSlug(entry.groupName ?? "Other") === slug
+    )
+  )
 }
