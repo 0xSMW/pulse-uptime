@@ -31,6 +31,7 @@
     <link href="./styles.css" rel="stylesheet">
     <script defer src="./script.js"></script>
   </head>
+
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
 
@@ -1071,7 +1072,7 @@
         <div class="section-intro" data-reveal>
           <div>
             <p class="section-number">3.0 &nbsp; Respond</p>
-            <h2>Every failure has a history</h2>
+            <h2>Automatic history</h2>
           </div>
           <p>
             Pulse confirms outages, records each transition, and sends one clear
@@ -1255,7 +1256,7 @@
         <div class="section-intro" data-reveal>
           <div>
             <p class="section-number">5.0 &nbsp; Publish</p>
-            <h2>A status page users trust</h2>
+            <h2>Status users trust</h2>
           </div>
           <p>
             Every deployment serves a public status page from live monitor
@@ -1338,7 +1339,7 @@
         <div class="section-intro" data-reveal>
           <div>
             <p class="section-number">6.0 &nbsp; Automate</p>
-            <h2>Same controls everywhere</h2>
+            <h2>Human first, agent first</h2>
           </div>
           <p>
             Run <span class="mono">pulsectl</span> yourself, or hand your agent
@@ -1592,7 +1593,7 @@
         <div class="section-intro architecture-intro" data-reveal>
           <div>
             <p class="section-number">8.0 &nbsp; Architecture</p>
-            <h2>Runs where your app runs</h2>
+            <h2>Vercel native</h2>
           </div>
           <p>
             Pulse is Vercel-native, Postgres-backed, and small enough to
@@ -1793,8 +1794,8 @@
 
         <div class="architecture-principles" data-reveal>
           <div>
-            <span class="mono">01</span><strong>Vercel-native</strong>
-            <p>Deploy with the platform you already use</p>
+            <span class="mono">01</span><strong>Minimal design</strong>
+            <p>No queues, no workers, no servers to babysit</p>
           </div>
           <div>
             <span class="mono">02</span><strong>Exception-first history</strong>
@@ -1880,13 +1881,17 @@
               <pre
                 class="dv-code security-trace"
                 id="security-trace"
-              ><span class="t-prompt">$</span> check https://api.example.com/health
+              ><span class="t-prompt">$</span> check
+                            https://api.example.com/health
 
-<span class="t-label">resolve</span>  api.example.com → 93.184.216.34
-<span class="t-label">policy</span>   <span class="t-up">public range</span> · not private, not link-local
-<span class="t-label">pin</span>      socket pinned to validated address
-<span class="t-label">tls</span>      TLS 1.3 · certificate valid
-<span class="t-label">result</span>   <span class="t-up">200 OK</span> in 42 ms → <span class="t-up">UP</span></pre>
+                            <span class="t-label">resolve</span> api.example.com → 93.184.216.34
+                            <span class="t-label">policy</span> <span class="t-up">public range</span> · not private,
+                            not link-local
+                            <span class="t-label">pin</span> socket pinned to validated address
+                            <span class="t-label">tls</span> TLS 1.3 · certificate valid
+                            <span class="t-label">result</span> <span class="t-up">200 OK</span> in 42 ms → <span
+                                class="t-up">UP</span>
+                        </pre>
             </div>
             <div class="security-blocked">
               <div class="blocked-head">

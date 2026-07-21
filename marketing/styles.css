@@ -511,6 +511,7 @@ h1 {
 .hero-dashboard {
   height: 570px;
   margin-top: 96px;
+  scroll-margin-top: 95px;
   transform: perspective(1500px) rotateX(1.2deg);
   transform-origin: center top;
 }
@@ -2312,6 +2313,7 @@ h1 {
   .hero-dashboard {
     height: 400px;
     margin-top: 70px;
+    scroll-margin-top: 60px;
   }
   .app-tabs {
     display: none;
