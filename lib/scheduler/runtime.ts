@@ -1,26 +1,13 @@
 import "server-only"
 
-import { randomUUID } from "node:crypto"
-
 import { createClient } from "@vercel/edge-config"
-import { and, desc, eq, gt, isNull } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 
 import { createHttpChecker } from "@/lib/checker/checker"
-import {
-  evaluateConfigurationAcceptance,
-  hashCanonical,
-  type MonitoringConfig,
-  validateMonitoringConfig,
-} from "@/lib/config"
+import type { MonitoringConfig } from "@/lib/config"
 import { db } from "@/lib/db/client"
 import { queryExecutor } from "@/lib/db/query-executor"
-import {
-  configChangeApprovals,
-  configOperations,
-  monitoringConfigSnapshots,
-  monitorState,
-} from "@/lib/db/schema"
+import { monitorState } from "@/lib/db/schema"
 import type { MonitorStateSnapshot } from "@/lib/monitoring/types"
 import { deliverPendingNotifications } from "@/lib/notifications/delivery"
 import { createResendSender } from "@/lib/notifications/provider"
@@ -35,189 +22,32 @@ import {
   completesQuarterHourBucket,
   refreshRecentRollups,
 } from "@/lib/storage/rollup-refresh"
-import {
-  evaluateConfigurationSource,
-  requireApprovalConsumption,
-} from "./configuration"
+import { acceptDesiredConfiguration } from "./configuration-acceptance"
 import { runMonitoringCoordinator } from "./coordinator"
-import { synchronizeRegistry as syncRegistryRows } from "./registry-sync"
 import { createSqlCronRunStore, createSqlLeaseStore } from "./sql"
 import { isDueAt } from "./time"
 
-// Re-export so scheduler-local call sites keep a single import path.
-export { queryExecutor }
-
-interface AcceptedRow {
-  configJson: unknown
-  configHash: string
-}
-
-async function synchronizeRegistry(
-  config: MonitoringConfig,
-  hash: string,
-  now: Date
-): Promise<void> {
-  await db.transaction((tx) =>
-    syncRegistryRows(tx, config, hash, now, "runtime")
-  )
+/**
+ * Edge Config I/O stays outside the configuration lock so lock hold time
+ * is only the DB critical section. Missing connection, transport failure, or
+ * absent key fall through so acceptance evaluates the locked previous snapshot.
+ */
+async function readDesiredFromEdgeConfig(): Promise<unknown> {
+  const connection = process.env.EDGE_CONFIG
+  if (!connection) {
+    return
+  }
+  try {
+    return await createClient(connection).get("monitoring")
+  } catch (error) {
+    // Swallow Edge Config failures; locked evaluation uses previous snapshot.
+    void error
+  }
 }
 
 async function loadAcceptedConfiguration(now: Date): Promise<MonitoringConfig> {
-  const [last] = (await db
-    .select({
-      configJson: monitoringConfigSnapshots.configJson,
-      configHash: monitoringConfigSnapshots.configHash,
-    })
-    .from(monitoringConfigSnapshots)
-    .where(eq(monitoringConfigSnapshots.status, "accepted"))
-    .orderBy(
-      desc(monitoringConfigSnapshots.acceptedAt),
-      desc(monitoringConfigSnapshots.seenAt)
-    )
-    .limit(1)) as AcceptedRow[]
-  const previous = last
-    ? {
-        config: validateMonitoringConfig(last.configJson),
-        hash: last.configHash,
-      }
-    : null
-  const connection = process.env.EDGE_CONFIG
-  const source = await evaluateConfigurationSource({
-    readDesired: async () => {
-      if (!connection) {
-        throw new Error("Edge Config is unavailable")
-      }
-      return createClient(connection).get("monitoring")
-    },
-    previous,
-    now,
-  })
-  const desired = source.desired
-  let result = source.result
-  let approvalId: string | null = null
-  if (
-    result.status === "rejected" &&
-    result.reason === "DESTRUCTIVE_APPROVAL_REQUIRED" &&
-    result.candidateHash
-  ) {
-    const [approval] = await db
-      .select()
-      .from(configChangeApprovals)
-      .where(
-        and(
-          eq(configChangeApprovals.targetConfigHash, result.candidateHash),
-          eq(configChangeApprovals.action, "bulk_archive"),
-          isNull(configChangeApprovals.consumedAt),
-          gt(configChangeApprovals.expiresAt, now)
-        )
-      )
-      .orderBy(desc(configChangeApprovals.createdAt))
-      .limit(1)
-    if (approval) {
-      approvalId = approval.id
-      result = evaluateConfigurationAcceptance(desired, previous, {
-        approval,
-        now,
-      })
-    }
-  }
-  if (result.status === "unavailable") {
-    await db.insert(monitoringConfigSnapshots).values({
-      id: randomUUID(),
-      configVersion: 0,
-      configHash: hashCanonical(desired ?? null),
-      configJson: desired ?? null,
-      status: "rejected",
-      rejectionReason: result.reason,
-      source: "edge-config",
-      seenAt: now,
-      acceptedAt: null,
-    })
-    console.error(
-      JSON.stringify({ event: "config.rejected", errorCode: result.reason })
-    )
-    throw new Error(result.reason)
-  }
-
-  result = await db.transaction(async (tx) => {
-    const guarded = await requireApprovalConsumption({
-      result,
-      desired,
-      previous,
-      now,
-      consume: async () => {
-        if (!approvalId) {
-          return false
-        }
-        const rows = await tx
-          .update(configChangeApprovals)
-          .set({ consumedAt: now })
-          .where(
-            and(
-              eq(configChangeApprovals.id, approvalId),
-              isNull(configChangeApprovals.consumedAt),
-              gt(configChangeApprovals.expiresAt, now)
-            )
-          )
-          .returning({ id: configChangeApprovals.id })
-        return rows.length === 1
-      },
-    })
-    if (guarded.status === "unavailable") {
-      throw new Error(guarded.reason)
-    }
-    await tx.insert(monitoringConfigSnapshots).values({
-      id: randomUUID(),
-      configVersion: guarded.config.configVersion,
-      configHash:
-        guarded.status === "accepted"
-          ? guarded.hash
-          : (guarded.candidateHash ?? hashCanonical(desired ?? null)),
-      configJson: desired ?? guarded.config,
-      status: guarded.status,
-      rejectionReason: guarded.status === "rejected" ? guarded.reason : null,
-      source: "edge-config",
-      seenAt: now,
-      acceptedAt: guarded.status === "accepted" ? now : null,
-    })
-    if (guarded.status === "accepted") {
-      await tx
-        .update(configOperations)
-        .set({ state: "accepted", acceptedAt: now })
-        .where(
-          and(
-            eq(configOperations.targetConfigHash, guarded.hash),
-            eq(configOperations.state, "written")
-          )
-        )
-    } else if (guarded.candidateHash) {
-      await tx
-        .update(configOperations)
-        .set({ state: "rejected", rejectionReason: guarded.reason })
-        .where(
-          and(
-            eq(configOperations.targetConfigHash, guarded.candidateHash),
-            eq(configOperations.state, "written")
-          )
-        )
-    }
-    return guarded
-  })
-  await synchronizeRegistry(result.config, result.hash, now)
-  console[result.status === "accepted" ? "info" : "warn"](
-    JSON.stringify({
-      event:
-        result.status === "accepted" ? "config.accepted" : "config.rejected",
-      status: result.status,
-      ...(result.status === "rejected" ? { errorCode: result.reason } : {}),
-    })
-  )
-  if (result.status === "rejected") {
-    console.warn(
-      JSON.stringify({ event: "config.fallback_used", status: "active" })
-    )
-  }
-  return result.config
+  const desired = await readDesiredFromEdgeConfig()
+  return acceptDesiredConfiguration(desired, now)
 }
 
 export async function runMonitoringCron() {

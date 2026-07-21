@@ -41,6 +41,7 @@ suite("configuration lock PostgreSQL concurrency", () => {
   const dbB = drizzle(clientB, { schema })
 
   let mutateConfig: typeof import("./config-mutation").mutateConfig
+  let acceptDesiredConfiguration: typeof import("@/lib/scheduler/configuration-acceptance").acceptDesiredConfiguration
   let closeModuleConnection: (() => Promise<void>) | undefined
 
   const baseConfig = (): MonitoringConfig => ({
@@ -130,9 +131,13 @@ suite("configuration lock PostgreSQL concurrency", () => {
       }
     }
 
-    // mutateConfig binds its default handle to DATABASE_URL at import time.
+    // mutateConfig / acceptDesiredConfiguration bind their default handle to
+    // DATABASE_URL at import time.
     process.env.DATABASE_URL = databaseUrl
     ;({ mutateConfig } = await import("./config-mutation"))
+    ;({ acceptDesiredConfiguration } = await import(
+      "@/lib/scheduler/configuration-acceptance"
+    ))
     const { sql } = await import("@/lib/db/client")
     closeModuleConnection = () => sql.end({ timeout: 5 })
   }, 60_000)
@@ -227,5 +232,110 @@ suite("configuration lock PostgreSQL concurrency", () => {
     const settings = (latest!.configJson as MonitoringConfig).settings
     // 25 + 1 + 2 regardless of which writer ran first.
     expect(settings.concurrency).toBe(28)
+  })
+
+  it("keeps snapshot and registry hash equal under interleaved API mutation and cron acceptance", async () => {
+    const now = new Date("2026-07-18T04:00:00.000Z")
+    const apiBump = (config: MonitoringConfig): MonitoringConfig => ({
+      ...config,
+      schemaVersion: 2,
+      configVersion: config.configVersion + 1,
+      settings: {
+        ...config.settings,
+        concurrency: config.settings.concurrency + 3,
+      },
+    })
+
+    // Cron accepts a desired document that advances userAgent while the API
+    // bumps concurrency. Both share the configuration lock, so the final
+    // accepted snapshot hash must equal every active registry config_hash.
+    const seed = baseConfig()
+    const cronDesired: MonitoringConfig = {
+      ...seed,
+      schemaVersion: 2,
+      configVersion: seed.configVersion + 1,
+      settings: {
+        ...seed.settings,
+        userAgent: "Pulse-Uptime/cron-accept",
+      },
+    }
+
+    await Promise.all([
+      mutateConfig("human:interleave", apiBump, dbA),
+      acceptDesiredConfiguration(cronDesired, now, dbB),
+    ])
+
+    const acceptedHash = await readAcceptedHash(dbA)
+    const registryHashes = await readActiveRegistryHashes(dbA)
+
+    expect(acceptedHash).toBeTruthy()
+    expect(registryHashes.length).toBeGreaterThan(0)
+    for (const hash of registryHashes) {
+      expect(hash).toBe(acceptedHash)
+    }
+
+    // Exactly one of the two writers is latest; both advanced from version 1.
+    const [latest] = await dbA
+      .select({
+        configJson: schema.monitoringConfigSnapshots.configJson,
+        configVersion: schema.monitoringConfigSnapshots.configVersion,
+        configHash: schema.monitoringConfigSnapshots.configHash,
+      })
+      .from(schema.monitoringConfigSnapshots)
+      .where(eq(schema.monitoringConfigSnapshots.status, "accepted"))
+      .orderBy(
+        desc(schema.monitoringConfigSnapshots.acceptedAt),
+        desc(schema.monitoringConfigSnapshots.seenAt)
+      )
+      .limit(1)
+
+    expect(latest).toBeDefined()
+    expect(latest!.configHash).toBe(acceptedHash)
+    expect(latest!.configVersion).toBeGreaterThanOrEqual(2)
+    expect(hashMonitoringConfig(latest!.configJson as MonitoringConfig)).toBe(
+      acceptedHash
+    )
+  })
+
+  it("consumes bulk-archive approval only when the locked candidate is accepted", async () => {
+    const now = new Date("2026-07-18T04:00:00.000Z")
+    const previous = baseConfig()
+    // Empty monitors is destructive and needs bulk_archive approval.
+    const desired: MonitoringConfig = {
+      ...previous,
+      schemaVersion: 2,
+      configVersion: 2,
+      monitors: [],
+    }
+    const desiredHash = hashMonitoringConfig(desired)
+
+    await dbA.insert(schema.configChangeApprovals).values({
+      id: crypto.randomUUID(),
+      targetConfigHash: desiredHash,
+      action: "bulk_archive",
+      createdByPrincipal: "human:test",
+      createdAt: now,
+      expiresAt: new Date(now.getTime() + 600_000),
+      consumedAt: null,
+    })
+
+    const accepted = await acceptDesiredConfiguration(desired, now, dbA)
+    expect(accepted.monitors).toEqual([])
+    expect(hashMonitoringConfig(accepted)).toBe(desiredHash)
+
+    const [approval] = await dbA
+      .select()
+      .from(schema.configChangeApprovals)
+      .where(eq(schema.configChangeApprovals.targetConfigHash, desiredHash))
+      .limit(1)
+    expect(approval?.consumedAt).not.toBeNull()
+
+    const acceptedHash = await readAcceptedHash(dbA)
+    expect(acceptedHash).toBe(desiredHash)
+    // No active monitors remain after bulk archive; registry may be empty or
+    // fully archived. Any still-active rows must match the accepted hash.
+    for (const hash of await readActiveRegistryHashes(dbA)) {
+      expect(hash).toBe(acceptedHash)
+    }
   })
 })
