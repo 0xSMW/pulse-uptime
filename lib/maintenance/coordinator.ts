@@ -173,7 +173,16 @@ const ORPHAN_IMAGE_KEEP_NEWEST = 20
 const SWEEP_WORK_BUDGET_MS = 20_000
 
 export interface SweepSummary {
+  /** Sum of all short-lived row expirations this pass. */
   expired: number
+  /** Per-category counts. Aggregate `expired` remains the stable contract. */
+  categories: {
+    rateLimit: number
+    apiIdempotency: number
+    deviceMark: number
+    deviceDelete: number
+    configApprovals: number
+  }
 }
 
 /**
@@ -607,6 +616,9 @@ export async function performMaintenance(
  * cleanup would otherwise queue behind heavy daily telemetry retention. The operations
  * are idempotent deletes, so this needs no lease: a concurrent double-run only re-deletes
  * already-expired rows.
+ *
+ * Fair rounds: each category gets at most one batch per round while the budget
+ * remains. A permanent backlog in rate-limit cannot starve later categories.
  */
 export async function performSweep(
   store: MaintenanceStore,
@@ -614,37 +626,118 @@ export async function performSweep(
   options: { nowMs?: () => number; deadlineAtMs?: number } = {}
 ): Promise<SweepSummary> {
   const nowMs = options.nowMs ?? Date.now
-  const deadlineAtMs = options.deadlineAtMs ?? nowMs() + SWEEP_WORK_BUDGET_MS
+  const hardDeadlineAtMs =
+    options.deadlineAtMs ?? nowMs() + SWEEP_WORK_BUDGET_MS
+  // Sweep has no catalog reservation. catalogBudgetMs 0 makes pre_catalog == hard.
+  const budget = createMaintenanceBudget({
+    nowMs,
+    hardDeadlineAtMs,
+    catalogBudgetMs: 0,
+  })
   const shortCutoff = new Date(now.getTime() - 7 * 86_400_000)
   const consumedApprovalCutoff = new Date(now.getTime() - 30 * 86_400_000)
 
-  async function drain(
-    operation: (limit: number) => Promise<number>
-  ): Promise<number> {
-    let total = 0
-    while (nowMs() < deadlineAtMs) {
-      const affected = await operation(RETENTION_BATCH_SIZE)
-      total += affected
-      if (affected < RETENTION_BATCH_SIZE) {
-        break
+  type SweepCategoryKey = keyof SweepSummary["categories"]
+  const categories: {
+    key: SweepCategoryKey
+    task: string
+    active: boolean
+    total: number
+    operation: (limit: number, remainingMs: number) => Promise<number>
+  }[] = [
+    {
+      key: "rateLimit",
+      task: "expire_rate_limit",
+      active: true,
+      total: 0,
+      operation: (limit, remainingMs) =>
+        store.expireRateLimitBuckets(now, limit, remainingMs),
+    },
+    {
+      key: "apiIdempotency",
+      task: "expire_api_idempotency",
+      active: true,
+      total: 0,
+      operation: (limit, remainingMs) =>
+        store.expireApiIdempotency(now, limit, remainingMs),
+    },
+    {
+      key: "deviceMark",
+      task: "mark_device_expired",
+      active: true,
+      total: 0,
+      operation: (limit, remainingMs) =>
+        store.markDeviceAuthorizationsExpired(now, limit, remainingMs),
+    },
+    {
+      key: "deviceDelete",
+      task: "delete_device_expired",
+      active: true,
+      total: 0,
+      operation: (limit, remainingMs) =>
+        store.deleteExpiredDeviceAuthorizations(
+          shortCutoff,
+          limit,
+          remainingMs
+        ),
+    },
+    {
+      key: "configApprovals",
+      task: "expire_config_approvals",
+      active: true,
+      total: 0,
+      operation: (limit, remainingMs) =>
+        store.expireConfigApprovals(
+          now,
+          consumedApprovalCutoff,
+          limit,
+          remainingMs
+        ),
+    },
+  ]
+
+  // Round-robin: one batch per active category per round, until no category
+  // can start or every category is drained / budget-skipped.
+  while (budget.canStart(MIN_RETENTION_BATCH_MS, "hard")) {
+    let progressed = false
+    for (const category of categories) {
+      if (!category.active) {
+        continue
+      }
+      if (!budget.canStart(MIN_RETENTION_BATCH_MS, "hard")) {
+        budget.recordSkip(category.task, "hard_deadline")
+        category.active = false
+        continue
+      }
+      try {
+        const affected = await category.operation(
+          RETENTION_BATCH_SIZE,
+          budget.remainingMs("hard")
+        )
+        category.total += affected
+        progressed = true
+        if (affected < RETENTION_BATCH_SIZE) {
+          category.active = false
+        }
+      } catch (error) {
+        if (isStatementBudgetError(error)) {
+          budget.recordSkip(category.task, "hard_deadline")
+          category.active = false
+          continue
+        }
+        throw error
       }
     }
-    return total
+    if (!progressed || categories.every((category) => !category.active)) {
+      break
+    }
   }
 
-  const expired =
-    (await drain((limit) => store.expireRateLimitBuckets(now, limit))) +
-    (await drain((limit) => store.expireApiIdempotency(now, limit))) +
-    (await drain((limit) =>
-      store.markDeviceAuthorizationsExpired(now, limit)
-    )) +
-    (await drain((limit) =>
-      store.deleteExpiredDeviceAuthorizations(shortCutoff, limit)
-    )) +
-    (await drain((limit) =>
-      store.expireConfigApprovals(now, consumedApprovalCutoff, limit)
-    ))
-  return { expired }
+  const byKey = Object.fromEntries(
+    categories.map((category) => [category.key, category.total])
+  ) as SweepSummary["categories"]
+  const expired = categories.reduce((sum, category) => sum + category.total, 0)
+  return { expired, categories: byKey }
 }
 
 export async function runMaintenanceCoordinator(dependencies: {
