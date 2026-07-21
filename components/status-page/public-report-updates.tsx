@@ -2,7 +2,6 @@
 
 import { useState } from "react"
 
-import { RestrictedMarkdown } from "@/lib/markdown/restricted-markdown"
 import {
   formatStatusTimestamp,
   timezoneOffsetLabel,
@@ -17,7 +16,7 @@ import { loadPublicReportUpdates } from "./load-public-report-updates"
 interface PublicUpdate {
   id: string
   status: ReportUpdateStatus
-  markdown: string
+  html: string
   publishedAt: string
   createdAt: string
 }
@@ -90,9 +89,10 @@ export function PublicReportUpdates({
                 {timezoneOffsetLabel(timezone, new Date(update.publishedAt))}
               </time>
             </div>
-            <RestrictedMarkdown
+            <div
               className="mt-1.5 space-y-2 text-[13px] text-[var(--fg-muted)] leading-[19px] [&_a]:underline [&_a]:underline-offset-2 [&_code]:font-data [&_code]:text-xs"
-              markdown={update.markdown}
+              // biome-ignore lint/security/noDangerouslySetInnerHtml: html is pre-rendered by renderRestrictedMarkdown on the server, escaped and limited to whitelisted tags
+              dangerouslySetInnerHTML={{ __html: update.html }}
             />
           </li>
         ))}

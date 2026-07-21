@@ -4,6 +4,7 @@ import { notFound } from "next/navigation"
 
 import { PublicReportUpdates } from "@/components/status-page/public-report-updates"
 import { StatusUnavailableNotice } from "@/components/status-page/status-unavailable-notice"
+import { renderRestrictedMarkdown } from "@/lib/markdown/restricted"
 import { formatDuration } from "@/lib/reporting/format"
 import {
   getPublicReportDetail,
@@ -184,7 +185,13 @@ export default async function PublicReportPage({ params }: ReportPageProps) {
 
       <PublicReportUpdates
         initialNextCursor={report.updatesNextCursor}
-        initialUpdates={report.updates}
+        initialUpdates={report.updates.map((update) => ({
+          id: update.id,
+          status: update.status,
+          html: renderRestrictedMarkdown(update.markdown),
+          publishedAt: update.publishedAt,
+          createdAt: update.createdAt,
+        }))}
         reportId={report.id}
         timezone={zone.timeZone}
       />
