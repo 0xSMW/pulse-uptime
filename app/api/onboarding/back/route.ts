@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 
-import { authenticatedMutation } from "@/lib/onboarding/http"
-import { moveBack } from "@/lib/onboarding/service"
+import { authenticatedMutation, safeError } from "@/lib/onboarding/http"
+import { moveBack, OnboardingError } from "@/lib/onboarding/service"
 
 export async function POST(request: Request) {
   const auth = await authenticatedMutation(request)
@@ -12,6 +12,18 @@ export async function POST(request: Request) {
   if (step !== "monitor" && step !== "verify") {
     return NextResponse.json({ error: "Invalid step" }, { status: 400 })
   }
-  await moveBack(auth.session.userId, step)
-  return NextResponse.json({ nextStep: step })
+  try {
+    await moveBack(auth.session.userId, step)
+    return NextResponse.json({ nextStep: step })
+  } catch (error) {
+    const status =
+      error instanceof OnboardingError &&
+      error.code === "ONBOARDING_STATE_CONFLICT"
+        ? 409
+        : 400
+    return NextResponse.json(
+      { error: safeError(error, "Could not move back") },
+      { status }
+    )
+  }
 }
