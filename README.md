@@ -10,8 +10,10 @@ Pulse delivers dependable uptime monitoring for a single team, with web and comm
 
 - Monitor up to 100 public HTTP and HTTPS endpoints at one, five, ten, or fifteen minute intervals.
 - Confirm outages and recoveries with configurable consecutive-result thresholds.
+- Add third-party dependencies (OpenAI, Vercel, Stripe, Neon, and more) and see each provider's officially reported status beside your own checks, with incident overlap context.
+- Watch new monitors move through a verified setup phase, then unlock the 24-hour, 7-day, and 30-day ranges as real history accrues, with a live-updating detail page.
 - Send deduplicated outage and recovery email through Resend.
-- Review monitor health, response latency, incident history, and a public status page.
+- Review monitor health, response latency, check coverage, incident history, and a public status page.
 - Publish authored status reports with drafts, timeline updates, and affected services, or promote a detected incident into a report.
 - Customize the status page name, logos, links, announcement banner, history window, and time zone from Settings or the CLI.
 - Manage monitors through the dashboard, the `pulsectl` Go CLI, scoped machine tokens, and the `/api/v1` control plane.
@@ -76,5 +78,4 @@ Pulse Uptime will grow beyond its single-team HTTP monitoring workflow in these 
 |---|---|
 | Multiple users | Invite teammates, assign roles, and manage access without sharing the administrator account. |
 | Additional monitor types | Add domain, certificate, port, and content checks alongside HTTP availability. |
-| Service and project grouping | Organize related monitors into services and projects for clearer dashboards, incidents, and status pages. |
 | Authentication integrations | Sign in with Google and other identity providers, with room for more SSO options as teams grow. |
