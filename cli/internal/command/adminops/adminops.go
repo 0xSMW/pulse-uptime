@@ -128,18 +128,17 @@ func NewAuthCommand(d Dependencies) *cobra.Command {
 		value := map[string]any{"apiVersion": "v1", "kind": "AuthStatus", "data": session}
 		return render(d, value, "table")
 	}}
-	cmd.AddCommand(newUnlinkCommand(d, "unlink", false), newUnlinkCommand(d, "logout", true), status)
+	cmd.AddCommand(newUnlinkCommand(d), status)
 	return cmd
 }
 
-func newUnlinkCommand(d Dependencies, use string, deprecated bool) *cobra.Command {
+func newUnlinkCommand(d Dependencies) *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{
-		Use:         use,
+		Use:         "unlink",
 		Short:       "Unlink this installation and revoke its credentials",
 		Args:        cobra.NoArgs,
 		Annotations: annotations("authenticated"),
-		Hidden:      deprecated,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if d.Sessions == nil {
 				return unavailable()
@@ -177,9 +176,6 @@ func newUnlinkCommand(d Dependencies, use string, deprecated bool) *cobra.Comman
 			}
 			return render(d, result, "table")
 		},
-	}
-	if deprecated {
-		cmd.Deprecated = "use auth unlink"
 	}
 	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm unlinking and credential revocation")
 	return cmd

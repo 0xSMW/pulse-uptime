@@ -145,7 +145,7 @@ type WatchEvent struct {
 func NewGroup(d Dependencies) *cobra.Command {
 	d = defaults(d)
 	group := &cobra.Command{Use: "monitor", Short: "Manage endpoint monitors", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
-	group.AddCommand(newListCommand(d), newGetCommand(d), newCreateCommand(d), newUpdateCommand(d), newActionCommand(d, "pause"), newActionCommand(d, "resume"), newArchiveCommand(d, "archive", false), newArchiveCommand(d, "delete", true), newActionCommand(d, "test"), newWatchCommand(d))
+	group.AddCommand(newListCommand(d), newGetCommand(d), newCreateCommand(d), newUpdateCommand(d), newActionCommand(d, "pause"), newActionCommand(d, "resume"), newArchiveCommand(d), newActionCommand(d, "test"), newWatchCommand(d))
 	return group
 }
 
@@ -441,14 +441,13 @@ func newActionCommand(d Dependencies, action string) *cobra.Command {
 	return cmd
 }
 
-func newArchiveCommand(d Dependencies, use string, deprecated bool) *cobra.Command {
+func newArchiveCommand(d Dependencies) *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{
-		Use:         use + " <id>",
+		Use:         "archive <id>",
 		Short:       "Archive a monitor",
 		Args:        cobra.ExactArgs(1),
 		Annotations: annotations("monitors:write"),
-		Hidden:      deprecated,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := exactMonitorID(args, "")
 			if err != nil {
@@ -479,9 +478,6 @@ func newArchiveCommand(d Dependencies, use string, deprecated bool) *cobra.Comma
 			doc := Envelope{APIVersion: "v1", Kind: "MonitorArchived", Data: json.RawMessage(fmt.Sprintf(`{"id":%q}`, id))}
 			return renderEnvelope(d, d.Format(), doc)
 		},
-	}
-	if deprecated {
-		cmd.Deprecated = "use monitor archive"
 	}
 	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm archival")
 	return cmd

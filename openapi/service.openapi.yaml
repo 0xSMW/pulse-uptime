@@ -4314,16 +4314,6 @@
           },
           "destructiveChange": {
             "$ref": "#/components/schemas/DestructiveChangeEvaluation"
-          },
-          "destructiveApprovalRequired": {
-            "type": "boolean",
-            "deprecated": true,
-            "description": "Deprecated alias for tripwireApprovalRequired."
-          },
-          "allowDeleteRequired": {
-            "type": "boolean",
-            "deprecated": true,
-            "description": "Deprecated alias for destructiveConsentRequired."
           }
         }
       },
@@ -4359,18 +4349,6 @@
           "planHash",
           "targetConfig"
         ],
-        "anyOf": [
-          {
-            "required": [
-              "allowDestructiveChanges"
-            ]
-          },
-          {
-            "required": [
-              "allowDelete"
-            ]
-          }
-        ],
         "properties": {
           "baseConfigHash": {
             "type": "string"
@@ -4387,11 +4365,6 @@
           "allowDestructiveChanges": {
             "type": "boolean",
             "description": "Explicit consent to apply the plan when destructiveConsentRequired is true."
-          },
-          "allowDelete": {
-            "type": "boolean",
-            "deprecated": true,
-            "description": "Deprecated alias for allowDestructiveChanges. When both fields are sent, their values must agree."
           }
         }
       },

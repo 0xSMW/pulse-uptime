@@ -560,20 +560,6 @@ describe("pure apply preconditions", () => {
     expect(result.diff.archives.map(({ id }) => id)).toEqual(["web"])
   })
 
-  it("accepts the deprecated allowDelete compatibility field", () => {
-    const result = validateApplyPreconditions({
-      ifMatch: baseConfigHash,
-      request: {
-        ...request,
-        allowDestructiveChanges: undefined,
-        allowDelete: true,
-      },
-      currentConfig: current,
-      currentConfigHash: baseConfigHash,
-    })
-    expect(result.diff.archives.map(({ id }) => id)).toEqual(["web"])
-  })
-
   it.each([
     ["PRECONDITION_MISMATCH", { ifMatch: undefined }],
     ["PRECONDITION_MISMATCH", { ifMatch: '"sha256:wrong"' }],
@@ -585,16 +571,6 @@ describe("pure apply preconditions", () => {
     [
       "PLAN_HASH_MISMATCH",
       { request: { ...request, planHash: "sha256:forged" } },
-    ],
-    [
-      "DESTRUCTIVE_CONSENT_CONFLICT",
-      {
-        request: {
-          ...request,
-          allowDestructiveChanges: true,
-          allowDelete: false,
-        },
-      },
     ],
     [
       "DESTRUCTIVE_CONSENT_REQUIRED",

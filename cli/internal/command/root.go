@@ -513,7 +513,7 @@ func buildManifest(root, target *cobra.Command) manifest {
 
 func commandIsMutation(path []string) bool {
 	joined := strings.Join(path, " ")
-	for _, prefix := range []string{"monitor create", "monitor update", "monitor pause", "monitor resume", "monitor archive", "monitor delete", "monitor test", "group create", "group rename", "group delete", "config validate", "config plan", "config apply", "notification test", "token create", "token revoke", "auth unlink", "auth logout", "auth login", "report create", "report update", "report post", "report edit-update", "report delete", "report resolve", "report publish", "incident promote", "status-page set", "status-page apply", "dependency add", "dependency backfill", "dependency remove"} {
+	for _, prefix := range []string{"monitor create", "monitor update", "monitor pause", "monitor resume", "monitor archive", "monitor test", "group create", "group rename", "group delete", "config validate", "config plan", "config apply", "notification test", "token create", "token revoke", "auth unlink", "auth login", "report create", "report update", "report post", "report edit-update", "report delete", "report resolve", "report publish", "incident promote", "status-page set", "status-page apply", "dependency add", "dependency backfill", "dependency remove"} {
 		if joined == prefix {
 			return true
 		}

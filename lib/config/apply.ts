@@ -10,7 +10,6 @@ export type ConfigApplyErrorCode =
   | "CONFIG_VERSION_CONFLICT"
   | "TARGET_CONFIG_HASH_MISMATCH"
   | "PLAN_HASH_MISMATCH"
-  | "DESTRUCTIVE_CONSENT_CONFLICT"
   | "DESTRUCTIVE_CONSENT_REQUIRED"
 
 export class ConfigApplyError extends Error {
@@ -29,8 +28,6 @@ export interface ConfigurationApplyRequest {
   planHash: string
   targetConfig: unknown
   allowDestructiveChanges?: boolean
-  /** @deprecated Use allowDestructiveChanges. */
-  allowDelete?: boolean
 }
 
 export interface ApplyPreconditionInput {
@@ -93,18 +90,7 @@ export function validateApplyPreconditions(
       "Plan hash does not match the authoritative plan"
     )
   }
-  if (
-    request.allowDestructiveChanges !== undefined &&
-    request.allowDelete !== undefined &&
-    request.allowDestructiveChanges !== request.allowDelete
-  ) {
-    throw new ConfigApplyError(
-      "DESTRUCTIVE_CONSENT_CONFLICT",
-      "allowDestructiveChanges and allowDelete must agree when both are sent"
-    )
-  }
-  const allowsDestructiveChanges =
-    request.allowDestructiveChanges ?? request.allowDelete ?? false
+  const allowsDestructiveChanges = request.allowDestructiveChanges ?? false
   if (authoritative.destructiveConsentRequired && !allowsDestructiveChanges) {
     throw new ConfigApplyError(
       "DESTRUCTIVE_CONSENT_REQUIRED",

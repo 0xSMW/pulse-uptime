@@ -52,10 +52,6 @@ export interface ConfigurationPlan {
   tripwireApprovalRequired: boolean
   destructiveConsentRequired: boolean
   destructiveChange: DestructiveChangeEvaluation
-  /** @deprecated Use tripwireApprovalRequired. */
-  destructiveApprovalRequired: boolean
-  /** @deprecated Use destructiveConsentRequired. */
-  allowDeleteRequired: boolean
 }
 
 export interface PlanOptions {
@@ -243,8 +239,5 @@ export function createConfigurationPlan(
     destructiveConsentRequired:
       diff.archives.length > 0 || destructiveChange.required,
     destructiveChange,
-    // Compatibility aliases for clients on the previous vocabulary.
-    destructiveApprovalRequired: destructiveChange.required,
-    allowDeleteRequired: diff.archives.length > 0 || destructiveChange.required,
   }
 }

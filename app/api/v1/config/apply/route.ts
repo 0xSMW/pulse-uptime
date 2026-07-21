@@ -68,7 +68,6 @@ export async function POST(request: Request) {
       code === "PRECONDITION_MISMATCH" ||
       code === "TARGET_CONFIG_HASH_MISMATCH" ||
       code === "PLAN_HASH_MISMATCH" ||
-      code === "DESTRUCTIVE_CONSENT_CONFLICT" ||
       code === "DESTRUCTIVE_CONSENT_REQUIRED"
         ? 400
         : code === "CONFIG_VERSION_CONFLICT"

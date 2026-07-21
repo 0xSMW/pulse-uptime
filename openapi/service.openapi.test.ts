@@ -183,17 +183,15 @@ describe("committed OpenAPI v1 source", () => {
     expect(plan.destructiveChange!.$ref).toBe(
       "#/components/schemas/DestructiveChangeEvaluation"
     )
-    expect(plan.destructiveApprovalRequired!.deprecated).toBe(true)
-    expect(plan.allowDeleteRequired!.deprecated).toBe(true)
+    expect(plan.destructiveApprovalRequired).toBeUndefined()
+    expect(plan.allowDeleteRequired).toBeUndefined()
     const applyRequest = schemas.ConfigurationApplyRequest as {
-      anyOf: Array<{ required: string[] }>
       properties: Record<string, Record<string, unknown>>
     }
-    expect(applyRequest.anyOf).toEqual([
-      { required: ["allowDestructiveChanges"] },
-      { required: ["allowDelete"] },
-    ])
-    expect(applyRequest.properties.allowDelete!.deprecated).toBe(true)
+    expect(applyRequest.properties.allowDestructiveChanges!.type).toBe(
+      "boolean"
+    )
+    expect(applyRequest.properties.allowDelete).toBeUndefined()
     expect(schemas.Configuration!.properties).toMatchObject({
       version: { const: 2 },
       groups: { maxItems: 100 },

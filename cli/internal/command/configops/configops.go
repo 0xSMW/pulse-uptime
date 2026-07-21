@@ -68,15 +68,13 @@ type planEnvelope struct {
 }
 
 type Plan struct {
-	BaseConfigHash              string            `json:"baseConfigHash" yaml:"baseConfigHash"`
-	TargetConfigHash            string            `json:"targetConfigHash" yaml:"targetConfigHash"`
-	PlanHash                    string            `json:"planHash" yaml:"planHash"`
-	Diff                        Diff              `json:"diff" yaml:"diff"`
-	TripwireApprovalRequired    bool              `json:"tripwireApprovalRequired" yaml:"tripwireApprovalRequired"`
-	DestructiveConsentRequired  bool              `json:"destructiveConsentRequired" yaml:"destructiveConsentRequired"`
-	DestructiveChange           DestructiveChange `json:"destructiveChange" yaml:"destructiveChange"`
-	DestructiveApprovalRequired bool              `json:"destructiveApprovalRequired,omitempty" yaml:"destructiveApprovalRequired,omitempty"`
-	AllowDeleteRequired         bool              `json:"allowDeleteRequired,omitempty" yaml:"allowDeleteRequired,omitempty"`
+	BaseConfigHash             string            `json:"baseConfigHash" yaml:"baseConfigHash"`
+	TargetConfigHash           string            `json:"targetConfigHash" yaml:"targetConfigHash"`
+	PlanHash                   string            `json:"planHash" yaml:"planHash"`
+	Diff                       Diff              `json:"diff" yaml:"diff"`
+	TripwireApprovalRequired   bool              `json:"tripwireApprovalRequired" yaml:"tripwireApprovalRequired"`
+	DestructiveConsentRequired bool              `json:"destructiveConsentRequired" yaml:"destructiveConsentRequired"`
+	DestructiveChange          DestructiveChange `json:"destructiveChange" yaml:"destructiveChange"`
 }
 
 type DestructiveChange struct {
@@ -227,7 +225,7 @@ func planCommand(d Dependencies) *cobra.Command {
 
 func applyCommand(d Dependencies) *cobra.Command {
 	var file string
-	var yes, allowDestructiveChanges, allowDelete, wait, noWait bool
+	var yes, allowDestructiveChanges, wait, noWait bool
 	var waitTimeout time.Duration
 	cmd := &cobra.Command{Use: "apply", Short: "Apply a configuration plan", Args: cobra.NoArgs, Annotations: annotationsStdin("config:write", "table,json,yaml"), RunE: func(cmd *cobra.Command, _ []string) error {
 		if wait && noWait {
@@ -243,12 +241,9 @@ func applyCommand(d Dependencies) *cobra.Command {
 		}
 		archives := len(planned.Data.Diff.Archives)
 		requiresConsent := planned.Data.DestructiveConsentRequired ||
-			planned.Data.AllowDeleteRequired ||
 			planned.Data.TripwireApprovalRequired ||
-			planned.Data.DestructiveApprovalRequired ||
 			archives > 0
-		allowsDestructiveChanges := allowDestructiveChanges || allowDelete
-		if requiresConsent && !(allowsDestructiveChanges && yes) {
+		if requiresConsent && !(allowDestructiveChanges && yes) {
 			if !d.StdinTTY {
 				return invalid("destructive apply requires --allow-destructive and --yes in noninteractive mode", "")
 			}
@@ -275,15 +270,12 @@ func applyCommand(d Dependencies) *cobra.Command {
 				return invalid("configuration apply canceled", "")
 			}
 		}
-		allowsDestructiveChanges = allowDestructiveChanges || allowDelete
 		request := map[string]any{
 			"baseConfigHash":          planned.Data.BaseConfigHash,
 			"targetConfigHash":        planned.Data.TargetConfigHash,
 			"planHash":                planned.Data.PlanHash,
 			"targetConfig":            doc,
-			"allowDestructiveChanges": allowsDestructiveChanges,
-			// Compatibility field for servers on the previous API vocabulary.
-			"allowDelete": allowsDestructiveChanges,
+			"allowDestructiveChanges": allowDestructiveChanges,
 		}
 		headers := make(http.Header)
 		headers.Set("If-Match", strconv.Quote(planned.Data.BaseConfigHash))
@@ -306,9 +298,6 @@ func applyCommand(d Dependencies) *cobra.Command {
 	cmd.Flags().StringVar(&file, "file", "", "Read configuration from a file or - for stdin")
 	cmd.Flags().BoolVar(&yes, "yes", false, "Approve the planned changes")
 	cmd.Flags().BoolVar(&allowDestructiveChanges, "allow-destructive", false, "Allow the planned destructive configuration changes")
-	cmd.Flags().BoolVar(&allowDelete, "allow-delete", false, "Deprecated alias for --allow-destructive")
-	_ = cmd.Flags().MarkDeprecated("allow-delete", "use --allow-destructive")
-	_ = cmd.Flags().MarkHidden("allow-delete")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for runtime acceptance")
 	cmd.Flags().BoolVar(&noWait, "no-wait", false, "Return after the write")
 	cmd.Flags().DurationVar(&waitTimeout, "wait-timeout", 15*time.Second, "Complete wait-loop timeout")

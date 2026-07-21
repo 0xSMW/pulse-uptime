@@ -86,7 +86,7 @@ func TestApplyCarriesPlanMetadataAndIfMatch(t *testing.T) {
 			t.Errorf("%s = %v", key, body[key])
 		}
 	}
-	if body["allowDestructiveChanges"] != false || body["allowDelete"] != false {
+	if body["allowDestructiveChanges"] != false {
 		t.Fatalf("compatibility consent fields = %#v", body)
 	}
 }
@@ -133,7 +133,7 @@ func TestApplySendsNewAndCompatibilityConsentFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := client.calls[2].body.(map[string]any)
-	if body["allowDestructiveChanges"] != true || body["allowDelete"] != true {
+	if body["allowDestructiveChanges"] != true {
 		t.Fatalf("consent fields = %#v", body)
 	}
 }
@@ -169,14 +169,13 @@ func TestApplyExplainsTripwireReasonsBeforeInteractiveConsent(t *testing.T) {
 	}
 }
 
-func TestAllowDeleteFlagRemainsHiddenAndDeprecated(t *testing.T) {
+func TestAllowDeleteFlagIsRetired(t *testing.T) {
 	cmd := NewCommand(Dependencies{})
 	apply, _, err := cmd.Find([]string{"apply"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	flag := apply.Flags().Lookup("allow-delete")
-	if flag == nil || !flag.Hidden || flag.Deprecated == "" {
+	if flag := apply.Flags().Lookup("allow-delete"); flag != nil {
 		t.Fatalf("allow-delete flag = %#v", flag)
 	}
 }

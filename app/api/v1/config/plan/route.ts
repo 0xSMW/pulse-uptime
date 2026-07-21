@@ -36,9 +36,6 @@ export async function POST(request: Request) {
           tripwireApprovalRequired: plan.tripwireApprovalRequired,
           destructiveConsentRequired: plan.destructiveConsentRequired,
           destructiveChange: plan.destructiveChange,
-          // Compatibility aliases for clients on the previous vocabulary.
-          destructiveApprovalRequired: plan.tripwireApprovalRequired,
-          allowDeleteRequired: plan.destructiveConsentRequired,
         },
         context.requestId
       )
