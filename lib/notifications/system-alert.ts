@@ -1,7 +1,5 @@
 import { randomUUID } from "node:crypto";
 
-import { and, eq } from "drizzle-orm";
-
 import type { DatabaseHandle } from "@/lib/db/client";
 import { notificationOutbox } from "@/lib/db/schema";
 
@@ -13,7 +11,8 @@ import type { SystemAlertPayload } from "./types";
 // A system.alert names no monitor and no dependency: monitor_id and
 // dependency_id both stay null, permitted by the notification_outbox_subject
 // check. The alert body travels entirely in the payload so delivery renders it
-// without joining anything.
+// without joining anything. Health evaluation only enqueues durable work; the
+// normal outbox state machine owns delivery (including the sweep drain).
 
 export type SystemAlertInput = {
   // Stable kind used in the dedup key, for example "monitoring-loop-failure".
@@ -34,9 +33,10 @@ export type EnqueuedSystemAlert = {
 
 /**
  * Enqueues one outbox row per distinct recipient, deduplicated by kind, hour
- * bucket, and recipient. Returns only the rows actually inserted, so a caller
- * can tell a fresh alert (send it now) from one already raised this bucket
- * (do nothing). Conflicts are ignored, never overwritten.
+ * bucket, and recipient. Returns only the rows actually inserted so a caller
+ * can tell a fresh alert from one already raised this bucket. Conflicts are
+ * ignored, never overwritten. nextAttemptAt is the current time so the first
+ * delivery attempt is immediate on the next claim.
  */
 export async function enqueueSystemAlert(
   db: DatabaseHandle,
@@ -59,7 +59,7 @@ export async function enqueueSystemAlert(
 
   const rows = recipients.map((recipient) => ({
     id: createId(),
-    eventType: "system.alert",
+    eventType: "system.alert" as const,
     recipient,
     idempotencyKey: systemAlertKey(input.kind, bucket, recipient),
     payload,
@@ -85,20 +85,4 @@ export async function enqueueSystemAlert(
     idempotencyKey: row.idempotencyKey,
     payload,
   }));
-}
-
-/**
- * Marks a still-pending system alert as sent after an out-of-band direct send.
- * The `status = 'pending'` guard means a row already claimed by the outbox
- * drainer is left alone, so this never fights the normal delivery path.
- */
-export async function markSystemAlertSent(
-  db: DatabaseHandle,
-  id: string,
-  providerMessageId: string,
-  now: Date,
-): Promise<void> {
-  await db.update(notificationOutbox)
-    .set({ status: "sent", providerMessageId, sentAt: now, lastError: null, updatedAt: now })
-    .where(and(eq(notificationOutbox.id, id), eq(notificationOutbox.status, "pending")));
 }

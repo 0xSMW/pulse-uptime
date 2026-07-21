@@ -219,4 +219,44 @@ describe("outbox delivery", () => {
     expect(result.lostClaims).toBe(8);
     expect(result.sent).toBe(0);
   });
+
+  it("forwards eventTypes into the claim path", async () => {
+    const query = vi.fn(async (text: string, values: readonly unknown[]) => {
+      void values;
+      if (text.includes("with due as")) {
+        return [{
+          id: "system-1",
+          incident_id: null,
+          monitor_id: null,
+          dependency_id: null,
+          event_type: "system.alert",
+          recipient: "ops@example.com",
+          idempotency_key: "system-key",
+          payload: {
+            type: "system.alert",
+            title: "Loop down",
+            detail: "detail",
+            reason: "stale",
+            detectedAt: "2026-07-18T00:00:00.000Z",
+          },
+          attempt_count: 1,
+          claim_token: "claim-1",
+        }];
+      }
+      return [{ id: "updated" }];
+    });
+    const send = vi.fn(async () => ({ providerMessageId: "email-1" }));
+    const result = await deliverPendingNotifications({
+      db: { query } as SqlExecutor,
+      sender: { send },
+      appUrl: "https://pulse.example.com",
+      now: () => now,
+      createClaimToken: () => "claim-1",
+    }, { eventTypes: ["system.alert"], limit: 50, concurrency: 5 });
+    expect(result.sent).toBe(1);
+    expect(query).toHaveBeenCalledWith(
+      expect.stringMatching(/event_type = any\(\$4\)/i),
+      [now, 50, "claim-1", ["system.alert"]],
+    );
+  });
 });

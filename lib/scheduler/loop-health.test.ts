@@ -43,14 +43,36 @@ describe("isLoopStale", () => {
 describe("evaluateLoopHealth", () => {
   const failing: CronRunStatus[] = Array.from({ length: CONSECUTIVE_FAILURE_THRESHOLD }, () => "failed");
 
-  it("reports staleness first even when runs are also failing", () => {
+  it("selects consecutive-failures when three recent failures meet the threshold even if last success is old", () => {
     const result = evaluateLoopHealth({ lastCompletedAt: minutesAgo(30), recentStatuses: failing, now });
-    expect(result).toMatchObject({ unhealthy: true, reason: "stale" });
+    expect(result).toEqual({
+      unhealthy: true,
+      reason: "consecutive-failures",
+      failures: CONSECUTIVE_FAILURE_THRESHOLD,
+    });
   });
 
-  it("reports consecutive failures when a completion is recent", () => {
+  it("selects consecutive-failures when a completion is recent and failures meet threshold", () => {
     const result = evaluateLoopHealth({ lastCompletedAt: minutesAgo(1), recentStatuses: failing, now });
     expect(result).toMatchObject({ unhealthy: true, reason: "consecutive-failures" });
+  });
+
+  it("selects stale for old last success without a qualifying failure streak", () => {
+    const result = evaluateLoopHealth({
+      lastCompletedAt: minutesAgo(30),
+      recentStatuses: ["failed", "completed"],
+      now,
+    });
+    expect(result).toEqual({ unhealthy: true, reason: "stale", failures: 1 });
+  });
+
+  it("selects stale when there has never been a completion", () => {
+    const result = evaluateLoopHealth({
+      lastCompletedAt: null,
+      recentStatuses: [],
+      now,
+    });
+    expect(result).toEqual({ unhealthy: true, reason: "stale", failures: 0 });
   });
 
   it("is healthy when a run completed recently and failures are below threshold", () => {

@@ -8,6 +8,15 @@ export type NotificationEventType =
   | "dependency.recovery"
   | "system.alert";
 
+/** Ordinary outbox rows claimed by monitor-check and dependency crons. system.alert is owned by the sweep drain only. */
+export const ORDINARY_NOTIFICATION_EVENT_TYPES = [
+  "incident.opened",
+  "incident.resolved",
+  "notification.test",
+  "dependency.incident",
+  "dependency.recovery",
+] as const satisfies readonly NotificationEventType[];
+
 const nonempty = z.string().trim().min(1);
 
 export const incidentOpenedPayloadSchema = z.object({

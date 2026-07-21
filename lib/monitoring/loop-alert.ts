@@ -5,13 +5,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { findAcceptedSnapshot } from "@/lib/config/accepted-config";
 import { db } from "@/lib/db/client";
 import { cronRuns } from "@/lib/db/schema";
-import { createNotificationMessage } from "@/lib/notifications/message";
-import {
-  NotificationProviderError,
-  createResendSender,
-} from "@/lib/notifications/provider";
-import { enqueueSystemAlert, markSystemAlertSent } from "@/lib/notifications/system-alert";
-import type { SystemAlertPayload } from "@/lib/notifications/types";
+import { enqueueSystemAlert } from "@/lib/notifications/system-alert";
 import {
   CONSECUTIVE_FAILURE_THRESHOLD,
   evaluateLoopHealth,
@@ -22,12 +16,11 @@ import {
 // The sweep cron runs every ten minutes on a schedule separate from the
 // per-minute monitor-check loop, and it survived the silent-loop incident. It
 // therefore cross-checks the monitor-check loop from recorded cron_runs and,
-// when the loop is broken, raises a self-alert. The alert is enqueued through
-// the normal outbox for the record and for eventual delivery, and because the
-// outbox drainer itself rides the broken loop, each newly enqueued row is also
-// sent directly here through the same email transport. Deduplication is the
-// outbox unique key: a bucket already alerted returns no inserted rows, so
-// neither channel fires twice.
+// when the loop is broken, enqueues a durable system.alert. Delivery is owned
+// by the outbox state machine: the sweep drains system.alert rows after this
+// enqueue so alerts still leave even when the monitor-check drainer is down.
+// Deduplication is the outbox unique key: a bucket already alerted returns no
+// inserted rows, while existing failed rows are claimed and retried.
 
 const ALERT_KIND = "monitoring-loop-failure";
 
@@ -35,18 +28,18 @@ export type LoopAlertSummary = {
   checked: boolean;
   unhealthy: boolean;
   reason: LoopHealthReason | null;
+  failures: number;
   recipients: number;
   enqueued: number;
-  sentDirect: number;
 };
 
 const HEALTHY: LoopAlertSummary = {
   checked: true,
   unhealthy: false,
   reason: null,
+  failures: 0,
   recipients: 0,
   enqueued: 0,
-  sentDirect: 0,
 };
 
 async function readMonitorLoopSignals(
@@ -98,9 +91,10 @@ function alertCopy(reason: LoopHealthReason): { title: string; detail: string } 
 }
 
 /**
- * Cross-checks the monitor-check loop and alerts when it is broken. Always
- * resolves. It never throws, so a sweep run is never failed by the alerting
- * path. Returns a compact summary for structured logging.
+ * Cross-checks the monitor-check loop and enqueues durable system.alert work
+ * when it is broken. Always resolves. It never throws, so a sweep run is never
+ * failed by the alerting path. Delivery is left to the outbox drain that runs
+ * after this enqueue on the same sweep. Returns a compact summary for logs.
  */
 export async function crossCheckMonitoringLoop(now = new Date()): Promise<LoopAlertSummary> {
   const signals = await readMonitorLoopSignals(CONSECUTIVE_FAILURE_THRESHOLD);
@@ -109,7 +103,9 @@ export async function crossCheckMonitoringLoop(now = new Date()): Promise<LoopAl
     recentStatuses: signals.recentStatuses,
     now,
   });
-  if (!health.unhealthy || !health.reason) return HEALTHY;
+  if (!health.unhealthy || !health.reason) {
+    return { ...HEALTHY, failures: health.failures };
+  }
 
   const recipients = await loadAlertRecipients();
   const reason = health.reason;
@@ -117,7 +113,14 @@ export async function crossCheckMonitoringLoop(now = new Date()): Promise<LoopAl
     // Honest limit: nothing is configured to receive the alert. The health
     // banner still surfaces the fault to anyone who opens the dashboard.
     console.warn(JSON.stringify({ event: "system_alert.no_recipients", reason }));
-    return { checked: true, unhealthy: true, reason, recipients: 0, enqueued: 0, sentDirect: 0 };
+    return {
+      checked: true,
+      unhealthy: true,
+      reason,
+      failures: health.failures,
+      recipients: 0,
+      enqueued: 0,
+    };
   }
 
   const { title, detail } = alertCopy(reason);
@@ -130,48 +133,20 @@ export async function crossCheckMonitoringLoop(now = new Date()): Promise<LoopAl
     recipients,
   }, { now });
 
-  const sender = createResendSender({
-    apiKey: process.env.RESEND_API_KEY ?? "",
-    from: process.env.RESEND_FROM_EMAIL ?? "",
-  });
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-
-  let sentDirect = 0;
-  for (const row of enqueued) {
-    try {
-      const message = createNotificationMessage({
-        id: row.id,
-        incidentId: null,
-        monitorId: null,
-        dependencyId: null,
-        eventType: "system.alert",
-        recipient: row.recipient,
-        idempotencyKey: row.idempotencyKey,
-        payload: row.payload as SystemAlertPayload,
-        attemptCount: 0,
-        claimToken: "",
-      }, appUrl);
-      const result = await sender.send(message, row.idempotencyKey);
-      await markSystemAlertSent(db, row.id, result.providerMessageId, now);
-      sentDirect += 1;
-    } catch (error) {
-      // Leave the row pending. Once the loop recovers the outbox drainer
-      // retries it, and Resend's idempotency key prevents a duplicate send.
-      console.warn(JSON.stringify({
-        event: "system_alert.direct_send_failed",
-        reason,
-        errorCode: error instanceof NotificationProviderError ? error.code : "PROVIDER_UNAVAILABLE",
-      }));
-    }
-  }
-
-  console[sentDirect > 0 || enqueued.length > 0 ? "warn" : "info"](JSON.stringify({
+  console[enqueued.length > 0 ? "warn" : "info"](JSON.stringify({
     event: "system_alert.monitoring_loop",
     reason,
+    failures: health.failures,
     recipients: recipients.length,
     enqueued: enqueued.length,
-    sentDirect,
   }));
 
-  return { checked: true, unhealthy: true, reason, recipients: recipients.length, enqueued: enqueued.length, sentDirect };
+  return {
+    checked: true,
+    unhealthy: true,
+    reason,
+    failures: health.failures,
+    recipients: recipients.length,
+    enqueued: enqueued.length,
+  };
 }

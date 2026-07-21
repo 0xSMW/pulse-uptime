@@ -48,9 +48,12 @@ export type LoopHealthInput = {
 };
 
 /**
- * Evaluates whether the monitoring loop is unhealthy. Staleness (no fresh
- * completion) is reported first because a silent stop leaves no failed rows at
- * all, then a run of consecutive terminal failures. A healthy loop returns
+ * Evaluates whether the monitoring loop is unhealthy.
+ *
+ * Consecutive failures win when the leading failure count reaches threshold:
+ * the loop is executing but not succeeding, which is a concrete diagnosis.
+ * Staleness covers silent or insufficiently explained absence (no fresh
+ * completion and no qualifying failure streak). A healthy loop returns
  * `{ unhealthy: false, reason: null }`.
  */
 export function evaluateLoopHealth(
@@ -59,11 +62,11 @@ export function evaluateLoopHealth(
   const staleMs = input.staleMs ?? MONITORING_ALERT_STALE_MS;
   const threshold = input.threshold ?? CONSECUTIVE_FAILURE_THRESHOLD;
   const failures = countLeadingFailures(input.recentStatuses);
-  if (isLoopStale(input.lastCompletedAt, input.now, staleMs)) {
-    return { unhealthy: true, reason: "stale", failures };
-  }
   if (failures >= threshold) {
     return { unhealthy: true, reason: "consecutive-failures", failures };
+  }
+  if (isLoopStale(input.lastCompletedAt, input.now, staleMs)) {
+    return { unhealthy: true, reason: "stale", failures };
   }
   return { unhealthy: false, reason: null, failures };
 }
