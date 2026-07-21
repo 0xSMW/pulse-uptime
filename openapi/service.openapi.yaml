@@ -148,6 +148,7 @@
         "operationId": "getStatusReport",
         "tags": ["Status reports"],
         "summary": "Get a status report",
+        "description": "Detail shape: first updates page (newest first, up to 50) plus updatesCount and updatesNextCursor. Older timeline pages load through GET /api/v1/status-reports/{reportId}/updates.",
         "x-required-scopes": ["reports:read"],
         "security": [
           {"bearerAuth": []},
@@ -159,7 +160,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Status report",
+            "description": "Status report with first updates page and truncation metadata",
             "content": {
               "application/json": {
                 "schema": {"$ref": "#/components/schemas/StatusReportEnvelope"}
@@ -278,11 +279,43 @@
       }
     },
     "/api/v1/status-reports/{reportId}/updates": {
+      "get": {
+        "operationId": "listStatusReportUpdates",
+        "tags": ["Status reports"],
+        "summary": "List report updates",
+        "description": "Cursor-paginated timeline for one report. Newest first by (publishedAt, createdAt, id). Default limit 50, max 100. Pass updatesNextCursor from a detail response (or nextCursor from a prior page) as cursor to load older updates.",
+        "x-required-scopes": ["reports:read"],
+        "security": [
+          {"bearerAuth": []},
+          {"humanSession": []}
+        ],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"},
+          {"$ref": "#/components/parameters/ReportId"},
+          {"$ref": "#/components/parameters/Cursor"},
+          {"$ref": "#/components/parameters/Limit"}
+        ],
+        "responses": {
+          "200": {
+            "description": "Update page",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/StatusReportUpdateListEnvelope"}
+              }
+            }
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      },
       "post": {
         "operationId": "addStatusReportUpdate",
         "tags": ["Status reports"],
         "summary": "Post a report update",
-        "description": "Appends a timeline update and recomputes the report's resolution from the full update set. Returns the refreshed report.",
+        "description": "Appends a timeline update and recomputes the report's resolution from the full update set. Returns the refreshed report (first updates page plus updatesCount and updatesNextCursor).",
         "x-required-scopes": ["reports:write"],
         "security": [
           {"bearerAuth": []},
@@ -745,7 +778,7 @@
         "operationId": "changeAccountEmail",
         "tags": ["Principal"],
         "summary": "Change account email",
-        "description": "Session-only: bearer credentials receive 403. Requires the confirmation email to match and the current password. Revokes every other human session and synchronizes the denormalized CLI session and installation email copies in the same transaction; machine credentials are deliberately not revoked.",
+        "description": "Session-only: bearer credentials receive 403. Requires the confirmation email to match and the current password. Compare-and-swaps against the verified credential (409 ACCOUNT_CHANGED on a lost race). Revokes every other human session and synchronizes the denormalized CLI session and installation email copies in the same transaction; machine credentials are deliberately not revoked.",
         "security": [{"humanSession": []}],
         "parameters": [{"$ref": "#/components/parameters/RequestId"}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EmailChangeRequest"}}}},
@@ -755,6 +788,7 @@
           "401": {"$ref": "#/components/responses/AuthenticationRequired"},
           "403": {"$ref": "#/components/responses/ScopeDenied"},
           "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"$ref": "#/components/responses/Conflict"},
           "429": {"$ref": "#/components/responses/RateLimited"}
         }
       }
@@ -764,16 +798,17 @@
         "operationId": "changeAccountPassword",
         "tags": ["Principal"],
         "summary": "Change account password",
-        "description": "Session-only: bearer credentials receive 403. Verifies the current password, re-hashes with Argon2id, stamps passwordChangedAt, and revokes every other human session. Failed attempts share the sign-in rate-limit buckets.",
+        "description": "Session-only: bearer credentials receive 403. Verifies the current password, re-hashes with Argon2id, stamps passwordChangedAt, and revokes every human session including the current one. Compare-and-swaps against the verified digest (409 ACCOUNT_CHANGED on a lost race). The success body signals reauthenticate: true and the Set-Cookie header clears the session cookie so the browser must sign in again. Failed attempts share the sign-in rate-limit buckets.",
         "security": [{"humanSession": []}],
         "parameters": [{"$ref": "#/components/parameters/RequestId"}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PasswordChangeRequest"}}}},
         "responses": {
-          "200": {"description": "Password changed and other sessions revoked", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ActionEnvelope"}}}},
+          "200": {"description": "Password changed; every human session revoked and the client must reauthenticate", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PasswordChangeEnvelope"}}}},
           "400": {"$ref": "#/components/responses/BadRequest"},
           "401": {"$ref": "#/components/responses/AuthenticationRequired"},
           "403": {"$ref": "#/components/responses/ScopeDenied"},
           "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"$ref": "#/components/responses/Conflict"},
           "429": {"$ref": "#/components/responses/RateLimited"}
         }
       }
@@ -2317,7 +2352,8 @@
         "schema": {
           "type": "string",
           "format": "uuid"
-        }
+        },
+        "description": "Required on every state-mutating request. Missing key yields 400 IDEMPOTENCY_KEY_REQUIRED. Reusing a key with a different request fingerprint yields 409 IDEMPOTENCY_KEY_REUSED. A still-running claim yields 409 REQUEST_IN_PROGRESS. Completed records replay the stored status and body."
       },
       "IfMatch": {
         "name": "If-Match",
@@ -2655,7 +2691,7 @@
         }
       },
       "Conflict": {
-        "description": "Version, precondition, or idempotency conflict",
+        "description": "Version, precondition, account CAS, or idempotency conflict (for example CONFIG_VERSION_CONFLICT, ACCOUNT_CHANGED, IDEMPOTENCY_KEY_REUSED, REQUEST_IN_PROGRESS, ALREADY_PUBLISHED, LAST_UPDATE)",
         "content": {
           "application/json": {
             "schema": {
@@ -2990,6 +3026,30 @@
         "properties": {
           "currentPassword": {"type": "string"},
           "newPassword": {"type": "string", "minLength": 12, "maxLength": 128}
+        }
+      },
+      "PasswordChange": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["changed", "reauthenticate"],
+        "properties": {
+          "changed": {"type": "boolean", "const": true},
+          "reauthenticate": {
+            "type": "boolean",
+            "const": true,
+            "description": "Always true on success: every human session was revoked and the session cookie was cleared. The client must sign in again."
+          }
+        }
+      },
+      "PasswordChangeEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["apiVersion", "kind", "data", "meta"],
+        "properties": {
+          "apiVersion": {"$ref": "#/components/schemas/ApiVersion"},
+          "kind": {"const": "PasswordChange"},
+          "data": {"$ref": "#/components/schemas/PasswordChange"},
+          "meta": {"$ref": "#/components/schemas/Meta"}
         }
       },
       "EmailChange": {
@@ -4839,8 +4899,8 @@
           "contactUrl": {"type": ["string", "null"], "maxLength": 2048, "description": "http, https, or mailto URL"},
           "navLinks": {"type": "array", "maxItems": 8, "items": {"$ref": "#/components/schemas/StatusPageNavLink"}},
           "googleTagId": {"type": ["string", "null"], "pattern": "^G(T)?-[A-Z0-9]+$", "maxLength": 40},
-          "customCss": {"type": ["string", "null"], "description": "At most 10 KB"},
-          "customHead": {"type": ["string", "null"], "description": "At most 10 KB; raw head injection (accepted self-XSS, see SECURITY.md)"},
+          "customCss": {"type": ["string", "null"], "description": "At most 10 KB; injected as a style element on the public status page (accepted self-XSS for the single operator, see SECURITY.md)"},
+          "customHead": {"type": ["string", "null"], "description": "At most 10 KB; restricted fragment of meta and icon-related link elements only. Parsed on write and again on render as inert React nodes, never raw HTML. Scripts, event handlers, and other tags are rejected."},
           "announcementEnabled": {"type": "boolean"},
           "announcementMarkdown": {"type": ["string", "null"], "description": "At most 2 KB; restricted markdown"},
           "historyDays": {"enum": [30, 60, 90]},
@@ -4949,6 +5009,8 @@
           "originIncidentId",
           "currentStatus",
           "updates",
+          "updatesCount",
+          "updatesNextCursor",
           "affected",
           "createdAt",
           "updatedAt"
@@ -4973,8 +5035,17 @@
           "currentStatus": {"$ref": "#/components/schemas/StatusReportUpdateStatus"},
           "updates": {
             "type": "array",
-            "description": "Newest first by the (publishedAt, createdAt, id) total order.",
+            "description": "First page of the timeline, newest first by the (publishedAt, createdAt, id) total order. At most 50 rows on detail and mutation responses. Older pages load via GET .../updates with updatesNextCursor.",
             "items": {"$ref": "#/components/schemas/StatusReportUpdate"}
+          },
+          "updatesCount": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Total updates on the report, including those past the first page."
+          },
+          "updatesNextCursor": {
+            "type": ["string", "null"],
+            "description": "Opaque cursor for the next older updates page via GET .../updates, or null when updates is complete."
           },
           "affected": {
             "type": "array",
@@ -5146,6 +5217,20 @@
           "status": {"$ref": "#/components/schemas/StatusReportUpdateStatus"},
           "markdown": {"type": "string", "minLength": 1, "maxLength": 10240},
           "publishedAt": {"type": "string", "format": "date-time"}
+        }
+      },
+      "StatusReportUpdateListEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["apiVersion", "kind", "data", "meta"],
+        "properties": {
+          "apiVersion": {"$ref": "#/components/schemas/ApiVersion"},
+          "kind": {"const": "StatusReportUpdateList"},
+          "data": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/StatusReportUpdate"}
+          },
+          "meta": {"$ref": "#/components/schemas/ListMeta"}
         }
       },
       "ActionEnvelope": {

@@ -16,9 +16,10 @@ Pulse treats monitor destinations, API inputs, CLI responses, redirects, DNS ans
 
 Status report and announcement markdown is rendered escape-first by a restricted renderer that permits links, bold, italic, and inline code only. Content that executes script on the public status page through these fields is in scope.
 
+`customHead` accepts only allowlisted `meta` and icon-related `link` elements. The value is parsed on write and again on render as inert React nodes, never injected as raw HTML. Script tags, event handlers, stylesheet links, redirects, and other executable fragments are rejected. Bypass of that allowlist on the public status page is in scope.
+
 ## Accepted risks and disclosures
 
-The status page settings accept raw `customCss` and `customHead` values. These fields are an accepted self-XSS surface: Pulse is a single-administrator, self-hosted deployment, the content is injected only into the operator’s own status page, and writes require the `config:write` scope. Script execution through these fields alone is not a vulnerability.
+The status page settings accept raw `customCss` (at most 10 KB) injected as a `<style>` element on the operator’s own public status page. This is an accepted self-XSS surface: Pulse is a single-administrator, self-hosted deployment, writes require the `config:write` scope, and the stylesheet cannot load third-party scripts by itself. CSS-only self-XSS through `customCss` alone is not a vulnerability.
 
 Signing in to the dashboard records each session’s user agent and client IP address so active sessions can be reviewed and revoked under **Settings → Security**. These values are captured once at login and stored alongside the session.
-
