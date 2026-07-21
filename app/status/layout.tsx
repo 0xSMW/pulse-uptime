@@ -9,10 +9,10 @@ import { cn } from "@/lib/utils"
  * Public status shell. All personalization here is inert server-rendered
  * markup: the client bundle does not grow.
  *
- * customHead: restricted meta and icon link elements only. A nested App
- * Router segment cannot reach the real <head>, so validated elements are
- * emitted as React nodes inside the page shell (not raw HTML). customCss
- * and the Google tag stay on their existing paths.
+ * customHead: restricted meta and icon link elements only. React hoists
+ * validated elements into the document head even when this nested layout
+ * emits them from the page shell. They remain React nodes, not raw HTML.
+ * customCss and the Google tag stay on their existing paths.
  */
 export default async function PublicStatusLayout({
   children,
