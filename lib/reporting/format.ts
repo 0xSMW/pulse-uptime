@@ -68,6 +68,66 @@ export function formatBucketTimeRange(
   return `${dateOf(start)} ${timeOf(start)} to ${dateOf(end)} ${timeOf(end)}`
 }
 
+// Calendar day count of value in the given zone, expressed as whole days since
+// the Unix epoch. en-CA renders the wall-clock date as YYYY-MM-DD in the zone,
+// so a check at 23:50 Bangkok time and one at 00:10 the next Bangkok morning
+// land on different day numbers even though they are twenty minutes apart in
+// UTC. The projected parts build a UTC midnight, so the difference between two
+// day numbers is a plain calendar-day count immune to daylight saving.
+function zonedDayNumber(value: Date, timeZone: string): number {
+  const [year, month, day] = value
+    .toLocaleDateString("en-CA", { timeZone })
+    .split("-")
+  return Math.floor(
+    Date.UTC(Number(year), Number(month) - 1, Number(day)) / 86_400_000
+  )
+}
+
+// Human, calendar-relative label for the recent incidents and checks tables.
+// Calendar days are compared in the viewer zone, never in UTC, so the boundary
+// is the viewer's midnight. Same day reads "Today at HH:MM", the prior day
+// "Yesterday at HH:MM", the rest of the past week the weekday with its time,
+// the week before that "Last week", and anything older the absolute date with
+// the year only when it differs from now.
+export function formatRelativeDay(
+  value: Date,
+  now = new Date(),
+  timeZone = "UTC"
+): string {
+  const time = value.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone,
+  })
+  const days = zonedDayNumber(now, timeZone) - zonedDayNumber(value, timeZone)
+  if (days <= 0) {
+    return `Today at ${time}`
+  }
+  if (days === 1) {
+    return `Yesterday at ${time}`
+  }
+  if (days < 7) {
+    const weekday = value.toLocaleDateString("en-US", {
+      weekday: "long",
+      timeZone,
+    })
+    return `${weekday} at ${time}`
+  }
+  if (days < 14) {
+    return "Last week"
+  }
+  const sameYear =
+    value.toLocaleDateString("en-US", { year: "numeric", timeZone }) ===
+    now.toLocaleDateString("en-US", { year: "numeric", timeZone })
+  return value.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: sameYear ? undefined : "numeric",
+    timeZone,
+  })
+}
+
 export function formatRelativeTime(
   value: Date,
   now = new Date(),

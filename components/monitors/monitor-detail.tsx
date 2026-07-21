@@ -29,6 +29,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   formatDuration,
   formatLatency,
+  formatRelativeDay,
   formatUptimeDetail,
 } from "@/lib/reporting/format"
 import { formatUpdatedAgo } from "@/lib/reporting/live-poll"
@@ -242,6 +243,27 @@ function LiveIndicator({ status }: { status: MonitorLiveStatus }) {
   )
 }
 
+// The recent incidents and checks tables read as relative days, but that label
+// depends on the current moment, which differs between the server render and
+// hydration. The mounted flag holds the now-independent absolute timestamp
+// through SSR and the first client render, then swaps to the relative label
+// after mount. This rides the same post-hydration pass that swaps the viewer
+// zone in from UTC, so it adds no new flash and no hydration mismatch.
+function RelativeTimestamp({
+  mounted,
+  timeZone,
+  value,
+}: {
+  mounted: boolean
+  timeZone: string
+  value: string
+}) {
+  if (!mounted) {
+    return <>{formatTimestamp(value, timeZone)}</>
+  }
+  return <>{formatRelativeDay(new Date(value), new Date(), timeZone)}</>
+}
+
 function EmptyCardContent({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-28 items-center justify-center text-[13px] text-[var(--fg-muted)]">
@@ -385,6 +407,12 @@ export function MonitorDetail({
   const [availabilityRange, setAvailabilityRange] =
     useState<AvailabilityRange>("h24")
   const [responseRange, setResponseRange] = useState<ResponseRange>("h24")
+  // Relative timestamps depend on the current moment, so they stay on the
+  // deterministic absolute label until after the client mounts.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => {
+    setMounted(true)
+  }, [])
   const availability = monitor.availability[availabilityRange]
   const responseTime = monitor.responseTime[responseRange]
   const { phase } = monitor.firstRun
@@ -613,8 +641,15 @@ export function MonitorDetail({
         <Card className="min-w-0 overflow-hidden">
           <CardHeader className="flex-row items-center justify-between gap-4">
             <CardTitle>Recent Incidents</CardTitle>
+            {/* The View All control keeps its own height, so a negative block
+                margin collapses its contribution to the header row back to the
+                title line. The header then matches the Recent Checks card
+                beside it exactly. */}
             <Link
-              className={buttonVariants({ variant: "tertiary", size: "sm" })}
+              className={cn(
+                buttonVariants({ variant: "tertiary", size: "sm" }),
+                "-my-1.5"
+              )}
               href={`/incidents?monitor=${encodeURIComponent(monitor.id)}`}
             >
               View All
@@ -642,10 +677,11 @@ export function MonitorDetail({
                             className="transition-opacity duration-150 hover:opacity-70"
                             href={`/incidents/${encodeURIComponent(incident.id)}`}
                           >
-                            {formatTimestamp(
-                              incident.openedAt,
-                              resolvedTimeZone
-                            )}
+                            <RelativeTimestamp
+                              mounted={mounted}
+                              timeZone={resolvedTimeZone}
+                              value={incident.openedAt}
+                            />
                           </Link>
                         </td>
                         <td className="whitespace-nowrap px-4 font-data">
@@ -694,7 +730,11 @@ export function MonitorDetail({
                         key={check.id}
                       >
                         <td className="whitespace-nowrap px-6 font-data">
-                          {formatTimestamp(check.checkedAt, resolvedTimeZone)}
+                          <RelativeTimestamp
+                            mounted={mounted}
+                            timeZone={resolvedTimeZone}
+                            value={check.checkedAt}
+                          />
                         </td>
                         <td
                           className={cn(

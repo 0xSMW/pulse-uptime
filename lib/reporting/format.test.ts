@@ -3,6 +3,7 @@ import {
   formatBucketTimeRange,
   formatDuration,
   formatLatency,
+  formatRelativeDay,
   formatRelativeTime,
   formatUptimeDetail,
   formatUptimeTable,
@@ -64,6 +65,66 @@ describe("report formatting", () => {
         "Asia/Bangkok"
       )
     ).toBe("Jul 17, 01:30")
+  })
+
+  it("formats calendar-relative days in UTC", () => {
+    const now = new Date("2026-07-18T14:03:30.000Z")
+    expect(formatRelativeDay(new Date("2026-07-18T02:00:00.000Z"), now)).toBe(
+      "Today at 02:00"
+    )
+    expect(formatRelativeDay(new Date("2026-07-17T23:00:00.000Z"), now)).toBe(
+      "Yesterday at 23:00"
+    )
+    expect(formatRelativeDay(new Date("2026-07-15T05:00:00.000Z"), now)).toBe(
+      "Wednesday at 05:00"
+    )
+    // Exactly 7 calendar days is the first "Last week" day, exactly 14 is the
+    // first day that falls back to the absolute date.
+    expect(formatRelativeDay(new Date("2026-07-11T05:00:00.000Z"), now)).toBe(
+      "Last week"
+    )
+    expect(formatRelativeDay(new Date("2026-07-10T05:00:00.000Z"), now)).toBe(
+      "Last week"
+    )
+    expect(formatRelativeDay(new Date("2026-07-04T05:00:00.000Z"), now)).toBe(
+      "Jul 4"
+    )
+    expect(formatRelativeDay(new Date("2026-06-28T05:00:00.000Z"), now)).toBe(
+      "Jun 28"
+    )
+    expect(formatRelativeDay(new Date("2025-12-01T05:00:00.000Z"), now)).toBe(
+      "Dec 1, 2025"
+    )
+  })
+
+  it("compares calendar days in the viewer time zone, not UTC", () => {
+    const now = new Date("2026-07-18T14:03:30.000Z")
+    // 18:30 UTC on Jul 17 is Yesterday in UTC but already Jul 18 in Bangkok,
+    // so it reads Today there while the same instant reads Yesterday in UTC.
+    expect(formatRelativeDay(new Date("2026-07-17T18:30:00.000Z"), now)).toBe(
+      "Yesterday at 18:30"
+    )
+    expect(
+      formatRelativeDay(
+        new Date("2026-07-17T18:30:00.000Z"),
+        now,
+        "Asia/Bangkok"
+      )
+    ).toBe("Today at 01:30")
+    expect(
+      formatRelativeDay(
+        new Date("2026-07-17T05:00:00.000Z"),
+        now,
+        "Asia/Bangkok"
+      )
+    ).toBe("Yesterday at 12:00")
+    expect(
+      formatRelativeDay(
+        new Date("2026-07-15T05:00:00.000Z"),
+        now,
+        "Asia/Bangkok"
+      )
+    ).toBe("Wednesday at 12:00")
   })
 
   it("formats a bucket time range in the viewer time zone", () => {
