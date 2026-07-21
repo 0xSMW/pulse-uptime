@@ -1,6 +1,9 @@
-import { authorize, isApiResponse } from "@/lib/api/middleware";
-import { runStatusReportMutation } from "@/lib/api/status-report-http";
-import { createDatabaseStatusReportsStore, promoteIncident } from "@/lib/api/status-reports";
+import { authorize, isApiResponse } from "@/lib/api/middleware"
+import { runStatusReportMutation } from "@/lib/api/status-report-http"
+import {
+  createDatabaseStatusReportsStore,
+  promoteIncident,
+} from "@/lib/api/status-reports"
 
 /**
  * Promotes an auto-detected incident to a DRAFT status report. Requires
@@ -8,10 +11,15 @@ import { createDatabaseStatusReportsStore, promoteIncident } from "@/lib/api/sta
  * address. Promotion is idempotent through the partial unique index on
  * originIncidentId, so no public revalidation is needed (drafts are invisible).
  */
-export async function POST(request: Request, { params }: { params: Promise<{ incidentId: string }> }) {
-  const context = await authorize(request, { scope: "reports:write" });
-  if (isApiResponse(context)) return context;
-  const incidentId = (await params).incidentId;
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ incidentId: string }> }
+) {
+  const context = await authorize(request, { scope: "reports:write" })
+  if (isApiResponse(context)) {
+    return context
+  }
+  const incidentId = (await params).incidentId
   return runStatusReportMutation({
     request,
     context,
@@ -24,8 +32,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ inc
       const { report, created } = await promoteIncident(incidentId, {
         reportId: operationId,
         store: createDatabaseStatusReportsStore(tx),
-      });
-      return { status: created ? 201 : 200, kind: "StatusReport", data: report };
+      })
+      return { status: created ? 201 : 200, kind: "StatusReport", data: report }
     },
-  });
+  })
 }

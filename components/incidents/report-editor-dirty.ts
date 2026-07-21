@@ -12,14 +12,15 @@
  * from this module would double-prompt.
  */
 
-let dirtyFlag = false;
+let dirtyFlag = false
 
 export function setReportEditorDirty(next: boolean): void {
-  dirtyFlag = next;
+  dirtyFlag = next
 }
 
 export function isReportEditorDirty(): boolean {
-  return dirtyFlag;
+  return dirtyFlag
 }
 
-export const UNSAVED_CHANGES_MESSAGE = "You have unsaved changes that will be lost. Leave this report?";
+export const UNSAVED_CHANGES_MESSAGE =
+  "You have unsaved changes that will be lost. Leave this report?"

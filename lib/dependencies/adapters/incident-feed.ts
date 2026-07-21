@@ -11,13 +11,18 @@
 // active_only (Azure) enumerates every open incident, rolling_history
 // (OpenRouter) is a window that must never treat silence as resolution.
 
-import type { DependencySourceManifest } from "../manifest";
-import type { NormalizedProviderSnapshot } from "../types";
-import { sourceIncidentScope } from "../types";
-import { parseFeed, XmlParseError, type XmlFeedItem } from "../xml";
+import type { DependencySourceManifest } from "../manifest"
+import type { NormalizedProviderSnapshot } from "../types"
+import { sourceIncidentScope } from "../types"
+import { parseFeed, type XmlFeedItem, XmlParseError } from "../xml"
 
-import type { AdapterRequestDescriptor, CatalogDirectoryInput, DependencyAdapter, NormalizeInput } from "./index";
-import { AdapterParseError, documentsOfKind, latestTimestamp } from "./shared";
+import type {
+  AdapterRequestDescriptor,
+  CatalogDirectoryInput,
+  DependencyAdapter,
+  NormalizeInput,
+} from "./index"
+import { AdapterParseError, documentsOfKind, latestTimestamp } from "./shared"
 
 type ProviderIncidentState =
   | "investigating"
@@ -26,11 +31,11 @@ type ProviderIncidentState =
   | "resolved"
   | "scheduled"
   | "in_progress"
-  | "completed";
+  | "completed"
 
-export type IncidentFeedInventory = "active_only" | "rolling_history";
+export type IncidentFeedInventory = "active_only" | "rolling_history"
 
-type MarkerInfo = { state: ProviderIncidentState; resolved: boolean };
+type MarkerInfo = { state: ProviderIncidentState; resolved: boolean }
 
 // The Statuspage RSS status markers, uppercase in the feed, mapped to the
 // normalized lifecycle vocabulary. Terminal markers (resolved true) close the
@@ -47,21 +52,28 @@ const STATUS_MARKERS: Record<string, MarkerInfo> = {
   SCHEDULED: { state: "scheduled", resolved: false },
   VERIFYING: { state: "in_progress", resolved: false },
   "IN PROGRESS": { state: "in_progress", resolved: false },
-};
+}
 
 // Exact vocabulary tokens, longest first so "IN PROGRESS" wins over a partial.
-const MARKER_TOKEN = "(IN PROGRESS|INVESTIGATING|IDENTIFIED|MONITORING|POSTMORTEM|COMPLETED|SCHEDULED|VERIFYING|RESOLVED)";
+const MARKER_TOKEN =
+  "(IN PROGRESS|INVESTIGATING|IDENTIFIED|MONITORING|POSTMORTEM|COMPLETED|SCHEDULED|VERIFYING|RESOLVED)"
 // Marker at the very start of the description or a normalized update segment.
-const MARKER_AT_START = new RegExp(`^${MARKER_TOKEN}\\s*-\\s`);
+const MARKER_AT_START = new RegExp(`^${MARKER_TOKEN}\\s*-\\s`)
 // Marker immediately after a recognized timestamp timezone token (UTC/GMT).
 // Statuspage prefixes each update with "Mon DD, HH:MM UTC" then the marker.
-const MARKER_AFTER_TZ = new RegExp(`\\b(?:UTC|GMT)\\s+${MARKER_TOKEN}\\s*-\\s`, "g");
+const MARKER_AFTER_TZ = new RegExp(
+  `\\b(?:UTC|GMT)\\s+${MARKER_TOKEN}\\s*-\\s`,
+  "g"
+)
 
 // An entry whose prose carries no recognized marker cannot be shown as
 // resolved, so it is surfaced as an active, unresolved incident. This is the
 // safe direction: it never hides an outage behind a false resolution.
-const DEFAULT_ACTIVE_STATE: ProviderIncidentState = "investigating";
-const DEFAULT_ACTIVE_MARKER: MarkerInfo = { state: DEFAULT_ACTIVE_STATE, resolved: false };
+const DEFAULT_ACTIVE_STATE: ProviderIncidentState = "investigating"
+const DEFAULT_ACTIVE_MARKER: MarkerInfo = {
+  state: DEFAULT_ACTIVE_STATE,
+  resolved: false,
+}
 
 /**
  * Reads the current lifecycle marker from markup-stripped incident prose.
@@ -71,31 +83,43 @@ const DEFAULT_ACTIVE_MARKER: MarkerInfo = { state: DEFAULT_ACTIVE_STATE, resolve
  * The first valid marker in provider order (document order, newest first on
  * Statuspage) determines state. No valid marker yields the active fallback.
  */
-export function parseIncidentFeedUpdateMarker(description: string | null): MarkerInfo {
-  if (!description) return DEFAULT_ACTIVE_MARKER;
+export function parseIncidentFeedUpdateMarker(
+  description: string | null
+): MarkerInfo {
+  if (!description) {
+    return DEFAULT_ACTIVE_MARKER
+  }
 
-  let bestIndex = Number.POSITIVE_INFINITY;
-  let bestToken: string | null = null;
+  let bestIndex = Number.POSITIVE_INFINITY
+  let bestToken: string | null = null
 
   const consider = (token: string, index: number) => {
     if (index < bestIndex) {
-      bestIndex = index;
-      bestToken = token;
+      bestIndex = index
+      bestToken = token
     }
-  };
-
-  const atStart = MARKER_AT_START.exec(description);
-  if (atStart) consider(atStart[1], 0);
-
-  MARKER_AFTER_TZ.lastIndex = 0;
-  for (let match = MARKER_AFTER_TZ.exec(description); match; match = MARKER_AFTER_TZ.exec(description)) {
-    // match[0] starts at UTC/GMT; the token itself is the position we rank.
-    const tokenOffset = match[0].indexOf(match[1]);
-    consider(match[1], match.index + tokenOffset);
   }
 
-  if (!bestToken) return DEFAULT_ACTIVE_MARKER;
-  return STATUS_MARKERS[bestToken] ?? DEFAULT_ACTIVE_MARKER;
+  const atStart = MARKER_AT_START.exec(description)
+  if (atStart) {
+    consider(atStart[1], 0)
+  }
+
+  MARKER_AFTER_TZ.lastIndex = 0
+  for (
+    let match = MARKER_AFTER_TZ.exec(description);
+    match;
+    match = MARKER_AFTER_TZ.exec(description)
+  ) {
+    // match[0] starts at UTC/GMT; the token itself is the position we rank.
+    const tokenOffset = match[0].indexOf(match[1])
+    consider(match[1], match.index + tokenOffset)
+  }
+
+  if (!bestToken) {
+    return DEFAULT_ACTIVE_MARKER
+  }
+  return STATUS_MARKERS[bestToken] ?? DEFAULT_ACTIVE_MARKER
 }
 
 /**
@@ -103,43 +127,55 @@ export function parseIncidentFeedUpdateMarker(description: string | null): Marke
  * requires this for incident_feed, but the adapter re-checks so a drifted
  * runtime config never invents completeness.
  */
-export function requireIncidentInventory(source: DependencySourceManifest): IncidentFeedInventory {
-  const value = source.config.incidentInventory;
-  if (value === "active_only" || value === "rolling_history") return value;
+export function requireIncidentInventory(
+  source: DependencySourceManifest
+): IncidentFeedInventory {
+  const value = source.config.incidentInventory
+  if (value === "active_only" || value === "rolling_history") {
+    return value
+  }
   throw new AdapterParseError(
     "SCHEMA_INVALID",
-    `${source.id}: config.incidentInventory must be "active_only" or "rolling_history"`,
-  );
+    `${source.id}: config.incidentInventory must be "active_only" or "rolling_history"`
+  )
 }
 
 /** Parses an RFC822 or ISO timestamp to ISO 8601, falling back to observedAt when the feed omits or malforms it. */
 function toIsoTimestamp(value: string | null, fallback: string): string {
-  if (!value) return fallback;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? fallback : parsed.toISOString();
+  if (!value) {
+    return fallback
+  }
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? fallback : parsed.toISOString()
 }
 
 /** Milliseconds for pubDate ordering, oldest when the feed omits or malforms the date, so a dated duplicate always wins over an undated one. */
 function pubDateMillis(value: string | null): number {
-  if (!value) return Number.NEGATIVE_INFINITY;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? Number.NEGATIVE_INFINITY : parsed.getTime();
+  if (!value) {
+    return Number.NEGATIVE_INFINITY
+  }
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime())
+    ? Number.NEGATIVE_INFINITY
+    : parsed.getTime()
 }
 
 /** Normalizes an entry link to an absolute https URL, since Statuspage RSS emits scheme-less links like "status.example.com/incidents/abc". Returns null when no usable URL is present. */
 function canonicalUrlOf(link: string | null): string | null {
-  if (!link) return null;
-  const candidate = /^https?:\/\//i.test(link) ? link : `https://${link}`;
+  if (!link) {
+    return null
+  }
+  const candidate = /^https?:\/\//i.test(link) ? link : `https://${link}`
   try {
-    return new URL(candidate).toString();
+    return new URL(candidate).toString()
   } catch {
-    return null;
+    return null
   }
 }
 
 /** The stable identity of an entry: its guid, falling back to its link. An entry with neither cannot be deduped or stored and is dropped. */
 function externalIdOf(item: XmlFeedItem): string | null {
-  return item.guid ?? item.link ?? null;
+  return item.guid ?? item.link ?? null
 }
 
 export const incidentFeedAdapter: DependencyAdapter = {
@@ -147,41 +183,54 @@ export const incidentFeedAdapter: DependencyAdapter = {
     // A single raw-text document serves as both the current-state read and the
     // incident history: the feed is the provider's only surface. The "current"
     // kind lets the poller take the 304 fast path when the feed is unchanged.
-    return [{ kind: "current", url: source.currentUrl, optional: false, mode: "text" }];
+    return [
+      {
+        kind: "current",
+        url: source.currentUrl,
+        optional: false,
+        mode: "text",
+      },
+    ]
   },
 
   catalogDirectory(input: CatalogDirectoryInput) {
     // The feed publishes no per-component inventory. Presets select synthetic
     // component ids, so the directory declares tracksComponents false and
     // catalog reconcile never treats those ids as upstream drift.
-    void input;
+    void input
     return {
       componentIds: new Set<string>(),
       childrenByParent: new Map(),
       locationsByProduct: new Map(),
       complete: true,
       tracksComponents: false,
-    };
+    }
   },
 
   normalize(input: NormalizeInput): NormalizedProviderSnapshot {
-    const { source, documents, observedAt } = input;
-    const inventory = requireIncidentInventory(source);
+    const { source, documents, observedAt } = input
+    const inventory = requireIncidentInventory(source)
 
-    const document = documentsOfKind(documents, "current")[0];
+    const document = documentsOfKind(documents, "current")[0]
     if (!document || typeof document.text !== "string") {
-      throw new AdapterParseError("MISSING_DOCUMENT", `${source.id}: missing incident feed document`);
+      throw new AdapterParseError(
+        "MISSING_DOCUMENT",
+        `${source.id}: missing incident feed document`
+      )
     }
     // A payload that is not an RSS or Atom feed (a provider error page, an HTML
     // interstitial) must fail loudly rather than read as an empty, operational
     // feed. The poller then keeps the last known state.
-    if (!/<rss\b/i.test(document.text) && !/<feed\b/i.test(document.text)) {
-      throw new AdapterParseError("SCHEMA_INVALID", `${source.id}: document is not an RSS or Atom feed`);
+    if (!(/<rss\b/i.test(document.text) || /<feed\b/i.test(document.text))) {
+      throw new AdapterParseError(
+        "SCHEMA_INVALID",
+        `${source.id}: document is not an RSS or Atom feed`
+      )
     }
 
-    let items: XmlFeedItem[];
+    let items: XmlFeedItem[]
     try {
-      items = parseFeed(document.text);
+      items = parseFeed(document.text)
     } catch (error) {
       // The shared parser rejects oversized input and any DTD or entity
       // declaration (the billion-laughs and XXE vectors). Surface that as an
@@ -189,29 +238,37 @@ export const incidentFeedAdapter: DependencyAdapter = {
       // Network failures, optional misses, malformed envelopes, and budget
       // exhaustion never reach here as an authoritative empty set.
       if (error instanceof XmlParseError) {
-        throw new AdapterParseError("SCHEMA_INVALID", `${source.id}: incident feed rejected by parser (${error.code})`);
+        throw new AdapterParseError(
+          "SCHEMA_INVALID",
+          `${source.id}: incident feed rejected by parser (${error.code})`
+        )
       }
-      throw error;
+      throw error
     }
 
     // Dedup by external id, keeping the entry with the newest pubDate so a feed
     // that republishes an incident under one guid collapses to its latest state.
-    const byId = new Map<string, XmlFeedItem>();
+    const byId = new Map<string, XmlFeedItem>()
     for (const item of items) {
-      const externalId = externalIdOf(item);
-      if (!externalId) continue;
-      const existing = byId.get(externalId);
-      if (!existing || pubDateMillis(item.pubDate) >= pubDateMillis(existing.pubDate)) {
-        byId.set(externalId, item);
+      const externalId = externalIdOf(item)
+      if (!externalId) {
+        continue
+      }
+      const existing = byId.get(externalId)
+      if (
+        !existing ||
+        pubDateMillis(item.pubDate) >= pubDateMillis(existing.pubDate)
+      ) {
+        byId.set(externalId, item)
       }
     }
 
-    const incidents: NormalizedProviderSnapshot["incidents"] = [];
+    const incidents: NormalizedProviderSnapshot["incidents"] = []
     for (const [externalId, item] of byId) {
-      const marker = parseIncidentFeedUpdateMarker(item.description);
-      const startedAt = toIsoTimestamp(item.pubDate, observedAt);
-      const title = item.title ?? "Provider incident";
-      const bodyText = item.description ?? title;
+      const marker = parseIncidentFeedUpdateMarker(item.description)
+      const startedAt = toIsoTimestamp(item.pubDate, observedAt)
+      const title = item.title ?? "Provider incident"
+      const bodyText = item.description ?? title
       incidents.push({
         externalId,
         title,
@@ -229,20 +286,24 @@ export const incidentFeedAdapter: DependencyAdapter = {
         // One update carries the entry's prose verbatim (already bounded by the
         // parser). The feed does not expose stable per-update identity, so the
         // update id is derived from the incident id.
-        updates: [{
-          externalId: `${externalId}#0`,
-          state: marker.state,
-          bodyText,
-          createdAt: startedAt,
-          updatedAt: startedAt,
-        }],
-      });
+        updates: [
+          {
+            externalId: `${externalId}#0`,
+            state: marker.state,
+            bodyText,
+            createdAt: startedAt,
+            updatedAt: startedAt,
+          },
+        ],
+      })
     }
 
     return {
       sourceId: source.id,
       observedAt,
-      providerUpdatedAt: latestTimestamp(incidents.map((incident) => incident.updatedAt)),
+      providerUpdatedAt: latestTimestamp(
+        incidents.map((incident) => incident.updatedAt)
+      ),
       // The feed publishes no per-component state, so components stays empty and
       // complete. An incident_only preset's selector never matches a component,
       // so it resolves to UNKNOWN outside an active incident, as documented: the
@@ -259,6 +320,6 @@ export const incidentFeedAdapter: DependencyAdapter = {
       // maintenance record.
       maintenances: [],
       cache: { etag: null, lastModified: null },
-    };
+    }
   },
-};
+}

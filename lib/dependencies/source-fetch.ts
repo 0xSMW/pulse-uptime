@@ -3,21 +3,21 @@
 // here so body caps, request mode, host allowlists, and deadline options stay
 // identical for every dependency fetch path.
 
-import type { AdapterRequestDescriptor } from "./adapters";
+import type { AdapterRequestDescriptor } from "./adapters"
 import {
-  fetchProviderDocument,
   type FetchDocumentResult,
   type FetchProviderDocumentDeps,
   type FetchProviderSource,
   type FetchValidators,
-} from "./fetch";
+  fetchProviderDocument,
+} from "./fetch"
 
 /** Minimum source fields needed to build a FetchProviderSource. */
 export type ProviderSourceLike = {
-  id: string;
-  allowedHosts: readonly string[];
-  config?: Record<string, unknown>;
-};
+  id: string
+  allowedHosts: readonly string[]
+  config?: Record<string, unknown>
+}
 
 /**
  * Optional per-request fetch knobs and the undici/DNS deps that
@@ -25,15 +25,17 @@ export type ProviderSourceLike = {
  * options, not part of the adapter descriptor.
  */
 export type FetchAdapterRequestOptions = FetchProviderDocumentDeps & {
-  validators?: FetchValidators;
-  timeoutMs?: number;
-  deadlineAtMs?: number;
-};
+  validators?: FetchValidators
+  timeoutMs?: number
+  deadlineAtMs?: number
+}
 
 /** Reads a source's optional body-cap config. Fetch clamps the value into its valid range. */
-function configuredMaxBodyBytes(config: Record<string, unknown> | undefined): number | undefined {
-  const value = config?.maxBodyBytes;
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+function configuredMaxBodyBytes(
+  config: Record<string, unknown> | undefined
+): number | undefined {
+  const value = config?.maxBodyBytes
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined
 }
 
 /**
@@ -42,12 +44,14 @@ function configuredMaxBodyBytes(config: Record<string, unknown> | undefined): nu
  * maxBodyBytes is the type-checked config value; fetchProviderDocument still
  * clamps it into [DEFAULT_MAX_BODY_BYTES, MAX_BODY_BYTES_CEILING].
  */
-export function providerFetchSource(source: ProviderSourceLike): FetchProviderSource {
+export function providerFetchSource(
+  source: ProviderSourceLike
+): FetchProviderSource {
   return {
     id: source.id,
     allowedHosts: source.allowedHosts,
     maxBodyBytes: configuredMaxBodyBytes(source.config),
-  };
+  }
 }
 
 /**
@@ -60,9 +64,9 @@ export function providerFetchSource(source: ProviderSourceLike): FetchProviderSo
 export async function fetchAdapterRequest(
   source: ProviderSourceLike,
   request: AdapterRequestDescriptor,
-  options: FetchAdapterRequestOptions = {},
+  options: FetchAdapterRequestOptions = {}
 ): Promise<FetchDocumentResult> {
-  const { validators, timeoutMs, deadlineAtMs, ...fetchDeps } = options;
+  const { validators, timeoutMs, deadlineAtMs, ...fetchDeps } = options
   return fetchProviderDocument(
     providerFetchSource(source),
     {
@@ -73,6 +77,6 @@ export async function fetchAdapterRequest(
       timeoutMs,
       deadlineAtMs,
     },
-    fetchDeps,
-  );
+    fetchDeps
+  )
 }

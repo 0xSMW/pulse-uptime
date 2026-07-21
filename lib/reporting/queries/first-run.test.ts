@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest"
 
 import {
   firstRunPhase,
@@ -7,170 +7,225 @@ import {
   rollupsSinceActivation,
   summarizeCounts,
   uptimeTone,
-} from "./first-run";
+} from "./first-run"
 
-const now = new Date("2026-07-19T12:00:00Z");
-const ago = (ms: number) => new Date(now.getTime() - ms);
-const HOUR = 3_600_000;
-const DAY = 86_400_000;
+const now = new Date("2026-07-19T12:00:00Z")
+const ago = (ms: number) => new Date(now.getTime() - ms)
+const HOUR = 3_600_000
+const DAY = 86_400_000
 
 describe("firstRunPhase", () => {
   it("is setup before the first success", () => {
-    expect(firstRunPhase(null, now)).toBe("setup");
-  });
+    expect(firstRunPhase(null, now)).toBe("setup")
+  })
 
   it("is collecting within the first day of activation", () => {
-    expect(firstRunPhase(ago(6 * HOUR), now)).toBe("collecting");
-    expect(firstRunPhase(ago(DAY - 1), now)).toBe("collecting");
-  });
+    expect(firstRunPhase(ago(6 * HOUR), now)).toBe("collecting")
+    expect(firstRunPhase(ago(DAY - 1), now)).toBe("collecting")
+  })
 
   it("is active once a full day has been observed", () => {
-    expect(firstRunPhase(ago(DAY), now)).toBe("active");
-    expect(firstRunPhase(ago(30 * DAY), now)).toBe("active");
-  });
-});
+    expect(firstRunPhase(ago(DAY), now)).toBe("active")
+    expect(firstRunPhase(ago(30 * DAY), now)).toBe("active")
+  })
+})
 
 describe("observedMs", () => {
   it("is zero before activation", () => {
-    expect(observedMs(null, now)).toBe(0);
-  });
+    expect(observedMs(null, now)).toBe(0)
+  })
 
   it("never goes negative when activation is in the future", () => {
-    expect(observedMs(new Date(now.getTime() + HOUR), now)).toBe(0);
-  });
+    expect(observedMs(new Date(now.getTime() + HOUR), now)).toBe(0)
+  })
 
   it("measures elapsed time since activation", () => {
-    expect(observedMs(ago(6 * HOUR), now)).toBe(6 * HOUR);
-  });
-});
+    expect(observedMs(ago(6 * HOUR), now)).toBe(6 * HOUR)
+  })
+})
 
 describe("isRangeUnlocked", () => {
   // The third argument is the completed range end, the last finalized bucket,
   // not wall-clock now. A range unlocks only once that end reaches a full
   // window back to activation.
-  const completedEnd = now;
+  const completedEnd = now
 
   it("keeps every range locked before activation", () => {
-    expect(isRangeUnlocked("h24", null, completedEnd)).toBe(false);
-    expect(isRangeUnlocked("d30", null, completedEnd)).toBe(false);
-  });
+    expect(isRangeUnlocked("h24", null, completedEnd)).toBe(false)
+    expect(isRangeUnlocked("d30", null, completedEnd)).toBe(false)
+  })
 
   it("unlocks a range only once the completed window covers it back to activation", () => {
-    expect(isRangeUnlocked("h24", ago(DAY - 1), completedEnd)).toBe(false);
-    expect(isRangeUnlocked("h24", ago(DAY), completedEnd)).toBe(true);
-    expect(isRangeUnlocked("d7", ago(6 * DAY), completedEnd)).toBe(false);
-    expect(isRangeUnlocked("d7", ago(7 * DAY), completedEnd)).toBe(true);
-    expect(isRangeUnlocked("d30", ago(29 * DAY), completedEnd)).toBe(false);
-    expect(isRangeUnlocked("d30", ago(30 * DAY), completedEnd)).toBe(true);
-  });
+    expect(isRangeUnlocked("h24", ago(DAY - 1), completedEnd)).toBe(false)
+    expect(isRangeUnlocked("h24", ago(DAY), completedEnd)).toBe(true)
+    expect(isRangeUnlocked("d7", ago(6 * DAY), completedEnd)).toBe(false)
+    expect(isRangeUnlocked("d7", ago(7 * DAY), completedEnd)).toBe(true)
+    expect(isRangeUnlocked("d30", ago(29 * DAY), completedEnd)).toBe(false)
+    expect(isRangeUnlocked("d30", ago(30 * DAY), completedEnd)).toBe(true)
+  })
 
   it("stays locked when the completed end trails now past the window", () => {
     // Activation a day and three minutes before now, but the last completed 15m
     // bucket ends five minutes before now. The completed window reaches back
     // only to two minutes before activation, so the range holds locked even
     // though now minus activation already exceeds a day.
-    const trailingEnd = ago(5 * 60_000);
-    expect(isRangeUnlocked("h24", ago(DAY + 3 * 60_000), trailingEnd)).toBe(false);
+    const trailingEnd = ago(5 * 60_000)
+    expect(isRangeUnlocked("h24", ago(DAY + 3 * 60_000), trailingEnd)).toBe(
+      false
+    )
     // Once activation sits a full day before that same completed end, it unlocks.
-    expect(isRangeUnlocked("h24", ago(DAY + 5 * 60_000), trailingEnd)).toBe(true);
-  });
-});
+    expect(isRangeUnlocked("h24", ago(DAY + 5 * 60_000), trailingEnd)).toBe(
+      true
+    )
+  })
+})
 
 describe("rollupsSinceActivation", () => {
-  const row = (iso: string) => ({ bucketStart: new Date(iso) });
+  const row = (iso: string) => ({ bucketStart: new Date(iso) })
 
   it("returns nothing before activation", () => {
-    expect(rollupsSinceActivation([row("2026-07-19T00:00:00Z")], null)).toEqual([]);
-  });
+    expect(rollupsSinceActivation([row("2026-07-19T00:00:00Z")], null)).toEqual(
+      []
+    )
+  })
 
   it("excludes the bucket that straddles activation", () => {
     const rows = [
       row("2026-07-19T09:45:00Z"),
       row("2026-07-19T10:00:00Z"),
       row("2026-07-19T10:15:00Z"),
-    ];
+    ]
     // Activation mid-bucket at 10:07 drops the 10:00 bucket whole, since its
     // start precedes activation and it may carry setup failures. Only buckets
     // starting at or after activation survive.
-    const result = rollupsSinceActivation(rows, new Date("2026-07-19T10:07:00Z"));
+    const result = rollupsSinceActivation(
+      rows,
+      new Date("2026-07-19T10:07:00Z")
+    )
     expect(result.map((entry) => entry.bucketStart.toISOString())).toEqual([
       "2026-07-19T10:15:00.000Z",
-    ]);
-  });
+    ])
+  })
 
   it("keeps a bucket whose start equals activation", () => {
-    const rows = [row("2026-07-19T10:00:00Z"), row("2026-07-19T10:15:00Z")];
-    const result = rollupsSinceActivation(rows, new Date("2026-07-19T10:00:00Z"));
+    const rows = [row("2026-07-19T10:00:00Z"), row("2026-07-19T10:15:00Z")]
+    const result = rollupsSinceActivation(
+      rows,
+      new Date("2026-07-19T10:00:00Z")
+    )
     expect(result.map((entry) => entry.bucketStart.toISOString())).toEqual([
       "2026-07-19T10:00:00.000Z",
       "2026-07-19T10:15:00.000Z",
-    ]);
-  });
+    ])
+  })
 
   it("excludes setup failures sharing the activation bucket from observed uptime", () => {
     // Three failures then the first success all land in the 10:00 bucket, then a
     // clean 10:15 bucket follows. Activation at 10:11 sits inside the 10:00
     // bucket, so that bucket drops and its setup failures never count.
     const rows = [
-      { bucketStart: new Date("2026-07-19T10:00:00Z"), expectedChecks: 4, completedChecks: 4, successfulChecks: 1, failedChecks: 3 },
-      { bucketStart: new Date("2026-07-19T10:15:00Z"), expectedChecks: 4, completedChecks: 4, successfulChecks: 4, failedChecks: 0 },
-    ];
-    const kept = rollupsSinceActivation(rows, new Date("2026-07-19T10:11:00Z"));
+      {
+        bucketStart: new Date("2026-07-19T10:00:00Z"),
+        expectedChecks: 4,
+        completedChecks: 4,
+        successfulChecks: 1,
+        failedChecks: 3,
+      },
+      {
+        bucketStart: new Date("2026-07-19T10:15:00Z"),
+        expectedChecks: 4,
+        completedChecks: 4,
+        successfulChecks: 4,
+        failedChecks: 0,
+      },
+    ]
+    const kept = rollupsSinceActivation(rows, new Date("2026-07-19T10:11:00Z"))
     expect(kept.map((entry) => entry.bucketStart.toISOString())).toEqual([
       "2026-07-19T10:15:00.000Z",
-    ]);
-    expect(summarizeCounts(kept).uptime).toBe(100);
-  });
-});
+    ])
+    expect(summarizeCounts(kept).uptime).toBe(100)
+  })
+})
 
 describe("summarizeCounts", () => {
   it("returns null uptime and coverage with no data", () => {
-    expect(summarizeCounts([])).toMatchObject({ uptime: null, coverage: null, completed: 0, expected: 0 });
-  });
+    expect(summarizeCounts([])).toMatchObject({
+      uptime: null,
+      coverage: null,
+      completed: 0,
+      expected: 0,
+    })
+  })
 
   it("divides success by completed for uptime and completed by expected for coverage", () => {
     const rows = [
-      { expectedChecks: 4, completedChecks: 4, successfulChecks: 4, failedChecks: 0 },
-      { expectedChecks: 4, completedChecks: 2, successfulChecks: 1, failedChecks: 1 },
-    ];
-    const summary = summarizeCounts(rows);
-    expect(summary.expected).toBe(8);
-    expect(summary.completed).toBe(6);
-    expect(summary.successful).toBe(5);
-    expect(summary.uptime).toBeCloseTo(100 * 5 / 6, 6);
-    expect(summary.coverage).toBeCloseTo(6 / 8, 6);
-  });
+      {
+        expectedChecks: 4,
+        completedChecks: 4,
+        successfulChecks: 4,
+        failedChecks: 0,
+      },
+      {
+        expectedChecks: 4,
+        completedChecks: 2,
+        successfulChecks: 1,
+        failedChecks: 1,
+      },
+    ]
+    const summary = summarizeCounts(rows)
+    expect(summary.expected).toBe(8)
+    expect(summary.completed).toBe(6)
+    expect(summary.successful).toBe(5)
+    expect(summary.uptime).toBeCloseTo((100 * 5) / 6, 6)
+    expect(summary.coverage).toBeCloseTo(6 / 8, 6)
+  })
 
   it("keeps uptime healthy while coverage exposes a stalled scheduler", () => {
     // Every completed check passed, but only a quarter of expected checks ran.
-    const summary = summarizeCounts([{ expectedChecks: 96, completedChecks: 24, successfulChecks: 24, failedChecks: 0 }]);
-    expect(summary.uptime).toBe(100);
-    expect(summary.coverage).toBeCloseTo(0.25, 6);
-  });
-});
+    const summary = summarizeCounts([
+      {
+        expectedChecks: 96,
+        completedChecks: 24,
+        successfulChecks: 24,
+        failedChecks: 0,
+      },
+    ])
+    expect(summary.uptime).toBe(100)
+    expect(summary.coverage).toBeCloseTo(0.25, 6)
+  })
+})
 
 describe("uptimeTone", () => {
-  const base = { unlocked: true, currentlyDown: false, recentlyDegraded: false, uptime: 100 };
+  const base = {
+    unlocked: true,
+    currentlyDown: false,
+    recentlyDegraded: false,
+    uptime: 100,
+  }
 
   it("is collecting while a range is locked, regardless of value", () => {
-    expect(uptimeTone({ ...base, unlocked: false, uptime: 42 })).toBe("collecting");
-  });
+    expect(uptimeTone({ ...base, unlocked: false, uptime: 42 })).toBe(
+      "collecting"
+    )
+  })
 
   it("is unknown when there is no completed data", () => {
-    expect(uptimeTone({ ...base, uptime: null })).toBe("unknown");
-  });
+    expect(uptimeTone({ ...base, uptime: null })).toBe("unknown")
+  })
 
   it("is down only when currently down", () => {
-    expect(uptimeTone({ ...base, currentlyDown: true, uptime: 50 })).toBe("down");
-  });
+    expect(uptimeTone({ ...base, currentlyDown: true, uptime: 50 })).toBe(
+      "down"
+    )
+  })
 
   it("is degraded for recent resolution or imperfect history", () => {
-    expect(uptimeTone({ ...base, recentlyDegraded: true })).toBe("degraded");
-    expect(uptimeTone({ ...base, uptime: 99.5 })).toBe("degraded");
-  });
+    expect(uptimeTone({ ...base, recentlyDegraded: true })).toBe("degraded")
+    expect(uptimeTone({ ...base, uptime: 99.5 })).toBe("degraded")
+  })
 
   it("is healthy for a currently up monitor with a clean window", () => {
-    expect(uptimeTone({ ...base, uptime: 100 })).toBe("healthy");
-    expect(uptimeTone({ ...base, uptime: 99.95 })).toBe("healthy");
-  });
-});
+    expect(uptimeTone({ ...base, uptime: 100 })).toBe("healthy")
+    expect(uptimeTone({ ...base, uptime: 99.95 })).toBe("healthy")
+  })
+})

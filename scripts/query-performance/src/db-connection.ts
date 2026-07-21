@@ -2,36 +2,45 @@
 // database identity before returning a client. Ambient database URLs and CLI
 // URL arguments are not accepted.
 
-import postgres from "postgres";
-import { drizzle } from "drizzle-orm/postgres-js";
+import { drizzle } from "drizzle-orm/postgres-js"
+import postgres from "postgres"
 
-import * as schema from "../../../lib/db/schema";
-import { loadTempProjectState, LocalStateError, type TempProjectState } from "./local-state";
+import * as schema from "../../../lib/db/schema"
+import {
+  LocalStateError,
+  loadTempProjectState,
+  type TempProjectState,
+} from "./local-state"
 
 export class SafetyGateError extends Error {}
 
 export interface GatedConnection {
-  readonly project: TempProjectState;
-  readonly sql: postgres.Sql;
-  readonly db: ReturnType<typeof drizzle<typeof schema>>;
+  readonly project: TempProjectState
+  readonly sql: postgres.Sql
+  readonly db: ReturnType<typeof drizzle<typeof schema>>
 }
 
-async function verifyIdentity(sql: postgres.Sql, project: TempProjectState): Promise<void> {
-  let rows: Array<{ datname: string }>;
+async function verifyIdentity(
+  sql: postgres.Sql,
+  project: TempProjectState
+): Promise<void> {
+  let rows: Array<{ datname: string }>
   try {
-    rows = await sql<Array<{ datname: string }>>`select current_database() as datname`;
+    rows = await sql<
+      Array<{ datname: string }>
+    >`select current_database() as datname`
   } catch (cause) {
     throw new SafetyGateError(
       `Could not connect to verify database identity before running any benchmark query: ${
         cause instanceof Error ? cause.message : String(cause)
-      }`,
-    );
+      }`
+    )
   }
-  const datname = rows[0]?.datname;
+  const datname = rows[0]?.datname
   if (!datname || datname !== project.database) {
     throw new SafetyGateError(
-      "Connected database name does not match the recorded temp project database. Refusing to proceed.",
-    );
+      "Connected database name does not match the recorded temp project database. Refusing to proceed."
+    )
   }
 }
 
@@ -40,16 +49,16 @@ async function verifyIdentity(sql: postgres.Sql, project: TempProjectState): Pro
  * Always closes the connection after `fn` completes or throws.
  */
 export async function withConnection<T>(
-  fn: (conn: GatedConnection) => Promise<T>,
+  fn: (conn: GatedConnection) => Promise<T>
 ): Promise<T> {
-  let state: { project: TempProjectState; connectionString: string };
+  let state: { project: TempProjectState; connectionString: string }
   try {
-    state = loadTempProjectState();
+    state = loadTempProjectState()
   } catch (error) {
     if (error instanceof LocalStateError) {
-      throw new SafetyGateError(error.message);
+      throw new SafetyGateError(error.message)
     }
-    throw error;
+    throw error
   }
 
   const sql = postgres(state.connectionString, {
@@ -58,12 +67,12 @@ export async function withConnection<T>(
     idle_timeout: 20,
     connect_timeout: 10,
     ssl: "require",
-  });
+  })
   try {
-    await verifyIdentity(sql, state.project);
-    const db = drizzle(sql, { schema });
-    return await fn({ project: state.project, sql, db });
+    await verifyIdentity(sql, state.project)
+    const db = drizzle(sql, { schema })
+    return await fn({ project: state.project, sql, db })
   } finally {
-    await sql.end({ timeout: 5 });
+    await sql.end({ timeout: 5 })
   }
 }

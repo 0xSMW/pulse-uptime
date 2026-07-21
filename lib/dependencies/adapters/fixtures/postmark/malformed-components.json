@@ -1,6 +1,4 @@
 {
-  "components": [
-    { "id": 87154, "name": "Sending", "state": "operational" }
-  ],
+  "components": [{ "id": 87154, "name": "Sending", "state": "operational" }],
   "extra_unexpected_field": "the real Sorry components document only has components and meta"
 }

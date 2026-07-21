@@ -4,11 +4,13 @@
  * the string before it reaches Intl.
  */
 export function isValidIanaTimeZone(value: string): boolean {
-  if (!value || value.length > 64) return false;
+  if (!value || value.length > 64) {
+    return false
+  }
   try {
-    new Intl.DateTimeFormat("en-US", { timeZone: value });
-    return true;
+    new Intl.DateTimeFormat("en-US", { timeZone: value })
+    return true
   } catch {
-    return false;
+    return false
   }
 }

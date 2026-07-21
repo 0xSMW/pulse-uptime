@@ -1,4 +1,4 @@
-import type { NextConfig } from "next";
+import type { NextConfig } from "next"
 
 // Central browser security policy. The CSP constrains only framing, base URI,
 // plugins, and form submission (not script/style/connect) because the App
@@ -10,16 +10,22 @@ const CONTENT_SECURITY_POLICY = [
   "object-src 'none'",
   "frame-ancestors 'none'",
   "form-action 'self'",
-].join("; ");
+].join("; ")
 
 const SECURITY_HEADERS = [
   { key: "Content-Security-Policy", value: CONTENT_SECURITY_POLICY },
   { key: "X-Frame-Options", value: "DENY" },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), browsing-topics=()" },
-  { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
-];
+  {
+    key: "Permissions-Policy",
+    value: "camera=(), microphone=(), geolocation=(), browsing-topics=()",
+  },
+  {
+    key: "Strict-Transport-Security",
+    value: "max-age=63072000; includeSubDomains; preload",
+  },
+]
 
 const nextConfig: NextConfig = {
   // Bake the immutable deployment id into the server bundle at build time so
@@ -27,9 +33,7 @@ const nextConfig: NextConfig = {
   // VERCEL_DEPLOYMENT_ID during build; tests and local set PULSE_RELEASE_ID.
   env: {
     PULSE_RELEASE_ID:
-      process.env.PULSE_RELEASE_ID
-      || process.env.VERCEL_DEPLOYMENT_ID
-      || "",
+      process.env.PULSE_RELEASE_ID || process.env.VERCEL_DEPLOYMENT_ID || "",
   },
   experimental: {
     authInterrupts: true,
@@ -42,7 +46,7 @@ const nextConfig: NextConfig = {
   },
   poweredByHeader: false,
   async headers() {
-    return [{ source: "/:path*", headers: SECURITY_HEADERS }];
+    return [{ source: "/:path*", headers: SECURITY_HEADERS }]
   },
   async redirects() {
     return [
@@ -58,8 +62,8 @@ const nextConfig: NextConfig = {
         destination: "/settings/notifications",
         permanent: false,
       },
-    ];
+    ]
   },
-};
+}
 
-export default nextConfig;
+export default nextConfig

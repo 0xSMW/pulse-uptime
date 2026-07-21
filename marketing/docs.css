@@ -63,7 +63,9 @@
   border-radius: 6px;
   color: var(--fg-muted);
   font-size: 13px;
-  transition: color 150ms ease, background 150ms ease;
+  transition:
+    color 150ms ease,
+    background 150ms ease;
 }
 
 .sidebar-group a:hover {
@@ -270,7 +272,9 @@
   font-weight: 400;
   opacity: 0;
   transform: translateY(-50%);
-  transition: opacity 150ms ease, color 150ms ease;
+  transition:
+    opacity 150ms ease,
+    color 150ms ease;
 }
 
 .anchor-heading:hover .anchor-link,
@@ -402,10 +406,22 @@
   letter-spacing: 0.06em;
 }
 
-.method.get { background: var(--up-bg); color: var(--up-text); }
-.method.post { background: var(--method-post-bg); color: var(--method-post-text); }
-.method.patch { background: var(--verifying-bg); color: var(--verifying-text); }
-.method.delete { background: var(--down-bg); color: var(--down-text); }
+.method.get {
+  background: var(--up-bg);
+  color: var(--up-text);
+}
+.method.post {
+  background: var(--method-post-bg);
+  color: var(--method-post-text);
+}
+.method.patch {
+  background: var(--verifying-bg);
+  color: var(--verifying-text);
+}
+.method.delete {
+  background: var(--down-bg);
+  color: var(--down-text);
+}
 
 .scope-chip {
   display: inline-flex;
@@ -468,7 +484,9 @@
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.02em;
-  transition: color 150ms ease, background 150ms ease;
+  transition:
+    color 150ms ease,
+    background 150ms ease;
 }
 
 .code-tab:hover {
@@ -491,7 +509,9 @@
   color: var(--fg-faint);
   font-size: 11px;
   font-weight: 500;
-  transition: color 150ms ease, background 150ms ease;
+  transition:
+    color 150ms ease,
+    background 150ms ease;
 }
 
 .code-copy:hover {
@@ -523,15 +543,35 @@
   overflow-wrap: anywhere;
 }
 
-.tok-comment { color: var(--tok-comment); }
-.tok-string { color: var(--tok-string); }
-.tok-keyword { color: var(--tok-keyword); }
-.tok-number { color: var(--tok-number); }
-.tok-key { color: var(--tok-key); font-weight: 500; }
-.tok-punct { color: var(--tok-punct); }
-.tok-cmd { color: var(--tok-cmd); font-weight: 500; }
-.tok-flag { color: var(--tok-flag); }
-.tok-var { color: var(--tok-var); }
+.tok-comment {
+  color: var(--tok-comment);
+}
+.tok-string {
+  color: var(--tok-string);
+}
+.tok-keyword {
+  color: var(--tok-keyword);
+}
+.tok-number {
+  color: var(--tok-number);
+}
+.tok-key {
+  color: var(--tok-key);
+  font-weight: 500;
+}
+.tok-punct {
+  color: var(--tok-punct);
+}
+.tok-cmd {
+  color: var(--tok-cmd);
+  font-weight: 500;
+}
+.tok-flag {
+  color: var(--tok-flag);
+}
+.tok-var {
+  color: var(--tok-var);
+}
 
 /* ---- API endpoint rows ---- */
 

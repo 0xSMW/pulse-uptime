@@ -1,13 +1,13 @@
-import { Suspense } from "react";
+import { Suspense } from "react"
 
-import { HealthBanner } from "@/components/dashboard/health-banner";
-import { MonitorTable } from "@/components/dashboard/monitor-table";
-import { MonitorTableSkeleton } from "@/components/dashboard/monitor-table-skeleton";
-import { NewMonitorAction } from "@/components/dashboard/new-monitor-action";
-import { DependencyPanel } from "@/components/dependencies/dependency-panel";
-import { DependencyPanelSkeleton } from "@/components/dependencies/dependency-panel-skeleton";
-import { getHealthWarnings } from "@/lib/monitoring/health";
-import { listDashboardMonitors } from "@/lib/monitoring/queries";
+import { HealthBanner } from "@/components/dashboard/health-banner"
+import { MonitorTable } from "@/components/dashboard/monitor-table"
+import { MonitorTableSkeleton } from "@/components/dashboard/monitor-table-skeleton"
+import { NewMonitorAction } from "@/components/dashboard/new-monitor-action"
+import { DependencyPanel } from "@/components/dependencies/dependency-panel"
+import { DependencyPanelSkeleton } from "@/components/dependencies/dependency-panel-skeleton"
+import { getHealthWarnings } from "@/lib/monitoring/health"
+import { listDashboardMonitors } from "@/lib/monitoring/queries"
 
 export default function OverviewPage() {
   return (
@@ -19,8 +19,10 @@ export default function OverviewPage() {
       </Suspense>
       <div className="mb-6 flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold tracking-[-0.02em]">Monitors</h1>
-          <p className="mt-1 text-[13px] text-[var(--fg-muted)]">Public endpoint availability</p>
+          <h1 className="font-semibold text-xl tracking-[-0.02em]">Monitors</h1>
+          <p className="mt-1 text-[13px] text-[var(--fg-muted)]">
+            Public endpoint availability
+          </p>
         </div>
         <NewMonitorAction />
       </div>
@@ -31,13 +33,13 @@ export default function OverviewPage() {
         <DependencyPanel />
       </Suspense>
     </>
-  );
+  )
 }
 
 async function HealthBannerIsland() {
-  return <HealthBanner warnings={await getHealthWarnings()} />;
+  return <HealthBanner warnings={await getHealthWarnings()} />
 }
 
 async function MonitorTableIsland() {
-  return <MonitorTable monitors={await listDashboardMonitors()} />;
+  return <MonitorTable monitors={await listDashboardMonitors()} />
 }

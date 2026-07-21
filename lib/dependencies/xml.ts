@@ -1,4 +1,4 @@
-import "server-only";
+import "server-only"
 
 // Safe, bounded RSS/Atom reader for the incident-feed adapters. It is a
 // hand-rolled scanner rather than a general XML tree parser, deliberately, so
@@ -22,32 +22,32 @@ import "server-only";
 export class XmlParseError extends Error {
   constructor(
     readonly code: "OVERSIZED" | "DTD_FORBIDDEN" | "MALFORMED",
-    message: string,
+    message: string
   ) {
-    super(message);
-    this.name = "XmlParseError";
+    super(message)
+    this.name = "XmlParseError"
   }
 }
 
 /** One normalized feed item. Every text field is decoded to bounded plain text with markup stripped, never raw markup. */
 export interface XmlFeedItem {
-  guid: string | null;
-  title: string | null;
-  description: string | null;
-  link: string | null;
-  pubDate: string | null;
-  categories: string[];
+  guid: string | null
+  title: string | null
+  description: string | null
+  link: string | null
+  pubDate: string | null
+  categories: string[]
 }
 
 export interface ParseFeedOptions {
   /** Reject input whose UTF-8 byte length exceeds this. Default 512 KB, matching the feed body cap. */
-  maxInputBytes?: number;
+  maxInputBytes?: number
   /** Stop after this many item/entry blocks. Default 200. */
-  maxItems?: number;
+  maxItems?: number
   /** Truncate each text field to this many characters. Default 4096, matching the spec's 4 KB per-update cap. */
-  maxTextLength?: number;
+  maxTextLength?: number
   /** Keep at most this many categories per item. Default 32. */
-  maxCategories?: number;
+  maxCategories?: number
 }
 
 const DEFAULTS = {
@@ -55,28 +55,37 @@ const DEFAULTS = {
   maxItems: 200,
   maxTextLength: 4096,
   maxCategories: 32,
-} as const;
+} as const
 
 /**
  * Parses an RSS or Atom document into bounded plain-text items. Throws
  * XmlParseError on oversized input or a DTD/entity declaration. Never resolves
  * external resources and never expands custom entities.
  */
-export function parseFeed(xml: string, options: ParseFeedOptions = {}): XmlFeedItem[] {
-  const maxInputBytes = options.maxInputBytes ?? DEFAULTS.maxInputBytes;
-  const maxItems = options.maxItems ?? DEFAULTS.maxItems;
-  const maxTextLength = options.maxTextLength ?? DEFAULTS.maxTextLength;
-  const maxCategories = options.maxCategories ?? DEFAULTS.maxCategories;
+export function parseFeed(
+  xml: string,
+  options: ParseFeedOptions = {}
+): XmlFeedItem[] {
+  const maxInputBytes = options.maxInputBytes ?? DEFAULTS.maxInputBytes
+  const maxItems = options.maxItems ?? DEFAULTS.maxItems
+  const maxTextLength = options.maxTextLength ?? DEFAULTS.maxTextLength
+  const maxCategories = options.maxCategories ?? DEFAULTS.maxCategories
 
   if (Buffer.byteLength(xml, "utf8") > maxInputBytes) {
-    throw new XmlParseError("OVERSIZED", `feed exceeds ${maxInputBytes} bytes`);
+    throw new XmlParseError("OVERSIZED", `feed exceeds ${maxInputBytes} bytes`)
   }
   // A DTD that declares entities is the vector for both billion-laughs and
   // external-entity attacks, so its mere presence is refused rather than
   // parsed and ignored. External DTD subsets (SYSTEM/PUBLIC) are refused for
   // the same reason.
-  if (/<!ENTITY\b/i.test(xml) || /<!DOCTYPE[^>]*\b(?:SYSTEM|PUBLIC)\b/i.test(xml)) {
-    throw new XmlParseError("DTD_FORBIDDEN", "feed declares a DTD or entities, which are disabled");
+  if (
+    /<!ENTITY\b/i.test(xml) ||
+    /<!DOCTYPE[^>]*\b(?:SYSTEM|PUBLIC)\b/i.test(xml)
+  ) {
+    throw new XmlParseError(
+      "DTD_FORBIDDEN",
+      "feed declares a DTD or entities, which are disabled"
+    )
   }
 
   // Comments and processing instructions are dropped whole so their contents
@@ -85,23 +94,31 @@ export function parseFeed(xml: string, options: ParseFeedOptions = {}): XmlFeedI
   const cleaned = xml
     .replace(/<!--[\s\S]*?-->/g, "")
     .replace(/<\?[\s\S]*?\?>/g, "")
-    .replace(/<!DOCTYPE[^>]*>/gi, "");
+    .replace(/<!DOCTYPE[^>]*>/gi, "")
 
   // Envelope integrity first: a truncated </rss> or </feed> fails the whole
   // document rather than returning a partial item array that looks healthy.
-  assertClosedEnvelope(cleaned);
+  assertClosedEnvelope(cleaned)
 
   // Item/entry extraction is atomic. A truncated later item after valid ones
   // fails the whole document, never a partial array of earlier items.
-  const blocks = extractBlocks(cleaned, ["item", "entry"], maxItems);
+  const blocks = extractBlocks(cleaned, ["item", "entry"], maxItems)
   return blocks.map((block) => ({
     guid: firstTagText(block, ["guid", "id"], maxTextLength),
     title: firstTagText(block, ["title"], maxTextLength),
-    description: firstTagText(block, ["description", "summary", "content"], maxTextLength),
+    description: firstTagText(
+      block,
+      ["description", "summary", "content"],
+      maxTextLength
+    ),
     link: extractLink(block, maxTextLength),
-    pubDate: firstTagText(block, ["pubdate", "updated", "published"], maxTextLength),
+    pubDate: firstTagText(
+      block,
+      ["pubdate", "updated", "published"],
+      maxTextLength
+    ),
     categories: extractCategories(block, maxCategories, maxTextLength),
-  }));
+  }))
 }
 
 /**
@@ -111,36 +128,49 @@ export function parseFeed(xml: string, options: ParseFeedOptions = {}): XmlFeedI
  * envelope after well-formed items would have been readable.
  */
 function assertClosedEnvelope(xml: string): void {
-  const lower = xml.toLowerCase();
+  const lower = xml.toLowerCase()
   for (const tag of ["rss", "feed"] as const) {
-    const start = findTagOpen(lower, xml, tag, 0);
-    if (start === -1) continue;
+    const start = findTagOpen(lower, xml, tag, 0)
+    if (start === -1) {
+      continue
+    }
 
-    const openEnd = xml.indexOf(">", start);
+    const openEnd = xml.indexOf(">", start)
     if (openEnd === -1) {
-      throw new XmlParseError("MALFORMED", `unclosed <${tag} opener`);
+      throw new XmlParseError("MALFORMED", `unclosed <${tag} opener`)
     }
     // Self-closing envelope is a valid empty feed.
-    if (xml[openEnd - 1] === "/") return;
-    const closeAt = lower.indexOf(`</${tag}>`, openEnd);
-    if (closeAt === -1) {
-      throw new XmlParseError("MALFORMED", `unclosed <${tag}> envelope`);
+    if (xml[openEnd - 1] === "/") {
+      return
     }
-    return;
+    const closeAt = lower.indexOf(`</${tag}>`, openEnd)
+    if (closeAt === -1) {
+      throw new XmlParseError("MALFORMED", `unclosed <${tag}> envelope`)
+    }
+    return
   }
 }
 
 /** Finds the next real open tag for `tag` at or after cursor, refusing prefix matches like `<items>` for `item`. */
-function findTagOpen(lower: string, xml: string, tag: string, cursor: number): number {
-  let searchFrom = cursor;
+function findTagOpen(
+  lower: string,
+  xml: string,
+  tag: string,
+  cursor: number
+): number {
+  let searchFrom = cursor
   while (searchFrom < lower.length) {
-    const at = lower.indexOf(`<${tag}`, searchFrom);
-    if (at === -1) return -1;
-    const boundary = xml[at + tag.length + 1];
-    if (boundary === undefined || /[\s>/]/.test(boundary)) return at;
-    searchFrom = at + 1;
+    const at = lower.indexOf(`<${tag}`, searchFrom)
+    if (at === -1) {
+      return -1
+    }
+    const boundary = xml[at + tag.length + 1]
+    if (boundary === undefined || /[\s>/]/.test(boundary)) {
+      return at
+    }
+    searchFrom = at + 1
   }
-  return -1;
+  return -1
 }
 
 /**
@@ -151,97 +181,130 @@ function findTagOpen(lower: string, xml: string, tag: string, cursor: number): n
  * MALFORMED so a truncated document cannot return a valid-looking partial
  * array.
  */
-function extractBlocks(xml: string, tagNames: readonly string[], maxItems: number): string[] {
-  const blocks: string[] = [];
-  const lower = xml.toLowerCase();
-  let cursor = 0;
+function extractBlocks(
+  xml: string,
+  tagNames: readonly string[],
+  maxItems: number
+): string[] {
+  const blocks: string[] = []
+  const lower = xml.toLowerCase()
+  let cursor = 0
   while (blocks.length < maxItems) {
-    let start = -1;
-    let matchedTag = "";
+    let start = -1
+    let matchedTag = ""
     for (const tag of tagNames) {
-      const at = findTagOpen(lower, xml, tag, cursor);
+      const at = findTagOpen(lower, xml, tag, cursor)
       if (at !== -1 && (start === -1 || at < start)) {
-        start = at;
-        matchedTag = tag;
+        start = at
+        matchedTag = tag
       }
     }
-    if (start === -1) break;
+    if (start === -1) {
+      break
+    }
 
-    const openEnd = xml.indexOf(">", start);
+    const openEnd = xml.indexOf(">", start)
     if (openEnd === -1) {
-      throw new XmlParseError("MALFORMED", `unclosed <${matchedTag} opener`);
+      throw new XmlParseError("MALFORMED", `unclosed <${matchedTag} opener`)
     }
     // A self-closing `<entry/>` carries no content, skip past it.
     if (xml[openEnd - 1] === "/") {
-      cursor = openEnd + 1;
-      continue;
+      cursor = openEnd + 1
+      continue
     }
-    const closeAt = lower.indexOf(`</${matchedTag}>`, openEnd);
+    const closeAt = lower.indexOf(`</${matchedTag}>`, openEnd)
     if (closeAt === -1) {
-      throw new XmlParseError("MALFORMED", `unclosed <${matchedTag}> element`);
+      throw new XmlParseError("MALFORMED", `unclosed <${matchedTag}> element`)
     }
-    blocks.push(xml.slice(openEnd + 1, closeAt));
-    cursor = closeAt + matchedTag.length + 3;
+    blocks.push(xml.slice(openEnd + 1, closeAt))
+    cursor = closeAt + matchedTag.length + 3
   }
-  return blocks;
+  return blocks
 }
 
 /** Returns the decoded text of the first present tag among the candidates, or null when none is present. */
-function firstTagText(block: string, tagNames: readonly string[], maxTextLength: number): string | null {
+function firstTagText(
+  block: string,
+  tagNames: readonly string[],
+  maxTextLength: number
+): string | null {
   for (const tag of tagNames) {
-    const match = new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}>`, "i").exec(block);
+    const match = new RegExp(
+      `<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}>`,
+      "i"
+    ).exec(block)
     if (match) {
-      const text = decodeText(match[1], maxTextLength);
-      if (text) return text;
+      const text = decodeText(match[1], maxTextLength)
+      if (text) {
+        return text
+      }
     }
   }
-  return null;
+  return null
 }
 
 /** RSS carries the link as element text, Atom as a self-closing `<link href=...>`. Element text wins when present, else the href attribute. */
 function extractLink(block: string, maxTextLength: number): string | null {
-  const textMatch = /<link(?:\s[^>]*)?>([\s\S]*?)<\/link>/i.exec(block);
-  const text = textMatch ? decodeText(textMatch[1], maxTextLength) : "";
-  if (text) return text;
-  const hrefMatch = /<link\b[^>]*\bhref\s*=\s*"([^"]*)"/i.exec(block);
-  if (hrefMatch) {
-    const href = decodeText(hrefMatch[1], maxTextLength);
-    if (href) return href;
+  const textMatch = /<link(?:\s[^>]*)?>([\s\S]*?)<\/link>/i.exec(block)
+  const text = textMatch ? decodeText(textMatch[1], maxTextLength) : ""
+  if (text) {
+    return text
   }
-  return null;
+  const hrefMatch = /<link\b[^>]*\bhref\s*=\s*"([^"]*)"/i.exec(block)
+  if (hrefMatch) {
+    const href = decodeText(hrefMatch[1], maxTextLength)
+    if (href) {
+      return href
+    }
+  }
+  return null
 }
 
 /** Collects RSS `<category>text</category>` and Atom `<category term="...">` values, deduped and capped. */
-function extractCategories(block: string, maxCategories: number, maxTextLength: number): string[] {
-  const found: string[] = [];
-  const seen = new Set<string>();
+function extractCategories(
+  block: string,
+  maxCategories: number,
+  maxTextLength: number
+): string[] {
+  const found: string[] = []
+  const seen = new Set<string>()
   const push = (value: string) => {
     if (value && !seen.has(value) && found.length < maxCategories) {
-      seen.add(value);
-      found.push(value);
+      seen.add(value)
+      found.push(value)
     }
-  };
+  }
 
-  const textRe = /<category(?:\s[^>]*)?>([\s\S]*?)<\/category>/gi;
-  for (let match = textRe.exec(block); match && found.length < maxCategories; match = textRe.exec(block)) {
-    push(decodeText(match[1], maxTextLength));
+  const textRe = /<category(?:\s[^>]*)?>([\s\S]*?)<\/category>/gi
+  for (
+    let match = textRe.exec(block);
+    match && found.length < maxCategories;
+    match = textRe.exec(block)
+  ) {
+    push(decodeText(match[1], maxTextLength))
   }
-  const termRe = /<category\b[^>]*\bterm\s*=\s*"([^"]*)"/gi;
-  for (let match = termRe.exec(block); match && found.length < maxCategories; match = termRe.exec(block)) {
-    push(decodeText(match[1], maxTextLength));
+  const termRe = /<category\b[^>]*\bterm\s*=\s*"([^"]*)"/gi
+  for (
+    let match = termRe.exec(block);
+    match && found.length < maxCategories;
+    match = termRe.exec(block)
+  ) {
+    push(decodeText(match[1], maxTextLength))
   }
-  return found;
+  return found
 }
 
 /** Unwraps CDATA, replaces remaining markup with whitespace so token boundaries survive, decodes the five predefined and numeric entities in one pass, collapses spacing, and truncates. */
 function decodeText(raw: string, maxTextLength: number): string {
-  const withoutCdata = raw.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1");
+  const withoutCdata = raw.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
   // Tags become spaces rather than empty so "UTC</small><strong>IDENTIFIED" keeps a
   // word boundary between the timezone token and the lifecycle marker.
-  const withoutTags = withoutCdata.replace(/<[^>]*>/g, " ");
-  const decoded = decodeEntities(withoutTags);
-  const collapsed = decoded.replace(/\s+/g, " ").trim();
-  return collapsed.length > maxTextLength ? collapsed.slice(0, maxTextLength) : collapsed;
+  const withoutTags = withoutCdata.replace(/<[^>]*>/g, " ")
+  const decoded = decodeEntities(withoutTags)
+  const collapsed = decoded.replace(/\s+/g, " ").trim()
+  return collapsed.length > maxTextLength
+    ? collapsed.slice(0, maxTextLength)
+    : collapsed
 }
 
 /**
@@ -251,28 +314,36 @@ function decodeText(raw: string, maxTextLength: number): string {
  * billion-laughs payloads: they never resolve and the result never re-expands.
  */
 function decodeEntities(text: string): string {
-  return text.replace(/&(#x[0-9a-f]+|#[0-9]+|amp|lt|gt|quot|apos);/gi, (whole, body: string) => {
-    const lower = body.toLowerCase();
-    switch (lower) {
-      case "amp":
-        return "&";
-      case "lt":
-        return "<";
-      case "gt":
-        return ">";
-      case "quot":
-        return "\"";
-      case "apos":
-        return "'";
-      default: {
-        const code = lower[1] === "x" ? Number.parseInt(lower.slice(2), 16) : Number.parseInt(lower.slice(1), 10);
-        if (!Number.isFinite(code) || code <= 0 || code > 0x10ffff) return whole;
-        try {
-          return String.fromCodePoint(code);
-        } catch {
-          return whole;
+  return text.replace(
+    /&(#x[0-9a-f]+|#[0-9]+|amp|lt|gt|quot|apos);/gi,
+    (whole, body: string) => {
+      const lower = body.toLowerCase()
+      switch (lower) {
+        case "amp":
+          return "&"
+        case "lt":
+          return "<"
+        case "gt":
+          return ">"
+        case "quot":
+          return '"'
+        case "apos":
+          return "'"
+        default: {
+          const code =
+            lower[1] === "x"
+              ? Number.parseInt(lower.slice(2), 16)
+              : Number.parseInt(lower.slice(1), 10)
+          if (!Number.isFinite(code) || code <= 0 || code > 0x10_ff_ff) {
+            return whole
+          }
+          try {
+            return String.fromCodePoint(code)
+          } catch {
+            return whole
+          }
         }
       }
     }
-  });
+  )
 }

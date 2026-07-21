@@ -1,15 +1,15 @@
-import "server-only";
+import "server-only"
 
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm"
 
-import { db, type DatabaseHandle } from "@/lib/db/client";
-import { adminUsers, images, statusPageConfig } from "@/lib/db/schema";
+import { type DatabaseHandle, db } from "@/lib/db/client"
+import { adminUsers, images, statusPageConfig } from "@/lib/db/schema"
 import {
   parseStatusPageConfigDocument,
   STATUS_PAGE_NAME_FALLBACK,
   type StatusPageConfigDocument,
   type StatusPageNavLink,
-} from "@/lib/status-page/schema";
+} from "@/lib/status-page/schema"
 
 /**
  * Store-injection service for the dedicated single-row status page
@@ -32,7 +32,10 @@ import {
  * produces the "0" ETag.
  */
 
-export type StatusPageConfigData = StatusPageConfigDocument & { updatedAt: string | null; version: number };
+export type StatusPageConfigData = StatusPageConfigDocument & {
+  updatedAt: string | null
+  version: number
+}
 
 export class StatusPageConfigError extends Error {
   constructor(
@@ -42,16 +45,16 @@ export class StatusPageConfigError extends Error {
       | "PRECONDITION_FAILED"
       | "CONFIG_UNAVAILABLE",
     message: string,
-    readonly details: Record<string, unknown> = {},
+    readonly details: Record<string, unknown> = {}
   ) {
-    super(message);
-    this.name = "StatusPageConfigError";
+    super(message)
+    this.name = "StatusPageConfigError"
   }
 }
 
 /** Quoted version counter. `"0"` marks the never-updated seed row. */
 export function statusPageConfigEtag(version: number): string {
-  return `"${version}"`;
+  return `"${version}"`
 }
 
 /**
@@ -65,136 +68,192 @@ export function statusPageConfigEtag(version: number): string {
  * comparison function of RFC 9110 section 8.8.3.2.
  */
 function etagOpaqueTag(etag: string): string {
-  const trimmed = etag.trim();
-  return trimmed.startsWith("W/") ? trimmed.slice(2).trim() : trimmed;
+  const trimmed = etag.trim()
+  return trimmed.startsWith("W/") ? trimmed.slice(2).trim() : trimmed
 }
 
 /** True when two ETags identify the same representation under weak comparison. */
-export function statusPageConfigEtagMatches(current: string, ifMatch: string): boolean {
-  return etagOpaqueTag(current) === etagOpaqueTag(ifMatch);
+export function statusPageConfigEtagMatches(
+  current: string,
+  ifMatch: string
+): boolean {
+  return etagOpaqueTag(current) === etagOpaqueTag(ifMatch)
 }
 
-export type StatusPageConfigRow = StatusPageConfigDocument & { updatedAt: Date | null; version: number };
+export type StatusPageConfigRow = StatusPageConfigDocument & {
+  updatedAt: Date | null
+  version: number
+}
 
 export interface StatusPageConfigStore {
-  read(): Promise<(Omit<StatusPageConfigRow, "name"> & { name: string | null }) | null>;
+  read(): Promise<
+    (Omit<StatusPageConfigRow, "name"> & { name: string | null }) | null
+  >
   /** Conditional single-row update, false when version no longer matches expectedVersion. */
   write(input: {
-    document: StatusPageConfigDocument;
-    expectedVersion: number;
-    now: Date;
-  }): Promise<boolean>;
-  findImageKinds(ids: readonly string[]): Promise<Array<{ id: string; kind: string }>>;
+    document: StatusPageConfigDocument
+    expectedVersion: number
+    now: Date
+  }): Promise<boolean>
+  findImageKinds(
+    ids: readonly string[]
+  ): Promise<Array<{ id: string; kind: string }>>
   /** Deletes the given image rows unless something still references them. */
-  deleteUnreferencedImages(ids: readonly string[]): Promise<number>;
+  deleteUnreferencedImages(ids: readonly string[]): Promise<number>
 }
 
 export type StatusPageConfigDependencies = {
-  store?: StatusPageConfigStore;
-  env?: Record<string, string | undefined>;
-  now?: () => Date;
+  store?: StatusPageConfigStore
+  env?: Record<string, string | undefined>
+  now?: () => Date
   /** Runs the store against this handle instead of the default pool, so the guarded update can join an outer transaction as a savepoint. Ignored when `store` is given. */
-  handle?: DatabaseHandle;
-};
+  handle?: DatabaseHandle
+}
 
 function defaultName(env: Record<string, string | undefined>): string {
-  return env.NEXT_PUBLIC_STATUS_PAGE_NAME?.trim() || STATUS_PAGE_NAME_FALLBACK;
+  return env.NEXT_PUBLIC_STATUS_PAGE_NAME?.trim() || STATUS_PAGE_NAME_FALLBACK
 }
 
 function present(
   row: Omit<StatusPageConfigRow, "name"> & { name: string | null },
-  env: Record<string, string | undefined>,
+  env: Record<string, string | undefined>
 ): StatusPageConfigData {
-  const { updatedAt, ...document } = row;
+  const { updatedAt, ...document } = row
   return {
     ...document,
     name: row.name ?? defaultName(env),
     updatedAt: updatedAt?.toISOString() ?? null,
-  };
+  }
 }
 
 export async function getStatusPageConfig(
-  dependencies: StatusPageConfigDependencies = {},
+  dependencies: StatusPageConfigDependencies = {}
 ): Promise<{ data: StatusPageConfigData; etag: string }> {
-  const store = dependencies.store ?? databaseStatusPageConfigStore;
-  const row = await store.read();
+  const store = dependencies.store ?? databaseStatusPageConfigStore
+  const row = await store.read()
   if (!row) {
-    throw new StatusPageConfigError("CONFIG_UNAVAILABLE", "The status page configuration row is missing; run database migrations");
+    throw new StatusPageConfigError(
+      "CONFIG_UNAVAILABLE",
+      "The status page configuration row is missing; run database migrations"
+    )
   }
   return {
     data: present(row, dependencies.env ?? process.env),
     etag: statusPageConfigEtag(row.version),
-  };
+  }
 }
 
 const IMAGE_REFERENCE_FIELDS = [
   ["logoLightImageId", "logo-light"],
   ["logoDarkImageId", "logo-dark"],
   ["faviconImageId", "favicon"],
-] as const;
+] as const
 
 export async function putStatusPageConfig(
   input: unknown,
   ifMatchEtag: string,
-  dependencies: StatusPageConfigDependencies = {},
+  dependencies: StatusPageConfigDependencies = {}
 ): Promise<{ data: StatusPageConfigData; etag: string }> {
-  const parsed = parseStatusPageConfigDocument(input);
+  const parsed = parseStatusPageConfigDocument(input)
   if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    const at = issue?.path.length ? ` at ${issue.path.join(".")}` : "";
-    throw new StatusPageConfigError("INVALID_CONFIG", `Invalid status page configuration${at}: ${issue?.message ?? "invalid document"}`, {
-      issues: parsed.error.issues.map((entry) => ({ path: entry.path.join("."), message: entry.message })),
-    });
+    const issue = parsed.error.issues[0]
+    const at = issue?.path.length ? ` at ${issue.path.join(".")}` : ""
+    throw new StatusPageConfigError(
+      "INVALID_CONFIG",
+      `Invalid status page configuration${at}: ${issue?.message ?? "invalid document"}`,
+      {
+        issues: parsed.error.issues.map((entry) => ({
+          path: entry.path.join("."),
+          message: entry.message,
+        })),
+      }
+    )
   }
-  const document = parsed.data;
+  const document = parsed.data
 
-  const store = dependencies.store ?? createDatabaseStatusPageConfigStore(dependencies.handle);
-  const current = await store.read();
+  const store =
+    dependencies.store ??
+    createDatabaseStatusPageConfigStore(dependencies.handle)
+  const current = await store.read()
   if (!current) {
-    throw new StatusPageConfigError("CONFIG_UNAVAILABLE", "The status page configuration row is missing; run database migrations");
+    throw new StatusPageConfigError(
+      "CONFIG_UNAVAILABLE",
+      "The status page configuration row is missing; run database migrations"
+    )
   }
-  if (!statusPageConfigEtagMatches(statusPageConfigEtag(current.version), ifMatchEtag)) {
-    throw new StatusPageConfigError("PRECONDITION_FAILED", "The status page configuration changed since it was read");
+  if (
+    !statusPageConfigEtagMatches(
+      statusPageConfigEtag(current.version),
+      ifMatchEtag
+    )
+  ) {
+    throw new StatusPageConfigError(
+      "PRECONDITION_FAILED",
+      "The status page configuration changed since it was read"
+    )
   }
 
-  const references = IMAGE_REFERENCE_FIELDS
-    .map(([field, kind]) => ({ field, kind, id: document[field] }))
-    .filter((reference): reference is typeof reference & { id: string } => reference.id !== null);
+  const references = IMAGE_REFERENCE_FIELDS.map(([field, kind]) => ({
+    field,
+    kind,
+    id: document[field],
+  })).filter(
+    (reference): reference is typeof reference & { id: string } =>
+      reference.id !== null
+  )
   if (references.length > 0) {
     const found = new Map(
-      (await store.findImageKinds(references.map(({ id }) => id))).map((row) => [row.id, row.kind]),
-    );
+      (await store.findImageKinds(references.map(({ id }) => id))).map(
+        (row) => [row.id, row.kind]
+      )
+    )
     for (const { field, kind, id } of references) {
       if (found.get(id) !== kind) {
-        throw new StatusPageConfigError("IMAGE_REFERENCE_INVALID", `${field} must reference an uploaded ${kind} image`, { field });
+        throw new StatusPageConfigError(
+          "IMAGE_REFERENCE_INVALID",
+          `${field} must reference an uploaded ${kind} image`,
+          { field }
+        )
       }
     }
   }
 
-  const now = dependencies.now?.() ?? new Date();
-  const nextVersion = current.version + 1;
-  const written = await store.write({ document, expectedVersion: current.version, now });
+  const now = dependencies.now?.() ?? new Date()
+  const nextVersion = current.version + 1
+  const written = await store.write({
+    document,
+    expectedVersion: current.version,
+    now,
+  })
   if (!written) {
-    throw new StatusPageConfigError("PRECONDITION_FAILED", "The status page configuration changed since it was read");
+    throw new StatusPageConfigError(
+      "PRECONDITION_FAILED",
+      "The status page configuration changed since it was read"
+    )
   }
 
   // Explicit GC: image rows the previous document referenced but the new one
   // does not are deleted, unless something else (including an admin avatar
   // column) still points at them. Failures leave orphans for the sweep.
-  const nextIds = new Set(references.map(({ id }) => id));
-  const removed = [...new Set(
-    IMAGE_REFERENCE_FIELDS
-      .map(([field]) => current[field])
-      .filter((id): id is string => id !== null && !nextIds.has(id)),
-  )];
+  const nextIds = new Set(references.map(({ id }) => id))
+  const removed = [
+    ...new Set(
+      IMAGE_REFERENCE_FIELDS.map(([field]) => current[field]).filter(
+        (id): id is string => id !== null && !nextIds.has(id)
+      )
+    ),
+  ]
   if (removed.length > 0) {
-    await store.deleteUnreferencedImages(removed).catch(() => 0);
+    await store.deleteUnreferencedImages(removed).catch(() => 0)
   }
 
   return {
-    data: present({ ...document, updatedAt: now, version: nextVersion }, dependencies.env ?? process.env),
+    data: present(
+      { ...document, updatedAt: now, version: nextVersion },
+      dependencies.env ?? process.env
+    ),
     etag: statusPageConfigEtag(nextVersion),
-  };
+  }
 }
 
 const configSelection = {
@@ -219,19 +278,27 @@ const configSelection = {
   timezone: statusPageConfig.timezone,
   updatedAt: statusPageConfig.updatedAt,
   version: statusPageConfig.version,
-};
+}
 
 /** Binds the store to `handle` (default the pool) so a caller can join an outer transaction as a savepoint. */
-export function createDatabaseStatusPageConfigStore(handle: DatabaseHandle = db): StatusPageConfigStore {
+export function createDatabaseStatusPageConfigStore(
+  handle: DatabaseHandle = db
+): StatusPageConfigStore {
   return {
     async read() {
-      const [row] = await handle.select(configSelection).from(statusPageConfig).where(eq(statusPageConfig.id, 1)).limit(1);
-      if (!row) return null;
+      const [row] = await handle
+        .select(configSelection)
+        .from(statusPageConfig)
+        .where(eq(statusPageConfig.id, 1))
+        .limit(1)
+      if (!row) {
+        return null
+      }
       return {
         ...row,
         historyDays: row.historyDays as 30 | 60 | 90,
         navLinks: (row.navLinks ?? []) as StatusPageNavLink[],
-      };
+      }
     },
     // The conditional UPDATE compares against the CURRENT version (not
     // updatedAt), incrementing it in the same statement, so a stale If-Match
@@ -241,20 +308,33 @@ export function createDatabaseStatusPageConfigStore(handle: DatabaseHandle = db)
     async write({ document, expectedVersion, now }) {
       const rows = await handle
         .update(statusPageConfig)
-        .set({ ...document, updatedAt: now, version: sql`${statusPageConfig.version} + 1` })
-        .where(and(
-          eq(statusPageConfig.id, 1),
-          eq(statusPageConfig.version, expectedVersion),
-        ))
-        .returning({ id: statusPageConfig.id });
-      return rows.length > 0;
+        .set({
+          ...document,
+          updatedAt: now,
+          version: sql`${statusPageConfig.version} + 1`,
+        })
+        .where(
+          and(
+            eq(statusPageConfig.id, 1),
+            eq(statusPageConfig.version, expectedVersion)
+          )
+        )
+        .returning({ id: statusPageConfig.id })
+      return rows.length > 0
     },
     async findImageKinds(ids) {
-      if (ids.length === 0) return [];
-      return handle.select({ id: images.id, kind: images.kind }).from(images).where(inArray(images.id, [...ids]));
+      if (ids.length === 0) {
+        return []
+      }
+      return handle
+        .select({ id: images.id, kind: images.kind })
+        .from(images)
+        .where(inArray(images.id, [...ids]))
     },
     async deleteUnreferencedImages(ids) {
-      if (ids.length === 0) return 0;
+      if (ids.length === 0) {
+        return 0
+      }
       // Runs as a savepoint of `handle`, never a bare statement on it: the
       // caller treats this delete as best-effort (see putStatusPageConfig's
       // .catch), but `handle` may already be the caller's outer transaction,
@@ -265,21 +345,24 @@ export function createDatabaseStatusPageConfigStore(handle: DatabaseHandle = db)
       return handle.transaction(async (tx) => {
         const rows = await tx
           .delete(images)
-          .where(and(
-            inArray(images.id, [...ids]),
-            sql`not exists (
+          .where(
+            and(
+              inArray(images.id, [...ids]),
+              sql`not exists (
               select 1 from ${statusPageConfig}
               where ${statusPageConfig.logoLightImageId} = ${images.id}
                 or ${statusPageConfig.logoDarkImageId} = ${images.id}
                 or ${statusPageConfig.faviconImageId} = ${images.id}
             )`,
-            sql`not exists (select 1 from ${adminUsers} where ${adminUsers.avatarImageId} = ${images.id})`,
-          ))
-          .returning({ id: images.id });
-        return rows.length;
-      });
+              sql`not exists (select 1 from ${adminUsers} where ${adminUsers.avatarImageId} = ${images.id})`
+            )
+          )
+          .returning({ id: images.id })
+        return rows.length
+      })
     },
-  };
+  }
 }
 
-export const databaseStatusPageConfigStore: StatusPageConfigStore = createDatabaseStatusPageConfigStore();
+export const databaseStatusPageConfigStore: StatusPageConfigStore =
+  createDatabaseStatusPageConfigStore()

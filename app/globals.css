@@ -31,11 +31,11 @@
   --neutral-state: #878787;
 
   --card-shadow: 0 1px 2px rgb(0 0 0 / 16%);
-  --popover-shadow: 0 1px 1px rgb(0 0 0 / 2%),
-    0 4px 8px -4px rgb(0 0 0 / 4%),
+  --popover-shadow:
+    0 1px 1px rgb(0 0 0 / 2%), 0 4px 8px -4px rgb(0 0 0 / 4%),
     0 16px 24px -8px rgb(0 0 0 / 6%);
-  --modal-shadow: 0 1px 1px rgb(0 0 0 / 2%),
-    0 8px 16px -4px rgb(0 0 0 / 4%),
+  --modal-shadow:
+    0 1px 1px rgb(0 0 0 / 2%), 0 8px 16px -4px rgb(0 0 0 / 4%),
     0 24px 32px -8px rgb(0 0 0 / 6%);
 
   /* shadcn-compatible aliases */
@@ -167,7 +167,9 @@
   textarea:focus-visible,
   select:focus-visible,
   [tabindex]:not([tabindex="-1"]):focus-visible {
-    box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--focus);
+    box-shadow:
+      0 0 0 2px var(--bg),
+      0 0 0 4px var(--focus);
   }
 
   ::selection {

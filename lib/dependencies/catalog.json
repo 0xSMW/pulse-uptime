@@ -39,7 +39,9 @@
       "operationalPollSeconds": 120,
       "activePollSeconds": 60,
       "staleAfterSeconds": 600,
-      "config": { "productsUrl": "https://status.cloud.google.com/products.json" }
+      "config": {
+        "productsUrl": "https://status.cloud.google.com/products.json"
+      }
     },
     {
       "id": "azure",
@@ -48,7 +50,11 @@
       "currentUrl": "https://azure.status.microsoft/en-us/status/feed/",
       "incidentsUrl": "https://azure.status.microsoft/en-us/status/feed/",
       "statusPageUrl": "https://azure.status.microsoft/en-us/status",
-      "allowedHosts": ["azure.status.microsoft", "rssfeed.azure.status.microsoft", "azurestatuscdn.azureedge.net"],
+      "allowedHosts": [
+        "azure.status.microsoft",
+        "rssfeed.azure.status.microsoft",
+        "azurestatuscdn.azureedge.net"
+      ],
       "operationalPollSeconds": 300,
       "activePollSeconds": 120,
       "staleAfterSeconds": 900,
@@ -454,7 +460,11 @@
         "aggregation": "worst_of",
         "ids": ["4rgs7bbljl8d"]
       },
-      "scope": { "kind": "discovered_children", "groupId": "4rgs7bbljl8d", "required": true },
+      "scope": {
+        "kind": "discovered_children",
+        "groupId": "4rgs7bbljl8d",
+        "required": true
+      },
       "sourceScopeNote": null,
       "enabled": true
     },
@@ -469,7 +479,11 @@
         "aggregation": "worst_of",
         "ids": ["kl8qv98c9brp"]
       },
-      "scope": { "kind": "discovered_children", "groupId": "kl8qv98c9brp", "required": true },
+      "scope": {
+        "kind": "discovered_children",
+        "groupId": "kl8qv98c9brp",
+        "required": true
+      },
       "sourceScopeNote": null,
       "enabled": true
     },
@@ -479,7 +493,11 @@
       "name": "Amazon EC2",
       "category": "hosting",
       "description": "Amazon EC2 compute, scoped to one AWS region.",
-      "selector": { "kind": "component_ids", "aggregation": "worst_of", "ids": [] },
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": []
+      },
       "scope": {
         "kind": "required_options",
         "options": [
@@ -501,7 +519,11 @@
       "name": "Amazon S3",
       "category": "data",
       "description": "Amazon S3 object storage, scoped to one AWS region.",
-      "selector": { "kind": "component_ids", "aggregation": "worst_of", "ids": [] },
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": []
+      },
       "scope": {
         "kind": "required_options",
         "options": [
@@ -523,7 +545,11 @@
       "name": "Amazon RDS",
       "category": "data",
       "description": "Amazon RDS managed databases, scoped to one AWS region.",
-      "selector": { "kind": "component_ids", "aggregation": "worst_of", "ids": [] },
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": []
+      },
       "scope": {
         "kind": "required_options",
         "options": [
@@ -545,7 +571,11 @@
       "name": "Amazon DynamoDB",
       "category": "data",
       "description": "Amazon DynamoDB, scoped to one AWS region.",
-      "selector": { "kind": "component_ids", "aggregation": "worst_of", "ids": [] },
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": []
+      },
       "scope": {
         "kind": "required_options",
         "options": [
@@ -567,7 +597,11 @@
       "name": "AWS Lambda",
       "category": "hosting",
       "description": "AWS Lambda serverless compute, scoped to one AWS region.",
-      "selector": { "kind": "component_ids", "aggregation": "worst_of", "ids": [] },
+      "selector": {
+        "kind": "component_ids",
+        "aggregation": "worst_of",
+        "ids": []
+      },
       "scope": {
         "kind": "required_options",
         "options": [
@@ -770,7 +804,10 @@
           { "id": "690ccb48769e0d058c5c353d", "label": "AWS us-east-1" },
           { "id": "690ccb4f8c3745059f2b33b1", "label": "AWS us-east-2" },
           { "id": "690ccb5d8c199d057e3d8b17", "label": "AWS us-west-2" },
-          { "id": "690ccb7b3e9b0e0539518462", "label": "Azure germanywestcentral" },
+          {
+            "id": "690ccb7b3e9b0e0539518462",
+            "label": "Azure germanywestcentral"
+          },
           { "id": "690ccb8b3e9b0e0539518463", "label": "Azure eastus2" },
           { "id": "690ccb941cde000532ba309e", "label": "Azure westus3" }
         ]
@@ -789,7 +826,11 @@
         "aggregation": "worst_of",
         "ids": ["36n3k66s7n2v"]
       },
-      "scope": { "kind": "discovered_children", "groupId": "36n3k66s7n2v", "required": true },
+      "scope": {
+        "kind": "discovered_children",
+        "groupId": "36n3k66s7n2v",
+        "required": true
+      },
       "sourceScopeNote": null,
       "enabled": true
     },
@@ -834,7 +875,11 @@
         "aggregation": "worst_of",
         "ids": ["3wszb9kxy0n8"]
       },
-      "scope": { "kind": "discovered_children", "groupId": "3wszb9kxy0n8", "required": true },
+      "scope": {
+        "kind": "discovered_children",
+        "groupId": "3wszb9kxy0n8",
+        "required": true
+      },
       "sourceScopeNote": null,
       "enabled": true
     },
@@ -892,7 +937,12 @@
       "selector": {
         "kind": "component_ids",
         "aggregation": "worst_of",
-        "ids": ["01JAVQMPBQB2V1EV4CXB9SSE6S", "01JBC9MT40KNWXCBCC34T3EKBM", "01JBC9MT401XKH67TV03711ZEK", "01K48K3D9YJBGX1PSPN9GMMPGS"]
+        "ids": [
+          "01JAVQMPBQB2V1EV4CXB9SSE6S",
+          "01JBC9MT40KNWXCBCC34T3EKBM",
+          "01JBC9MT401XKH67TV03711ZEK",
+          "01K48K3D9YJBGX1PSPN9GMMPGS"
+        ]
       },
       "scope": null,
       "sourceScopeNote": null,

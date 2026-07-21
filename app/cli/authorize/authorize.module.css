@@ -1,45 +1,244 @@
-.shell { min-height:100vh; background:var(--bg); }
-.header { display:flex; align-items:center; height:56px; padding:0 24px; }
-.wordmark { display:inline-flex; align-items:center; gap:8px; color:var(--fg); font-size:14px; font-weight:600; text-decoration:none; }
-.brandDot,.statusDot,.successDot,.neutralDot { display:inline-block; flex:none; width:8px; height:8px; border-radius:9999px; }
-.brandDot { background:var(--fg); }
-.flow { width:min(480px,calc(100% - 32px)); margin:56px auto 80px; }
-.eyebrow { margin:0 0 8px; color:var(--fg-muted); font-size:12px; font-weight:500; line-height:16px; text-transform:uppercase; letter-spacing:.06em; }
-.title { margin:0; color:var(--fg); font-size:20px; line-height:28px; font-weight:600; letter-spacing:-.4px; }
-.lede { margin:6px 0 20px; color:var(--fg-muted); font-size:14px; line-height:20px; }
-.card { padding:24px; }
-.client { display:flex; gap:12px; align-items:flex-start; }
-.clientIcon { display:flex; width:32px; height:32px; align-items:center; justify-content:center; border:1px solid var(--border-strong); border-radius:8px; }
-.statusDot,.successDot { background:var(--up); }
-.clientCopy { min-width:0; }
-.clientCopy h2,.lookupTitle,.replacement h2 { margin:0; color:var(--fg); font-size:14px; line-height:20px; font-weight:600; letter-spacing:-.28px; }
-.clientCopy p { margin:3px 0 0; color:var(--fg-muted); font-size:13px; line-height:18px; overflow-wrap:anywhere; }
-.clientCopy p span { color:var(--fg); font-family:var(--font-geist-mono),"Geist Mono",monospace; }
-.clientCopy .meta { margin-top:4px; color:var(--fg-faint); font-family:var(--font-geist-mono),"Geist Mono",monospace; font-size:12px; line-height:16px; }
-.permissions { display:flex; flex-direction:column; margin-top:20px; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
-.permission { display:flex; align-items:center; gap:10px; min-height:40px; padding:10px 12px; color:var(--fg); font-size:13px; line-height:18px; }
-.permission + .permission { border-top:1px solid var(--border); }
-.permission svg { color:var(--fg-muted); }
-.codeConfirmation { display:flex; align-items:center; gap:12px; margin-top:16px; padding:12px; background:var(--code-bg); border:1px solid var(--code-border); border-radius:8px; }
-.codeConfirmation > svg { color:var(--fg-muted); }
-.codeConfirmation p { margin:0; color:var(--fg-faint); font-size:12px; line-height:16px; }
-.codeConfirmation .code { color:var(--fg); font-family:var(--font-geist-mono),"Geist Mono",monospace; font-size:16px; line-height:20px; font-weight:600; letter-spacing:.08em; }
-.actions { display:flex; gap:8px; margin-top:20px; }
-.action { flex:1; }
-.lookupIcon { display:flex; align-items:center; justify-content:center; width:36px; height:36px; margin-bottom:16px; border:1px solid var(--border-strong); border-radius:8px; color:var(--fg-muted); }
-.lookupCopy { margin:4px 0 20px; color:var(--fg-muted); font-size:13px; line-height:18px; }
-.label { display:block; margin-bottom:6px; color:var(--fg); font-size:13px; font-weight:500; line-height:18px; }
-.input { font-family:var(--font-geist-mono),"Geist Mono",monospace; text-transform:uppercase; }
-.continue { width:100%; margin-top:16px; }
-.error { margin:12px 0 0; color:var(--down-text); font-size:12px; line-height:16px; }
-.replacement { display:flex; align-items:flex-start; gap:12px; margin-top:20px; padding:24px; }
-.successDot,.neutralDot { margin-top:6px; }
-.neutralDot { background:var(--neutral-state); }
-.replacement p { margin:3px 0 0; color:var(--fg-muted); font-size:13px; line-height:18px; }
+.shell {
+  min-height: 100vh;
+  background: var(--bg);
+}
+.header {
+  display: flex;
+  align-items: center;
+  height: 56px;
+  padding: 0 24px;
+}
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.brandDot,
+.statusDot,
+.successDot,
+.neutralDot {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+}
+.brandDot {
+  background: var(--fg);
+}
+.flow {
+  width: min(480px, calc(100% - 32px));
+  margin: 56px auto 80px;
+}
+.eyebrow {
+  margin: 0 0 8px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.title {
+  margin: 0;
+  color: var(--fg);
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+  letter-spacing: -0.4px;
+}
+.lede {
+  margin: 6px 0 20px;
+  color: var(--fg-muted);
+  font-size: 14px;
+  line-height: 20px;
+}
+.card {
+  padding: 24px;
+}
+.client {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.clientIcon {
+  display: flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+}
+.statusDot,
+.successDot {
+  background: var(--up);
+}
+.clientCopy {
+  min-width: 0;
+}
+.clientCopy h2,
+.lookupTitle,
+.replacement h2 {
+  margin: 0;
+  color: var(--fg);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+  letter-spacing: -0.28px;
+}
+.clientCopy p {
+  margin: 3px 0 0;
+  color: var(--fg-muted);
+  font-size: 13px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+.clientCopy p span {
+  color: var(--fg);
+  font-family: var(--font-geist-mono), "Geist Mono", monospace;
+}
+.clientCopy .meta {
+  margin-top: 4px;
+  color: var(--fg-faint);
+  font-family: var(--font-geist-mono), "Geist Mono", monospace;
+  font-size: 12px;
+  line-height: 16px;
+}
+.permissions {
+  display: flex;
+  flex-direction: column;
+  margin-top: 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.permission {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 10px 12px;
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 18px;
+}
+.permission + .permission {
+  border-top: 1px solid var(--border);
+}
+.permission svg {
+  color: var(--fg-muted);
+}
+.codeConfirmation {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 12px;
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 8px;
+}
+.codeConfirmation > svg {
+  color: var(--fg-muted);
+}
+.codeConfirmation p {
+  margin: 0;
+  color: var(--fg-faint);
+  font-size: 12px;
+  line-height: 16px;
+}
+.codeConfirmation .code {
+  color: var(--fg);
+  font-family: var(--font-geist-mono), "Geist Mono", monospace;
+  font-size: 16px;
+  line-height: 20px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 20px;
+}
+.action {
+  flex: 1;
+}
+.lookupIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  color: var(--fg-muted);
+}
+.lookupCopy {
+  margin: 4px 0 20px;
+  color: var(--fg-muted);
+  font-size: 13px;
+  line-height: 18px;
+}
+.label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+}
+.input {
+  font-family: var(--font-geist-mono), "Geist Mono", monospace;
+  text-transform: uppercase;
+}
+.continue {
+  width: 100%;
+  margin-top: 16px;
+}
+.error {
+  margin: 12px 0 0;
+  color: var(--down-text);
+  font-size: 12px;
+  line-height: 16px;
+}
+.replacement {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 20px;
+  padding: 24px;
+}
+.successDot,
+.neutralDot {
+  margin-top: 6px;
+}
+.neutralDot {
+  background: var(--neutral-state);
+}
+.replacement p {
+  margin: 3px 0 0;
+  color: var(--fg-muted);
+  font-size: 13px;
+  line-height: 18px;
+}
 
-@media (max-width:520px) {
-  .header { padding:0 16px; }
-  .flow { margin-top:36px; }
-  .actions { flex-direction:column-reverse; }
-  .action { width:100%; }
+@media (max-width: 520px) {
+  .header {
+    padding: 0 16px;
+  }
+  .flow {
+    margin-top: 36px;
+  }
+  .actions {
+    flex-direction: column-reverse;
+  }
+  .action {
+    width: 100%;
+  }
 }

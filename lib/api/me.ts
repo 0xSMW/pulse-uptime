@@ -1,12 +1,15 @@
-import type { Principal } from "./principal";
+import type { Principal } from "./principal"
 
 export type PrincipalProfile = {
-  name: string | null;
-  timezone: string | null;
-  avatarImageId: string | null;
-};
+  name: string | null
+  timezone: string | null
+  avatarImageId: string | null
+}
 
-export function serializePrincipal(principal: Principal, profile: PrincipalProfile | null = null) {
+export function serializePrincipal(
+  principal: Principal,
+  profile: PrincipalProfile | null = null
+) {
   switch (principal.type) {
     case "human":
       return {
@@ -19,7 +22,7 @@ export function serializePrincipal(principal: Principal, profile: PrincipalProfi
         name: profile?.name ?? null,
         timezone: profile?.timezone ?? null,
         avatarImageId: profile?.avatarImageId ?? null,
-      };
+      }
     case "api_token":
       return {
         principalType: principal.type,
@@ -31,7 +34,7 @@ export function serializePrincipal(principal: Principal, profile: PrincipalProfi
         name: null,
         timezone: null,
         avatarImageId: null,
-      };
+      }
     case "cli_session":
       return {
         principalType: principal.type,
@@ -50,6 +53,6 @@ export function serializePrincipal(principal: Principal, profile: PrincipalProfi
         name: null,
         timezone: null,
         avatarImageId: null,
-      };
+      }
   }
 }

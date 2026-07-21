@@ -1,19 +1,18 @@
-import "server-only";
-
-import { statusGroupSlug } from "@/lib/reporting/queries/timeline";
+import "server-only"
 
 import {
   classifyPublicReport,
   databaseStatusReportsStore,
   PUBLIC_RESOLVED_LIMIT,
-  serializeReport,
-  StatusReportError,
   type PublicReports,
   type PublicReportsFilter,
   type PublicStatusReport,
   type StatusReportData,
+  StatusReportError,
   type StatusReportsDependencies,
-} from "@/lib/api/status-reports";
+  serializeReport,
+} from "@/lib/api/status-reports"
+import { statusGroupSlug } from "@/lib/reporting/queries/timeline"
 
 /**
  * Reporting-facing reads for the public status page. Split out of the API
@@ -22,8 +21,8 @@ import {
  * mutations and re-exports these two reads for its own callers.
  */
 
-export { StatusReportError };
-export type { PublicReports, StatusReportData };
+export type { PublicReports, StatusReportData }
+export { StatusReportError }
 
 /**
  * Single published or draft report by id, in the detailed serialized shape.
@@ -31,13 +30,18 @@ export type { PublicReports, StatusReportData };
  */
 export async function requireStatusReport(
   id: string,
-  dependencies: StatusReportsDependencies = {},
+  dependencies: StatusReportsDependencies = {}
 ): Promise<StatusReportData> {
-  const store = dependencies.store ?? databaseStatusReportsStore;
-  const report = await store.getReport(id);
-  if (!report) throw new StatusReportError("REPORT_NOT_FOUND", "Status report was not found");
-  const { updates, affected } = await store.getReportDetails([report.id]);
-  return serializeReport(report, updates, affected);
+  const store = dependencies.store ?? databaseStatusReportsStore
+  const report = await store.getReport(id)
+  if (!report) {
+    throw new StatusReportError(
+      "REPORT_NOT_FOUND",
+      "Status report was not found"
+    )
+  }
+  const { updates, affected } = await store.getReportDetails([report.id])
+  return serializeReport(report, updates, affected)
 }
 
 /**
@@ -53,10 +57,10 @@ export async function requireStatusReport(
  */
 export async function getPublicReports(
   dependencies: StatusReportsDependencies = {},
-  filter?: PublicReportsFilter,
+  filter?: PublicReportsFilter
 ): Promise<PublicReports> {
-  const store = dependencies.store ?? databaseStatusReportsStore;
-  const now = dependencies.now?.() ?? new Date();
+  const store = dependencies.store ?? databaseStatusReportsStore
+  const now = dependencies.now?.() ?? new Date()
   // Slug resolution happens in JS, never in SQL: statusGroupSlug's NFKD
   // normalization and punctuation folding have no portable SQL equivalent,
   // so the exact snapshot names whose slug matches are enumerated here and
@@ -68,22 +72,37 @@ export async function getPublicReports(
   const rowsFilter = filter
     ? {
         monitorIds: filter.monitorIds,
-        groupNames: [...new Set((await store.getAffectedGroupNames()).map((name) => name ?? "Other"))]
-          .filter((name) => statusGroupSlug(name) === filter.groupSlug),
+        groupNames: [
+          ...new Set(
+            (await store.getAffectedGroupNames()).map((name) => name ?? "Other")
+          ),
+        ].filter((name) => statusGroupSlug(name) === filter.groupSlug),
       }
-    : undefined;
-  const rows = await store.getPublicReportRows({ resolvedLimit: PUBLIC_RESOLVED_LIMIT, now, filter: rowsFilter });
-  const published = rows.filter((row) => row.publishedAt !== null);
-  const ids = published.map((row) => row.id);
-  const [latestUpdates, affected] = ids.length === 0
-    ? [[], []]
-    : await Promise.all([store.getLatestUpdates(ids), store.getAffected(ids)]);
-  const latestByReport = new Map(latestUpdates.map((update) => [update.reportId, update]));
+    : undefined
+  const rows = await store.getPublicReportRows({
+    resolvedLimit: PUBLIC_RESOLVED_LIMIT,
+    now,
+    filter: rowsFilter,
+  })
+  const published = rows.filter((row) => row.publishedAt !== null)
+  const ids = published.map((row) => row.id)
+  const [latestUpdates, affected] =
+    ids.length === 0
+      ? [[], []]
+      : await Promise.all([store.getLatestUpdates(ids), store.getAffected(ids)])
+  const latestByReport = new Map(
+    latestUpdates.map((update) => [update.reportId, update])
+  )
 
-  const result: PublicReports = { ongoing: [], upcoming: [], windowEnded: [], resolved: [] };
+  const result: PublicReports = {
+    ongoing: [],
+    upcoming: [],
+    windowEnded: [],
+    resolved: [],
+  }
   for (const report of published) {
-    const latest = latestByReport.get(report.id) ?? null;
-    const phase = classifyPublicReport(report, now);
+    const latest = latestByReport.get(report.id) ?? null
+    const phase = classifyPublicReport(report, now)
     const entry: PublicStatusReport = {
       id: report.id,
       type: report.type,
@@ -93,7 +112,9 @@ export async function getPublicReports(
       publishedAt: report.publishedAt!.toISOString(),
       resolvedAt: report.resolvedAt?.toISOString() ?? null,
       originIncidentId: report.originIncidentId,
-      currentStatus: latest?.status ?? (report.type === "incident" ? "investigating" : "scheduled"),
+      currentStatus:
+        latest?.status ??
+        (report.type === "incident" ? "investigating" : "scheduled"),
       phase,
       latestUpdate: latest
         ? {
@@ -113,15 +134,28 @@ export async function getPublicReports(
           groupName: row.groupName,
           impact: row.impact,
         })),
-    };
-    if (phase === "ongoing") result.ongoing.push(entry);
-    else if (phase === "upcoming") result.upcoming.push(entry);
-    else if (phase === "window_ended") result.windowEnded.push(entry);
-    else result.resolved.push(entry);
+    }
+    if (phase === "ongoing") {
+      result.ongoing.push(entry)
+    } else if (phase === "upcoming") {
+      result.upcoming.push(entry)
+    } else if (phase === "window_ended") {
+      result.windowEnded.push(entry)
+    } else {
+      result.resolved.push(entry)
+    }
   }
-  result.ongoing.sort((left, right) => right.startsAt.localeCompare(left.startsAt));
-  result.upcoming.sort((left, right) => left.startsAt.localeCompare(right.startsAt));
-  result.windowEnded.sort((left, right) => right.startsAt.localeCompare(left.startsAt));
-  result.resolved.sort((left, right) => (right.resolvedAt ?? "").localeCompare(left.resolvedAt ?? ""));
-  return result;
+  result.ongoing.sort((left, right) =>
+    right.startsAt.localeCompare(left.startsAt)
+  )
+  result.upcoming.sort((left, right) =>
+    left.startsAt.localeCompare(right.startsAt)
+  )
+  result.windowEnded.sort((left, right) =>
+    right.startsAt.localeCompare(left.startsAt)
+  )
+  result.resolved.sort((left, right) =>
+    (right.resolvedAt ?? "").localeCompare(left.resolvedAt ?? "")
+  )
+  return result
 }

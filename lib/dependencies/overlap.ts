@@ -1,9 +1,15 @@
-import "server-only";
+import "server-only"
 
-import { and, asc, desc, eq, isNull, sql as dsql } from "drizzle-orm";
+import { and, asc, desc, sql as dsql, eq, isNull } from "drizzle-orm"
 
-import { db } from "@/lib/db/client";
-import { dependencies, dependencyCatalog, dependencyIncidentMatches, dependencySources, providerIncidents } from "@/lib/db/schema";
+import { db } from "@/lib/db/client"
+import {
+  dependencies,
+  dependencyCatalog,
+  dependencyIncidentMatches,
+  dependencySources,
+  providerIncidents,
+} from "@/lib/db/schema"
 
 // Neutral timing context for a Pulse monitor incident, per
 // Docs/Specs/DEPENDENCY-MONITORING.md "Incident overlap query": installed
@@ -18,60 +24,78 @@ import { dependencies, dependencyCatalog, dependencyIncidentMatches, dependencyS
 // incident, so a few dozen closest-in-time provider incidents is far more than a
 // human reads. 50 stays generous while bounding the sorted output, payload, and
 // per-render mapping.
-const OVERLAP_RESULT_LIMIT = 50;
+const OVERLAP_RESULT_LIMIT = 50
 
-export type MonitorIncidentWindow = { openedAt: Date; resolvedAt: Date | null };
+export type MonitorIncidentWindow = { openedAt: Date; resolvedAt: Date | null }
 
 export type DependencyIncidentOverlap = {
-  dependencyId: string;
-  dependencyName: string;
-  provider: string;
-  incidentId: string;
-  incidentTitle: string;
-  providerStartedAt: string;
-  providerResolvedAt: string | null;
-  canonicalUrl: string | null;
-  matchKind: string;
+  dependencyId: string
+  dependencyName: string
+  provider: string
+  incidentId: string
+  incidentTitle: string
+  providerStartedAt: string
+  providerResolvedAt: string | null
+  canonicalUrl: string | null
+  matchKind: string
   /** Provider start minus monitor start, in seconds. Positive: provider started after the monitor incident opened. */
-  offsetSeconds: number;
-};
+  offsetSeconds: number
+}
 
 export async function listOverlappingDependencyIncidents(
-  monitorIncident: MonitorIncidentWindow,
+  monitorIncident: MonitorIncidentWindow
 ): Promise<DependencyIncidentOverlap[]> {
-  const openedAtIso = monitorIncident.openedAt.toISOString();
-  const resolvedAtIso = monitorIncident.resolvedAt?.toISOString() ?? null;
+  const openedAtIso = monitorIncident.openedAt.toISOString()
+  const resolvedAtIso = monitorIncident.resolvedAt?.toISOString() ?? null
 
-  const rows = await db.select({
-    dependencyId: dependencies.id,
-    dependencyName: dependencyCatalog.displayName,
-    provider: dependencySources.providerName,
-    incidentId: providerIncidents.id,
-    incidentTitle: providerIncidents.title,
-    providerStartedAt: providerIncidents.startedAt,
-    providerResolvedAt: providerIncidents.resolvedAt,
-    canonicalUrl: providerIncidents.canonicalUrl,
-    statusPageUrl: dependencySources.statusPageUrl,
-    matchKind: dependencyIncidentMatches.matchKind,
-  }).from(dependencyIncidentMatches)
-    .innerJoin(providerIncidents, eq(providerIncidents.id, dependencyIncidentMatches.incidentId))
-    .innerJoin(dependencies, eq(dependencies.id, dependencyIncidentMatches.dependencyId))
-    .innerJoin(dependencyCatalog, eq(dependencyCatalog.id, dependencies.catalogId))
-    .innerJoin(dependencySources, eq(dependencySources.id, providerIncidents.sourceId))
-    .where(and(
-      isNull(dependencies.removedAt),
-      dsql`${providerIncidents.startedAt} <= coalesce(${resolvedAtIso}::timestamptz, now())`,
-      dsql`coalesce(${providerIncidents.resolvedAt}, now()) >= ${openedAtIso}::timestamptz`,
-    ))
+  const rows = await db
+    .select({
+      dependencyId: dependencies.id,
+      dependencyName: dependencyCatalog.displayName,
+      provider: dependencySources.providerName,
+      incidentId: providerIncidents.id,
+      incidentTitle: providerIncidents.title,
+      providerStartedAt: providerIncidents.startedAt,
+      providerResolvedAt: providerIncidents.resolvedAt,
+      canonicalUrl: providerIncidents.canonicalUrl,
+      statusPageUrl: dependencySources.statusPageUrl,
+      matchKind: dependencyIncidentMatches.matchKind,
+    })
+    .from(dependencyIncidentMatches)
+    .innerJoin(
+      providerIncidents,
+      eq(providerIncidents.id, dependencyIncidentMatches.incidentId)
+    )
+    .innerJoin(
+      dependencies,
+      eq(dependencies.id, dependencyIncidentMatches.dependencyId)
+    )
+    .innerJoin(
+      dependencyCatalog,
+      eq(dependencyCatalog.id, dependencies.catalogId)
+    )
+    .innerJoin(
+      dependencySources,
+      eq(dependencySources.id, providerIncidents.sourceId)
+    )
+    .where(
+      and(
+        isNull(dependencies.removedAt),
+        dsql`${providerIncidents.startedAt} <= coalesce(${resolvedAtIso}::timestamptz, now())`,
+        dsql`coalesce(${providerIncidents.resolvedAt}, now()) >= ${openedAtIso}::timestamptz`
+      )
+    )
     // Closest provider start to the monitor start ranks first, preserving the
     // documented timing semantic. startedAt desc then id break ties so the
     // LIMIT keeps a deterministic set of the most relevant rows.
     .orderBy(
-      asc(dsql`abs(extract(epoch from (${providerIncidents.startedAt} - ${openedAtIso}::timestamptz)))`),
+      asc(
+        dsql`abs(extract(epoch from (${providerIncidents.startedAt} - ${openedAtIso}::timestamptz)))`
+      ),
       desc(providerIncidents.startedAt),
-      asc(providerIncidents.id),
+      asc(providerIncidents.id)
     )
-    .limit(OVERLAP_RESULT_LIMIT);
+    .limit(OVERLAP_RESULT_LIMIT)
 
   return rows.map((row) => ({
     dependencyId: row.dependencyId,
@@ -83,6 +107,9 @@ export async function listOverlappingDependencyIncidents(
     providerResolvedAt: row.providerResolvedAt?.toISOString() ?? null,
     canonicalUrl: row.canonicalUrl ?? row.statusPageUrl,
     matchKind: row.matchKind,
-    offsetSeconds: Math.round((row.providerStartedAt.getTime() - monitorIncident.openedAt.getTime()) / 1_000),
-  }));
+    offsetSeconds: Math.round(
+      (row.providerStartedAt.getTime() - monitorIncident.openedAt.getTime()) /
+        1000
+    ),
+  }))
 }

@@ -1,13 +1,17 @@
 function Skeleton({ className }: { className: string }) {
-  return <div className={`animate-pulse rounded-md bg-[var(--chip-bg)] ${className}`} />;
+  return (
+    <div
+      className={`animate-pulse rounded-md bg-[var(--chip-bg)] ${className}`}
+    />
+  )
 }
 
 export default function StatusLoading() {
   return (
     <main
-      className="mx-auto w-full max-w-[720px] px-4 pb-16 pt-12 sm:px-6"
       aria-busy="true"
       aria-label="Loading system status"
+      className="mx-auto w-full max-w-[720px] px-4 pt-12 pb-16 sm:px-6"
     >
       <div className="mb-6 flex items-center justify-between gap-4">
         <Skeleton className="h-5 w-36" />
@@ -18,7 +22,7 @@ export default function StatusLoading() {
         <Skeleton className="h-4 w-28" />
         <div className="mt-6 space-y-6">
           {[0, 1, 2].map((row) => (
-            <div key={row} className="grid gap-3 sm:grid-cols-[140px_1fr_64px]">
+            <div className="grid gap-3 sm:grid-cols-[140px_1fr_64px]" key={row}>
               <Skeleton className="h-4 w-28" />
               <Skeleton className="h-6 w-full" />
               <Skeleton className="h-4 w-16" />
@@ -31,5 +35,5 @@ export default function StatusLoading() {
         <Skeleton className="mt-6 h-12 w-full" />
       </div>
     </main>
-  );
+  )
 }

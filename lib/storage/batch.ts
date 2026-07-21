@@ -1,43 +1,43 @@
-import { createHash } from "node:crypto";
+import { createHash } from "node:crypto"
 
-import { deterministicUuid } from "@/lib/ids/deterministic-uuid";
+import { deterministicUuid } from "@/lib/ids/deterministic-uuid"
 
-import { encodeTelemetry } from "./codec";
+import { encodeTelemetry } from "./codec"
 
 export interface PackedMinuteExecutor {
-  query<T>(text: string, values: readonly unknown[]): Promise<readonly T[]>;
+  query<T>(text: string, values: readonly unknown[]): Promise<readonly T[]>
 }
 
 export type MinuteCheckResult = {
-  monitorId: string;
-  completed: boolean;
-  failed: boolean;
-  latencyMs: number | null;
-  errorCode?: string | null;
-  incidentId?: string | null;
-  recovered?: boolean;
-};
+  monitorId: string
+  completed: boolean
+  failed: boolean
+  latencyMs: number | null
+  errorCode?: string | null
+  incidentId?: string | null
+  recovered?: boolean
+}
 
 export type PackedMinuteInput = {
-  scheduledMinute: Date;
-  configVersion: number;
-  monitorIds: readonly string[];
-  expectedMonitorIds: readonly string[];
-  results: readonly MinuteCheckResult[];
-  schedulerStartedAt: Date;
-  schedulerCompletedAt: Date;
-};
+  scheduledMinute: Date
+  configVersion: number
+  monitorIds: readonly string[]
+  expectedMonitorIds: readonly string[]
+  results: readonly MinuteCheckResult[]
+  schedulerStartedAt: Date
+  schedulerCompletedAt: Date
+}
 
 type ExceptionRow = {
-  id: string;
-  monitorId: string | null;
-  eventType: "failure" | "recovery" | "scheduler_gap";
-  errorCode: string | null;
-  identityHash: string;
-  seenAt: string;
-  latencyMs: number | null;
-  incidentId: string | null;
-};
+  id: string
+  monitorId: string | null
+  eventType: "failure" | "recovery" | "scheduler_gap"
+  errorCode: string | null
+  identityHash: string
+  seenAt: string
+  latencyMs: number | null
+  incidentId: string | null
+}
 
 // $11 is bound as text then cast to jsonb. A param described as jsonb makes
 // postgres.js JSON-encode the already-serialized string again, producing a
@@ -70,56 +70,86 @@ do update set
   first_seen_at = least(monitor_exceptions.first_seen_at, excluded.first_seen_at),
   occurrence_count = monitor_exceptions.occurrence_count + 1,
   worst_latency_ms = greatest(monitor_exceptions.worst_latency_ms, excluded.worst_latency_ms)
-`;
+`
 
 function digest(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
+  return createHash("sha256").update(value).digest("hex")
 }
 
-export async function writePackedMinute(db: PackedMinuteExecutor, input: PackedMinuteInput): Promise<void> {
-  const orderedMonitorIds = [...new Set(input.monitorIds)].sort();
-  const expected = new Set(input.expectedMonitorIds);
-  const byMonitor = new Map(input.results.map((result) => [result.monitorId, result]));
-  const packed = encodeTelemetry(orderedMonitorIds.map((monitorId) => {
-    const result = byMonitor.get(monitorId);
-    return {
-      expected: expected.has(monitorId),
-      completed: result?.completed ?? false,
-      failed: result?.failed ?? false,
-      latencyMs: result?.completed ? result.latencyMs : null,
-    };
-  }));
-  const minute = input.scheduledMinute.toISOString();
+export async function writePackedMinute(
+  db: PackedMinuteExecutor,
+  input: PackedMinuteInput
+): Promise<void> {
+  const orderedMonitorIds = [...new Set(input.monitorIds)].sort()
+  const expected = new Set(input.expectedMonitorIds)
+  const byMonitor = new Map(
+    input.results.map((result) => [result.monitorId, result])
+  )
+  const packed = encodeTelemetry(
+    orderedMonitorIds.map((monitorId) => {
+      const result = byMonitor.get(monitorId)
+      return {
+        expected: expected.has(monitorId),
+        completed: result?.completed ?? false,
+        failed: result?.failed ?? false,
+        latencyMs: result?.completed ? result.latencyMs : null,
+      }
+    })
+  )
+  const minute = input.scheduledMinute.toISOString()
   const exceptions = orderedMonitorIds.flatMap<ExceptionRow>((monitorId) => {
-    const result = byMonitor.get(monitorId);
+    const result = byMonitor.get(monitorId)
     if (!result?.completed && expected.has(monitorId)) {
-      const identity = `scheduler_gap/${monitorId}/${minute}`;
-      return [{
-        id: deterministicUuid(identity), monitorId, eventType: "scheduler_gap" as const,
-        errorCode: "SCHEDULED_CHECK_MISSING", identityHash: digest(identity), seenAt: minute,
-        latencyMs: null, incidentId: null,
-      }];
+      const identity = `scheduler_gap/${monitorId}/${minute}`
+      return [
+        {
+          id: deterministicUuid(identity),
+          monitorId,
+          eventType: "scheduler_gap" as const,
+          errorCode: "SCHEDULED_CHECK_MISSING",
+          identityHash: digest(identity),
+          seenAt: minute,
+          latencyMs: null,
+          incidentId: null,
+        },
+      ]
     }
-    if (!result?.completed) return [];
+    if (!result?.completed) {
+      return []
+    }
     if (result.failed) {
-      const code = result.errorCode ?? "CHECK_FAILED";
-      const identity = `failure/${monitorId}/${code}`;
-      return [{
-        id: deterministicUuid(`${identity}/${result.incidentId ?? "none"}`), monitorId,
-        eventType: "failure" as const, errorCode: code, identityHash: digest(identity),
-        seenAt: minute, latencyMs: result.latencyMs, incidentId: result.incidentId ?? null,
-      }];
+      const code = result.errorCode ?? "CHECK_FAILED"
+      const identity = `failure/${monitorId}/${code}`
+      return [
+        {
+          id: deterministicUuid(`${identity}/${result.incidentId ?? "none"}`),
+          monitorId,
+          eventType: "failure" as const,
+          errorCode: code,
+          identityHash: digest(identity),
+          seenAt: minute,
+          latencyMs: result.latencyMs,
+          incidentId: result.incidentId ?? null,
+        },
+      ]
     }
     if (result.recovered) {
-      const identity = `recovery/${monitorId}/${result.incidentId ?? minute}`;
-      return [{
-        id: deterministicUuid(identity), monitorId, eventType: "recovery" as const,
-        errorCode: null, identityHash: digest(identity), seenAt: minute,
-        latencyMs: result.latencyMs, incidentId: result.incidentId ?? null,
-      }];
+      const identity = `recovery/${monitorId}/${result.incidentId ?? minute}`
+      return [
+        {
+          id: deterministicUuid(identity),
+          monitorId,
+          eventType: "recovery" as const,
+          errorCode: null,
+          identityHash: digest(identity),
+          seenAt: minute,
+          latencyMs: result.latencyMs,
+          incidentId: result.incidentId ?? null,
+        },
+      ]
     }
-    return [];
-  });
+    return []
+  })
   await db.query(WRITE_PACKED_MINUTE_SQL, [
     input.scheduledMinute,
     packed.encodingVersion,
@@ -132,5 +162,5 @@ export async function writePackedMinute(db: PackedMinuteExecutor, input: PackedM
     input.schedulerStartedAt,
     input.schedulerCompletedAt,
     JSON.stringify(exceptions),
-  ]);
+  ])
 }

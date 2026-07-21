@@ -1,6 +1,10 @@
 {
   "result": {
-    "status_overall": { "updated": "2026-07-19T12:00:00.000Z", "status": "Operational", "status_code": 100 },
+    "status_overall": {
+      "updated": "2026-07-19T12:00:00.000Z",
+      "status": "Operational",
+      "status_code": 100
+    },
     "status": [
       {
         "id": "690ccc9c1cc5d9057f11fde1",

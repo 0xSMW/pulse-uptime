@@ -1,29 +1,33 @@
-import { createHash } from "node:crypto";
+import { createHash } from "node:crypto"
 
-import { deterministicUuid } from "@/lib/ids/deterministic-uuid";
-import { incidentNotificationKey } from "@/lib/notifications/idempotency";
-import { formatDuration } from "@/lib/reporting/format";
-import { transitionMonitor } from "@/lib/monitoring/state-machine";
-import type { MonitorStateSnapshot, ScheduledCheck } from "@/lib/monitoring/types";
+import { deterministicUuid } from "@/lib/ids/deterministic-uuid"
+import { transitionMonitor } from "@/lib/monitoring/state-machine"
+import type {
+  MonitorStateSnapshot,
+  ScheduledCheck,
+} from "@/lib/monitoring/types"
+import { incidentNotificationKey } from "@/lib/notifications/idempotency"
+import { formatDuration } from "@/lib/reporting/format"
+import type { PackedMinuteExecutor } from "./batch"
+import { encodeTelemetry } from "./codec"
 
-import { encodeTelemetry } from "./codec";
-import type { PackedMinuteExecutor } from "./batch";
-
-export type CompletedMinuteCheck = Omit<ScheduledCheck, "runId" | "scheduledAt">;
+export type CompletedMinuteCheck = Omit<ScheduledCheck, "runId" | "scheduledAt">
 
 export type AtomicMinuteInput = {
-  scheduledMinute: Date;
-  configVersion: number;
-  monitorIds: readonly string[];
-  expectedMonitorIds: readonly string[];
-  results: readonly CompletedMinuteCheck[];
-  states: ReadonlyMap<string, MonitorStateSnapshot>;
-  schedulerStartedAt: Date;
-  schedulerCompletedAt: Date;
-  invalidatePublicStatus?: (reason: "state-transition" | "completed-rollup-bucket") => Promise<void>;
-};
+  scheduledMinute: Date
+  configVersion: number
+  monitorIds: readonly string[]
+  expectedMonitorIds: readonly string[]
+  results: readonly CompletedMinuteCheck[]
+  states: ReadonlyMap<string, MonitorStateSnapshot>
+  schedulerStartedAt: Date
+  schedulerCompletedAt: Date
+  invalidatePublicStatus?: (
+    reason: "state-transition" | "completed-rollup-bucket"
+  ) => Promise<void>
+}
 
-const iso = (value: Date | null) => value?.toISOString() ?? null;
+const iso = (value: Date | null) => value?.toISOString() ?? null
 
 // jsonb params below are bound as text then cast to jsonb. A param described
 // as jsonb makes postgres.js JSON-encode the already-serialized string again,
@@ -123,105 +127,276 @@ from batch_insert
 where pulse_assert_equal((select count(*) from state_update), (select count(*) from state_rows))
   and (select count(*) from opened) + (select count(*) from progressed) + (select count(*) from resolved)
     + (select count(*) from outbox_insert) + (select count(*) from exception_insert) >= 0
-`;
+`
 
-export async function persistAtomicMinute(db: PackedMinuteExecutor, input: AtomicMinuteInput): Promise<void> {
-  const monitorIds = [...new Set(input.monitorIds)].sort();
-  if (monitorIds.length !== input.monitorIds.length) throw new Error("Duplicate monitor mapping");
-  const expected = new Set(input.expectedMonitorIds);
-  const results = new Map<string, CompletedMinuteCheck>();
-  for (const result of input.results) {
-    if (results.has(result.monitorId)) throw new Error(`Duplicate minute result: ${result.monitorId}`);
-    if (!expected.has(result.monitorId)) throw new Error(`Unexpected minute result: ${result.monitorId}`);
-    results.set(result.monitorId, result);
+export async function persistAtomicMinute(
+  db: PackedMinuteExecutor,
+  input: AtomicMinuteInput
+): Promise<void> {
+  const monitorIds = [...new Set(input.monitorIds)].sort()
+  if (monitorIds.length !== input.monitorIds.length) {
+    throw new Error("Duplicate monitor mapping")
   }
-  const packed = encodeTelemetry(monitorIds.map((monitorId) => {
-    const result = results.get(monitorId);
-    return { expected: expected.has(monitorId), completed: Boolean(result), failed: result ? !result.successful : false, latencyMs: result?.latencyMs ?? null };
-  }));
-  const stateRows: unknown[] = [];
-  const opened: unknown[] = [];
-  const progressed: unknown[] = [];
-  const resolved: unknown[] = [];
-  const outbox: unknown[] = [];
-  const payloads: unknown[] = [];
-  const exceptions: unknown[] = [];
-  const seenAt = input.scheduledMinute.toISOString();
-  let stateChanged = false;
+  const expected = new Set(input.expectedMonitorIds)
+  const results = new Map<string, CompletedMinuteCheck>()
+  for (const result of input.results) {
+    if (results.has(result.monitorId)) {
+      throw new Error(`Duplicate minute result: ${result.monitorId}`)
+    }
+    if (!expected.has(result.monitorId)) {
+      throw new Error(`Unexpected minute result: ${result.monitorId}`)
+    }
+    results.set(result.monitorId, result)
+  }
+  const packed = encodeTelemetry(
+    monitorIds.map((monitorId) => {
+      const result = results.get(monitorId)
+      return {
+        expected: expected.has(monitorId),
+        completed: Boolean(result),
+        failed: result ? !result.successful : false,
+        latencyMs: result?.latencyMs ?? null,
+      }
+    })
+  )
+  const stateRows: unknown[] = []
+  const opened: unknown[] = []
+  const progressed: unknown[] = []
+  const resolved: unknown[] = []
+  const outbox: unknown[] = []
+  const payloads: unknown[] = []
+  const exceptions: unknown[] = []
+  const seenAt = input.scheduledMinute.toISOString()
+  let stateChanged = false
 
   for (const monitorId of monitorIds) {
-    const check = results.get(monitorId);
+    const check = results.get(monitorId)
     if (!check) {
       if (expected.has(monitorId)) {
-        const identity = `scheduler_gap/${monitorId}/${seenAt}`;
-        exceptions.push({ id: deterministicUuid(identity), monitorId, eventType: "scheduler_gap", errorCode: "SCHEDULED_CHECK_MISSING", identityHash: createHash("sha256").update(identity).digest("hex"), seenAt, latencyMs: null, incidentId: null, payloadId: null });
+        const identity = `scheduler_gap/${monitorId}/${seenAt}`
+        exceptions.push({
+          id: deterministicUuid(identity),
+          monitorId,
+          eventType: "scheduler_gap",
+          errorCode: "SCHEDULED_CHECK_MISSING",
+          identityHash: createHash("sha256").update(identity).digest("hex"),
+          seenAt,
+          latencyMs: null,
+          incidentId: null,
+          payloadId: null,
+        })
       }
-      continue;
+      continue
     }
-    const current = input.states.get(monitorId);
-    if (!current) throw new Error(`Monitor state not found: ${monitorId}`);
+    const current = input.states.get(monitorId)
+    if (!current) {
+      throw new Error(`Monitor state not found: ${monitorId}`)
+    }
     const transition = transitionMonitor(current, {
-      type: "check", checkedAt: check.checkedAt, successful: check.successful,
-      statusCode: check.statusCode, latencyMs: check.latencyMs, errorCode: check.errorCode,
-      failureThreshold: check.failureThreshold, recoveryThreshold: check.recoveryThreshold,
-    });
-    stateChanged ||= transition.changed;
+      type: "check",
+      checkedAt: check.checkedAt,
+      successful: check.successful,
+      statusCode: check.statusCode,
+      latencyMs: check.latencyMs,
+      errorCode: check.errorCode,
+      failureThreshold: check.failureThreshold,
+      recoveryThreshold: check.recoveryThreshold,
+    })
+    stateChanged ||= transition.changed
     if (transition.state !== current) {
-      let incidentId = transition.state.activeIncidentId;
+      let incidentId = transition.state.activeIncidentId
       if (transition.incident?.type === "open") {
-        incidentId = deterministicUuid(`incident/${monitorId}/${transition.incident.firstFailureAt.toISOString()}`);
-        transition.state.activeIncidentId = incidentId;
-        opened.push({ id: incidentId, monitorId, openedAt: iso(transition.incident.openedAt), firstFailureAt: iso(transition.incident.firstFailureAt), lastFailureAt: iso(check.checkedAt), errorCode: check.errorCode, statusCode: check.statusCode, createdAt: iso(check.checkedAt) });
+        incidentId = deterministicUuid(
+          `incident/${monitorId}/${transition.incident.firstFailureAt.toISOString()}`
+        )
+        transition.state.activeIncidentId = incidentId
+        opened.push({
+          id: incidentId,
+          monitorId,
+          openedAt: iso(transition.incident.openedAt),
+          firstFailureAt: iso(transition.incident.firstFailureAt),
+          lastFailureAt: iso(check.checkedAt),
+          errorCode: check.errorCode,
+          statusCode: check.statusCode,
+          createdAt: iso(check.checkedAt),
+        })
       } else if (transition.incident?.type === "resolve") {
-        incidentId = transition.incident.incidentId;
-        resolved.push({ id: incidentId, firstSuccessAt: iso(transition.incident.firstSuccessAt), updatedAt: iso(check.checkedAt) });
-      } else if (incidentId && !check.successful && ["DOWN", "VERIFYING_UP"].includes(transition.previousState)) {
-        progressed.push({ id: incidentId, lastFailureAt: iso(check.checkedAt), firstSuccessAt: null, clearFirstSuccess: true, updatedAt: iso(check.checkedAt) });
-      } else if (incidentId && check.successful && transition.previousState === "DOWN" && transition.state.state === "VERIFYING_UP") {
-        progressed.push({ id: incidentId, lastFailureAt: null, firstSuccessAt: iso(transition.state.firstSuccessAt), clearFirstSuccess: false, updatedAt: iso(check.checkedAt) });
+        incidentId = transition.incident.incidentId
+        resolved.push({
+          id: incidentId,
+          firstSuccessAt: iso(transition.incident.firstSuccessAt),
+          updatedAt: iso(check.checkedAt),
+        })
+      } else if (
+        incidentId &&
+        !check.successful &&
+        ["DOWN", "VERIFYING_UP"].includes(transition.previousState)
+      ) {
+        progressed.push({
+          id: incidentId,
+          lastFailureAt: iso(check.checkedAt),
+          firstSuccessAt: null,
+          clearFirstSuccess: true,
+          updatedAt: iso(check.checkedAt),
+        })
+      } else if (
+        incidentId &&
+        check.successful &&
+        transition.previousState === "DOWN" &&
+        transition.state.state === "VERIFYING_UP"
+      ) {
+        progressed.push({
+          id: incidentId,
+          lastFailureAt: null,
+          firstSuccessAt: iso(transition.state.firstSuccessAt),
+          clearFirstSuccess: false,
+          updatedAt: iso(check.checkedAt),
+        })
       }
-      stateRows.push({ ...transition.state, monitorId, expectedVersion: current.version,
+      stateRows.push({
+        ...transition.state,
+        monitorId,
+        expectedVersion: current.version,
         activatedAt: iso(transition.state.activatedAt),
-        firstFailureAt: iso(transition.state.firstFailureAt), firstSuccessAt: iso(transition.state.firstSuccessAt),
-        lastCheckedAt: iso(transition.state.lastCheckedAt), lastSuccessAt: iso(transition.state.lastSuccessAt),
-        lastFailureAt: iso(transition.state.lastFailureAt), updatedAt: iso(transition.state.updatedAt) });
+        firstFailureAt: iso(transition.state.firstFailureAt),
+        firstSuccessAt: iso(transition.state.firstSuccessAt),
+        lastCheckedAt: iso(transition.state.lastCheckedAt),
+        lastSuccessAt: iso(transition.state.lastSuccessAt),
+        lastFailureAt: iso(transition.state.lastFailureAt),
+        updatedAt: iso(transition.state.updatedAt),
+      })
 
       if (transition.incident && incidentId) {
-        const event = transition.incident.type === "open" ? "opened" : "resolved";
-        const recipients = [...new Set(check.recipients.map((recipient) => recipient.trim().toLowerCase()))].sort();
+        const event =
+          transition.incident.type === "open" ? "opened" : "resolved"
+        const recipients = [
+          ...new Set(
+            check.recipients.map((recipient) => recipient.trim().toLowerCase())
+          ),
+        ].sort()
         for (const recipient of recipients) {
-          const idempotencyKey = incidentNotificationKey(incidentId, event, recipient);
-          const payload = transition.incident.type === "open"
-            ? { type: "incident.opened", monitorName: check.monitorName, incidentId, startedAt: iso(transition.incident.openedAt), cause: check.errorMessage ?? (check.statusCode ? `HTTP ${check.statusCode}` : check.errorCode ?? "Check failed") }
-            : { type: "incident.resolved", monitorName: check.monitorName, incidentId, recoveredAt: iso(transition.incident.firstSuccessAt), duration: formatDuration((transition.incident.firstSuccessAt.getTime() - transition.incident.openedAt.getTime()) / 1_000) };
-          outbox.push({ id: deterministicUuid(`outbox/${idempotencyKey}`), incidentId, monitorId, eventType: `incident.${event}`, recipient, idempotencyKey, payload, createdAt: iso(check.checkedAt), requiresOpen: event === "opened" });
+          const idempotencyKey = incidentNotificationKey(
+            incidentId,
+            event,
+            recipient
+          )
+          const payload =
+            transition.incident.type === "open"
+              ? {
+                  type: "incident.opened",
+                  monitorName: check.monitorName,
+                  incidentId,
+                  startedAt: iso(transition.incident.openedAt),
+                  cause:
+                    check.errorMessage ??
+                    (check.statusCode
+                      ? `HTTP ${check.statusCode}`
+                      : (check.errorCode ?? "Check failed")),
+                }
+              : {
+                  type: "incident.resolved",
+                  monitorName: check.monitorName,
+                  incidentId,
+                  recoveredAt: iso(transition.incident.firstSuccessAt),
+                  duration: formatDuration(
+                    (transition.incident.firstSuccessAt.getTime() -
+                      transition.incident.openedAt.getTime()) /
+                      1000
+                  ),
+                }
+          outbox.push({
+            id: deterministicUuid(`outbox/${idempotencyKey}`),
+            incidentId,
+            monitorId,
+            eventType: `incident.${event}`,
+            recipient,
+            idempotencyKey,
+            payload,
+            createdAt: iso(check.checkedAt),
+            requiresOpen: event === "opened",
+          })
         }
       }
       if (transition.incident?.type === "resolve" && incidentId) {
-        const identity = `recovery/${monitorId}/${incidentId}`;
-        exceptions.push({ id: deterministicUuid(identity), monitorId, eventType: "recovery", errorCode: null, identityHash: createHash("sha256").update(identity).digest("hex"), seenAt, latencyMs: check.latencyMs, incidentId, payloadId: null });
+        const identity = `recovery/${monitorId}/${incidentId}`
+        exceptions.push({
+          id: deterministicUuid(identity),
+          monitorId,
+          eventType: "recovery",
+          errorCode: null,
+          identityHash: createHash("sha256").update(identity).digest("hex"),
+          seenAt,
+          latencyMs: check.latencyMs,
+          incidentId,
+          payloadId: null,
+        })
       }
     }
     if (!check.successful) {
-      const incidentId = transition.state.activeIncidentId;
-      const code = check.errorCode ?? "CHECK_FAILED";
-      const identity = `failure/${monitorId}/${code}`;
-      const payloadId = deterministicUuid(`exception-payload/${monitorId}/${seenAt}`);
-      payloads.push({ id: payloadId, payload: { statusCode: check.statusCode, latencyMs: check.latencyMs, errorCode: check.errorCode, errorMessage: check.errorMessage, checkedAt: check.checkedAt.toISOString(), effectiveUrl: check.effectiveUrl, redirectCount: check.redirectCount, resolvedAddress: check.resolvedAddress }, createdAt: iso(check.checkedAt), expiresAt: new Date(check.checkedAt.getTime() + 30 * 86_400_000).toISOString() });
-      exceptions.push({ id: deterministicUuid(`${identity}/${incidentId ?? "none"}`), monitorId, eventType: "failure", errorCode: code, identityHash: createHash("sha256").update(identity).digest("hex"), seenAt, latencyMs: check.latencyMs, incidentId, payloadId });
+      const incidentId = transition.state.activeIncidentId
+      const code = check.errorCode ?? "CHECK_FAILED"
+      const identity = `failure/${monitorId}/${code}`
+      const payloadId = deterministicUuid(
+        `exception-payload/${monitorId}/${seenAt}`
+      )
+      payloads.push({
+        id: payloadId,
+        payload: {
+          statusCode: check.statusCode,
+          latencyMs: check.latencyMs,
+          errorCode: check.errorCode,
+          errorMessage: check.errorMessage,
+          checkedAt: check.checkedAt.toISOString(),
+          effectiveUrl: check.effectiveUrl,
+          redirectCount: check.redirectCount,
+          resolvedAddress: check.resolvedAddress,
+        },
+        createdAt: iso(check.checkedAt),
+        expiresAt: new Date(
+          check.checkedAt.getTime() + 30 * 86_400_000
+        ).toISOString(),
+      })
+      exceptions.push({
+        id: deterministicUuid(`${identity}/${incidentId ?? "none"}`),
+        monitorId,
+        eventType: "failure",
+        errorCode: code,
+        identityHash: createHash("sha256").update(identity).digest("hex"),
+        seenAt,
+        latencyMs: check.latencyMs,
+        incidentId,
+        payloadId,
+      })
     }
   }
 
-  await db.query(PERSIST_ATOMIC_MINUTE_SQL, [input.scheduledMinute, packed.encodingVersion, input.configVersion,
-    JSON.stringify(monitorIds), packed.expectedBitmap.toString("hex"), packed.completedBitmap.toString("hex"),
-    packed.failureBitmap.toString("hex"), packed.latencyValues.toString("hex"),
-    input.schedulerStartedAt, input.schedulerCompletedAt, JSON.stringify(stateRows), JSON.stringify(opened),
-    JSON.stringify(progressed), JSON.stringify(resolved), JSON.stringify(outbox), JSON.stringify(payloads),
-    JSON.stringify(exceptions)]);
+  await db.query(PERSIST_ATOMIC_MINUTE_SQL, [
+    input.scheduledMinute,
+    packed.encodingVersion,
+    input.configVersion,
+    JSON.stringify(monitorIds),
+    packed.expectedBitmap.toString("hex"),
+    packed.completedBitmap.toString("hex"),
+    packed.failureBitmap.toString("hex"),
+    packed.latencyValues.toString("hex"),
+    input.schedulerStartedAt,
+    input.schedulerCompletedAt,
+    JSON.stringify(stateRows),
+    JSON.stringify(opened),
+    JSON.stringify(progressed),
+    JSON.stringify(resolved),
+    JSON.stringify(outbox),
+    JSON.stringify(payloads),
+    JSON.stringify(exceptions),
+  ])
   if (input.invalidatePublicStatus) {
-    if (stateChanged) await input.invalidatePublicStatus("state-transition");
-    else if ((Math.floor(input.scheduledMinute.getTime() / 60_000) + 1) % 15 === 0) {
-      await input.invalidatePublicStatus("completed-rollup-bucket");
+    if (stateChanged) {
+      await input.invalidatePublicStatus("state-transition")
+    } else if (
+      (Math.floor(input.scheduledMinute.getTime() / 60_000) + 1) % 15 ===
+      0
+    ) {
+      await input.invalidatePublicStatus("completed-rollup-bucket")
     }
   }
 }

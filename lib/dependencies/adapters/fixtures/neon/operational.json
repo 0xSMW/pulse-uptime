@@ -1,6 +1,10 @@
 {
   "result": {
-    "status_overall": { "updated": "2026-07-19T12:00:00.000Z", "status": "Operational", "status_code": 100 },
+    "status_overall": {
+      "updated": "2026-07-19T12:00:00.000Z",
+      "status": "Operational",
+      "status_code": 100
+    },
     "status": [
       {
         "id": "690ccc238c3745059f2b33b2",
@@ -9,9 +13,27 @@
         "status_code": 100,
         "updated": "2026-07-19T12:00:00.000Z",
         "containers": [
-          { "id": "690ccafbbfd4c50578f181cc", "name": "AWS ap-southeast-1", "updated": "2026-07-19T12:00:00.000Z", "status": "Operational", "status_code": 100 },
-          { "id": "690ccb48769e0d058c5c353d", "name": "AWS us-east-1", "updated": "2026-07-19T12:00:00.000Z", "status": "Operational", "status_code": 100 },
-          { "id": "690ccb941cde000532ba309e", "name": "Azure westus3", "updated": "2026-07-19T12:00:00.000Z", "status": "Operational", "status_code": 100 }
+          {
+            "id": "690ccafbbfd4c50578f181cc",
+            "name": "AWS ap-southeast-1",
+            "updated": "2026-07-19T12:00:00.000Z",
+            "status": "Operational",
+            "status_code": 100
+          },
+          {
+            "id": "690ccb48769e0d058c5c353d",
+            "name": "AWS us-east-1",
+            "updated": "2026-07-19T12:00:00.000Z",
+            "status": "Operational",
+            "status_code": 100
+          },
+          {
+            "id": "690ccb941cde000532ba309e",
+            "name": "Azure westus3",
+            "updated": "2026-07-19T12:00:00.000Z",
+            "status": "Operational",
+            "status_code": 100
+          }
         ]
       },
       {

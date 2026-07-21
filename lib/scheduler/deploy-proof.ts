@@ -1,55 +1,55 @@
-import "server-only";
+import "server-only"
 
-import { and, desc, eq, gte, isNotNull } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull } from "drizzle-orm"
 
-import { db } from "@/lib/db/client";
-import { cronRuns } from "@/lib/db/schema";
+import { db } from "@/lib/db/client"
+import { cronRuns } from "@/lib/db/schema"
 
-export const DEPLOY_PROOF_JOB_NAME = "monitor-check" as const;
+export const DEPLOY_PROOF_JOB_NAME = "monitor-check" as const
 
 export type DeployProofRunSnapshot = {
-  runId: string;
-  status: "running" | "completed" | "failed";
-  scheduledMinute: Date;
-  startedAt: Date;
-  completedAt: Date | null;
-  releaseId: string | null;
-};
+  runId: string
+  status: "running" | "completed" | "failed"
+  scheduledMinute: Date
+  startedAt: Date
+  completedAt: Date | null
+  releaseId: string | null
+}
 
 export type DeployProofReady = {
-  status: "ready";
-  releaseId: string;
-  runId: string;
-  scheduledMinute: Date;
-  startedAt: Date;
-  completedAt: Date;
-};
+  status: "ready"
+  releaseId: string
+  runId: string
+  scheduledMinute: Date
+  startedAt: Date
+  completedAt: Date
+}
 
 export type DeployProofWaiting = {
-  status: "waiting";
-  releaseId: string;
-  latest: DeployProofRunSnapshot | null;
-};
+  status: "waiting"
+  releaseId: string
+  latest: DeployProofRunSnapshot | null
+}
 
-export type DeployProofResult = DeployProofReady | DeployProofWaiting;
+export type DeployProofResult = DeployProofReady | DeployProofWaiting
 
 export type DeployProofStore = {
   findQualifyingCompleted(input: {
-    releaseId: string;
-    after: Date;
-  }): Promise<DeployProofRunSnapshot | null>;
+    releaseId: string
+    after: Date
+  }): Promise<DeployProofRunSnapshot | null>
   findLatestForRelease(input: {
-    releaseId: string;
-  }): Promise<DeployProofRunSnapshot | null>;
-};
+    releaseId: string
+  }): Promise<DeployProofRunSnapshot | null>
+}
 
 function mapRow(row: {
-  id: string;
-  status: "running" | "completed" | "failed";
-  scheduledMinute: Date;
-  startedAt: Date;
-  completedAt: Date | null;
-  releaseId: string | null;
+  id: string
+  status: "running" | "completed" | "failed"
+  scheduledMinute: Date
+  startedAt: Date
+  completedAt: Date | null
+  releaseId: string | null
 }): DeployProofRunSnapshot {
   return {
     runId: row.id,
@@ -58,7 +58,7 @@ function mapRow(row: {
     startedAt: row.startedAt,
     completedAt: row.completedAt,
     releaseId: row.releaseId,
-  };
+  }
 }
 
 /**
@@ -79,16 +79,18 @@ export function createSqlDeployProofStore(): DeployProofStore {
           releaseId: cronRuns.releaseId,
         })
         .from(cronRuns)
-        .where(and(
-          eq(cronRuns.jobName, DEPLOY_PROOF_JOB_NAME),
-          eq(cronRuns.releaseId, releaseId),
-          eq(cronRuns.status, "completed"),
-          isNotNull(cronRuns.completedAt),
-          gte(cronRuns.completedAt, after),
-        ))
+        .where(
+          and(
+            eq(cronRuns.jobName, DEPLOY_PROOF_JOB_NAME),
+            eq(cronRuns.releaseId, releaseId),
+            eq(cronRuns.status, "completed"),
+            isNotNull(cronRuns.completedAt),
+            gte(cronRuns.completedAt, after)
+          )
+        )
         .orderBy(desc(cronRuns.completedAt))
-        .limit(1);
-      return rows[0] ? mapRow(rows[0]) : null;
+        .limit(1)
+      return rows[0] ? mapRow(rows[0]) : null
     },
     async findLatestForRelease({ releaseId }) {
       const rows = await db
@@ -101,15 +103,17 @@ export function createSqlDeployProofStore(): DeployProofStore {
           releaseId: cronRuns.releaseId,
         })
         .from(cronRuns)
-        .where(and(
-          eq(cronRuns.jobName, DEPLOY_PROOF_JOB_NAME),
-          eq(cronRuns.releaseId, releaseId),
-        ))
+        .where(
+          and(
+            eq(cronRuns.jobName, DEPLOY_PROOF_JOB_NAME),
+            eq(cronRuns.releaseId, releaseId)
+          )
+        )
         .orderBy(desc(cronRuns.startedAt))
-        .limit(1);
-      return rows[0] ? mapRow(rows[0]) : null;
+        .limit(1)
+      return rows[0] ? mapRow(rows[0]) : null
     },
-  };
+  }
 }
 
 /**
@@ -118,14 +122,14 @@ export function createSqlDeployProofStore(): DeployProofStore {
  * after the promotion boundary.
  */
 export async function evaluateDeployProof(input: {
-  releaseId: string;
-  after: Date;
-  store: DeployProofStore;
+  releaseId: string
+  after: Date
+  store: DeployProofStore
 }): Promise<DeployProofResult> {
   const qualifying = await input.store.findQualifyingCompleted({
     releaseId: input.releaseId,
     after: input.after,
-  });
+  })
   if (qualifying && qualifying.completedAt) {
     return {
       status: "ready",
@@ -134,25 +138,33 @@ export async function evaluateDeployProof(input: {
       scheduledMinute: qualifying.scheduledMinute,
       startedAt: qualifying.startedAt,
       completedAt: qualifying.completedAt,
-    };
+    }
   }
-  const latest = await input.store.findLatestForRelease({ releaseId: input.releaseId });
+  const latest = await input.store.findLatestForRelease({
+    releaseId: input.releaseId,
+  })
   return {
     status: "waiting",
     releaseId: input.releaseId,
     latest,
-  };
+  }
 }
 
 /** Parse the promotion boundary from the `after` query param. */
 export function parsePromotionBoundary(raw: string | null): Date | null {
-  if (raw === null || raw.trim().length === 0) return null;
-  const ms = Date.parse(raw);
-  if (Number.isNaN(ms)) return null;
-  return new Date(ms);
+  if (raw === null || raw.trim().length === 0) {
+    return null
+  }
+  const ms = Date.parse(raw)
+  if (Number.isNaN(ms)) {
+    return null
+  }
+  return new Date(ms)
 }
 
-export function serializeDeployProof(result: DeployProofResult): Record<string, unknown> {
+export function serializeDeployProof(
+  result: DeployProofResult
+): Record<string, unknown> {
   if (result.status === "ready") {
     return {
       status: "ready",
@@ -161,7 +173,7 @@ export function serializeDeployProof(result: DeployProofResult): Record<string, 
       scheduledMinute: result.scheduledMinute.toISOString(),
       startedAt: result.startedAt.toISOString(),
       completedAt: result.completedAt.toISOString(),
-    };
+    }
   }
   return {
     status: "waiting",
@@ -176,5 +188,5 @@ export function serializeDeployProof(result: DeployProofResult): Record<string, 
           releaseId: result.latest.releaseId,
         }
       : null,
-  };
+  }
 }

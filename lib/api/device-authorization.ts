@@ -1,12 +1,18 @@
-import "server-only";
+import "server-only"
 
-import { and, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm"
 
-import { db, type DatabaseHandle } from "@/lib/db/client";
-import { apiIdempotency, apiTokens, cliInstallations, cliSessions, deviceAuthorizations } from "@/lib/db/schema";
+import { type DatabaseHandle, db } from "@/lib/db/client"
+import {
+  apiIdempotency,
+  apiTokens,
+  cliInstallations,
+  cliSessions,
+  deviceAuthorizations,
+} from "@/lib/db/schema"
 
-import type { HumanPrincipal } from "./principal";
-import { ADMINISTRATOR_SCOPES, resolveScopeProfile } from "./scopes";
+import type { HumanPrincipal } from "./principal"
+import { ADMINISTRATOR_SCOPES, resolveScopeProfile } from "./scopes"
 import {
   CLI_SESSION_PREFIX,
   createBearerToken,
@@ -14,121 +20,154 @@ import {
   digestBearerToken,
   digestDeviceCode,
   parseBearerAuthorization,
-} from "./tokens";
+} from "./tokens"
 
-const DEVICE_TTL_MS = 10 * 60_000;
-const CLI_SESSION_TTL_MS = 30 * 24 * 60 * 60_000;
-const INITIAL_POLL_SECONDS = 5;
-const USER_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+const DEVICE_TTL_MS = 10 * 60_000
+const CLI_SESSION_TTL_MS = 30 * 24 * 60 * 60_000
+const INITIAL_POLL_SECONDS = 5
+const USER_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 
 export type PendingDeviceAuthorization = {
-  id: string;
-  userCode: string;
-  clientName: string;
-  installationName: string;
-  platform: string;
-  architecture: string;
-  clientVersion: string;
-  requestIp: string | null;
-  expiresAt: Date;
-  scopes: readonly string[];
-};
+  id: string
+  userCode: string
+  clientName: string
+  installationName: string
+  platform: string
+  architecture: string
+  clientVersion: string
+  requestIp: string | null
+  expiresAt: Date
+  scopes: readonly string[]
+}
 
 export class DeviceAuthorizationError extends Error {
   constructor(
-    readonly code: "authorization_pending" | "slow_down" | "access_denied" | "expired_token" | "INVALID_DEVICE_REQUEST",
-    message: string,
+    readonly code:
+      | "authorization_pending"
+      | "slow_down"
+      | "access_denied"
+      | "expired_token"
+      | "INVALID_DEVICE_REQUEST",
+    message: string
   ) {
-    super(message);
-    this.name = "DeviceAuthorizationError";
+    super(message)
+    this.name = "DeviceAuthorizationError"
   }
 }
 
 export function normalizeUserCode(value: string): string {
-  const compact = value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-  return compact.length === 8 ? `${compact.slice(0, 4)}-${compact.slice(4)}` : compact;
+  const compact = value
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+  return compact.length === 8
+    ? `${compact.slice(0, 4)}-${compact.slice(4)}`
+    : compact
 }
 
 export async function getPendingDeviceAuthorization(
   userCode: string,
-  now = new Date(),
+  now = new Date()
 ): Promise<PendingDeviceAuthorization | null> {
-  const normalized = normalizeUserCode(userCode);
-  await db.update(deviceAuthorizations).set({ state: "expired" }).where(and(
-    sql`lower(${deviceAuthorizations.userCode}) = lower(${normalized})`,
-    inArray(deviceAuthorizations.state, ["pending", "approved"]),
-    lte(deviceAuthorizations.expiresAt, now),
-  ));
-  const [row] = await db.select({
-    id: deviceAuthorizations.id,
-    userCode: deviceAuthorizations.userCode,
-    clientName: deviceAuthorizations.clientName,
-    installationName: deviceAuthorizations.installationName,
-    platform: deviceAuthorizations.platform,
-    architecture: deviceAuthorizations.architecture,
-    clientVersion: deviceAuthorizations.clientVersion,
-    requestIp: deviceAuthorizations.requestIp,
-    expiresAt: deviceAuthorizations.expiresAt,
-  }).from(deviceAuthorizations).where(and(
-    sql`lower(${deviceAuthorizations.userCode}) = lower(${normalized})`,
-    eq(deviceAuthorizations.state, "pending"),
-    gt(deviceAuthorizations.expiresAt, now),
-  )).limit(1);
-  return row ? { ...row, scopes: ADMINISTRATOR_SCOPES } : null;
-}
-
-export async function approveDeviceAuthorization(
-  userCode: string,
-  human: Pick<HumanPrincipal, "id" | "email">,
-  now = new Date(),
-): Promise<PendingDeviceAuthorization | null> {
-  const normalized = normalizeUserCode(userCode);
-  return db.transaction(async (tx) => {
-    const [authorization] = await tx.update(deviceAuthorizations).set({
-      state: "approved",
-      approvedByEmail: human.email,
-      approvedAt: now,
-    }).where(and(
-      sql`lower(${deviceAuthorizations.userCode}) = lower(${normalized})`,
-      eq(deviceAuthorizations.state, "pending"),
-      gt(deviceAuthorizations.expiresAt, now),
-    )).returning({
+  const normalized = normalizeUserCode(userCode)
+  await db
+    .update(deviceAuthorizations)
+    .set({ state: "expired" })
+    .where(
+      and(
+        sql`lower(${deviceAuthorizations.userCode}) = lower(${normalized})`,
+        inArray(deviceAuthorizations.state, ["pending", "approved"]),
+        lte(deviceAuthorizations.expiresAt, now)
+      )
+    )
+  const [row] = await db
+    .select({
       id: deviceAuthorizations.id,
       userCode: deviceAuthorizations.userCode,
       clientName: deviceAuthorizations.clientName,
-      installationKey: deviceAuthorizations.installationKey,
       installationName: deviceAuthorizations.installationName,
       platform: deviceAuthorizations.platform,
       architecture: deviceAuthorizations.architecture,
       clientVersion: deviceAuthorizations.clientVersion,
       requestIp: deviceAuthorizations.requestIp,
       expiresAt: deviceAuthorizations.expiresAt,
-    });
+    })
+    .from(deviceAuthorizations)
+    .where(
+      and(
+        sql`lower(${deviceAuthorizations.userCode}) = lower(${normalized})`,
+        eq(deviceAuthorizations.state, "pending"),
+        gt(deviceAuthorizations.expiresAt, now)
+      )
+    )
+    .limit(1)
+  return row ? { ...row, scopes: ADMINISTRATOR_SCOPES } : null
+}
+
+export async function approveDeviceAuthorization(
+  userCode: string,
+  human: Pick<HumanPrincipal, "id" | "email">,
+  now = new Date()
+): Promise<PendingDeviceAuthorization | null> {
+  const normalized = normalizeUserCode(userCode)
+  return db.transaction(async (tx) => {
+    const [authorization] = await tx
+      .update(deviceAuthorizations)
+      .set({
+        state: "approved",
+        approvedByEmail: human.email,
+        approvedAt: now,
+      })
+      .where(
+        and(
+          sql`lower(${deviceAuthorizations.userCode}) = lower(${normalized})`,
+          eq(deviceAuthorizations.state, "pending"),
+          gt(deviceAuthorizations.expiresAt, now)
+        )
+      )
+      .returning({
+        id: deviceAuthorizations.id,
+        userCode: deviceAuthorizations.userCode,
+        clientName: deviceAuthorizations.clientName,
+        installationKey: deviceAuthorizations.installationKey,
+        installationName: deviceAuthorizations.installationName,
+        platform: deviceAuthorizations.platform,
+        architecture: deviceAuthorizations.architecture,
+        clientVersion: deviceAuthorizations.clientVersion,
+        requestIp: deviceAuthorizations.requestIp,
+        expiresAt: deviceAuthorizations.expiresAt,
+      })
     if (!authorization) {
-      throw new DeviceAuthorizationError("expired_token", "Authorization request is no longer available");
+      throw new DeviceAuthorizationError(
+        "expired_token",
+        "Authorization request is no longer available"
+      )
     }
-    await tx.insert(cliInstallations).values({
-      id: crypto.randomUUID(),
-      installationKey: authorization.installationKey,
-      userEmail: human.email,
-      displayName: authorization.installationName,
-      platform: authorization.platform,
-      architecture: authorization.architecture,
-      clientVersion: authorization.clientVersion,
-      createdAt: now,
-      linkedAt: now,
-    }).onConflictDoUpdate({
-      target: cliInstallations.installationKey,
-      set: {
+    await tx
+      .insert(cliInstallations)
+      .values({
+        id: crypto.randomUUID(),
+        installationKey: authorization.installationKey,
         userEmail: human.email,
         displayName: authorization.installationName,
         platform: authorization.platform,
         architecture: authorization.architecture,
         clientVersion: authorization.clientVersion,
+        createdAt: now,
         linkedAt: now,
-        revokedAt: null,
-      },
-    });
+      })
+      .onConflictDoUpdate({
+        target: cliInstallations.installationKey,
+        set: {
+          userEmail: human.email,
+          displayName: authorization.installationName,
+          platform: authorization.platform,
+          architecture: authorization.architecture,
+          clientVersion: authorization.clientVersion,
+          linkedAt: now,
+          revokedAt: null,
+        },
+      })
     return {
       id: authorization.id,
       userCode: authorization.userCode,
@@ -140,59 +179,83 @@ export async function approveDeviceAuthorization(
       requestIp: authorization.requestIp,
       expiresAt: authorization.expiresAt,
       scopes: ADMINISTRATOR_SCOPES,
-    };
-  });
+    }
+  })
 }
 
 export async function denyDeviceAuthorization(
   userCode: string,
   _human: Pick<HumanPrincipal, "id" | "email">,
-  now = new Date(),
+  now = new Date()
 ): Promise<boolean> {
-  const rows = await db.update(deviceAuthorizations).set({ state: "denied", deniedAt: now }).where(and(
-    sql`lower(${deviceAuthorizations.userCode}) = lower(${normalizeUserCode(userCode)})`,
-    eq(deviceAuthorizations.state, "pending"),
-    gt(deviceAuthorizations.expiresAt, now),
-  )).returning({ id: deviceAuthorizations.id });
+  const rows = await db
+    .update(deviceAuthorizations)
+    .set({ state: "denied", deniedAt: now })
+    .where(
+      and(
+        sql`lower(${deviceAuthorizations.userCode}) = lower(${normalizeUserCode(userCode)})`,
+        eq(deviceAuthorizations.state, "pending"),
+        gt(deviceAuthorizations.expiresAt, now)
+      )
+    )
+    .returning({ id: deviceAuthorizations.id })
   if (rows.length === 0) {
-    throw new DeviceAuthorizationError("expired_token", "Authorization request is no longer available");
+    throw new DeviceAuthorizationError(
+      "expired_token",
+      "Authorization request is no longer available"
+    )
   }
-  return true;
+  return true
 }
 
-export async function startDeviceAuthorization(input: {
-  clientName: string;
-  installationKey: string;
-  installationName: string;
-  clientVersion: string;
-  platform: string;
-  architecture: string;
-  scopeProfile: string;
-  requestIp: string | null;
-  deviceCredential?: ReturnType<typeof createDeviceCode>;
-  userCode?: string;
-}, now = new Date(), handle: DatabaseHandle = db) {
-  if (input.clientName !== "pulsectl" || input.scopeProfile !== "administrator") {
-    throw new DeviceAuthorizationError("INVALID_DEVICE_REQUEST", "Unsupported client or scope profile");
+export async function startDeviceAuthorization(
+  input: {
+    clientName: string
+    installationKey: string
+    installationName: string
+    clientVersion: string
+    platform: string
+    architecture: string
+    scopeProfile: string
+    requestIp: string | null
+    deviceCredential?: ReturnType<typeof createDeviceCode>
+    userCode?: string
+  },
+  now = new Date(),
+  handle: DatabaseHandle = db
+) {
+  if (
+    input.clientName !== "pulsectl" ||
+    input.scopeProfile !== "administrator"
+  ) {
+    throw new DeviceAuthorizationError(
+      "INVALID_DEVICE_REQUEST",
+      "Unsupported client or scope profile"
+    )
   }
   if (input.deviceCredential) {
-    const [existing] = await handle.select({
-      userCode: deviceAuthorizations.userCode,
-      pollingIntervalSeconds: deviceAuthorizations.pollingIntervalSeconds,
-    }).from(deviceAuthorizations)
-      .where(eq(deviceAuthorizations.deviceCodeDigest, input.deviceCredential.digest)).limit(1);
+    const [existing] = await handle
+      .select({
+        userCode: deviceAuthorizations.userCode,
+        pollingIntervalSeconds: deviceAuthorizations.pollingIntervalSeconds,
+      })
+      .from(deviceAuthorizations)
+      .where(
+        eq(deviceAuthorizations.deviceCodeDigest, input.deviceCredential.digest)
+      )
+      .limit(1)
     if (existing) {
       return {
         deviceCode: input.deviceCredential.raw,
         userCode: existing.userCode,
         expiresIn: 600,
         interval: existing.pollingIntervalSeconds,
-      };
+      }
     }
   }
   for (let attempt = 0; attempt < 6; attempt += 1) {
-    const deviceCode = input.deviceCredential ?? createDeviceCode();
-    const userCode = input.userCode ?? generateUserCode();
+    const deviceCode = input.deviceCredential ?? createDeviceCode()
+    const userCode = input.userCode ?? generateUserCode()
     try {
       // A caught unique violation must burn only a savepoint, not the
       // enclosing transaction: `handle` may already be the caller's outer
@@ -216,79 +279,164 @@ export async function startDeviceAuthorization(input: {
           createdAt: now,
           expiresAt: new Date(now.getTime() + DEVICE_TTL_MS),
           pollingIntervalSeconds: INITIAL_POLL_SECONDS,
-        });
-      });
-      return { deviceCode: deviceCode.raw, userCode, expiresIn: 600, interval: INITIAL_POLL_SECONDS };
+        })
+      })
+      return {
+        deviceCode: deviceCode.raw,
+        userCode,
+        expiresIn: 600,
+        interval: INITIAL_POLL_SECONDS,
+      }
     } catch (error) {
-      if ((error as { code?: string }).code !== "23505" || attempt === 5) throw error;
+      if ((error as { code?: string }).code !== "23505" || attempt === 5) {
+        throw error
+      }
     }
   }
-  throw new Error("Could not allocate a device authorization");
+  throw new Error("Could not allocate a device authorization")
 }
 
 export async function pollDeviceAuthorization(
   rawDeviceCode: string,
   now = new Date(),
   sessionCredential?: ReturnType<typeof createBearerToken>,
-  handle: DatabaseHandle = db,
+  handle: DatabaseHandle = db
 ) {
-  const digest = digestDeviceCode(rawDeviceCode);
+  const digest = digestDeviceCode(rawDeviceCode)
   const outcome = await handle.transaction(async (tx) => {
     if (sessionCredential) {
-      const [existingSession] = await tx.select({
-        expiresAt: cliSessions.expiresAt,
-        scopes: cliSessions.scopes,
-        scopeProfile: cliSessions.scopeProfile,
-      }).from(cliSessions).where(eq(cliSessions.tokenDigest, sessionCredential.digest)).limit(1);
+      const [existingSession] = await tx
+        .select({
+          expiresAt: cliSessions.expiresAt,
+          scopes: cliSessions.scopes,
+          scopeProfile: cliSessions.scopeProfile,
+        })
+        .from(cliSessions)
+        .where(eq(cliSessions.tokenDigest, sessionCredential.digest))
+        .limit(1)
       if (existingSession) {
-        return { session: {
-          token: sessionCredential.raw,
-          tokenType: "Bearer" as const,
-          expiresAt: existingSession.expiresAt,
-          scopes: resolveScopeProfile(existingSession.scopeProfile) ?? existingSession.scopes,
-        } };
+        return {
+          session: {
+            token: sessionCredential.raw,
+            tokenType: "Bearer" as const,
+            expiresAt: existingSession.expiresAt,
+            scopes:
+              resolveScopeProfile(existingSession.scopeProfile) ??
+              existingSession.scopes,
+          },
+        }
       }
     }
-    const [authorization] = await tx.select({
-      id: deviceAuthorizations.id,
-      state: deviceAuthorizations.state,
-      expiresAt: deviceAuthorizations.expiresAt,
-      installationKey: deviceAuthorizations.installationKey,
-      lastPolledAt: deviceAuthorizations.lastPolledAt,
-      pollCount: deviceAuthorizations.pollCount,
-      pollingIntervalSeconds: deviceAuthorizations.pollingIntervalSeconds,
-    }).from(deviceAuthorizations)
-      .where(eq(deviceAuthorizations.deviceCodeDigest, digest)).for("update").limit(1);
-    if (!authorization) return { error: new DeviceAuthorizationError("expired_token", "Device code is invalid or expired") };
-    if (authorization.expiresAt <= now || authorization.state === "consumed" || authorization.state === "expired") {
-      await tx.update(deviceAuthorizations).set({ state: "expired" }).where(eq(deviceAuthorizations.id, authorization.id));
-      return { error: new DeviceAuthorizationError("expired_token", "Device code is invalid or expired") };
+    const [authorization] = await tx
+      .select({
+        id: deviceAuthorizations.id,
+        state: deviceAuthorizations.state,
+        expiresAt: deviceAuthorizations.expiresAt,
+        installationKey: deviceAuthorizations.installationKey,
+        lastPolledAt: deviceAuthorizations.lastPolledAt,
+        pollCount: deviceAuthorizations.pollCount,
+        pollingIntervalSeconds: deviceAuthorizations.pollingIntervalSeconds,
+      })
+      .from(deviceAuthorizations)
+      .where(eq(deviceAuthorizations.deviceCodeDigest, digest))
+      .for("update")
+      .limit(1)
+    if (!authorization) {
+      return {
+        error: new DeviceAuthorizationError(
+          "expired_token",
+          "Device code is invalid or expired"
+        ),
+      }
     }
-    if (authorization.state === "denied") return { error: new DeviceAuthorizationError("access_denied", "Authorization was denied") };
+    if (
+      authorization.expiresAt <= now ||
+      authorization.state === "consumed" ||
+      authorization.state === "expired"
+    ) {
+      await tx
+        .update(deviceAuthorizations)
+        .set({ state: "expired" })
+        .where(eq(deviceAuthorizations.id, authorization.id))
+      return {
+        error: new DeviceAuthorizationError(
+          "expired_token",
+          "Device code is invalid or expired"
+        ),
+      }
+    }
+    if (authorization.state === "denied") {
+      return {
+        error: new DeviceAuthorizationError(
+          "access_denied",
+          "Authorization was denied"
+        ),
+      }
+    }
     if (authorization.state === "pending") {
-      const tooSoon = authorization.lastPolledAt &&
-        now.getTime() - authorization.lastPolledAt.getTime() < authorization.pollingIntervalSeconds * 1_000;
-      await tx.update(deviceAuthorizations).set({
-        lastPolledAt: now,
-        pollCount: authorization.pollCount + 1,
-        pollingIntervalSeconds: tooSoon ? authorization.pollingIntervalSeconds + 5 : authorization.pollingIntervalSeconds,
-      }).where(eq(deviceAuthorizations.id, authorization.id));
-      return { error: new DeviceAuthorizationError(tooSoon ? "slow_down" : "authorization_pending", tooSoon ? "Polling too quickly" : "Authorization is pending") };
+      const tooSoon =
+        authorization.lastPolledAt &&
+        now.getTime() - authorization.lastPolledAt.getTime() <
+          authorization.pollingIntervalSeconds * 1000
+      await tx
+        .update(deviceAuthorizations)
+        .set({
+          lastPolledAt: now,
+          pollCount: authorization.pollCount + 1,
+          pollingIntervalSeconds: tooSoon
+            ? authorization.pollingIntervalSeconds + 5
+            : authorization.pollingIntervalSeconds,
+        })
+        .where(eq(deviceAuthorizations.id, authorization.id))
+      return {
+        error: new DeviceAuthorizationError(
+          tooSoon ? "slow_down" : "authorization_pending",
+          tooSoon ? "Polling too quickly" : "Authorization is pending"
+        ),
+      }
     }
 
-    const [installation] = await tx.select({
-      id: cliInstallations.id,
-      userEmail: cliInstallations.userEmail,
-    }).from(cliInstallations)
-      .where(and(eq(cliInstallations.installationKey, authorization.installationKey), isNull(cliInstallations.revokedAt)))
-      .limit(1);
-    if (!installation) return { error: new DeviceAuthorizationError("expired_token", "Installation approval is no longer valid") };
-    const claimed = await tx.update(deviceAuthorizations).set({ state: "consumed", consumedAt: now })
-      .where(and(eq(deviceAuthorizations.id, authorization.id), eq(deviceAuthorizations.state, "approved")))
-      .returning({ id: deviceAuthorizations.id });
-    if (!claimed[0]) return { error: new DeviceAuthorizationError("expired_token", "Device code was already consumed") };
-    const token = sessionCredential ?? createBearerToken(CLI_SESSION_PREFIX);
-    const expiresAt = new Date(now.getTime() + CLI_SESSION_TTL_MS);
+    const [installation] = await tx
+      .select({
+        id: cliInstallations.id,
+        userEmail: cliInstallations.userEmail,
+      })
+      .from(cliInstallations)
+      .where(
+        and(
+          eq(cliInstallations.installationKey, authorization.installationKey),
+          isNull(cliInstallations.revokedAt)
+        )
+      )
+      .limit(1)
+    if (!installation) {
+      return {
+        error: new DeviceAuthorizationError(
+          "expired_token",
+          "Installation approval is no longer valid"
+        ),
+      }
+    }
+    const claimed = await tx
+      .update(deviceAuthorizations)
+      .set({ state: "consumed", consumedAt: now })
+      .where(
+        and(
+          eq(deviceAuthorizations.id, authorization.id),
+          eq(deviceAuthorizations.state, "approved")
+        )
+      )
+      .returning({ id: deviceAuthorizations.id })
+    if (!claimed[0]) {
+      return {
+        error: new DeviceAuthorizationError(
+          "expired_token",
+          "Device code was already consumed"
+        ),
+      }
+    }
+    const token = sessionCredential ?? createBearerToken(CLI_SESSION_PREFIX)
+    const expiresAt = new Date(now.getTime() + CLI_SESSION_TTL_MS)
     await tx.insert(cliSessions).values({
       id: crypto.randomUUID(),
       installationId: installation.id,
@@ -299,57 +447,110 @@ export async function pollDeviceAuthorization(
       scopeProfile: "administrator",
       createdAt: now,
       expiresAt,
-    });
-    return { session: { token: token.raw, tokenType: "Bearer" as const, expiresAt, scopes: ADMINISTRATOR_SCOPES } };
-  });
-  if ("error" in outcome) throw outcome.error;
-  return outcome.session;
+    })
+    return {
+      session: {
+        token: token.raw,
+        tokenType: "Bearer" as const,
+        expiresAt,
+        scopes: ADMINISTRATOR_SCOPES,
+      },
+    }
+  })
+  if ("error" in outcome) {
+    throw outcome.error
+  }
+  return outcome.session
 }
 
-export async function revokeCliInstallation(principal: { type: string; id: string }, now = new Date(), handle: DatabaseHandle = db) {
-  if (principal.type !== "cli_session") return false;
+export async function revokeCliInstallation(
+  principal: { type: string; id: string },
+  now = new Date(),
+  handle: DatabaseHandle = db
+) {
+  if (principal.type !== "cli_session") {
+    return false
+  }
   return handle.transaction(async (tx) => {
-    const [session] = await tx.select({ installationId: cliSessions.installationId }).from(cliSessions)
-      .where(eq(cliSessions.id, principal.id)).limit(1);
-    if (!session) return false;
-    const sessions = await tx.select({ id: cliSessions.id }).from(cliSessions)
-      .where(eq(cliSessions.installationId, session.installationId));
-    await tx.update(cliInstallations).set({ revokedAt: now }).where(eq(cliInstallations.id, session.installationId));
-    await tx.update(cliSessions).set({ revokedAt: now }).where(and(
-      eq(cliSessions.installationId, session.installationId),
-      isNull(cliSessions.revokedAt),
-    ));
+    const [session] = await tx
+      .select({ installationId: cliSessions.installationId })
+      .from(cliSessions)
+      .where(eq(cliSessions.id, principal.id))
+      .limit(1)
+    if (!session) {
+      return false
+    }
+    const sessions = await tx
+      .select({ id: cliSessions.id })
+      .from(cliSessions)
+      .where(eq(cliSessions.installationId, session.installationId))
+    await tx
+      .update(cliInstallations)
+      .set({ revokedAt: now })
+      .where(eq(cliInstallations.id, session.installationId))
+    await tx
+      .update(cliSessions)
+      .set({ revokedAt: now })
+      .where(
+        and(
+          eq(cliSessions.installationId, session.installationId),
+          isNull(cliSessions.revokedAt)
+        )
+      )
     // Cascade to any API tokens minted by this installation's CLI sessions so removing
     // the installation cannot leave a live descendant credential behind.
-    const creators = sessions.map((row) => `cli_session:${row.id}`);
+    const creators = sessions.map((row) => `cli_session:${row.id}`)
     if (creators.length > 0) {
-      await tx.update(apiTokens).set({ revokedAt: now }).where(and(
-        inArray(apiTokens.createdByPrincipal, creators),
-        isNull(apiTokens.revokedAt),
-      ));
+      await tx
+        .update(apiTokens)
+        .set({ revokedAt: now })
+        .where(
+          and(
+            inArray(apiTokens.createdByPrincipal, creators),
+            isNull(apiTokens.revokedAt)
+          )
+        )
     }
-    return true;
-  });
+    return true
+  })
 }
 
-export async function resolveRevokedCliRevokeReplay(request: Request): Promise<{ id: string; principalKey: string } | null> {
-  const raw = parseBearerAuthorization(request.headers.get("authorization"));
-  const idempotencyKey = request.headers.get("idempotency-key")?.trim();
-  if (!raw || !idempotencyKey) return null;
-  const [session] = await db.select({ id: cliSessions.id }).from(cliSessions)
-    .where(eq(cliSessions.tokenDigest, digestBearerToken(raw))).limit(1);
-  if (!session) return null;
-  const principalKey = `cli_session:${session.id}`;
-  const [record] = await db.select({ id: apiIdempotency.id }).from(apiIdempotency).where(and(
-    eq(apiIdempotency.principalKey, principalKey),
-    eq(apiIdempotency.idempotencyKey, idempotencyKey),
-    eq(apiIdempotency.routeKey, "cli-session-revoke"),
-  )).limit(1);
-  return record ? { id: session.id, principalKey } : null;
+export async function resolveRevokedCliRevokeReplay(
+  request: Request
+): Promise<{ id: string; principalKey: string } | null> {
+  const raw = parseBearerAuthorization(request.headers.get("authorization"))
+  const idempotencyKey = request.headers.get("idempotency-key")?.trim()
+  if (!(raw && idempotencyKey)) {
+    return null
+  }
+  const [session] = await db
+    .select({ id: cliSessions.id })
+    .from(cliSessions)
+    .where(eq(cliSessions.tokenDigest, digestBearerToken(raw)))
+    .limit(1)
+  if (!session) {
+    return null
+  }
+  const principalKey = `cli_session:${session.id}`
+  const [record] = await db
+    .select({ id: apiIdempotency.id })
+    .from(apiIdempotency)
+    .where(
+      and(
+        eq(apiIdempotency.principalKey, principalKey),
+        eq(apiIdempotency.idempotencyKey, idempotencyKey),
+        eq(apiIdempotency.routeKey, "cli-session-revoke")
+      )
+    )
+    .limit(1)
+  return record ? { id: session.id, principalKey } : null
 }
 
 function generateUserCode() {
-  const bytes = crypto.getRandomValues(new Uint8Array(8));
-  const value = Array.from(bytes, (byte) => USER_CODE_ALPHABET[byte % USER_CODE_ALPHABET.length]).join("");
-  return `${value.slice(0, 4)}-${value.slice(4)}`;
+  const bytes = crypto.getRandomValues(new Uint8Array(8))
+  const value = Array.from(
+    bytes,
+    (byte) => USER_CODE_ALPHABET[byte % USER_CODE_ALPHABET.length]
+  ).join("")
+  return `${value.slice(0, 4)}-${value.slice(4)}`
 }

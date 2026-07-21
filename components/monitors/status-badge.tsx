@@ -1,9 +1,13 @@
-import { StatusDot, stateLabels, type MonitorState } from "@/components/monitors/status-dot";
-import { cn } from "@/lib/utils";
+import {
+  type MonitorState,
+  StatusDot,
+  stateLabels,
+} from "@/components/monitors/status-dot"
+import { cn } from "@/lib/utils"
 
 export interface StatusBadgeProps {
-  state: MonitorState;
-  className?: string;
+  state: MonitorState
+  className?: string
 }
 
 const badgeStyles: Record<MonitorState, string> = {
@@ -13,21 +17,21 @@ const badgeStyles: Record<MonitorState, string> = {
   DOWN: "bg-[var(--down-bg)] text-[var(--down-text)]",
   PENDING: "bg-[var(--chip-bg)] text-[var(--fg-muted)]",
   PAUSED: "bg-[var(--chip-bg)] text-[var(--fg-muted)]",
-};
+}
 
 function StatusBadge({ state, className }: StatusBadgeProps) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs leading-4 font-medium whitespace-nowrap",
+        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 font-medium text-xs leading-4",
         badgeStyles[state],
-        className,
+        className
       )}
     >
-      <StatusDot state={state} size="sm" aria-hidden />
+      <StatusDot aria-hidden size="sm" state={state} />
       {stateLabels[state]}
     </span>
-  );
+  )
 }
 
-export { StatusBadge };
+export { StatusBadge }

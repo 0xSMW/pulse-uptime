@@ -14,7 +14,7 @@
   },
   "files": {
     // Generated or foreign-toolchain files stay out of format and lint
-    "includes": ["**", "!!drizzle/**", "!!cli/**", "!!pnpm-lock.yaml"]
+    "includes": ["!!drizzle", "!!cli", "!!pnpm-lock.yaml"]
   },
   "javascript": {
     "formatter": {

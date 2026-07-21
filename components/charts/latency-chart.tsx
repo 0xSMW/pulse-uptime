@@ -1,4 +1,4 @@
-"use client";
+"use client"
 
 import {
   Area,
@@ -8,18 +8,18 @@ import {
   Tooltip,
   XAxis,
   YAxis,
-} from "recharts";
+} from "recharts"
 
-import { useTimezone } from "@/components/dashboard/timezone-provider";
+import { useTimezone } from "@/components/dashboard/timezone-provider"
 
 export type LatencyPoint = {
-  timestamp: string;
-  latencyMs: number | null;
-  successful: boolean;
-};
+  timestamp: string
+  latencyMs: number | null
+  successful: boolean
+}
 
 export function LatencyChart({ data }: { data: LatencyPoint[] }) {
-  const { resolvedTimeZone } = useTimezone();
+  const { resolvedTimeZone } = useTimezone()
   const points = data.slice(-240).map((point) => ({
     ...point,
     time: new Date(point.timestamp).toLocaleTimeString("en-US", {
@@ -28,32 +28,43 @@ export function LatencyChart({ data }: { data: LatencyPoint[] }) {
       hour12: false,
       timeZone: resolvedTimeZone,
     }),
-  }));
+  }))
 
   return (
-    <div className="h-[220px] w-full" aria-label="Response time chart">
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={points} margin={{ top: 8, right: 4, bottom: 0, left: 4 }}>
+    <div aria-label="Response time chart" className="h-[220px] w-full">
+      <ResponsiveContainer height="100%" width="100%">
+        <AreaChart
+          data={points}
+          margin={{ top: 8, right: 4, bottom: 0, left: 4 }}
+        >
           <defs>
-            <linearGradient id="latency-fill" x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id="latency-fill" x1="0" x2="0" y1="0" y2="1">
               <stop offset="0%" stopColor="var(--fg)" stopOpacity={0.08} />
               <stop offset="100%" stopColor="var(--fg)" stopOpacity={0} />
             </linearGradient>
           </defs>
-          <CartesianGrid vertical={false} stroke="var(--border)" />
+          <CartesianGrid stroke="var(--border)" vertical={false} />
           <XAxis
-            dataKey="time"
             axisLine={false}
-            tickLine={false}
+            dataKey="time"
             minTickGap={48}
-            tick={{ fill: "var(--fg-muted)", fontFamily: "var(--font-geist-mono)", fontSize: 11 }}
+            tick={{
+              fill: "var(--fg-muted)",
+              fontFamily: "var(--font-geist-mono)",
+              fontSize: 11,
+            }}
+            tickLine={false}
           />
           <YAxis
             axisLine={false}
+            tick={{
+              fill: "var(--fg-muted)",
+              fontFamily: "var(--font-geist-mono)",
+              fontSize: 11,
+            }}
+            tickFormatter={(value) => `${value} ms`}
             tickLine={false}
             width={44}
-            tickFormatter={(value) => `${value} ms`}
-            tick={{ fill: "var(--fg-muted)", fontFamily: "var(--font-geist-mono)", fontSize: 11 }}
           />
           <Tooltip
             contentStyle={{
@@ -66,16 +77,16 @@ export function LatencyChart({ data }: { data: LatencyPoint[] }) {
             }}
           />
           <Area
+            connectNulls={false}
             dataKey="latencyMs"
-            type="monotone"
+            fill="url(#latency-fill)"
+            isAnimationActive={false}
             stroke="var(--fg)"
             strokeWidth={1.5}
-            fill="url(#latency-fill)"
-            connectNulls={false}
-            isAnimationActive={false}
+            type="monotone"
           />
         </AreaChart>
       </ResponsiveContainer>
     </div>
-  );
+  )
 }

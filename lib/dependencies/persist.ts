@@ -1,10 +1,10 @@
-import "server-only";
+import "server-only"
 
-import { randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto"
 
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm"
 
-import type { Database } from "@/lib/db/client";
+import type { Database } from "@/lib/db/client"
 import {
   dependencies,
   dependencyCatalog,
@@ -13,12 +13,12 @@ import {
   dependencyState,
   dependencyStateIntervals,
   providerIncidentComponents,
-  providerIncidentUpdates,
   providerIncidents,
-} from "@/lib/db/schema";
-import { enqueueDependencyNotifications } from "@/lib/notifications/enqueue";
+  providerIncidentUpdates,
+} from "@/lib/db/schema"
+import { enqueueDependencyNotifications } from "@/lib/notifications/enqueue"
 
-import type { PollOutcome } from "./poller";
+import type { PollOutcome } from "./poller"
 import type {
   DependencyAdapterName,
   DependencyFidelity,
@@ -26,8 +26,8 @@ import type {
   DependencyState,
   IncidentMatchScope,
   NormalizedProviderSnapshot,
-} from "./types";
-import { componentIdsFromScope } from "./types";
+} from "./types"
+import { componentIdsFromScope } from "./types"
 
 // One transaction per source: upsert provider incidents and their updates
 // and components, recompute every installed dependency's state from its
@@ -37,15 +37,26 @@ import { componentIdsFromScope } from "./types";
 // NOTHING) or conditional-on-change, so repeated polls of unchanged upstream
 // data append nothing: the concurrency and idempotency tests lean on this.
 
-type ComponentishState = "OPERATIONAL" | "DEGRADED" | "OUTAGE" | "MAINTENANCE";
-type NormalizedIncident = NormalizedProviderSnapshot["incidents"][number];
+type ComponentishState = "OPERATIONAL" | "DEGRADED" | "OUTAGE" | "MAINTENANCE"
+type NormalizedIncident = NormalizedProviderSnapshot["incidents"][number]
 
-const STATE_RANK: Record<ComponentishState, number> = { OPERATIONAL: 0, MAINTENANCE: 1, DEGRADED: 2, OUTAGE: 3 };
-const BACKOFF_MINUTES = [5, 15, 30];
+const STATE_RANK: Record<ComponentishState, number> = {
+  OPERATIONAL: 0,
+  MAINTENANCE: 1,
+  DEGRADED: 2,
+  OUTAGE: 3,
+}
+const BACKOFF_MINUTES = [5, 15, 30]
 
-export function worstOf(states: readonly ComponentishState[]): ComponentishState {
-  if (states.length === 0) return "OPERATIONAL";
-  return states.reduce((worst, state) => (STATE_RANK[state] > STATE_RANK[worst] ? state : worst));
+export function worstOf(
+  states: readonly ComponentishState[]
+): ComponentishState {
+  if (states.length === 0) {
+    return "OPERATIONAL"
+  }
+  return states.reduce((worst, state) =>
+    STATE_RANK[state] > STATE_RANK[worst] ? state : worst
+  )
 }
 
 /**
@@ -54,22 +65,32 @@ export function worstOf(states: readonly ComponentishState[]): ComponentishState
  * OPERATIONAL; maintenance only raises a component that would otherwise be
  * OPERATIONAL, it never masks a worse reported state.
  */
-export function combinedComponentStates(snapshot: NormalizedProviderSnapshot): Map<string, ComponentishState> {
-  const map = new Map<string, ComponentishState>();
-  for (const [id, component] of Object.entries(snapshot.components)) map.set(id, component.state);
+export function combinedComponentStates(
+  snapshot: NormalizedProviderSnapshot
+): Map<string, ComponentishState> {
+  const map = new Map<string, ComponentishState>()
+  for (const [id, component] of Object.entries(snapshot.components)) {
+    map.set(id, component.state)
+  }
 
-  const observedAt = new Date(snapshot.observedAt);
+  const observedAt = new Date(snapshot.observedAt)
   for (const maintenance of snapshot.maintenances) {
-    if (maintenance.state === "completed") continue;
-    const startsAt = new Date(maintenance.startsAt);
-    const endsAt = maintenance.endsAt ? new Date(maintenance.endsAt) : null;
-    if (startsAt > observedAt || (endsAt && endsAt < observedAt)) continue;
+    if (maintenance.state === "completed") {
+      continue
+    }
+    const startsAt = new Date(maintenance.startsAt)
+    const endsAt = maintenance.endsAt ? new Date(maintenance.endsAt) : null
+    if (startsAt > observedAt || (endsAt && endsAt < observedAt)) {
+      continue
+    }
     for (const componentId of maintenance.componentIds) {
-      const existing = map.get(componentId);
-      if (!existing || STATE_RANK.MAINTENANCE > STATE_RANK[existing]) map.set(componentId, "MAINTENANCE");
+      const existing = map.get(componentId)
+      if (!existing || STATE_RANK.MAINTENANCE > STATE_RANK[existing]) {
+        map.set(componentId, "MAINTENANCE")
+      }
     }
   }
-  return map;
+  return map
 }
 
 /**
@@ -87,14 +108,19 @@ export function combinedComponentStates(snapshot: NormalizedProviderSnapshot): M
  * parent aggregate ids here for matching an incident that names the parent,
  * while its severity likewise comes from the scope child alone.
  */
-export function matchingIdsForSelector(selector: DependencySelector, scopeId: string | null): string[] {
+export function matchingIdsForSelector(
+  selector: DependencySelector,
+  scopeId: string | null
+): string[] {
   switch (selector.kind) {
     case "component_ids":
-      return scopeId ? [...selector.ids, scopeId] : [...selector.ids];
+      return scopeId ? [...selector.ids, scopeId] : [...selector.ids]
     case "statusio_component_container":
-      return scopeId ? [selector.componentId, scopeId] : [selector.componentId];
+      return scopeId ? [selector.componentId, scopeId] : [selector.componentId]
     case "google_product":
-      return scopeId ? [selector.productId, `${selector.productId}@${scopeId}`] : [selector.productId];
+      return scopeId
+        ? [selector.productId, `${selector.productId}@${scopeId}`]
+        : [selector.productId]
   }
 }
 
@@ -137,49 +163,62 @@ export function resolveDependencyState(
   selector: DependencySelector,
   scopeId: string | null,
   combined: ReadonlyMap<string, ComponentishState>,
-  snapshot: NormalizedProviderSnapshot,
+  snapshot: NormalizedProviderSnapshot
 ): DependencyState {
-  const fallback = (): DependencyState => (snapshot.componentsComplete ? "UNKNOWN" : "OPERATIONAL");
+  const fallback = (): DependencyState =>
+    snapshot.componentsComplete ? "UNKNOWN" : "OPERATIONAL"
 
   if (selector.kind === "google_product" && scopeId) {
-    const compositeKey = `${selector.productId}@${scopeId}`;
+    const compositeKey = `${selector.productId}@${scopeId}`
     const touchedByActiveIncident = snapshot.incidents.some(
-      (incident) => incident.resolvedAt === null && componentIdsFromScope(incident.scope).includes(compositeKey),
-    );
-    if (!touchedByActiveIncident) return "OPERATIONAL";
-    return combined.get(selector.productId) ?? fallback();
+      (incident) =>
+        incident.resolvedAt === null &&
+        componentIdsFromScope(incident.scope).includes(compositeKey)
+    )
+    if (!touchedByActiveIncident) {
+      return "OPERATIONAL"
+    }
+    return combined.get(selector.productId) ?? fallback()
   }
 
   if (selector.kind === "statusio_component_container" && scopeId) {
-    return combined.get(scopeId) ?? fallback();
+    return combined.get(scopeId) ?? fallback()
   }
 
   if (selector.kind === "component_ids" && scopeId) {
-    return combined.get(scopeId) ?? fallback();
+    return combined.get(scopeId) ?? fallback()
   }
 
-  const ids = matchingIdsForSelector(selector, scopeId);
-  const states: ComponentishState[] = [];
+  const ids = matchingIdsForSelector(selector, scopeId)
+  const states: ComponentishState[] = []
   for (const id of ids) {
-    const state = combined.get(id);
+    const state = combined.get(id)
     if (state) {
-      states.push(state);
-      continue;
+      states.push(state)
+      continue
     }
-    if (snapshot.componentsComplete) return "UNKNOWN";
-    states.push("OPERATIONAL");
+    if (snapshot.componentsComplete) {
+      return "UNKNOWN"
+    }
+    states.push("OPERATIONAL")
   }
-  return worstOf(states);
+  return worstOf(states)
 }
 
 /** incidentio_compat incidents never carry an explicit component list (see incidentio-compat.ts); every other launch adapter's componentIds are explicit provider data. */
-export function associationKindForAdapter(adapter: DependencyAdapterName): "explicit" | "inferred" {
-  return adapter === "incidentio_compat" ? "inferred" : "explicit";
+export function associationKindForAdapter(
+  adapter: DependencyAdapterName
+): "explicit" | "inferred" {
+  return adapter === "incidentio_compat" ? "inferred" : "explicit"
 }
 
-export function selectorIntersectsIncident(selector: DependencySelector, scopeId: string | null, incidentComponentIds: readonly string[]): boolean {
-  const ids = new Set(matchingIdsForSelector(selector, scopeId));
-  return incidentComponentIds.some((id) => ids.has(id));
+export function selectorIntersectsIncident(
+  selector: DependencySelector,
+  scopeId: string | null,
+  incidentComponentIds: readonly string[]
+): boolean {
+  const ids = new Set(matchingIdsForSelector(selector, scopeId))
+  return incidentComponentIds.some((id) => ids.has(id))
 }
 
 /**
@@ -191,10 +230,21 @@ export function selectorIntersectsIncident(selector: DependencySelector, scopeId
  * - components: eligible only when this dependency is non-operational
  * - unmapped: never opens a new match or notification
  */
-export function shouldNotifyDependencyIncident(scope: IncidentMatchScope, nextState: DependencyState): boolean {
-  if (scope.kind === "source") return true;
-  if (scope.kind === "unmapped") return false;
-  return nextState === "DEGRADED" || nextState === "OUTAGE" || nextState === "MAINTENANCE";
+export function shouldNotifyDependencyIncident(
+  scope: IncidentMatchScope,
+  nextState: DependencyState
+): boolean {
+  if (scope.kind === "source") {
+    return true
+  }
+  if (scope.kind === "unmapped") {
+    return false
+  }
+  return (
+    nextState === "DEGRADED" ||
+    nextState === "OUTAGE" ||
+    nextState === "MAINTENANCE"
+  )
 }
 
 /**
@@ -206,10 +256,21 @@ export function shouldNotifyDependencyIncident(scope: IncidentMatchScope, nextSt
  * - incident_only fidelity: eligible at UNKNOWN or OPERATIONAL
  * - DEGRADED / OUTAGE / MAINTENANCE always defers recovery
  */
-export function shouldNotifyDependencyRecovery(fidelity: DependencyFidelity, resolvedState: DependencyState): boolean {
-  if (resolvedState === "DEGRADED" || resolvedState === "OUTAGE" || resolvedState === "MAINTENANCE") return false;
-  if (fidelity === "incident_only") return resolvedState === "UNKNOWN" || resolvedState === "OPERATIONAL";
-  return resolvedState === "OPERATIONAL";
+export function shouldNotifyDependencyRecovery(
+  fidelity: DependencyFidelity,
+  resolvedState: DependencyState
+): boolean {
+  if (
+    resolvedState === "DEGRADED" ||
+    resolvedState === "OUTAGE" ||
+    resolvedState === "MAINTENANCE"
+  ) {
+    return false
+  }
+  if (fidelity === "incident_only") {
+    return resolvedState === "UNKNOWN" || resolvedState === "OPERATIONAL"
+  }
+  return resolvedState === "OPERATIONAL"
 }
 
 /**
@@ -247,12 +308,17 @@ export function shouldNotifyDependencyRecovery(fidelity: DependencyFidelity, res
 export function deriveNotificationEvent(
   isNewMatch: boolean,
   isActive: boolean,
-  priorResolvedAt: Date | null | undefined,
+  priorResolvedAt: Date | null | undefined
 ): "incident" | "recovery" | null {
-  const priorKnownResolved = priorResolvedAt !== undefined && priorResolvedAt !== null;
-  if (isActive) return isNewMatch || priorKnownResolved ? "incident" : null;
-  if (priorResolvedAt === null) return "recovery";
-  return null;
+  const priorKnownResolved =
+    priorResolvedAt !== undefined && priorResolvedAt !== null
+  if (isActive) {
+    return isNewMatch || priorKnownResolved ? "incident" : null
+  }
+  if (priorResolvedAt === null) {
+    return "recovery"
+  }
+  return null
 }
 
 /**
@@ -275,43 +341,71 @@ export function notificationKeyExternalId(
   incidentExternalId: string,
   isReopen: boolean,
   priorResolvedAt: Date | null | undefined,
-  resolvedAt: string | null,
+  resolvedAt: string | null
 ): string {
   if (event === "incident") {
-    return isReopen && priorResolvedAt ? `${incidentExternalId}#${priorResolvedAt.getTime()}` : incidentExternalId;
+    return isReopen && priorResolvedAt
+      ? `${incidentExternalId}#${priorResolvedAt.getTime()}`
+      : incidentExternalId
   }
-  return resolvedAt ? `${incidentExternalId}#${new Date(resolvedAt).getTime()}` : incidentExternalId;
+  return resolvedAt
+    ? `${incidentExternalId}#${new Date(resolvedAt).getTime()}`
+    : incidentExternalId
 }
 
 /** Retry-After wins outright when the provider sent one; otherwise the fixed 5/15/30 minute ladder, indexed by how many consecutive failures this is. */
-export function failureDelayMs(consecutiveFailures: number, retryAfterMs: number | null): number {
-  if (retryAfterMs !== null) return Math.max(0, retryAfterMs);
-  const index = Math.min(Math.max(consecutiveFailures - 1, 0), BACKOFF_MINUTES.length - 1);
-  return BACKOFF_MINUTES[index] * 60_000;
+export function failureDelayMs(
+  consecutiveFailures: number,
+  retryAfterMs: number | null
+): number {
+  if (retryAfterMs !== null) {
+    return Math.max(0, retryAfterMs)
+  }
+  const index = Math.min(
+    Math.max(consecutiveFailures - 1, 0),
+    BACKOFF_MINUTES.length - 1
+  )
+  return BACKOFF_MINUTES[index] * 60_000
 }
 
-export function isSourceStale(lastSuccessAt: Date | null, staleAfterSeconds: number, now: Date): boolean {
-  if (!lastSuccessAt) return true;
-  return now.getTime() - lastSuccessAt.getTime() > staleAfterSeconds * 1000;
+export function isSourceStale(
+  lastSuccessAt: Date | null,
+  staleAfterSeconds: number,
+  now: Date
+): boolean {
+  if (!lastSuccessAt) {
+    return true
+  }
+  return now.getTime() - lastSuccessAt.getTime() > staleAfterSeconds * 1000
 }
 
-export function computeNextPollAt(allOperational: boolean, source: { operationalPollSeconds: number; activePollSeconds: number }, now: Date): Date {
-  return new Date(now.getTime() + (allOperational ? source.operationalPollSeconds : source.activePollSeconds) * 1000);
+export function computeNextPollAt(
+  allOperational: boolean,
+  source: { operationalPollSeconds: number; activePollSeconds: number },
+  now: Date
+): Date {
+  return new Date(
+    now.getTime() +
+      (allOperational
+        ? source.operationalPollSeconds
+        : source.activePollSeconds) *
+        1000
+  )
 }
 
 // -- Executor interface -------------------------------------------------
 
 export interface PersistSourceRow {
-  id: string;
-  provider: string;
-  adapter: DependencyAdapterName;
-  statusPageUrl: string;
-  allowedHosts: readonly string[];
-  operationalPollSeconds: number;
-  activePollSeconds: number;
-  staleAfterSeconds: number;
-  consecutiveFailures: number;
-  lastSuccessAt: Date | null;
+  id: string
+  provider: string
+  adapter: DependencyAdapterName
+  statusPageUrl: string
+  allowedHosts: readonly string[]
+  operationalPollSeconds: number
+  activePollSeconds: number
+  staleAfterSeconds: number
+  consecutiveFailures: number
+  lastSuccessAt: Date | null
 }
 
 /**
@@ -322,54 +416,60 @@ export interface PersistSourceRow {
  * payload, so neither the dashboard nor an email ever renders an
  * unvalidated href, e.g. a javascript: URL or an attacker-controlled host.
  */
-export function safeProviderUrl(rawUrl: string | null, source: { statusPageUrl: string; allowedHosts: readonly string[] }): string {
+export function safeProviderUrl(
+  rawUrl: string | null,
+  source: { statusPageUrl: string; allowedHosts: readonly string[] }
+): string {
   if (rawUrl) {
     try {
-      const parsed = new URL(rawUrl);
+      const parsed = new URL(rawUrl)
       if (parsed.protocol === "https:") {
-        const statusHost = new URL(source.statusPageUrl).hostname;
-        if (parsed.hostname === statusHost || source.allowedHosts.includes(parsed.hostname)) {
-          return rawUrl;
+        const statusHost = new URL(source.statusPageUrl).hostname
+        if (
+          parsed.hostname === statusHost ||
+          source.allowedHosts.includes(parsed.hostname)
+        ) {
+          return rawUrl
         }
       }
     } catch {
       // Falls through to the status page below.
     }
   }
-  return source.statusPageUrl;
+  return source.statusPageUrl
 }
 
 export interface InstalledDependencyRow {
-  id: string;
-  catalogId: string;
-  presetName: string;
-  scopeId: string | null;
-  selector: DependencySelector;
+  id: string
+  catalogId: string
+  presetName: string
+  scopeId: string | null
+  selector: DependencySelector
   /** Catalog fidelity for this install. Drives recovery eligibility. */
-  fidelity: DependencyFidelity;
-  notificationsEnabled: boolean;
-  currentState: DependencyState;
+  fidelity: DependencyFidelity
+  notificationsEnabled: boolean
+  currentState: DependencyState
 }
 
 export interface DependencyNotificationInput {
-  event: "incident" | "recovery";
-  sourceId: string;
-  dependencyId: string;
-  presetId: string;
-  scopeId: string | null;
-  dependencyName: string;
-  provider: string;
+  event: "incident" | "recovery"
+  sourceId: string
+  dependencyId: string
+  presetId: string
+  scopeId: string | null
+  dependencyName: string
+  provider: string
   /** The idempotency-key external id (see notificationKeyExternalId), not necessarily the incident's bare external id. */
-  incidentExternalId: string;
-  incidentTitle: string;
-  state: string;
-  canonicalUrl: string | null;
-  providerTimestamp: string;
-  recipients: readonly string[];
+  incidentExternalId: string
+  incidentTitle: string
+  state: string
+  canonicalUrl: string | null
+  providerTimestamp: string
+  recipients: readonly string[]
 }
 
 export interface PersistExecutor {
-  loadInstalledDependencies(sourceId: string): Promise<InstalledDependencyRow[]>;
+  loadInstalledDependencies(sourceId: string): Promise<InstalledDependencyRow[]>
   /**
    * Batched read of resolved_at for this source's incidents, keyed by
    * external id, as stored before this poll's upserts touch them. Read once
@@ -377,7 +477,10 @@ export interface PersistExecutor {
    * prior state rather than the row this same poll just wrote. A missing key
    * means the incident row did not exist before this poll.
    */
-  loadPriorIncidentResolution(sourceId: string, externalIds: readonly string[]): Promise<Map<string, Date | null>>;
+  loadPriorIncidentResolution(
+    sourceId: string,
+    externalIds: readonly string[]
+  ): Promise<Map<string, Date | null>>
   /**
    * Existing (dependencyId, incidentId) pairs already recorded in
    * dependency_incident_matches for these incident internal ids, as a
@@ -385,20 +488,35 @@ export interface PersistExecutor {
    * source scopes (no new broad match), and for component-scoped incidents
    * whose provider no longer lists a previously matched id.
    */
-  loadExistingMatches(incidentIds: readonly string[]): Promise<Set<string>>;
+  loadExistingMatches(incidentIds: readonly string[]): Promise<Set<string>>
   /**
    * This source's currently stored-open incidents (resolved_at is null), with
    * just enough of each to close it and fire recovery. Read only under a
    * snapshot whose incidentsComplete flag is true, so a stored-open incident
    * absent from the snapshot can be closed as resolved.
    */
-  loadOpenIncidents(sourceId: string): Promise<Array<{ internalId: string; externalId: string; title: string; canonicalUrl: string | null }>>;
+  loadOpenIncidents(sourceId: string): Promise<
+    Array<{
+      internalId: string
+      externalId: string
+      title: string
+      canonicalUrl: string | null
+    }>
+  >
   /** Sets resolved_at (and state resolved, provider_updated_at) on a stored-open incident whose external id vanished from a complete snapshot. */
-  closeIncident(internalId: string, resolvedAt: Date): Promise<void>;
+  closeIncident(internalId: string, resolvedAt: Date): Promise<void>
   /** Upsert on (source_id, external_id); updates in place only when provider_updated_at actually advanced. Returns the incident's internal id either way. */
-  upsertIncident(sourceId: string, candidateId: string, incident: NormalizedIncident): Promise<string>;
+  upsertIncident(
+    sourceId: string,
+    candidateId: string,
+    incident: NormalizedIncident
+  ): Promise<string>
   /** New (incidentId, externalComponentId) pairs only; existing pairs are left untouched. */
-  upsertIncidentComponents(incidentId: string, componentIds: readonly string[], associationKind: "explicit" | "inferred"): Promise<void>;
+  upsertIncidentComponents(
+    incidentId: string,
+    componentIds: readonly string[],
+    associationKind: "explicit" | "inferred"
+  ): Promise<void>
   /**
    * Monotonic upsert of provider update rows, keyed by provider identity
    * (incident_id, external_update_id). Rows are snapshots of the provider's
@@ -407,7 +525,10 @@ export interface PersistExecutor {
    * applies when a material field differs, and older snapshots are ignored.
    * Earliest provider_created_at is preserved. Identical replay is a no-op.
    */
-  upsertIncidentUpdates(incidentId: string, updates: NormalizedIncident["updates"]): Promise<void>;
+  upsertIncidentUpdates(
+    incidentId: string,
+    updates: NormalizedIncident["updates"]
+  ): Promise<void>
   /**
    * New (dependencyId, incidentId) pairs only; a match, once recorded, is
    * never removed even if the provider later disassociates the component.
@@ -416,7 +537,12 @@ export interface PersistExecutor {
    * combined with the incident's prior resolved_at, this tells "just started
    * matching" apart from "still matching, same as last poll".
    */
-  upsertDependencyIncidentMatch(dependencyId: string, incidentId: string, matchKind: "component_match" | "inferred", now: Date): Promise<boolean>;
+  upsertDependencyIncidentMatch(
+    dependencyId: string,
+    incidentId: string,
+    matchKind: "component_match" | "inferred",
+    now: Date
+  ): Promise<boolean>
   /**
    * Updates dependency_state in place always; closes/opens
    * dependency_state_intervals only when state changed from previousState.
@@ -425,30 +551,72 @@ export interface PersistExecutor {
    * dashboard's "Last Successful Feed Check" keeps the last real success
    * rather than showing the failure time.
    */
-  applyDependencyState(dependencyId: string, previousState: DependencyState, next: { state: DependencyState; observedAt: Date; providerUpdatedAt: Date | null; pollSucceeded: boolean }, now: Date): Promise<void>;
-  enqueueNotification(input: DependencyNotificationInput, now: Date): Promise<number>;
-  updateSourceHealthSuccess(sourceId: string, patch: { etag: string | null; lastModified: string | null; nextPollAt: Date; now: Date }): Promise<void>;
-  updateSourceHealthNotModified(sourceId: string, patch: { etag: string | null; lastModified: string | null; nextPollAt: Date; now: Date }): Promise<void>;
-  updateSourceHealthFailure(sourceId: string, patch: { errorCode: string; consecutiveFailures: number; nextPollAt: Date; now: Date }): Promise<void>;
+  applyDependencyState(
+    dependencyId: string,
+    previousState: DependencyState,
+    next: {
+      state: DependencyState
+      observedAt: Date
+      providerUpdatedAt: Date | null
+      pollSucceeded: boolean
+    },
+    now: Date
+  ): Promise<void>
+  enqueueNotification(
+    input: DependencyNotificationInput,
+    now: Date
+  ): Promise<number>
+  updateSourceHealthSuccess(
+    sourceId: string,
+    patch: {
+      etag: string | null
+      lastModified: string | null
+      nextPollAt: Date
+      now: Date
+    }
+  ): Promise<void>
+  updateSourceHealthNotModified(
+    sourceId: string,
+    patch: {
+      etag: string | null
+      lastModified: string | null
+      nextPollAt: Date
+      now: Date
+    }
+  ): Promise<void>
+  updateSourceHealthFailure(
+    sourceId: string,
+    patch: {
+      errorCode: string
+      consecutiveFailures: number
+      nextPollAt: Date
+      now: Date
+    }
+  ): Promise<void>
 }
 
 export interface PersistStore {
-  transaction<T>(work: (tx: PersistExecutor) => Promise<T>): Promise<T>;
+  transaction<T>(work: (tx: PersistExecutor) => Promise<T>): Promise<T>
 }
 
 export interface PersistContext {
-  now: Date;
-  defaultRecipients: readonly string[];
+  now: Date
+  defaultRecipients: readonly string[]
 }
 
 export interface PersistSummary {
-  dependenciesEvaluated: number;
-  incidentsUpserted: number;
-  notificationsEnqueued: number;
-  flippedToUnknown: number;
+  dependenciesEvaluated: number
+  incidentsUpserted: number
+  notificationsEnqueued: number
+  flippedToUnknown: number
 }
 
-const EMPTY_SUMMARY: PersistSummary = { dependenciesEvaluated: 0, incidentsUpserted: 0, notificationsEnqueued: 0, flippedToUnknown: 0 };
+const EMPTY_SUMMARY: PersistSummary = {
+  dependenciesEvaluated: 0,
+  incidentsUpserted: 0,
+  notificationsEnqueued: 0,
+  flippedToUnknown: 0,
+}
 
 async function applyAllOperationalNextPoll(
   tx: PersistExecutor,
@@ -456,56 +624,98 @@ async function applyAllOperationalNextPoll(
   states: ReadonlyMap<string, DependencyState>,
   outcomeCache: { etag: string | null; lastModified: string | null },
   now: Date,
-  kind: "snapshot" | "not_modified",
+  kind: "snapshot" | "not_modified"
 ): Promise<void> {
-  const allOperational = [...states.values()].every((state) => state === "OPERATIONAL");
-  const nextPollAt = computeNextPollAt(allOperational, source, now);
-  const patch = { etag: outcomeCache.etag, lastModified: outcomeCache.lastModified, nextPollAt, now };
-  if (kind === "snapshot") await tx.updateSourceHealthSuccess(source.id, patch);
-  else await tx.updateSourceHealthNotModified(source.id, patch);
+  const allOperational = [...states.values()].every(
+    (state) => state === "OPERATIONAL"
+  )
+  const nextPollAt = computeNextPollAt(allOperational, source, now)
+  const patch = {
+    etag: outcomeCache.etag,
+    lastModified: outcomeCache.lastModified,
+    nextPollAt,
+    now,
+  }
+  if (kind === "snapshot") {
+    await tx.updateSourceHealthSuccess(source.id, patch)
+  } else {
+    await tx.updateSourceHealthNotModified(source.id, patch)
+  }
 }
 
 export async function persistSnapshot(
   store: PersistStore,
   outcome: PollOutcome,
   source: PersistSourceRow,
-  context: PersistContext,
+  context: PersistContext
 ): Promise<PersistSummary> {
   return store.transaction(async (tx) => {
     if (outcome.kind === "not_modified") {
-      const installed = await tx.loadInstalledDependencies(source.id);
-      const states = new Map(installed.map((dependency) => [dependency.id, dependency.currentState] as const));
-      await applyAllOperationalNextPoll(tx, source, states, outcome, context.now, "not_modified");
-      return EMPTY_SUMMARY;
+      const installed = await tx.loadInstalledDependencies(source.id)
+      const states = new Map(
+        installed.map(
+          (dependency) => [dependency.id, dependency.currentState] as const
+        )
+      )
+      await applyAllOperationalNextPoll(
+        tx,
+        source,
+        states,
+        outcome,
+        context.now,
+        "not_modified"
+      )
+      return EMPTY_SUMMARY
     }
 
     if (outcome.kind === "failure") {
-      const consecutiveFailures = source.consecutiveFailures + 1;
-      const nextPollAt = new Date(context.now.getTime() + failureDelayMs(consecutiveFailures, outcome.retryAfterMs));
-      const errorCode = errorCodeOf(outcome.error);
-      await tx.updateSourceHealthFailure(source.id, { errorCode, consecutiveFailures, nextPollAt, now: context.now });
+      const consecutiveFailures = source.consecutiveFailures + 1
+      const nextPollAt = new Date(
+        context.now.getTime() +
+          failureDelayMs(consecutiveFailures, outcome.retryAfterMs)
+      )
+      const errorCode = errorCodeOf(outcome.error)
+      await tx.updateSourceHealthFailure(source.id, {
+        errorCode,
+        consecutiveFailures,
+        nextPollAt,
+        now: context.now,
+      })
 
-      let flippedToUnknown = 0;
-      if (isSourceStale(source.lastSuccessAt, source.staleAfterSeconds, context.now)) {
-        const installed = await tx.loadInstalledDependencies(source.id);
+      let flippedToUnknown = 0
+      if (
+        isSourceStale(
+          source.lastSuccessAt,
+          source.staleAfterSeconds,
+          context.now
+        )
+      ) {
+        const installed = await tx.loadInstalledDependencies(source.id)
         for (const dependency of installed) {
-          if (dependency.currentState === "UNKNOWN") continue;
-          await tx.applyDependencyState(dependency.id, dependency.currentState, {
-            state: "UNKNOWN",
-            observedAt: context.now,
-            providerUpdatedAt: null,
-            pollSucceeded: false,
-          }, context.now);
-          flippedToUnknown += 1;
+          if (dependency.currentState === "UNKNOWN") {
+            continue
+          }
+          await tx.applyDependencyState(
+            dependency.id,
+            dependency.currentState,
+            {
+              state: "UNKNOWN",
+              observedAt: context.now,
+              providerUpdatedAt: null,
+              pollSucceeded: false,
+            },
+            context.now
+          )
+          flippedToUnknown += 1
         }
       }
-      return { ...EMPTY_SUMMARY, flippedToUnknown };
+      return { ...EMPTY_SUMMARY, flippedToUnknown }
     }
 
     // outcome.kind === "snapshot"
-    const { snapshot } = outcome;
-    const combined = combinedComponentStates(snapshot);
-    const associationKind = associationKindForAdapter(source.adapter);
+    const { snapshot } = outcome
+    const combined = combinedComponentStates(snapshot)
+    const associationKind = associationKindForAdapter(source.adapter)
 
     // Sanitize every incident's canonicalUrl once, up front: the same safe
     // value is what gets persisted to provider_incidents and what travels
@@ -520,92 +730,142 @@ export async function persistSnapshot(
     const incidents = snapshot.incidents.map((incident) => ({
       ...incident,
       canonicalUrl: safeProviderUrl(incident.canonicalUrl, source),
-      resolvedAt: incident.resolvedAt && new Date(incident.resolvedAt) < new Date(incident.startedAt)
-        ? incident.startedAt
-        : incident.resolvedAt,
-    }));
+      resolvedAt:
+        incident.resolvedAt &&
+        new Date(incident.resolvedAt) < new Date(incident.startedAt)
+          ? incident.startedAt
+          : incident.resolvedAt,
+    }))
 
     // Read every one of this poll's incidents' prior resolved_at before any
     // upsert below overwrites it, so the transition check further down
     // compares against the state as of the last poll, not this one.
-    const priorIncidentResolution = await tx.loadPriorIncidentResolution(source.id, incidents.map((incident) => incident.externalId));
+    const priorIncidentResolution = await tx.loadPriorIncidentResolution(
+      source.id,
+      incidents.map((incident) => incident.externalId)
+    )
 
-    let incidentsUpserted = 0;
-    const incidentInternalIds = new Map<string, string>();
+    let incidentsUpserted = 0
+    const incidentInternalIds = new Map<string, string>()
     for (const incident of incidents) {
-      const internalId = await tx.upsertIncident(source.id, randomUUID(), incident);
-      incidentInternalIds.set(incident.externalId, internalId);
+      const internalId = await tx.upsertIncident(
+        source.id,
+        randomUUID(),
+        incident
+      )
+      incidentInternalIds.set(incident.externalId, internalId)
       // Component association rows only for components-scoped incidents.
       // Source and unmapped scopes persist no component rows.
-      await tx.upsertIncidentComponents(internalId, componentIdsFromScope(incident.scope), associationKind);
-      await tx.upsertIncidentUpdates(internalId, incident.updates);
-      incidentsUpserted += 1;
+      await tx.upsertIncidentComponents(
+        internalId,
+        componentIdsFromScope(incident.scope),
+        associationKind
+      )
+      await tx.upsertIncidentUpdates(internalId, incident.updates)
+      incidentsUpserted += 1
     }
 
     // Load durable match rows for every incident in this snapshot. Unmapped
     // and resolved source scopes, plus components whose provider dropped a
     // former id, fall back to these rows for correlation and recovery.
-    const allIncidentInternalIds = [...incidentInternalIds.values()];
-    const existingMatches = await tx.loadExistingMatches(allIncidentInternalIds);
+    const allIncidentInternalIds = [...incidentInternalIds.values()]
+    const existingMatches = await tx.loadExistingMatches(allIncidentInternalIds)
 
-    const installed = await tx.loadInstalledDependencies(source.id);
-    const finalStates = new Map<string, DependencyState>();
-    let notificationsEnqueued = 0;
+    const installed = await tx.loadInstalledDependencies(source.id)
+    const finalStates = new Map<string, DependencyState>()
+    let notificationsEnqueued = 0
 
     for (const dependency of installed) {
-      const nextState = resolveDependencyState(dependency.selector, dependency.scopeId, combined, snapshot);
-      finalStates.set(dependency.id, nextState);
-      await tx.applyDependencyState(dependency.id, dependency.currentState, {
-        state: nextState,
-        observedAt: context.now,
-        providerUpdatedAt: snapshot.providerUpdatedAt ? new Date(snapshot.providerUpdatedAt) : null,
-        pollSucceeded: true,
-      }, context.now);
+      const nextState = resolveDependencyState(
+        dependency.selector,
+        dependency.scopeId,
+        combined,
+        snapshot
+      )
+      finalStates.set(dependency.id, nextState)
+      await tx.applyDependencyState(
+        dependency.id,
+        dependency.currentState,
+        {
+          state: nextState,
+          observedAt: context.now,
+          providerUpdatedAt: snapshot.providerUpdatedAt
+            ? new Date(snapshot.providerUpdatedAt)
+            : null,
+          pollSucceeded: true,
+        },
+        context.now
+      )
 
       for (const incident of incidents) {
-        const incidentInternalId = incidentInternalIds.get(incident.externalId);
-        if (!incidentInternalId) continue;
+        const incidentInternalId = incidentInternalIds.get(incident.externalId)
+        if (!incidentInternalId) {
+          continue
+        }
 
-        const isActive = incident.resolvedAt === null;
-        const matchKey = `${dependency.id}:${incidentInternalId}`;
-        const hasExistingMatch = existingMatches.has(matchKey);
+        const isActive = incident.resolvedAt === null
+        const matchKey = `${dependency.id}:${incidentInternalId}`
+        const hasExistingMatch = existingMatches.has(matchKey)
 
         // Match by explicit scope. Empty component arrays never stand alone.
-        let isNewMatch: boolean;
+        let isNewMatch: boolean
         switch (incident.scope.kind) {
           case "components": {
             // Active and resolved: intersect current ids. When the provider
             // no longer lists a former id, keep the durable match row.
-            if (selectorIntersectsIncident(dependency.selector, dependency.scopeId, incident.scope.componentIds)) {
-              const matchKind = associationKind === "inferred" ? "inferred" : "component_match";
-              isNewMatch = await tx.upsertDependencyIncidentMatch(dependency.id, incidentInternalId, matchKind, context.now);
-              if (isNewMatch) existingMatches.add(matchKey);
+            if (
+              selectorIntersectsIncident(
+                dependency.selector,
+                dependency.scopeId,
+                incident.scope.componentIds
+              )
+            ) {
+              const matchKind =
+                associationKind === "inferred" ? "inferred" : "component_match"
+              isNewMatch = await tx.upsertDependencyIncidentMatch(
+                dependency.id,
+                incidentInternalId,
+                matchKind,
+                context.now
+              )
+              if (isNewMatch) {
+                existingMatches.add(matchKey)
+              }
             } else if (hasExistingMatch) {
-              isNewMatch = false;
+              isNewMatch = false
             } else {
-              continue;
+              continue
             }
-            break;
+            break
           }
           case "source": {
             if (isActive) {
               // Active source-wide: every installed dependency matches.
-              isNewMatch = await tx.upsertDependencyIncidentMatch(dependency.id, incidentInternalId, "inferred", context.now);
-              if (isNewMatch) existingMatches.add(matchKey);
+              isNewMatch = await tx.upsertDependencyIncidentMatch(
+                dependency.id,
+                incidentInternalId,
+                "inferred",
+                context.now
+              )
+              if (isNewMatch) {
+                existingMatches.add(matchKey)
+              }
             } else if (hasExistingMatch) {
               // Resolved source-wide: existing matches only (no install-time broaden).
-              isNewMatch = false;
+              isNewMatch = false
             } else {
-              continue;
+              continue
             }
-            break;
+            break
           }
           case "unmapped": {
             // Preserve existing matches only. Never create a new match or
             // open notification from unavailable scope.
-            if (!hasExistingMatch) continue;
-            isNewMatch = false;
-            break;
+            if (!hasExistingMatch) {
+              continue
+            }
+            isNewMatch = false
+            break
           }
         }
 
@@ -614,43 +874,74 @@ export async function persistSnapshot(
         // before this poll's own upserts. This makes the event fire exactly
         // once at transition time and holds even across an outbox purge,
         // since nothing here depends on a previously enqueued outbox row.
-        const priorResolvedAt = priorIncidentResolution.get(incident.externalId);
-        const event = deriveNotificationEvent(isNewMatch, isActive, priorResolvedAt);
-        if (event === null) continue;
+        const priorResolvedAt = priorIncidentResolution.get(incident.externalId)
+        const event = deriveNotificationEvent(
+          isNewMatch,
+          isActive,
+          priorResolvedAt
+        )
+        if (event === null) {
+          continue
+        }
 
         // Opening: scope + dependency state. Correlation may already be written.
-        if (event === "incident" && !shouldNotifyDependencyIncident(incident.scope, nextState)) continue;
+        if (
+          event === "incident" &&
+          !shouldNotifyDependencyIncident(incident.scope, nextState)
+        ) {
+          continue
+        }
 
         // Recovery: fidelity + final dependency state. Scope no longer exempts.
-        if (event === "recovery" && !shouldNotifyDependencyRecovery(dependency.fidelity, nextState)) continue;
+        if (
+          event === "recovery" &&
+          !shouldNotifyDependencyRecovery(dependency.fidelity, nextState)
+        ) {
+          continue
+        }
 
-        if (!dependency.notificationsEnabled || context.defaultRecipients.length === 0) continue;
+        if (
+          !dependency.notificationsEnabled ||
+          context.defaultRecipients.length === 0
+        ) {
+          continue
+        }
 
         // An "incident" event on an incident that was stored resolved as of
         // the prior poll is the reopen case, regardless of whether the match
         // row is new this poll or predates the resolution: give it, and every
         // "recovery", a key distinct from the cycle that first used this
         // external id (see notificationKeyExternalId).
-        const priorKnownResolved = priorResolvedAt !== undefined && priorResolvedAt !== null;
-        const isReopen = event === "incident" && priorKnownResolved;
-        const keyExternalId = notificationKeyExternalId(event, incident.externalId, isReopen, priorResolvedAt, incident.resolvedAt);
-
-        const enqueued = await tx.enqueueNotification({
+        const priorKnownResolved =
+          priorResolvedAt !== undefined && priorResolvedAt !== null
+        const isReopen = event === "incident" && priorKnownResolved
+        const keyExternalId = notificationKeyExternalId(
           event,
-          sourceId: source.id,
-          dependencyId: dependency.id,
-          presetId: dependency.catalogId,
-          scopeId: dependency.scopeId,
-          dependencyName: dependency.presetName,
-          provider: source.provider,
-          incidentExternalId: keyExternalId,
-          incidentTitle: incident.title,
-          state: nextState,
-          canonicalUrl: incident.canonicalUrl,
-          providerTimestamp: incident.updatedAt,
-          recipients: context.defaultRecipients,
-        }, context.now);
-        notificationsEnqueued += enqueued;
+          incident.externalId,
+          isReopen,
+          priorResolvedAt,
+          incident.resolvedAt
+        )
+
+        const enqueued = await tx.enqueueNotification(
+          {
+            event,
+            sourceId: source.id,
+            dependencyId: dependency.id,
+            presetId: dependency.catalogId,
+            scopeId: dependency.scopeId,
+            dependencyName: dependency.presetName,
+            provider: source.provider,
+            incidentExternalId: keyExternalId,
+            incidentTitle: incident.title,
+            state: nextState,
+            canonicalUrl: incident.canonicalUrl,
+            providerTimestamp: incident.updatedAt,
+            recipients: context.defaultRecipients,
+          },
+          context.now
+        )
+        notificationsEnqueued += enqueued
       }
     }
 
@@ -662,205 +953,324 @@ export async function persistSnapshot(
     // dependency it still matched, through the same fidelity helper the main
     // loop uses for terminal-state recovery.
     if (snapshot.incidentsComplete) {
-      const snapshotExternalIds = new Set(incidents.map((incident) => incident.externalId));
-      const openStored = await tx.loadOpenIncidents(source.id);
-      const disappeared = openStored.filter((open) => !snapshotExternalIds.has(open.externalId));
+      const snapshotExternalIds = new Set(
+        incidents.map((incident) => incident.externalId)
+      )
+      const openStored = await tx.loadOpenIncidents(source.id)
+      const disappeared = openStored.filter(
+        (open) => !snapshotExternalIds.has(open.externalId)
+      )
       if (disappeared.length > 0) {
-        const matchesForDisappeared = await tx.loadExistingMatches(disappeared.map((open) => open.internalId));
+        const matchesForDisappeared = await tx.loadExistingMatches(
+          disappeared.map((open) => open.internalId)
+        )
         for (const open of disappeared) {
-          await tx.closeIncident(open.internalId, context.now);
+          await tx.closeIncident(open.internalId, context.now)
           for (const dependency of installed) {
-            if (!matchesForDisappeared.has(`${dependency.id}:${open.internalId}`)) continue;
-            if (!dependency.notificationsEnabled || context.defaultRecipients.length === 0) continue;
+            if (
+              !matchesForDisappeared.has(`${dependency.id}:${open.internalId}`)
+            ) {
+              continue
+            }
+            if (
+              !dependency.notificationsEnabled ||
+              context.defaultRecipients.length === 0
+            ) {
+              continue
+            }
             // Same recovery policy as the terminal-state path: fidelity +
             // the dependency's final state after this poll's evaluation.
-            const resolvedState = finalStates.get(dependency.id) ?? dependency.currentState;
-            if (!shouldNotifyDependencyRecovery(dependency.fidelity, resolvedState)) continue;
-            const keyExternalId = notificationKeyExternalId("recovery", open.externalId, false, null, context.now.toISOString());
-            const enqueued = await tx.enqueueNotification({
-              event: "recovery",
-              sourceId: source.id,
-              dependencyId: dependency.id,
-              presetId: dependency.catalogId,
-              scopeId: dependency.scopeId,
-              dependencyName: dependency.presetName,
-              provider: source.provider,
-              incidentExternalId: keyExternalId,
-              incidentTitle: open.title,
-              state: resolvedState,
-              canonicalUrl: open.canonicalUrl,
-              providerTimestamp: context.now.toISOString(),
-              recipients: context.defaultRecipients,
-            }, context.now);
-            notificationsEnqueued += enqueued;
+            const resolvedState =
+              finalStates.get(dependency.id) ?? dependency.currentState
+            if (
+              !shouldNotifyDependencyRecovery(
+                dependency.fidelity,
+                resolvedState
+              )
+            ) {
+              continue
+            }
+            const keyExternalId = notificationKeyExternalId(
+              "recovery",
+              open.externalId,
+              false,
+              null,
+              context.now.toISOString()
+            )
+            const enqueued = await tx.enqueueNotification(
+              {
+                event: "recovery",
+                sourceId: source.id,
+                dependencyId: dependency.id,
+                presetId: dependency.catalogId,
+                scopeId: dependency.scopeId,
+                dependencyName: dependency.presetName,
+                provider: source.provider,
+                incidentExternalId: keyExternalId,
+                incidentTitle: open.title,
+                state: resolvedState,
+                canonicalUrl: open.canonicalUrl,
+                providerTimestamp: context.now.toISOString(),
+                recipients: context.defaultRecipients,
+              },
+              context.now
+            )
+            notificationsEnqueued += enqueued
           }
         }
       }
     }
 
-    await applyAllOperationalNextPoll(tx, source, finalStates, outcome, context.now, "snapshot");
+    await applyAllOperationalNextPoll(
+      tx,
+      source,
+      finalStates,
+      outcome,
+      context.now,
+      "snapshot"
+    )
 
-    return { dependenciesEvaluated: installed.length, incidentsUpserted, notificationsEnqueued, flippedToUnknown: 0 };
-  });
+    return {
+      dependenciesEvaluated: installed.length,
+      incidentsUpserted,
+      notificationsEnqueued,
+      flippedToUnknown: 0,
+    }
+  })
 }
 
 function errorCodeOf(error: Error): string {
-  const withCode = error as { code?: string };
-  return typeof withCode.code === "string" ? withCode.code : "UNKNOWN";
+  const withCode = error as { code?: string }
+  return typeof withCode.code === "string" ? withCode.code : "UNKNOWN"
 }
 
 // -- Real Drizzle-backed store -------------------------------------------
 
 export function createSqlPersistStore(db: Database): PersistStore {
   return {
-    transaction: (work) => db.transaction(async (tx) => work({
-      async loadInstalledDependencies(sourceId) {
-        const rows = await tx.select({
-          id: dependencies.id,
-          catalogId: dependencies.catalogId,
-          presetName: dependencyCatalog.displayName,
-          scopeId: dependencies.scopeId,
-          selector: dependencyCatalog.selector,
-          fidelity: dependencyCatalog.fidelity,
-          notificationsEnabled: dependencies.notificationsEnabled,
-          currentState: dependencyState.state,
-        }).from(dependencies)
-          .innerJoin(dependencyCatalog, eq(dependencyCatalog.id, dependencies.catalogId))
-          .innerJoin(dependencyState, eq(dependencyState.dependencyId, dependencies.id))
-          .where(and(
-            eq(dependencyCatalog.sourceId, sourceId),
-            // A dependency on a drift-disabled preset stays whatever
-            // catalog-sync last set it to (UNKNOWN): excluding it here is
-            // what stops this poll from recomputing and overwriting that.
-            eq(dependencyCatalog.enabled, true),
-            isNull(dependencies.removedAt),
-          ));
-        return rows.map((row) => ({
-          ...row,
-          selector: row.selector as DependencySelector,
-          fidelity: row.fidelity as DependencyFidelity,
-          currentState: row.currentState as DependencyState,
-        }));
-      },
-
-      async loadPriorIncidentResolution(sourceId, externalIds) {
-        if (externalIds.length === 0) return new Map();
-        const rows = await tx.select({
-          externalId: providerIncidents.externalId,
-          resolvedAt: providerIncidents.resolvedAt,
-        }).from(providerIncidents)
-          .where(and(eq(providerIncidents.sourceId, sourceId), inArray(providerIncidents.externalId, [...externalIds])));
-        return new Map(rows.map((row) => [row.externalId, row.resolvedAt]));
-      },
-
-      async loadExistingMatches(incidentIds) {
-        if (incidentIds.length === 0) return new Set();
-        const rows = await tx.select({
-          dependencyId: dependencyIncidentMatches.dependencyId,
-          incidentId: dependencyIncidentMatches.incidentId,
-        }).from(dependencyIncidentMatches)
-          .where(inArray(dependencyIncidentMatches.incidentId, [...incidentIds]));
-        return new Set(rows.map((row) => `${row.dependencyId}:${row.incidentId}`));
-      },
-
-      async loadOpenIncidents(sourceId) {
-        const rows = await tx.select({
-          internalId: providerIncidents.id,
-          externalId: providerIncidents.externalId,
-          title: providerIncidents.title,
-          canonicalUrl: providerIncidents.canonicalUrl,
-        }).from(providerIncidents)
-          .where(and(eq(providerIncidents.sourceId, sourceId), isNull(providerIncidents.resolvedAt)));
-        return rows.map((row) => ({ ...row, canonicalUrl: row.canonicalUrl ?? null }));
-      },
-
-      async closeIncident(internalId, resolvedAt) {
-        // greatest(resolvedAt, started_at) rather than a bare resolvedAt,
-        // matching the interval-close guard: a stored-open incident whose
-        // provider started_at is ahead of server now would otherwise land its
-        // resolved_at before its own started_at and fail the
-        // provider_incidents_resolution_order check, aborting the whole poll.
-        // Bound as an ISO string, never a Date: raw sql params bypass
-        // drizzle's column mappers and postgres-js rejects a Date at the
-        // wire layer.
-        const guardedResolvedAt = sql`greatest(${resolvedAt.toISOString()}, ${providerIncidents.startedAt})`;
-        await tx.update(providerIncidents).set({
-          state: "resolved" as (typeof providerIncidents.$inferInsert)["state"],
-          resolvedAt: guardedResolvedAt,
-          providerUpdatedAt: guardedResolvedAt,
-        }).where(eq(providerIncidents.id, internalId));
-      },
-
-      async upsertIncident(sourceId, candidateId, incident) {
-        const values = {
-          id: candidateId,
-          sourceId,
-          externalId: incident.externalId,
-          title: incident.title,
-          state: incident.state as (typeof providerIncidents.$inferInsert)["state"],
-          impact: incident.impact,
-          startedAt: new Date(incident.startedAt),
-          resolvedAt: incident.resolvedAt ? new Date(incident.resolvedAt) : null,
-          providerUpdatedAt: new Date(incident.updatedAt),
-          canonicalUrl: incident.canonicalUrl,
-        };
-        // Always updates on conflict rather than gating on setWhere: a
-        // WHERE-skipped conflict returns no row via RETURNING in Postgres,
-        // which would otherwise make this fall back to the wrong (freshly
-        // generated) id for an unchanged incident. provider_incidents is one
-        // row per incident regardless, so the extra write on an unchanged
-        // poll is cheap and never grows storage.
-        const [row] = await tx.insert(providerIncidents).values(values).onConflictDoUpdate({
-          target: [providerIncidents.sourceId, providerIncidents.externalId],
-          set: {
-            title: values.title,
-            state: values.state,
-            impact: values.impact,
-            // Re-anchored on every upsert: on an unchanged poll this is the
-            // same provider-reported started time, a no-op, but when a
-            // provider reopens the same external id after resolve it carries
-            // the reopen's new started time, so overlap offsetSeconds and the
-            // detail "Started" track the current outage, not the first one.
-            startedAt: values.startedAt,
-            resolvedAt: values.resolvedAt,
-            providerUpdatedAt: values.providerUpdatedAt,
-            canonicalUrl: values.canonicalUrl,
+    transaction: (work) =>
+      db.transaction(async (tx) =>
+        work({
+          async loadInstalledDependencies(sourceId) {
+            const rows = await tx
+              .select({
+                id: dependencies.id,
+                catalogId: dependencies.catalogId,
+                presetName: dependencyCatalog.displayName,
+                scopeId: dependencies.scopeId,
+                selector: dependencyCatalog.selector,
+                fidelity: dependencyCatalog.fidelity,
+                notificationsEnabled: dependencies.notificationsEnabled,
+                currentState: dependencyState.state,
+              })
+              .from(dependencies)
+              .innerJoin(
+                dependencyCatalog,
+                eq(dependencyCatalog.id, dependencies.catalogId)
+              )
+              .innerJoin(
+                dependencyState,
+                eq(dependencyState.dependencyId, dependencies.id)
+              )
+              .where(
+                and(
+                  eq(dependencyCatalog.sourceId, sourceId),
+                  // A dependency on a drift-disabled preset stays whatever
+                  // catalog-sync last set it to (UNKNOWN): excluding it here is
+                  // what stops this poll from recomputing and overwriting that.
+                  eq(dependencyCatalog.enabled, true),
+                  isNull(dependencies.removedAt)
+                )
+              )
+            return rows.map((row) => ({
+              ...row,
+              selector: row.selector as DependencySelector,
+              fidelity: row.fidelity as DependencyFidelity,
+              currentState: row.currentState as DependencyState,
+            }))
           },
-        }).returning({ id: providerIncidents.id });
-        return row?.id ?? candidateId;
-      },
 
-      async upsertIncidentComponents(incidentId, componentIds, associationKind) {
-        if (componentIds.length === 0) return;
-        await tx.insert(providerIncidentComponents)
-          .values(componentIds.map((externalComponentId) => ({ incidentId, externalComponentId, associationKind })))
-          .onConflictDoNothing();
-      },
+          async loadPriorIncidentResolution(sourceId, externalIds) {
+            if (externalIds.length === 0) {
+              return new Map()
+            }
+            const rows = await tx
+              .select({
+                externalId: providerIncidents.externalId,
+                resolvedAt: providerIncidents.resolvedAt,
+              })
+              .from(providerIncidents)
+              .where(
+                and(
+                  eq(providerIncidents.sourceId, sourceId),
+                  inArray(providerIncidents.externalId, [...externalIds])
+                )
+              )
+            return new Map(rows.map((row) => [row.externalId, row.resolvedAt]))
+          },
 
-      async upsertIncidentUpdates(incidentId, updates) {
-        if (updates.length === 0) return;
-        // Provider update rows are snapshots keyed by provider identity, not
-        // append-only inserts. Advance state/body when the provider timestamp
-        // is newer, accept same-timestamp material corrections, keep the
-        // earliest created_at, and ignore older or identical snapshots.
-        await tx.insert(providerIncidentUpdates)
-          .values(updates.map((update) => ({
+          async loadExistingMatches(incidentIds) {
+            if (incidentIds.length === 0) {
+              return new Set()
+            }
+            const rows = await tx
+              .select({
+                dependencyId: dependencyIncidentMatches.dependencyId,
+                incidentId: dependencyIncidentMatches.incidentId,
+              })
+              .from(dependencyIncidentMatches)
+              .where(
+                inArray(dependencyIncidentMatches.incidentId, [...incidentIds])
+              )
+            return new Set(
+              rows.map((row) => `${row.dependencyId}:${row.incidentId}`)
+            )
+          },
+
+          async loadOpenIncidents(sourceId) {
+            const rows = await tx
+              .select({
+                internalId: providerIncidents.id,
+                externalId: providerIncidents.externalId,
+                title: providerIncidents.title,
+                canonicalUrl: providerIncidents.canonicalUrl,
+              })
+              .from(providerIncidents)
+              .where(
+                and(
+                  eq(providerIncidents.sourceId, sourceId),
+                  isNull(providerIncidents.resolvedAt)
+                )
+              )
+            return rows.map((row) => ({
+              ...row,
+              canonicalUrl: row.canonicalUrl ?? null,
+            }))
+          },
+
+          async closeIncident(internalId, resolvedAt) {
+            // greatest(resolvedAt, started_at) rather than a bare resolvedAt,
+            // matching the interval-close guard: a stored-open incident whose
+            // provider started_at is ahead of server now would otherwise land its
+            // resolved_at before its own started_at and fail the
+            // provider_incidents_resolution_order check, aborting the whole poll.
+            // Bound as an ISO string, never a Date: raw sql params bypass
+            // drizzle's column mappers and postgres-js rejects a Date at the
+            // wire layer.
+            const guardedResolvedAt = sql`greatest(${resolvedAt.toISOString()}, ${providerIncidents.startedAt})`
+            await tx
+              .update(providerIncidents)
+              .set({
+                state:
+                  "resolved" as (typeof providerIncidents.$inferInsert)["state"],
+                resolvedAt: guardedResolvedAt,
+                providerUpdatedAt: guardedResolvedAt,
+              })
+              .where(eq(providerIncidents.id, internalId))
+          },
+
+          async upsertIncident(sourceId, candidateId, incident) {
+            const values = {
+              id: candidateId,
+              sourceId,
+              externalId: incident.externalId,
+              title: incident.title,
+              state:
+                incident.state as (typeof providerIncidents.$inferInsert)["state"],
+              impact: incident.impact,
+              startedAt: new Date(incident.startedAt),
+              resolvedAt: incident.resolvedAt
+                ? new Date(incident.resolvedAt)
+                : null,
+              providerUpdatedAt: new Date(incident.updatedAt),
+              canonicalUrl: incident.canonicalUrl,
+            }
+            // Always updates on conflict rather than gating on setWhere: a
+            // WHERE-skipped conflict returns no row via RETURNING in Postgres,
+            // which would otherwise make this fall back to the wrong (freshly
+            // generated) id for an unchanged incident. provider_incidents is one
+            // row per incident regardless, so the extra write on an unchanged
+            // poll is cheap and never grows storage.
+            const [row] = await tx
+              .insert(providerIncidents)
+              .values(values)
+              .onConflictDoUpdate({
+                target: [
+                  providerIncidents.sourceId,
+                  providerIncidents.externalId,
+                ],
+                set: {
+                  title: values.title,
+                  state: values.state,
+                  impact: values.impact,
+                  // Re-anchored on every upsert: on an unchanged poll this is the
+                  // same provider-reported started time, a no-op, but when a
+                  // provider reopens the same external id after resolve it carries
+                  // the reopen's new started time, so overlap offsetSeconds and the
+                  // detail "Started" track the current outage, not the first one.
+                  startedAt: values.startedAt,
+                  resolvedAt: values.resolvedAt,
+                  providerUpdatedAt: values.providerUpdatedAt,
+                  canonicalUrl: values.canonicalUrl,
+                },
+              })
+              .returning({ id: providerIncidents.id })
+            return row?.id ?? candidateId
+          },
+
+          async upsertIncidentComponents(
             incidentId,
-            externalUpdateId: update.externalId,
-            state: update.state as (typeof providerIncidentUpdates.$inferInsert)["state"],
-            bodyText: update.bodyText,
-            providerCreatedAt: new Date(update.createdAt),
-            providerUpdatedAt: new Date(update.updatedAt),
-          })))
-          .onConflictDoUpdate({
-            target: [providerIncidentUpdates.incidentId, providerIncidentUpdates.externalUpdateId],
-            set: {
-              state: sql`excluded.state`,
-              bodyText: sql`excluded.body_text`,
-              providerUpdatedAt: sql`excluded.provider_updated_at`,
-              providerCreatedAt: sql`least(${providerIncidentUpdates.providerCreatedAt}, excluded.provider_created_at)`,
-            },
-            setWhere: sql`
+            componentIds,
+            associationKind
+          ) {
+            if (componentIds.length === 0) {
+              return
+            }
+            await tx
+              .insert(providerIncidentComponents)
+              .values(
+                componentIds.map((externalComponentId) => ({
+                  incidentId,
+                  externalComponentId,
+                  associationKind,
+                }))
+              )
+              .onConflictDoNothing()
+          },
+
+          async upsertIncidentUpdates(incidentId, updates) {
+            if (updates.length === 0) {
+              return
+            }
+            // Provider update rows are snapshots keyed by provider identity, not
+            // append-only inserts. Advance state/body when the provider timestamp
+            // is newer, accept same-timestamp material corrections, keep the
+            // earliest created_at, and ignore older or identical snapshots.
+            await tx
+              .insert(providerIncidentUpdates)
+              .values(
+                updates.map((update) => ({
+                  incidentId,
+                  externalUpdateId: update.externalId,
+                  state:
+                    update.state as (typeof providerIncidentUpdates.$inferInsert)["state"],
+                  bodyText: update.bodyText,
+                  providerCreatedAt: new Date(update.createdAt),
+                  providerUpdatedAt: new Date(update.updatedAt),
+                }))
+              )
+              .onConflictDoUpdate({
+                target: [
+                  providerIncidentUpdates.incidentId,
+                  providerIncidentUpdates.externalUpdateId,
+                ],
+                set: {
+                  state: sql`excluded.state`,
+                  bodyText: sql`excluded.body_text`,
+                  providerUpdatedAt: sql`excluded.provider_updated_at`,
+                  providerCreatedAt: sql`least(${providerIncidentUpdates.providerCreatedAt}, excluded.provider_created_at)`,
+                },
+                setWhere: sql`
               excluded.provider_updated_at > ${providerIncidentUpdates.providerUpdatedAt}
               OR (
                 excluded.provider_updated_at = ${providerIncidentUpdates.providerUpdatedAt}
@@ -870,116 +1280,157 @@ export function createSqlPersistStore(db: Database): PersistStore {
                 )
               )
             `,
-          });
-      },
+              })
+          },
 
-      async upsertDependencyIncidentMatch(dependencyId, incidentId, matchKind, now) {
-        const rows = await tx.insert(dependencyIncidentMatches)
-          .values({ dependencyId, incidentId, matchKind, matchedAt: now })
-          .onConflictDoNothing()
-          .returning({ dependencyId: dependencyIncidentMatches.dependencyId });
-        return rows.length > 0;
-      },
+          async upsertDependencyIncidentMatch(
+            dependencyId,
+            incidentId,
+            matchKind,
+            now
+          ) {
+            const rows = await tx
+              .insert(dependencyIncidentMatches)
+              .values({ dependencyId, incidentId, matchKind, matchedAt: now })
+              .onConflictDoNothing()
+              .returning({
+                dependencyId: dependencyIncidentMatches.dependencyId,
+              })
+            return rows.length > 0
+          },
 
-      async applyDependencyState(dependencyId, previousState, next, now) {
-        await tx.update(dependencyState).set({
-          state: next.state,
-          pendingFirstPoll: false,
-          observedAt: next.observedAt,
-          providerUpdatedAt: next.providerUpdatedAt,
-          // Only a real snapshot advances the success timestamp. A
-          // stale-failure flip to UNKNOWN leaves it untouched.
-          ...(next.pollSucceeded ? { lastSuccessfulPollAt: now } : {}),
-          ...(next.state !== previousState ? { stateStartedAt: now } : {}),
-        }).where(eq(dependencyState.dependencyId, dependencyId));
+          async applyDependencyState(dependencyId, previousState, next, now) {
+            await tx
+              .update(dependencyState)
+              .set({
+                state: next.state,
+                pendingFirstPoll: false,
+                observedAt: next.observedAt,
+                providerUpdatedAt: next.providerUpdatedAt,
+                // Only a real snapshot advances the success timestamp. A
+                // stale-failure flip to UNKNOWN leaves it untouched.
+                ...(next.pollSucceeded ? { lastSuccessfulPollAt: now } : {}),
+                ...(next.state === previousState
+                  ? {}
+                  : { stateStartedAt: now }),
+              })
+              .where(eq(dependencyState.dependencyId, dependencyId))
 
-        if (next.state === previousState) return;
+            if (next.state === previousState) {
+              return
+            }
 
-        // greatest(now, started_at) rather than a bare `now`: under
-        // cross-instance clock skew a slightly-behind now could otherwise
-        // land before the interval's own started_at and fail the
-        // ended_at >= started_at check, aborting the whole poll transaction.
-        // Bound as an ISO string, never a Date: raw sql params bypass
-        // drizzle's column mappers and postgres-js rejects a Date at the
-        // wire layer.
-        await tx.update(dependencyStateIntervals).set({ endedAt: sql`greatest(${now.toISOString()}, ${dependencyStateIntervals.startedAt})` })
-          .where(and(eq(dependencyStateIntervals.dependencyId, dependencyId), isNull(dependencyStateIntervals.endedAt)));
-        // F4: tolerate a lost close-then-insert race. This close-then-insert
-        // is not atomic against the maintenance cron's flip, so a concurrent
-        // transaction can close this interval between the update above (which
-        // then matches zero rows) and this insert. Without the guard the
-        // insert would then violate dependency_state_intervals_one_open and
-        // abort the whole poll. Targeting that partial unique index with DO
-        // NOTHING turns the lost race into a no-op: the interval the other
-        // transaction opened stands, and this poll's other writes commit.
-        await tx.insert(dependencyStateIntervals).values({
-          id: randomUUID(),
-          dependencyId,
-          state: next.state,
-          startedAt: now,
-          endedAt: null,
-          sourceObservedAt: next.observedAt,
-        }).onConflictDoNothing({
-          // target plus this predicate name the partial unique index
-          // dependency_state_intervals_one_open (dependency_id where ended_at
-          // is null), so the conflict is caught rather than raised.
-          target: dependencyStateIntervals.dependencyId,
-          where: sql`${dependencyStateIntervals.endedAt} is null`,
-        });
-      },
+            // greatest(now, started_at) rather than a bare `now`: under
+            // cross-instance clock skew a slightly-behind now could otherwise
+            // land before the interval's own started_at and fail the
+            // ended_at >= started_at check, aborting the whole poll transaction.
+            // Bound as an ISO string, never a Date: raw sql params bypass
+            // drizzle's column mappers and postgres-js rejects a Date at the
+            // wire layer.
+            await tx
+              .update(dependencyStateIntervals)
+              .set({
+                endedAt: sql`greatest(${now.toISOString()}, ${dependencyStateIntervals.startedAt})`,
+              })
+              .where(
+                and(
+                  eq(dependencyStateIntervals.dependencyId, dependencyId),
+                  isNull(dependencyStateIntervals.endedAt)
+                )
+              )
+            // F4: tolerate a lost close-then-insert race. This close-then-insert
+            // is not atomic against the maintenance cron's flip, so a concurrent
+            // transaction can close this interval between the update above (which
+            // then matches zero rows) and this insert. Without the guard the
+            // insert would then violate dependency_state_intervals_one_open and
+            // abort the whole poll. Targeting that partial unique index with DO
+            // NOTHING turns the lost race into a no-op: the interval the other
+            // transaction opened stands, and this poll's other writes commit.
+            await tx
+              .insert(dependencyStateIntervals)
+              .values({
+                id: randomUUID(),
+                dependencyId,
+                state: next.state,
+                startedAt: now,
+                endedAt: null,
+                sourceObservedAt: next.observedAt,
+              })
+              .onConflictDoNothing({
+                // target plus this predicate name the partial unique index
+                // dependency_state_intervals_one_open (dependency_id where ended_at
+                // is null), so the conflict is caught rather than raised.
+                target: dependencyStateIntervals.dependencyId,
+                where: sql`${dependencyStateIntervals.endedAt} is null`,
+              })
+          },
 
-      async enqueueNotification(input, now) {
-        // Runs on the same tx handle as every other write in this
-        // transaction, so the outbox row commits and rolls back with the
-        // state, interval, and match writes rather than autocommitting on
-        // a separate connection.
-        return enqueueDependencyNotifications(tx, {
-          event: input.event,
-          sourceId: input.sourceId,
-          incidentExternalId: input.incidentExternalId,
-          presetId: input.presetId,
-          scopeId: input.scopeId,
-          dependencyId: input.dependencyId,
-          dependencyName: input.dependencyName,
-          provider: input.provider,
-          incidentTitle: input.incidentTitle,
-          state: input.state,
-          canonicalUrl: input.canonicalUrl,
-          providerTimestamp: input.providerTimestamp,
-          recipients: input.recipients,
-        }, { now });
-      },
+          async enqueueNotification(input, now) {
+            // Runs on the same tx handle as every other write in this
+            // transaction, so the outbox row commits and rolls back with the
+            // state, interval, and match writes rather than autocommitting on
+            // a separate connection.
+            return enqueueDependencyNotifications(
+              tx,
+              {
+                event: input.event,
+                sourceId: input.sourceId,
+                incidentExternalId: input.incidentExternalId,
+                presetId: input.presetId,
+                scopeId: input.scopeId,
+                dependencyId: input.dependencyId,
+                dependencyName: input.dependencyName,
+                provider: input.provider,
+                incidentTitle: input.incidentTitle,
+                state: input.state,
+                canonicalUrl: input.canonicalUrl,
+                providerTimestamp: input.providerTimestamp,
+                recipients: input.recipients,
+              },
+              { now }
+            )
+          },
 
-      async updateSourceHealthSuccess(sourceId, patch) {
-        await tx.update(dependencySources).set({
-          etag: patch.etag,
-          lastModified: patch.lastModified,
-          lastAttemptAt: patch.now,
-          lastSuccessAt: patch.now,
-          consecutiveFailures: 0,
-          lastErrorCode: null,
-          nextPollAt: patch.nextPollAt,
-        }).where(eq(dependencySources.id, sourceId));
-      },
+          async updateSourceHealthSuccess(sourceId, patch) {
+            await tx
+              .update(dependencySources)
+              .set({
+                etag: patch.etag,
+                lastModified: patch.lastModified,
+                lastAttemptAt: patch.now,
+                lastSuccessAt: patch.now,
+                consecutiveFailures: 0,
+                lastErrorCode: null,
+                nextPollAt: patch.nextPollAt,
+              })
+              .where(eq(dependencySources.id, sourceId))
+          },
 
-      async updateSourceHealthNotModified(sourceId, patch) {
-        await tx.update(dependencySources).set({
-          lastAttemptAt: patch.now,
-          lastSuccessAt: patch.now,
-          consecutiveFailures: 0,
-          lastErrorCode: null,
-          nextPollAt: patch.nextPollAt,
-        }).where(eq(dependencySources.id, sourceId));
-      },
+          async updateSourceHealthNotModified(sourceId, patch) {
+            await tx
+              .update(dependencySources)
+              .set({
+                lastAttemptAt: patch.now,
+                lastSuccessAt: patch.now,
+                consecutiveFailures: 0,
+                lastErrorCode: null,
+                nextPollAt: patch.nextPollAt,
+              })
+              .where(eq(dependencySources.id, sourceId))
+          },
 
-      async updateSourceHealthFailure(sourceId, patch) {
-        await tx.update(dependencySources).set({
-          lastAttemptAt: patch.now,
-          consecutiveFailures: patch.consecutiveFailures,
-          lastErrorCode: patch.errorCode,
-          nextPollAt: patch.nextPollAt,
-        }).where(eq(dependencySources.id, sourceId));
-      },
-    })),
-  };
+          async updateSourceHealthFailure(sourceId, patch) {
+            await tx
+              .update(dependencySources)
+              .set({
+                lastAttemptAt: patch.now,
+                consecutiveFailures: patch.consecutiveFailures,
+                lastErrorCode: patch.errorCode,
+                nextPollAt: patch.nextPollAt,
+              })
+              .where(eq(dependencySources.id, sourceId))
+          },
+        })
+      ),
+  }
 }

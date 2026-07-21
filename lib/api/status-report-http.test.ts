@@ -1,60 +1,80 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("server-only", () => ({}));
-vi.mock("@/lib/db/client", () => ({ db: {} }));
-vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("server-only", () => ({}))
+vi.mock("@/lib/db/client", () => ({ db: {} }))
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }))
 vi.mock("@/lib/api/status-reports", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/api/status-reports")>();
+  const actual =
+    await importOriginal<typeof import("@/lib/api/status-reports")>()
   return {
     ...actual,
-    databaseStatusReportsStore: { ...actual.databaseStatusReportsStore, findMonitors: vi.fn() },
-  };
-});
+    databaseStatusReportsStore: {
+      ...actual.databaseStatusReportsStore,
+      findMonitors: vi.fn(),
+    },
+  }
+})
 vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/idempotency")>()),
   executeIdempotent: vi.fn(),
-}));
+}))
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath } from "next/cache"
+import {
+  executeIdempotent,
+  type IdempotencyContext,
+} from "@/lib/api/idempotency"
+import {
+  databaseStatusReportsStore,
+  StatusReportError,
+} from "@/lib/api/status-reports"
+import type { DatabaseHandle } from "@/lib/db/client"
 
-import type { DatabaseHandle } from "@/lib/db/client";
-import { executeIdempotent, type IdempotencyContext } from "@/lib/api/idempotency";
-import { databaseStatusReportsStore, StatusReportError } from "@/lib/api/status-reports";
-
-import { collectStatusReportPaths, runStatusReportMutation } from "./status-report-http";
+import {
+  collectStatusReportPaths,
+  runStatusReportMutation,
+} from "./status-report-http"
 
 beforeEach(() => {
-  vi.mocked(revalidatePath).mockReset();
-  vi.mocked(databaseStatusReportsStore.findMonitors).mockReset().mockResolvedValue([]);
-});
+  vi.mocked(revalidatePath).mockReset()
+  vi.mocked(databaseStatusReportsStore.findMonitors)
+    .mockReset()
+    .mockResolvedValue([])
+})
 
 describe("collectStatusReportPaths", () => {
   it("always includes the status root and the report permalink", async () => {
-    const paths = await collectStatusReportPaths({ id: "rep-1", affected: [] });
-    expect(paths).toContain("/status");
-    expect(paths).toContain("/status/reports/rep-1");
-  });
+    const paths = await collectStatusReportPaths({ id: "rep-1", affected: [] })
+    expect(paths).toContain("/status")
+    expect(paths).toContain("/status/reports/rep-1")
+  })
 
   it("does not revalidate itself: collecting paths never invalidates the cache before commit", async () => {
-    await collectStatusReportPaths({ id: "rep-1", affected: [{ monitorId: "mon-1", groupName: "Core" }] });
-    expect(revalidatePath).not.toHaveBeenCalled();
-  });
+    await collectStatusReportPaths({
+      id: "rep-1",
+      affected: [{ monitorId: "mon-1", groupName: "Core" }],
+    })
+    expect(revalidatePath).not.toHaveBeenCalled()
+  })
 
   it("includes the snapshotted group of newly affected monitors", async () => {
     const paths = await collectStatusReportPaths({
       id: "rep-1",
       affected: [{ monitorId: "mon-1", groupName: "Core" }],
-    });
-    expect(paths).toContain("/status/core");
-  });
+    })
+    expect(paths).toContain("/status/core")
+  })
 
   it("unions old and new affected monitor ids in the live findMonitors lookup (finding: removed monitors' live groups missed)", async () => {
     await collectStatusReportPaths(
       { id: "rep-1", affected: [{ monitorId: "mon-1", groupName: "Core" }] },
-      [{ monitorId: "mon-2", groupName: "Data" }],
-    );
-    expect(databaseStatusReportsStore.findMonitors).toHaveBeenCalledWith(["mon-1", "mon-2"]);
-  });
+      [{ monitorId: "mon-2", groupName: "Data" }]
+    )
+    expect(databaseStatusReportsStore.findMonitors).toHaveBeenCalledWith([
+      "mon-1",
+      "mon-2",
+    ])
+  })
 
   it("includes a removed monitor's CURRENT live group, not just its stale snapshot", async () => {
     // mon-2 was removed from the affected set (only present in
@@ -63,47 +83,51 @@ describe("collectStatusReportPaths", () => {
     // refresh so the report never lingers on a page it silently moved off.
     vi.mocked(databaseStatusReportsStore.findMonitors).mockResolvedValue([
       { id: "mon-2", name: "Database", groupName: "Data-New" },
-    ]);
+    ])
     const paths = await collectStatusReportPaths(
       { id: "rep-1", affected: [] },
-      [{ monitorId: "mon-2", groupName: "Data-Old" }],
-    );
-    expect(databaseStatusReportsStore.findMonitors).toHaveBeenCalledWith(["mon-2"]);
-    expect(paths).toContain("/status/data-old");
-    expect(paths).toContain("/status/data-new");
-  });
+      [{ monitorId: "mon-2", groupName: "Data-Old" }]
+    )
+    expect(databaseStatusReportsStore.findMonitors).toHaveBeenCalledWith([
+      "mon-2",
+    ])
+    expect(paths).toContain("/status/data-old")
+    expect(paths).toContain("/status/data-new")
+  })
 
   it("is best-effort: a findMonitors failure never throws and the snapshot slugs are still returned", async () => {
-    vi.mocked(databaseStatusReportsStore.findMonitors).mockRejectedValue(new Error("db down"));
+    vi.mocked(databaseStatusReportsStore.findMonitors).mockRejectedValue(
+      new Error("db down")
+    )
     const paths = await collectStatusReportPaths({
       id: "rep-1",
       affected: [{ monitorId: "mon-1", groupName: "Core" }],
-    });
-    expect(paths).toContain("/status/core");
-  });
+    })
+    expect(paths).toContain("/status/core")
+  })
 
   it("never calls findMonitors when no monitor was ever affected", async () => {
-    await collectStatusReportPaths({ id: "rep-1", affected: [] });
-    expect(databaseStatusReportsStore.findMonitors).not.toHaveBeenCalled();
-  });
+    await collectStatusReportPaths({ id: "rep-1", affected: [] })
+    expect(databaseStatusReportsStore.findMonitors).not.toHaveBeenCalled()
+  })
 
   it("rides a passed-in store's findMonitors instead of the global pool-bound store (finding: mutation routes hold a pool connection while collecting paths)", async () => {
-    const txStore = { findMonitors: vi.fn().mockResolvedValue([]) };
+    const txStore = { findMonitors: vi.fn().mockResolvedValue([]) }
     await collectStatusReportPaths(
       { id: "rep-1", affected: [{ monitorId: "mon-1", groupName: "Core" }] },
       [],
-      txStore,
-    );
-    expect(txStore.findMonitors).toHaveBeenCalledWith(["mon-1"]);
-    expect(databaseStatusReportsStore.findMonitors).not.toHaveBeenCalled();
-  });
-});
+      txStore
+    )
+    expect(txStore.findMonitors).toHaveBeenCalledWith(["mon-1"])
+    expect(databaseStatusReportsStore.findMonitors).not.toHaveBeenCalled()
+  })
+})
 
 function mutationRequest() {
   return new Request("https://pulse.test/api/v1/status-reports/rep-1/publish", {
     method: "POST",
     headers: { "Idempotency-Key": "00000000-0000-4000-8000-000000000001" },
-  });
+  })
 }
 
 /**
@@ -117,24 +141,26 @@ function mutationRequest() {
  * rolled-back transaction leaving the record running.
  */
 describe("runStatusReportMutation", () => {
-  const stubTx = "stub-tx" as unknown as DatabaseHandle;
-  let completions: Array<{ status: number; body: unknown }>;
+  const stubTx = "stub-tx" as unknown as DatabaseHandle
+  let completions: Array<{ status: number; body: unknown }>
 
   beforeEach(() => {
-    completions = [];
-    vi.mocked(executeIdempotent).mockReset().mockImplementation(async ({ work }) => {
-      const context: IdempotencyContext = {
-        operationId: "op-1",
-        transaction: async (run) => {
-          const result = await run(stubTx);
-          completions.push({ status: result.status, body: result.body });
-          return result;
-        },
-      };
-      const result = await work(context);
-      return { ...result, replayed: false };
-    });
-  });
+    completions = []
+    vi.mocked(executeIdempotent)
+      .mockReset()
+      .mockImplementation(async ({ work }) => {
+        const context: IdempotencyContext = {
+          operationId: "op-1",
+          transaction: async (run) => {
+            const result = await run(stubTx)
+            completions.push({ status: result.status, body: result.body })
+            return result
+          },
+        }
+        const result = await work(context)
+        return { ...result, replayed: false }
+      })
+  })
 
   it("threads the same transaction handle executeIdempotent opened into work(), and commits the completion through it", async () => {
     const response = await runStatusReportMutation({
@@ -143,21 +169,30 @@ describe("runStatusReportMutation", () => {
       routeKey: "test",
       body: {},
       work: async (tx) => {
-        expect(tx).toBe(stubTx);
-        return { status: 200, kind: "StatusReport", data: { id: "rep-1" } };
+        expect(tx).toBe(stubTx)
+        return { status: 200, kind: "StatusReport", data: { id: "rep-1" } }
       },
-    });
+    })
 
-    expect(response.status).toBe(200);
-    expect(completions).toEqual([{
-      status: 200,
-      body: { apiVersion: "v1", kind: "StatusReport", data: { id: "rep-1" }, meta: { requestId: "req-1" } },
-    }]);
-  });
+    expect(response.status).toBe(200)
+    expect(completions).toEqual([
+      {
+        status: 200,
+        body: {
+          apiVersion: "v1",
+          kind: "StatusReport",
+          data: { id: "rep-1" },
+          meta: { requestId: "req-1" },
+        },
+      },
+    ])
+  })
 
   it("flushes work()'s revalidatePaths only after the completion commits, and only for a fresh mutation", async () => {
-    const order: string[] = [];
-    vi.mocked(revalidatePath).mockImplementation((path) => { order.push(`revalidate:${path}:${completions.length}`); });
+    const order: string[] = []
+    vi.mocked(revalidatePath).mockImplementation((path) => {
+      order.push(`revalidate:${path}:${completions.length}`)
+    })
 
     await runStatusReportMutation({
       request: mutationRequest(),
@@ -165,32 +200,45 @@ describe("runStatusReportMutation", () => {
       routeKey: "test",
       body: {},
       work: async () => ({
-        status: 200, kind: "StatusReport", data: { id: "rep-1" },
+        status: 200,
+        kind: "StatusReport",
+        data: { id: "rep-1" },
         revalidatePaths: ["/status", "/status/reports/rep-1"],
       }),
-    });
+    })
 
     // completions.length is 1 at both calls, proving the completion committed
     // before either revalidatePath ran, never from the pre-commit snapshot.
-    expect(order).toEqual(["revalidate:/status:1", "revalidate:/status/reports/rep-1:1"]);
-  });
+    expect(order).toEqual([
+      "revalidate:/status:1",
+      "revalidate:/status/reports/rep-1:1",
+    ])
+  })
 
   it("skips revalidation for a replayed response even when work() collected paths (the original run already revalidated)", async () => {
     vi.mocked(executeIdempotent).mockImplementationOnce(async ({ work }) => {
-      const result = await work({ operationId: "op-1", transaction: async (run) => run(stubTx) });
-      return { ...result, replayed: true };
-    });
+      const result = await work({
+        operationId: "op-1",
+        transaction: async (run) => run(stubTx),
+      })
+      return { ...result, replayed: true }
+    })
 
     await runStatusReportMutation({
       request: mutationRequest(),
       context: { principalKey: "human:1", requestId: "req-1" },
       routeKey: "test",
       body: {},
-      work: async () => ({ status: 200, kind: "StatusReport", data: { id: "rep-1" }, revalidatePaths: ["/status"] }),
-    });
+      work: async () => ({
+        status: 200,
+        kind: "StatusReport",
+        data: { id: "rep-1" },
+        revalidatePaths: ["/status"],
+      }),
+    })
 
-    expect(revalidatePath).not.toHaveBeenCalled();
-  });
+    expect(revalidatePath).not.toHaveBeenCalled()
+  })
 
   it("does not revalidate when work() throws a StatusReportError, since nothing changed", async () => {
     await runStatusReportMutation({
@@ -199,12 +247,15 @@ describe("runStatusReportMutation", () => {
       routeKey: "test",
       body: {},
       work: async () => {
-        throw new StatusReportError("ALREADY_PUBLISHED", "The status report is already published");
+        throw new StatusReportError(
+          "ALREADY_PUBLISHED",
+          "The status report is already published"
+        )
       },
-    });
+    })
 
-    expect(revalidatePath).not.toHaveBeenCalled();
-  });
+    expect(revalidatePath).not.toHaveBeenCalled()
+  })
 
   it("records a StatusReportError thrown by work() as the operation's own completed response, mapped to its HTTP status", async () => {
     const response = await runStatusReportMutation({
@@ -213,18 +264,21 @@ describe("runStatusReportMutation", () => {
       routeKey: "test",
       body: {},
       work: async () => {
-        throw new StatusReportError("ALREADY_PUBLISHED", "The status report is already published");
+        throw new StatusReportError(
+          "ALREADY_PUBLISHED",
+          "The status report is already published"
+        )
       },
-    });
+    })
 
-    expect(response.status).toBe(409);
-    const payload = await response.json();
-    expect(payload.error.code).toBe("ALREADY_PUBLISHED");
+    expect(response.status).toBe(409)
+    const payload = await response.json()
+    expect(payload.error.code).toBe("ALREADY_PUBLISHED")
     // Committed, not left running: the mapped 409 is the operation's own
     // durable response, recorded alongside (the absent) mutation, so a retry
     // replays this verbatim instead of rerunning work().
-    expect(completions).toMatchObject([{ status: 409 }]);
-  });
+    expect(completions).toMatchObject([{ status: 409 }])
+  })
 
   it("propagates a non-domain error out of the transaction and never persists a completion", async () => {
     const response = await runStatusReportMutation({
@@ -233,14 +287,14 @@ describe("runStatusReportMutation", () => {
       routeKey: "test",
       body: {},
       work: async () => {
-        throw new Error("boom");
+        throw new Error("boom")
       },
-    });
+    })
 
     // Mapped to a generic error response by the outer catch, not a stored
     // 4xx: this is not a domain outcome, so nothing about it is durable, and
     // the (faked) transaction never reaches its commit step.
-    expect(response.status).toBe(500);
-    expect(completions).toEqual([]);
-  });
-});
+    expect(response.status).toBe(500)
+    expect(completions).toEqual([])
+  })
+})

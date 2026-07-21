@@ -9,11 +9,18 @@
     "severity": "low",
     "status_impact": "SERVICE_DISRUPTION",
     "uri": "incidents/unrelatedactive01",
-    "affected_products": [{ "id": "unrelatedProductId0002", "title": "Another Unrelated Product" }],
+    "affected_products": [
+      { "id": "unrelatedProductId0002", "title": "Another Unrelated Product" }
+    ],
     "currently_affected_locations": [],
     "previously_affected_locations": [],
     "updates": [
-      { "created": "2026-07-19T07:10:00+00:00", "modified": "2026-07-19T07:10:00+00:00", "text": "We are investigating an issue with an unrelated product.", "status": "SERVICE_DISRUPTION" }
+      {
+        "created": "2026-07-19T07:10:00+00:00",
+        "modified": "2026-07-19T07:10:00+00:00",
+        "text": "We are investigating an issue with an unrelated product.",
+        "status": "SERVICE_DISRUPTION"
+      }
     ]
   }
 ]

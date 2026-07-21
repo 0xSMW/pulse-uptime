@@ -1,39 +1,58 @@
-import "server-only";
+import "server-only"
 
-import { and, count, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
-import { unionAll } from "drizzle-orm/pg-core";
-import { z } from "zod";
-
-import { db } from "@/lib/db/client";
-import type { DatabaseHandle } from "@/lib/db/client";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm"
+import { unionAll } from "drizzle-orm/pg-core"
+import { z } from "zod"
+import type { DatabaseHandle } from "@/lib/db/client"
+import { db } from "@/lib/db/client"
 import {
   incidents,
   monitorRegistry,
   monitorState,
   statusReportAffected,
-  statusReports,
-  statusReportUpdates,
   type statusReportImpacts,
+  statusReports,
   type statusReportTypes,
   type statusReportUpdateStatuses,
-} from "@/lib/db/schema";
-import { isUuid } from "@/lib/ids/uuid";
+  statusReportUpdates,
+} from "@/lib/db/schema"
+import { isUuid } from "@/lib/ids/uuid"
 import {
   IMPACT_BY_TYPE,
   INCIDENT_UPDATE_STATUSES,
   MAINTENANCE_UPDATE_STATUSES,
   RESOLVING_STATUSES,
-} from "@/lib/status-reports/domain";
-import { getPublicReports, requireStatusReport } from "@/lib/status-reports/queries";
+} from "@/lib/status-reports/domain"
+import {
+  getPublicReports,
+  requireStatusReport,
+} from "@/lib/status-reports/queries"
 
-import { decodeCursor, encodeCursor } from "./pagination";
+import { decodeCursor, encodeCursor } from "./pagination"
 
 // The vocabulary lives in the client-safe domain module. The two status arrays
 // stay exported from here for the callers that import them off this module.
-export { INCIDENT_UPDATE_STATUSES, MAINTENANCE_UPDATE_STATUSES };
 // The two reporting-facing reads live in lib/status-reports/queries now.
 // Re-exported so existing API-layer callers keep importing them from here.
-export { getPublicReports, requireStatusReport };
+export {
+  getPublicReports,
+  INCIDENT_UPDATE_STATUSES,
+  MAINTENANCE_UPDATE_STATUSES,
+  requireStatusReport,
+}
 
 /**
  * Status reports service. Store-injected like lib/api/account.ts:
@@ -50,75 +69,76 @@ export { getPublicReports, requireStatusReport };
  *   the partial unique index on originIncidentId.
  */
 
-export type StatusReportType = (typeof statusReportTypes)[number];
-export type StatusReportUpdateStatus = (typeof statusReportUpdateStatuses)[number];
-export type StatusReportImpact = (typeof statusReportImpacts)[number];
+export type StatusReportType = (typeof statusReportTypes)[number]
+export type StatusReportUpdateStatus =
+  (typeof statusReportUpdateStatuses)[number]
+export type StatusReportImpact = (typeof statusReportImpacts)[number]
 
 export type StatusReportRow = {
-  id: string;
-  type: StatusReportType;
-  title: string;
-  startsAt: Date;
-  endsAt: Date | null;
-  publishedAt: Date | null;
-  resolvedAt: Date | null;
-  originIncidentId: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-};
+  id: string
+  type: StatusReportType
+  title: string
+  startsAt: Date
+  endsAt: Date | null
+  publishedAt: Date | null
+  resolvedAt: Date | null
+  originIncidentId: string | null
+  createdAt: Date
+  updatedAt: Date
+}
 
 export type StatusReportUpdateRow = {
-  id: string;
-  reportId: string;
-  status: StatusReportUpdateStatus;
-  markdown: string;
-  publishedAt: Date;
-  createdAt: Date;
-  updatedAt: Date;
-};
+  id: string
+  reportId: string
+  status: StatusReportUpdateStatus
+  markdown: string
+  publishedAt: Date
+  createdAt: Date
+  updatedAt: Date
+}
 
 export type StatusReportAffectedRow = {
-  reportId: string;
-  monitorId: string;
-  monitorName: string;
-  groupName: string | null;
-  impact: StatusReportImpact;
-};
+  reportId: string
+  monitorId: string
+  monitorName: string
+  groupName: string | null
+  impact: StatusReportImpact
+}
 
 export type StatusReportUpdateData = {
-  id: string;
-  status: StatusReportUpdateStatus;
-  markdown: string;
-  publishedAt: string;
+  id: string
+  status: StatusReportUpdateStatus
+  markdown: string
+  publishedAt: string
   /**
    * RFC 3339. Serialized so clients can reproduce the exact server total
    * order (publishedAt, createdAt, id) for backdated-timestamp ties.
    */
-  createdAt: string;
-};
+  createdAt: string
+}
 
 export type AffectedServiceData = {
-  monitorId: string;
-  monitorName: string;
-  groupName: string | null;
-  impact: StatusReportImpact;
-};
+  monitorId: string
+  monitorName: string
+  groupName: string | null
+  impact: StatusReportImpact
+}
 
 export type StatusReportData = {
-  id: string;
-  type: StatusReportType;
-  title: string;
-  startsAt: string;
-  endsAt: string | null;
-  publishedAt: string | null;
-  resolvedAt: string | null;
-  originIncidentId: string | null;
-  currentStatus: StatusReportUpdateStatus;
-  updates: StatusReportUpdateData[];
-  affected: AffectedServiceData[];
-  createdAt: string;
-  updatedAt: string;
-};
+  id: string
+  type: StatusReportType
+  title: string
+  startsAt: string
+  endsAt: string | null
+  publishedAt: string | null
+  resolvedAt: string | null
+  originIncidentId: string | null
+  currentStatus: StatusReportUpdateStatus
+  updates: StatusReportUpdateData[]
+  affected: AffectedServiceData[]
+  createdAt: string
+  updatedAt: string
+}
 
 /**
  * List-shaped row: everything a report list needs without the
@@ -126,24 +146,24 @@ export type StatusReportData = {
  * detailed shape.
  */
 export type StatusReportListItemData = {
-  id: string;
-  type: StatusReportType;
-  title: string;
-  startsAt: string;
-  endsAt: string | null;
-  publishedAt: string | null;
-  resolvedAt: string | null;
-  originIncidentId: string | null;
-  currentStatus: StatusReportUpdateStatus;
-  updatesCount: number;
-  latestUpdate: { status: StatusReportUpdateStatus; publishedAt: string } | null;
-  affected: AffectedServiceData[];
-  createdAt: string;
-  updatedAt: string;
-};
+  id: string
+  type: StatusReportType
+  title: string
+  startsAt: string
+  endsAt: string | null
+  publishedAt: string | null
+  resolvedAt: string | null
+  originIncidentId: string | null
+  currentStatus: StatusReportUpdateStatus
+  updatesCount: number
+  latestUpdate: { status: StatusReportUpdateStatus; publishedAt: string } | null
+  affected: AffectedServiceData[]
+  createdAt: string
+  updatedAt: string
+}
 
-export type StatusReportListState = "all" | "draft" | "ongoing" | "resolved";
-export type StatusReportListType = "all" | "incident" | "maintenance";
+export type StatusReportListState = "all" | "draft" | "ongoing" | "resolved"
+export type StatusReportListType = "all" | "incident" | "maintenance"
 
 export class StatusReportError extends Error {
   constructor(
@@ -156,54 +176,60 @@ export class StatusReportError extends Error {
       | "ALREADY_PUBLISHED"
       | "INVALID_CURSOR",
     message: string,
-    readonly details: Record<string, unknown> = {},
+    readonly details: Record<string, unknown> = {}
   ) {
-    super(message);
-    this.name = "StatusReportError";
+    super(message)
+    this.name = "StatusReportError"
   }
 }
 
 export interface StatusReportsStore {
-  findMonitors(ids: readonly string[]): Promise<Array<{ id: string; name: string; groupName: string | null }>>;
+  findMonitors(
+    ids: readonly string[]
+  ): Promise<Array<{ id: string; name: string; groupName: string | null }>>
   insertReport(input: {
-    report: StatusReportRow;
-    update: StatusReportUpdateRow;
-    affected: StatusReportAffectedRow[];
-  }): Promise<void>;
+    report: StatusReportRow
+    update: StatusReportUpdateRow
+    affected: StatusReportAffectedRow[]
+  }): Promise<void>
   /** Insert honoring the partial unique index on originIncidentId. */
   insertPromotedReport(input: {
-    report: StatusReportRow;
-    update: StatusReportUpdateRow;
-    affected: StatusReportAffectedRow[];
-  }): Promise<{ id: string; created: boolean }>;
-  getReport(id: string): Promise<StatusReportRow | null>;
+    report: StatusReportRow
+    update: StatusReportUpdateRow
+    affected: StatusReportAffectedRow[]
+  }): Promise<{ id: string; created: boolean }>
+  getReport(id: string): Promise<StatusReportRow | null>
   listReports(input: {
-    state: StatusReportListState;
-    type: StatusReportListType;
-    cursor: { createdAt: Date; id: string } | null;
-    limit: number;
-  }): Promise<StatusReportRow[]>;
+    state: StatusReportListState
+    type: StatusReportListType
+    cursor: { createdAt: Date; id: string } | null
+    limit: number
+  }): Promise<StatusReportRow[]>
   getReportDetails(ids: readonly string[]): Promise<{
-    updates: StatusReportUpdateRow[];
-    affected: StatusReportAffectedRow[];
-  }>;
+    updates: StatusReportUpdateRow[]
+    affected: StatusReportAffectedRow[]
+  }>
   /**
    * List-path details: per-report update counts + the latest update's status
    * and publishedAt (via the contract total order), never markdown bodies.
    */
   getListDetails(ids: readonly string[]): Promise<{
-    counts: Array<{ reportId: string; count: number }>;
-    latest: Array<{ reportId: string; status: StatusReportUpdateStatus; publishedAt: Date }>;
-    affected: StatusReportAffectedRow[];
-  }>;
+    counts: Array<{ reportId: string; count: number }>
+    latest: Array<{
+      reportId: string
+      status: StatusReportUpdateStatus
+      publishedAt: Date
+    }>
+    affected: StatusReportAffectedRow[]
+  }>
   updateReport(input: {
-    id: string;
-    patch: { title?: string; startsAt?: Date; endsAt?: Date | null };
-    affected: StatusReportAffectedRow[] | undefined;
-    now: Date;
-  }): Promise<StatusReportRow | null>;
-  deleteReport(id: string): Promise<boolean>;
-  insertUpdate(row: StatusReportUpdateRow): Promise<void>;
+    id: string
+    patch: { title?: string; startsAt?: Date; endsAt?: Date | null }
+    affected: StatusReportAffectedRow[] | undefined
+    now: Date
+  }): Promise<StatusReportRow | null>
+  deleteReport(id: string): Promise<boolean>
+  insertUpdate(row: StatusReportUpdateRow): Promise<void>
   /**
    * Row-locked insert for addReportUpdate: locks the report (`FOR UPDATE`,
    * mirroring deleteUpdate/recomputeResolution) and re-verifies it still
@@ -213,13 +239,20 @@ export interface StatusReportsStore {
    * report_id foreign-key violation. Returns the locked report row, or null
    * if it no longer exists, in which case nothing is inserted.
    */
-  insertReportUpdate(input: { reportId: string; update: StatusReportUpdateRow }): Promise<StatusReportRow | null>;
+  insertReportUpdate(input: {
+    reportId: string
+    update: StatusReportUpdateRow
+  }): Promise<StatusReportRow | null>
   editUpdate(input: {
-    reportId: string;
-    updateId: string;
-    patch: { status?: StatusReportUpdateStatus; markdown?: string; publishedAt?: Date };
-    now: Date;
-  }): Promise<StatusReportUpdateRow | null>;
+    reportId: string
+    updateId: string
+    patch: {
+      status?: StatusReportUpdateStatus
+      markdown?: string
+      publishedAt?: Date
+    }
+    now: Date
+  }): Promise<StatusReportUpdateRow | null>
   /**
    * Transactional guarded delete: the report row is locked (`FOR UPDATE`) so
    * concurrent deletes on the same report serialize before the surviving
@@ -227,7 +260,10 @@ export interface StatusReportsStore {
    * update for the report exists. "last_update" = the row exists but is the
    * report's final update, "missing" = no such row.
    */
-  deleteUpdate(input: { reportId: string; updateId: string }): Promise<"deleted" | "last_update" | "missing">;
+  deleteUpdate(input: {
+    reportId: string
+    updateId: string
+  }): Promise<"deleted" | "last_update" | "missing">
   /**
    * Recomputes and persists the report's resolvedAt from the FULL current
    * update set, inside a `SELECT ... FOR UPDATE`-locked transaction on the
@@ -239,25 +275,28 @@ export interface StatusReportsStore {
    * the same consistent snapshot) and the resolvedAt persisted, or null if the
    * report no longer exists.
    */
-  recomputeResolution(input: {
-    reportId: string;
-    now: Date;
-  }): Promise<{ updates: StatusReportUpdateRow[]; resolvedAt: Date | null } | null>;
-  publishReport(input: { id: string; now: Date }): Promise<"published" | "already_published" | "missing">;
+  recomputeResolution(input: { reportId: string; now: Date }): Promise<{
+    updates: StatusReportUpdateRow[]
+    resolvedAt: Date | null
+  } | null>
+  publishReport(input: {
+    id: string
+    now: Date
+  }): Promise<"published" | "already_published" | "missing">
   findIncident(incidentId: string): Promise<{
-    id: string;
-    monitorId: string;
-    monitorName: string;
-    groupName: string | null;
-    openedAt: Date;
-    openingStatusCode: number | null;
-  } | null>;
+    id: string
+    monitorId: string
+    monitorName: string
+    groupName: string | null
+    openedAt: Date
+    openingStatusCode: number | null
+  } | null>
   /** Query 1 of getPublicReports: published ongoing/upcoming + recent resolved. */
   getPublicReportRows(input: {
-    resolvedLimit: number;
-    now: Date;
-    filter?: PublicReportRowsFilter;
-  }): Promise<StatusReportRow[]>;
+    resolvedLimit: number
+    now: Date
+    filter?: PublicReportRowsFilter
+  }): Promise<StatusReportRow[]>
   /**
    * Distinct group names ever snapshotted into affected rows, null included.
    * Backs slug scoping in getPublicReports: statusGroupSlug cannot be
@@ -265,30 +304,32 @@ export interface StatusReportsStore {
    * service enumerates the snapshot names, slugs them in JS, and hands the
    * exact matching names to getPublicReportRows for raw-string comparison.
    */
-  getAffectedGroupNames(): Promise<Array<string | null>>;
+  getAffectedGroupNames(): Promise<Array<string | null>>
   /** Query 2: latest update per report via DISTINCT ON, total-order aligned. */
-  getLatestUpdates(reportIds: readonly string[]): Promise<StatusReportUpdateRow[]>;
+  getLatestUpdates(
+    reportIds: readonly string[]
+  ): Promise<StatusReportUpdateRow[]>
   /** Query 3: affected rows for the page of reports. */
-  getAffected(reportIds: readonly string[]): Promise<StatusReportAffectedRow[]>;
+  getAffected(reportIds: readonly string[]): Promise<StatusReportAffectedRow[]>
 }
 
 export type StatusReportsDependencies = {
-  store?: StatusReportsStore;
-  now?: () => Date;
-  newId?: () => string;
+  store?: StatusReportsStore
+  now?: () => Date
+  newId?: () => string
   /**
    * Pins createStatusReport's (or promoteIncident's) report id instead of
    * drawing one from newId(). The POST route sets this to the idempotency
    * operationId, so the same retried operation always names the same row
    * even across a stale-record reclaim that reruns work().
    */
-  reportId?: string;
+  reportId?: string
   /** Same idea as reportId, for addReportUpdate's new update row. */
-  updateId?: string;
-};
+  updateId?: string
+}
 
 const RFC3339_PATTERN =
-  /^(\d{4})-(\d{2})-(\d{2})[Tt ](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/;
+  /^(\d{4})-(\d{2})-(\d{2})[Tt ](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/
 
 /**
  * Strict RFC 3339 acceptance: the string must be shaped right, Date.parse
@@ -300,48 +341,63 @@ const RFC3339_PATTERN =
  * publish a silently shifted incident or maintenance time.
  */
 function isStrictRfc3339(value: string): boolean {
-  const match = RFC3339_PATTERN.exec(value);
-  if (!match) return false;
-  const epochMs = Date.parse(value);
-  if (Number.isNaN(epochMs)) return false;
-  const offset = match[7]!;
-  const offsetMinutes = offset === "Z" || offset === "z"
-    ? 0
-    : (offset.startsWith("-") ? -1 : 1) * (Number(offset.slice(1, 3)) * 60 + Number(offset.slice(4, 6)));
+  const match = RFC3339_PATTERN.exec(value)
+  if (!match) {
+    return false
+  }
+  const epochMs = Date.parse(value)
+  if (Number.isNaN(epochMs)) {
+    return false
+  }
+  const offset = match[7]!
+  const offsetMinutes =
+    offset === "Z" || offset === "z"
+      ? 0
+      : (offset.startsWith("-") ? -1 : 1) *
+        (Number(offset.slice(1, 3)) * 60 + Number(offset.slice(4, 6)))
   // Shifting the UTC instant by the written offset reconstructs the caller's
   // wall-clock components, so getUTC* reads them back for comparison.
-  const wallClock = new Date(epochMs + offsetMinutes * 60_000);
+  const wallClock = new Date(epochMs + offsetMinutes * 60_000)
   return (
-    wallClock.getUTCFullYear() === Number(match[1])
-    && wallClock.getUTCMonth() + 1 === Number(match[2])
-    && wallClock.getUTCDate() === Number(match[3])
-    && wallClock.getUTCHours() === Number(match[4])
-    && wallClock.getUTCMinutes() === Number(match[5])
-    && wallClock.getUTCSeconds() === Number(match[6])
-  );
+    wallClock.getUTCFullYear() === Number(match[1]) &&
+    wallClock.getUTCMonth() + 1 === Number(match[2]) &&
+    wallClock.getUTCDate() === Number(match[3]) &&
+    wallClock.getUTCHours() === Number(match[4]) &&
+    wallClock.getUTCMinutes() === Number(match[5]) &&
+    wallClock.getUTCSeconds() === Number(match[6])
+  )
 }
 
 const timestampSchema = z
   .string()
   .refine(isStrictRfc3339, { message: "Must be an RFC 3339 timestamp" })
-  .transform((value) => new Date(value));
+  .transform((value) => new Date(value))
 
-export const MAX_MARKDOWN_LENGTH = 10_240;
+export const MAX_MARKDOWN_LENGTH = 10_240
 
-const titleSchema = z.string().trim().min(1, "Title is required").max(160, "Title must be at most 160 characters");
+const titleSchema = z
+  .string()
+  .trim()
+  .min(1, "Title is required")
+  .max(160, "Title must be at most 160 characters")
 const markdownSchema = z
   .string()
   .max(MAX_MARKDOWN_LENGTH, "Update body must be at most 10 KB")
-  .refine((value) => value.trim().length > 0, { message: "Update body is required" });
+  .refine((value) => value.trim().length > 0, {
+    message: "Update body is required",
+  })
 
-const updateStatusSchema = z.enum([...INCIDENT_UPDATE_STATUSES, ...MAINTENANCE_UPDATE_STATUSES]);
+const updateStatusSchema = z.enum([
+  ...INCIDENT_UPDATE_STATUSES,
+  ...MAINTENANCE_UPDATE_STATUSES,
+])
 
 const affectedEntrySchema = z
   .object({
     monitorId: z.string().trim().min(1),
     impact: z.enum(["down", "degraded", "maintenance"]),
   })
-  .strict();
+  .strict()
 
 /**
  * Per-report cap on affected monitors, enforced both at the input schema and
@@ -349,15 +405,16 @@ const affectedEntrySchema = z
  * * MAX_AFFECTED_PER_REPORT) so a global cap can never truncate a page of
  * reports that are each individually within bounds.
  */
-export const MAX_AFFECTED_PER_REPORT = 100;
+export const MAX_AFFECTED_PER_REPORT = 100
 
 const affectedListSchema = z
   .array(affectedEntrySchema)
   .max(MAX_AFFECTED_PER_REPORT)
   .refine(
-    (entries) => new Set(entries.map((entry) => entry.monitorId)).size === entries.length,
-    { message: "Affected monitors must be unique" },
-  );
+    (entries) =>
+      new Set(entries.map((entry) => entry.monitorId)).size === entries.length,
+    { message: "Affected monitors must be unique" }
+  )
 
 const createSchema = z
   .object({
@@ -375,7 +432,7 @@ const createSchema = z
       .strict(),
     draft: z.boolean().optional(),
   })
-  .strict();
+  .strict()
 
 const patchSchema = z
   .object({
@@ -385,7 +442,9 @@ const patchSchema = z
     affected: affectedListSchema.optional(),
   })
   .strict()
-  .refine((value) => Object.keys(value).length > 0, { message: "Provide at least one field to update" });
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "Provide at least one field to update",
+  })
 
 const updateCreateSchema = z
   .object({
@@ -393,7 +452,7 @@ const updateCreateSchema = z
     markdown: markdownSchema,
     publishedAt: timestampSchema.optional(),
   })
-  .strict();
+  .strict()
 
 const updateEditSchema = z
   .object({
@@ -402,43 +461,56 @@ const updateEditSchema = z
     publishedAt: timestampSchema.optional(),
   })
   .strict()
-  .refine((value) => Object.keys(value).length > 0, { message: "Provide at least one field to update" });
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "Provide at least one field to update",
+  })
 
 function parseOrThrow<T>(schema: z.ZodType<T>, input: unknown): T {
-  const parsed = schema.safeParse(input);
+  const parsed = schema.safeParse(input)
   if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    const at = issue?.path.length ? ` at ${issue.path.join(".")}` : "";
-    throw new StatusReportError("VALIDATION_ERROR", `Invalid status report request${at}: ${issue?.message ?? "invalid input"}`, {
-      issues: parsed.error.issues.map((entry) => ({ path: entry.path.join("."), message: entry.message })),
-    });
+    const issue = parsed.error.issues[0]
+    const at = issue?.path.length ? ` at ${issue.path.join(".")}` : ""
+    throw new StatusReportError(
+      "VALIDATION_ERROR",
+      `Invalid status report request${at}: ${issue?.message ?? "invalid input"}`,
+      {
+        issues: parsed.error.issues.map((entry) => ({
+          path: entry.path.join("."),
+          message: entry.message,
+        })),
+      }
+    )
   }
-  return parsed.data;
+  return parsed.data
 }
 
-function assertStatusMatchesType(type: StatusReportType, status: StatusReportUpdateStatus) {
-  const allowed: readonly string[] = type === "incident" ? INCIDENT_UPDATE_STATUSES : MAINTENANCE_UPDATE_STATUSES;
+function assertStatusMatchesType(
+  type: StatusReportType,
+  status: StatusReportUpdateStatus
+) {
+  const allowed: readonly string[] =
+    type === "incident" ? INCIDENT_UPDATE_STATUSES : MAINTENANCE_UPDATE_STATUSES
   if (!allowed.includes(status)) {
     throw new StatusReportError(
       "VALIDATION_ERROR",
       `Update status must be one of ${allowed.join(", ")} for ${type} reports`,
-      { status },
-    );
+      { status }
+    )
   }
 }
 
 function assertAffectedMatchesType(
   type: StatusReportType,
-  entries: ReadonlyArray<{ monitorId: string; impact: StatusReportImpact }>,
+  entries: ReadonlyArray<{ monitorId: string; impact: StatusReportImpact }>
 ) {
-  const allowed = IMPACT_BY_TYPE[type];
+  const allowed = IMPACT_BY_TYPE[type]
   for (const entry of entries) {
     if (!allowed.includes(entry.impact)) {
       throw new StatusReportError(
         "VALIDATION_ERROR",
         `Affected impact must be one of ${allowed.join(", ")} for ${type} reports`,
-        { monitorId: entry.monitorId, impact: entry.impact },
-      );
+        { monitorId: entry.monitorId, impact: entry.impact }
+      )
     }
   }
 }
@@ -453,9 +525,16 @@ function assertAffectedMatchesType(
  * in. Classification and the SQL ranking must always agree on whether an
  * incident's window has "ended".
  */
-function assertNoIncidentWindow(type: StatusReportType, endsAt: Date | null | undefined) {
+function assertNoIncidentWindow(
+  type: StatusReportType,
+  endsAt: Date | null | undefined
+) {
   if (type === "incident" && endsAt != null) {
-    throw new StatusReportError("VALIDATION_ERROR", "endsAt is not allowed for incident reports", { type });
+    throw new StatusReportError(
+      "VALIDATION_ERROR",
+      "endsAt is not allowed for incident reports",
+      { type }
+    )
   }
 }
 
@@ -464,27 +543,40 @@ function assertNoIncidentWindow(type: StatusReportType, endsAt: Date | null | un
  * of the API contract: backdated updates with identical timestamps resolve
  * deterministically everywhere (service, DISTINCT ON query, public page).
  */
-export function compareReportUpdates(left: StatusReportUpdateRow, right: StatusReportUpdateRow): number {
+export function compareReportUpdates(
+  left: StatusReportUpdateRow,
+  right: StatusReportUpdateRow
+): number {
   return (
-    left.publishedAt.getTime() - right.publishedAt.getTime()
-    || left.createdAt.getTime() - right.createdAt.getTime()
-    || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
-  );
+    left.publishedAt.getTime() - right.publishedAt.getTime() ||
+    left.createdAt.getTime() - right.createdAt.getTime() ||
+    (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
+  )
 }
 
-export function latestReportUpdate(updates: readonly StatusReportUpdateRow[]): StatusReportUpdateRow | null {
-  if (updates.length === 0) return null;
-  return [...updates].sort(compareReportUpdates).at(-1) ?? null;
+export function latestReportUpdate(
+  updates: readonly StatusReportUpdateRow[]
+): StatusReportUpdateRow | null {
+  if (updates.length === 0) {
+    return null
+  }
+  return [...updates].sort(compareReportUpdates).at(-1) ?? null
 }
 
 /** null unless the latest update (by the total order) resolves the report. */
-export function deriveResolvedAt(updates: readonly StatusReportUpdateRow[]): Date | null {
-  const latest = latestReportUpdate(updates);
-  if (!latest || !RESOLVING_STATUSES.includes(latest.status)) return null;
-  return latest.publishedAt;
+export function deriveResolvedAt(
+  updates: readonly StatusReportUpdateRow[]
+): Date | null {
+  const latest = latestReportUpdate(updates)
+  if (!(latest && RESOLVING_STATUSES.includes(latest.status))) {
+    return null
+  }
+  return latest.publishedAt
 }
 
-function serializeAffected(affected: readonly StatusReportAffectedRow[]): AffectedServiceData[] {
+function serializeAffected(
+  affected: readonly StatusReportAffectedRow[]
+): AffectedServiceData[] {
   return [...affected]
     .sort((left, right) => left.monitorId.localeCompare(right.monitorId))
     .map((row) => ({
@@ -492,15 +584,17 @@ function serializeAffected(affected: readonly StatusReportAffectedRow[]): Affect
       monitorName: row.monitorName,
       groupName: row.groupName,
       impact: row.impact,
-    }));
+    }))
 }
 
 export function serializeReport(
   report: StatusReportRow,
   updates: readonly StatusReportUpdateRow[],
-  affected: readonly StatusReportAffectedRow[],
+  affected: readonly StatusReportAffectedRow[]
 ): StatusReportData {
-  const newestFirst = [...updates].sort((left, right) => compareReportUpdates(right, left));
+  const newestFirst = [...updates].sort((left, right) =>
+    compareReportUpdates(right, left)
+  )
   return {
     id: report.id,
     type: report.type,
@@ -510,7 +604,9 @@ export function serializeReport(
     publishedAt: report.publishedAt?.toISOString() ?? null,
     resolvedAt: report.resolvedAt?.toISOString() ?? null,
     originIncidentId: report.originIncidentId,
-    currentStatus: newestFirst[0]?.status ?? (report.type === "incident" ? "investigating" : "scheduled"),
+    currentStatus:
+      newestFirst[0]?.status ??
+      (report.type === "incident" ? "investigating" : "scheduled"),
     updates: newestFirst.map((update) => ({
       id: update.id,
       status: update.status,
@@ -521,23 +617,31 @@ export function serializeReport(
     affected: serializeAffected(affected),
     createdAt: report.createdAt.toISOString(),
     updatedAt: report.updatedAt.toISOString(),
-  };
+  }
 }
 
 async function snapshotAffected(
   store: StatusReportsStore,
   reportId: string,
-  entries: ReadonlyArray<{ monitorId: string; impact: StatusReportImpact }>,
+  entries: ReadonlyArray<{ monitorId: string; impact: StatusReportImpact }>
 ): Promise<StatusReportAffectedRow[]> {
-  if (entries.length === 0) return [];
-  const monitors = await store.findMonitors(entries.map((entry) => entry.monitorId));
-  const byId = new Map(monitors.map((monitor) => [monitor.id, monitor]));
+  if (entries.length === 0) {
+    return []
+  }
+  const monitors = await store.findMonitors(
+    entries.map((entry) => entry.monitorId)
+  )
+  const byId = new Map(monitors.map((monitor) => [monitor.id, monitor]))
   return entries.map((entry) => {
-    const monitor = byId.get(entry.monitorId);
+    const monitor = byId.get(entry.monitorId)
     if (!monitor) {
-      throw new StatusReportError("VALIDATION_ERROR", `Affected monitor "${entry.monitorId}" was not found`, {
-        monitorId: entry.monitorId,
-      });
+      throw new StatusReportError(
+        "VALIDATION_ERROR",
+        `Affected monitor "${entry.monitorId}" was not found`,
+        {
+          monitorId: entry.monitorId,
+        }
+      )
     }
     return {
       reportId,
@@ -545,66 +649,91 @@ async function snapshotAffected(
       monitorName: monitor.name,
       groupName: monitor.groupName,
       impact: entry.impact,
-    };
-  });
+    }
+  })
 }
 
-async function loadReportData(store: StatusReportsStore, report: StatusReportRow): Promise<StatusReportData> {
-  const { updates, affected } = await store.getReportDetails([report.id]);
-  return serializeReport(report, updates, affected);
+async function loadReportData(
+  store: StatusReportsStore,
+  report: StatusReportRow
+): Promise<StatusReportData> {
+  const { updates, affected } = await store.getReportDetails([report.id])
+  return serializeReport(report, updates, affected)
 }
 
 export function parseStatusReportListQuery(input: {
-  state: string | null;
-  type: string | null;
-  cursor: string | null;
-}): { state: StatusReportListState; type: StatusReportListType; cursor: { createdAt: Date; id: string } | null } {
-  const state = input.state ?? "all";
-  const type = input.type ?? "all";
+  state: string | null
+  type: string | null
+  cursor: string | null
+}): {
+  state: StatusReportListState
+  type: StatusReportListType
+  cursor: { createdAt: Date; id: string } | null
+} {
+  const state = input.state ?? "all"
+  const type = input.type ?? "all"
   if (!["all", "draft", "ongoing", "resolved"].includes(state)) {
-    throw new StatusReportError("VALIDATION_ERROR", "State must be all, draft, ongoing, or resolved");
+    throw new StatusReportError(
+      "VALIDATION_ERROR",
+      "State must be all, draft, ongoing, or resolved"
+    )
   }
   if (!["all", "incident", "maintenance"].includes(type)) {
-    throw new StatusReportError("VALIDATION_ERROR", "Type must be all, incident, or maintenance");
+    throw new StatusReportError(
+      "VALIDATION_ERROR",
+      "Type must be all, incident, or maintenance"
+    )
   }
-  let cursor: { createdAt: Date; id: string } | null = null;
+  let cursor: { createdAt: Date; id: string } | null = null
   if (input.cursor) {
-    const decoded = decodeCursor(input.cursor);
-    const createdAt = decoded ? new Date(decoded.sort) : null;
-    if (!decoded || !createdAt || Number.isNaN(createdAt.getTime()) || !isUuid(decoded.id)) {
-      throw new StatusReportError("INVALID_CURSOR", "Cursor is invalid");
+    const decoded = decodeCursor(input.cursor)
+    const createdAt = decoded ? new Date(decoded.sort) : null
+    if (
+      !(decoded && createdAt) ||
+      Number.isNaN(createdAt.getTime()) ||
+      !isUuid(decoded.id)
+    ) {
+      throw new StatusReportError("INVALID_CURSOR", "Cursor is invalid")
     }
-    cursor = { createdAt, id: decoded.id };
+    cursor = { createdAt, id: decoded.id }
   }
-  return { state: state as StatusReportListState, type: type as StatusReportListType, cursor };
+  return {
+    state: state as StatusReportListState,
+    type: type as StatusReportListType,
+    cursor,
+  }
 }
 
 export async function listStatusReports(
   input: {
-    state: StatusReportListState;
-    type: StatusReportListType;
-    cursor: { createdAt: Date; id: string } | null;
-    limit: number;
+    state: StatusReportListState
+    type: StatusReportListType
+    cursor: { createdAt: Date; id: string } | null
+    limit: number
   },
-  dependencies: StatusReportsDependencies = {},
+  dependencies: StatusReportsDependencies = {}
 ): Promise<{ data: StatusReportData[]; nextCursor: string | null }> {
-  const store = dependencies.store ?? databaseStatusReportsStore;
-  const rows = await store.listReports(input);
-  const page = rows.slice(0, input.limit);
-  const { updates, affected } = page.length > 0
-    ? await store.getReportDetails(page.map((row) => row.id))
-    : { updates: [], affected: [] };
-  const last = page.at(-1);
+  const store = dependencies.store ?? databaseStatusReportsStore
+  const rows = await store.listReports(input)
+  const page = rows.slice(0, input.limit)
+  const { updates, affected } =
+    page.length > 0
+      ? await store.getReportDetails(page.map((row) => row.id))
+      : { updates: [], affected: [] }
+  const last = page.at(-1)
   return {
-    data: page.map((report) => serializeReport(
-      report,
-      updates.filter((update) => update.reportId === report.id),
-      affected.filter((row) => row.reportId === report.id),
-    )),
-    nextCursor: rows.length > input.limit && last
-      ? encodeCursor({ sort: last.createdAt.toISOString(), id: last.id })
-      : null,
-  };
+    data: page.map((report) =>
+      serializeReport(
+        report,
+        updates.filter((update) => update.reportId === report.id),
+        affected.filter((row) => row.reportId === report.id)
+      )
+    ),
+    nextCursor:
+      rows.length > input.limit && last
+        ? encodeCursor({ sort: last.createdAt.toISOString(), id: last.id })
+        : null,
+  }
 }
 
 /**
@@ -614,25 +743,28 @@ export async function listStatusReports(
  */
 export async function listStatusReportSummaries(
   input: {
-    state: StatusReportListState;
-    type: StatusReportListType;
-    cursor: { createdAt: Date; id: string } | null;
-    limit: number;
+    state: StatusReportListState
+    type: StatusReportListType
+    cursor: { createdAt: Date; id: string } | null
+    limit: number
   },
-  dependencies: StatusReportsDependencies = {},
+  dependencies: StatusReportsDependencies = {}
 ): Promise<{ data: StatusReportListItemData[]; nextCursor: string | null }> {
-  const store = dependencies.store ?? databaseStatusReportsStore;
-  const rows = await store.listReports(input);
-  const page = rows.slice(0, input.limit);
-  const { counts, latest, affected } = page.length > 0
-    ? await store.getListDetails(page.map((row) => row.id))
-    : { counts: [], latest: [], affected: [] };
-  const countByReport = new Map(counts.map((entry) => [entry.reportId, entry.count]));
-  const latestByReport = new Map(latest.map((entry) => [entry.reportId, entry]));
-  const last = page.at(-1);
+  const store = dependencies.store ?? databaseStatusReportsStore
+  const rows = await store.listReports(input)
+  const page = rows.slice(0, input.limit)
+  const { counts, latest, affected } =
+    page.length > 0
+      ? await store.getListDetails(page.map((row) => row.id))
+      : { counts: [], latest: [], affected: [] }
+  const countByReport = new Map(
+    counts.map((entry) => [entry.reportId, entry.count])
+  )
+  const latestByReport = new Map(latest.map((entry) => [entry.reportId, entry]))
+  const last = page.at(-1)
   return {
     data: page.map((report) => {
-      const latestUpdate = latestByReport.get(report.id) ?? null;
+      const latestUpdate = latestByReport.get(report.id) ?? null
       return {
         id: report.id,
         type: report.type,
@@ -642,46 +774,58 @@ export async function listStatusReportSummaries(
         publishedAt: report.publishedAt?.toISOString() ?? null,
         resolvedAt: report.resolvedAt?.toISOString() ?? null,
         originIncidentId: report.originIncidentId,
-        currentStatus: latestUpdate?.status ?? (report.type === "incident" ? "investigating" : "scheduled"),
+        currentStatus:
+          latestUpdate?.status ??
+          (report.type === "incident" ? "investigating" : "scheduled"),
         updatesCount: countByReport.get(report.id) ?? 0,
         latestUpdate: latestUpdate
-          ? { status: latestUpdate.status, publishedAt: latestUpdate.publishedAt.toISOString() }
+          ? {
+              status: latestUpdate.status,
+              publishedAt: latestUpdate.publishedAt.toISOString(),
+            }
           : null,
-        affected: serializeAffected(affected.filter((row) => row.reportId === report.id)),
+        affected: serializeAffected(
+          affected.filter((row) => row.reportId === report.id)
+        ),
         createdAt: report.createdAt.toISOString(),
         updatedAt: report.updatedAt.toISOString(),
-      };
+      }
     }),
-    nextCursor: rows.length > input.limit && last
-      ? encodeCursor({ sort: last.createdAt.toISOString(), id: last.id })
-      : null,
-  };
+    nextCursor:
+      rows.length > input.limit && last
+        ? encodeCursor({ sort: last.createdAt.toISOString(), id: last.id })
+        : null,
+  }
 }
 
 export async function createStatusReport(
   input: unknown,
-  dependencies: StatusReportsDependencies = {},
+  dependencies: StatusReportsDependencies = {}
 ): Promise<StatusReportData> {
-  const store = dependencies.store ?? databaseStatusReportsStore;
-  const now = dependencies.now?.() ?? new Date();
-  const newId = dependencies.newId ?? (() => crypto.randomUUID());
-  const parsed = parseOrThrow(createSchema, input);
-  assertStatusMatchesType(parsed.type, parsed.update.status);
-  assertNoIncidentWindow(parsed.type, parsed.endsAt);
-  assertAffectedMatchesType(parsed.type, parsed.affected ?? []);
+  const store = dependencies.store ?? databaseStatusReportsStore
+  const now = dependencies.now?.() ?? new Date()
+  const newId = dependencies.newId ?? (() => crypto.randomUUID())
+  const parsed = parseOrThrow(createSchema, input)
+  assertStatusMatchesType(parsed.type, parsed.update.status)
+  assertNoIncidentWindow(parsed.type, parsed.endsAt)
+  assertAffectedMatchesType(parsed.type, parsed.affected ?? [])
 
   // Validate against the EFFECTIVE startsAt (the explicit value, or the `now`
   // default applied below). An omitted startsAt must not let an endsAt in
   // the past slip past validation and persist an inverted window.
-  const effectiveStartsAt = parsed.startsAt ?? now;
+  const effectiveStartsAt = parsed.startsAt ?? now
   if (parsed.endsAt && parsed.endsAt.getTime() <= effectiveStartsAt.getTime()) {
-    throw new StatusReportError("VALIDATION_ERROR", "endsAt must be after startsAt", {
-      startsAt: effectiveStartsAt.toISOString(),
-      endsAt: parsed.endsAt.toISOString(),
-    });
+    throw new StatusReportError(
+      "VALIDATION_ERROR",
+      "endsAt must be after startsAt",
+      {
+        startsAt: effectiveStartsAt.toISOString(),
+        endsAt: parsed.endsAt.toISOString(),
+      }
+    )
   }
 
-  const reportId = dependencies.reportId ?? newId();
+  const reportId = dependencies.reportId ?? newId()
   const update: StatusReportUpdateRow = {
     id: newId(),
     reportId,
@@ -690,7 +834,7 @@ export async function createStatusReport(
     publishedAt: parsed.update.publishedAt ?? now,
     createdAt: now,
     updatedAt: now,
-  };
+  }
   const report: StatusReportRow = {
     id: reportId,
     type: parsed.type,
@@ -702,58 +846,99 @@ export async function createStatusReport(
     originIncidentId: null,
     createdAt: now,
     updatedAt: now,
-  };
-  const affected = await snapshotAffected(store, reportId, parsed.affected ?? []);
-  await store.insertReport({ report, update, affected });
-  return serializeReport(report, [update], affected);
+  }
+  const affected = await snapshotAffected(
+    store,
+    reportId,
+    parsed.affected ?? []
+  )
+  await store.insertReport({ report, update, affected })
+  return serializeReport(report, [update], affected)
 }
 
 export async function updateStatusReport(
   id: string,
   input: unknown,
-  dependencies: StatusReportsDependencies = {},
+  dependencies: StatusReportsDependencies = {}
 ): Promise<StatusReportData> {
-  const store = dependencies.store ?? databaseStatusReportsStore;
-  const now = dependencies.now?.() ?? new Date();
-  const parsed = parseOrThrow(patchSchema, input);
-  const existing = await store.getReport(id);
-  if (!existing) throw new StatusReportError("REPORT_NOT_FOUND", "Status report was not found");
+  const store = dependencies.store ?? databaseStatusReportsStore
+  const now = dependencies.now?.() ?? new Date()
+  const parsed = parseOrThrow(patchSchema, input)
+  const existing = await store.getReport(id)
+  if (!existing) {
+    throw new StatusReportError(
+      "REPORT_NOT_FOUND",
+      "Status report was not found"
+    )
+  }
   // A patch can't change `type` (it's not a patchable field), so the
   // existing report's type governs both checks below. Only the CALLER'S
   // own endsAt is checked (not the merged/effective value): a title- or
   // affected-only patch must not start failing because of pre-existing
   // data, only a patch that itself tries to add a window to an incident.
-  assertNoIncidentWindow(existing.type, parsed.endsAt);
-  if (parsed.affected !== undefined) assertAffectedMatchesType(existing.type, parsed.affected);
+  assertNoIncidentWindow(existing.type, parsed.endsAt)
+  if (parsed.affected !== undefined) {
+    assertAffectedMatchesType(existing.type, parsed.affected)
+  }
 
   // A partial patch touching only one bound must still validate against the
   // EFFECTIVE other bound (the existing report's, when the patch leaves it
   // untouched), not just the bound(s) the caller happened to send.
-  const effectiveStartsAt = parsed.startsAt ?? existing.startsAt;
-  const effectiveEndsAt = parsed.endsAt !== undefined ? parsed.endsAt : existing.endsAt;
-  if (effectiveEndsAt && effectiveEndsAt.getTime() <= effectiveStartsAt.getTime()) {
-    throw new StatusReportError("VALIDATION_ERROR", "endsAt must be after startsAt", {
-      startsAt: effectiveStartsAt.toISOString(),
-      endsAt: effectiveEndsAt.toISOString(),
-    });
+  const effectiveStartsAt = parsed.startsAt ?? existing.startsAt
+  const effectiveEndsAt =
+    parsed.endsAt === undefined ? existing.endsAt : parsed.endsAt
+  if (
+    effectiveEndsAt &&
+    effectiveEndsAt.getTime() <= effectiveStartsAt.getTime()
+  ) {
+    throw new StatusReportError(
+      "VALIDATION_ERROR",
+      "endsAt must be after startsAt",
+      {
+        startsAt: effectiveStartsAt.toISOString(),
+        endsAt: effectiveEndsAt.toISOString(),
+      }
+    )
   }
 
   // Affected is a FULL REPLACEMENT with fresh registry snapshots.
-  const affected = parsed.affected === undefined ? undefined : await snapshotAffected(store, id, parsed.affected);
-  const patch: { title?: string; startsAt?: Date; endsAt?: Date | null } = {};
-  if (parsed.title !== undefined) patch.title = parsed.title;
-  if (parsed.startsAt !== undefined) patch.startsAt = parsed.startsAt;
-  if (parsed.endsAt !== undefined) patch.endsAt = parsed.endsAt;
-  const report = await store.updateReport({ id, patch, affected, now });
-  if (!report) throw new StatusReportError("REPORT_NOT_FOUND", "Status report was not found");
-  return loadReportData(store, report);
+  const affected =
+    parsed.affected === undefined
+      ? undefined
+      : await snapshotAffected(store, id, parsed.affected)
+  const patch: { title?: string; startsAt?: Date; endsAt?: Date | null } = {}
+  if (parsed.title !== undefined) {
+    patch.title = parsed.title
+  }
+  if (parsed.startsAt !== undefined) {
+    patch.startsAt = parsed.startsAt
+  }
+  if (parsed.endsAt !== undefined) {
+    patch.endsAt = parsed.endsAt
+  }
+  const report = await store.updateReport({ id, patch, affected, now })
+  if (!report) {
+    throw new StatusReportError(
+      "REPORT_NOT_FOUND",
+      "Status report was not found"
+    )
+  }
+  return loadReportData(store, report)
 }
 
-export async function deleteStatusReport(id: string, dependencies: StatusReportsDependencies = {}): Promise<{ id: string }> {
-  const store = dependencies.store ?? databaseStatusReportsStore;
-  const deleted = await store.deleteReport(id);
-  if (!deleted) throw new StatusReportError("REPORT_NOT_FOUND", "Status report was not found");
-  return { id };
+export async function deleteStatusReport(
+  id: string,
+  dependencies: StatusReportsDependencies = {}
+): Promise<{ id: string }> {
+  const store = dependencies.store ?? databaseStatusReportsStore
+  const deleted = await store.deleteReport(id)
+  if (!deleted) {
+    throw new StatusReportError(
+      "REPORT_NOT_FOUND",
+      "Status report was not found"
+    )
+  }
+  return { id }
 }
 
 /**
@@ -766,32 +951,42 @@ export async function deleteStatusReport(id: string, dependencies: StatusReports
 async function persistResolutionAndSerialize(
   store: StatusReportsStore,
   report: StatusReportRow,
-  now: Date,
+  now: Date
 ): Promise<StatusReportData> {
   const [recomputed, affected] = await Promise.all([
     store.recomputeResolution({ reportId: report.id, now }),
     store.getAffected([report.id]),
-  ]);
-  if (!recomputed) throw new StatusReportError("REPORT_NOT_FOUND", "Status report was not found");
+  ])
+  if (!recomputed) {
+    throw new StatusReportError(
+      "REPORT_NOT_FOUND",
+      "Status report was not found"
+    )
+  }
   return serializeReport(
     { ...report, resolvedAt: recomputed.resolvedAt, updatedAt: now },
     recomputed.updates,
-    affected,
-  );
+    affected
+  )
 }
 
 export async function addReportUpdate(
   reportId: string,
   input: unknown,
-  dependencies: StatusReportsDependencies = {},
+  dependencies: StatusReportsDependencies = {}
 ): Promise<StatusReportData> {
-  const store = dependencies.store ?? databaseStatusReportsStore;
-  const now = dependencies.now?.() ?? new Date();
-  const newId = dependencies.newId ?? (() => crypto.randomUUID());
-  const parsed = parseOrThrow(updateCreateSchema, input);
-  const existing = await store.getReport(reportId);
-  if (!existing) throw new StatusReportError("REPORT_NOT_FOUND", "Status report was not found");
-  assertStatusMatchesType(existing.type, parsed.status);
+  const store = dependencies.store ?? databaseStatusReportsStore
+  const now = dependencies.now?.() ?? new Date()
+  const newId = dependencies.newId ?? (() => crypto.randomUUID())
+  const parsed = parseOrThrow(updateCreateSchema, input)
+  const existing = await store.getReport(reportId)
+  if (!existing) {
+    throw new StatusReportError(
+      "REPORT_NOT_FOUND",
+      "Status report was not found"
+    )
+  }
+  assertStatusMatchesType(existing.type, parsed.status)
 
   const update: StatusReportUpdateRow = {
     id: dependencies.updateId ?? newId(),
@@ -801,73 +996,118 @@ export async function addReportUpdate(
     publishedAt: parsed.publishedAt ?? now,
     createdAt: now,
     updatedAt: now,
-  };
+  }
   // Row-locked insert: closes the race where a concurrent DELETE commits
   // between the existence check above and the insert. A report deleted in
   // that window must be re-detected here, inside the lock, as
   // REPORT_NOT_FOUND, never let the insert crash against a
   // gone-but-still-referenced report_id as a raw foreign-key-violation 500.
-  const report = await store.insertReportUpdate({ reportId, update });
-  if (!report) throw new StatusReportError("REPORT_NOT_FOUND", "Status report was not found");
-  return persistResolutionAndSerialize(store, report, now);
+  const report = await store.insertReportUpdate({ reportId, update })
+  if (!report) {
+    throw new StatusReportError(
+      "REPORT_NOT_FOUND",
+      "Status report was not found"
+    )
+  }
+  return persistResolutionAndSerialize(store, report, now)
 }
 
 export async function editReportUpdate(
   reportId: string,
   updateId: string,
   input: unknown,
-  dependencies: StatusReportsDependencies = {},
+  dependencies: StatusReportsDependencies = {}
 ): Promise<StatusReportData> {
-  const store = dependencies.store ?? databaseStatusReportsStore;
-  const now = dependencies.now?.() ?? new Date();
-  const parsed = parseOrThrow(updateEditSchema, input);
-  const report = await store.getReport(reportId);
-  if (!report) throw new StatusReportError("REPORT_NOT_FOUND", "Status report was not found");
-  if (parsed.status !== undefined) assertStatusMatchesType(report.type, parsed.status);
+  const store = dependencies.store ?? databaseStatusReportsStore
+  const now = dependencies.now?.() ?? new Date()
+  const parsed = parseOrThrow(updateEditSchema, input)
+  const report = await store.getReport(reportId)
+  if (!report) {
+    throw new StatusReportError(
+      "REPORT_NOT_FOUND",
+      "Status report was not found"
+    )
+  }
+  if (parsed.status !== undefined) {
+    assertStatusMatchesType(report.type, parsed.status)
+  }
 
-  const edited = await store.editUpdate({ reportId, updateId, patch: parsed, now });
-  if (!edited) throw new StatusReportError("UPDATE_NOT_FOUND", "Report update was not found");
-  return persistResolutionAndSerialize(store, report, now);
+  const edited = await store.editUpdate({
+    reportId,
+    updateId,
+    patch: parsed,
+    now,
+  })
+  if (!edited) {
+    throw new StatusReportError(
+      "UPDATE_NOT_FOUND",
+      "Report update was not found"
+    )
+  }
+  return persistResolutionAndSerialize(store, report, now)
 }
 
 export async function deleteReportUpdate(
   reportId: string,
   updateId: string,
-  dependencies: StatusReportsDependencies = {},
+  dependencies: StatusReportsDependencies = {}
 ): Promise<StatusReportData> {
-  const store = dependencies.store ?? databaseStatusReportsStore;
-  const now = dependencies.now?.() ?? new Date();
-  const report = await store.getReport(reportId);
-  if (!report) throw new StatusReportError("REPORT_NOT_FOUND", "Status report was not found");
+  const store = dependencies.store ?? databaseStatusReportsStore
+  const now = dependencies.now?.() ?? new Date()
+  const report = await store.getReport(reportId)
+  if (!report) {
+    throw new StatusReportError(
+      "REPORT_NOT_FOUND",
+      "Status report was not found"
+    )
+  }
   // The store enforces the LAST_UPDATE invariant transactionally: the report
   // row is locked before the surviving count is read, so two concurrent
   // deletes cannot both observe "another update still exists" and race a
   // report down to zero updates.
-  const outcome = await store.deleteUpdate({ reportId, updateId });
-  if (outcome === "missing") throw new StatusReportError("UPDATE_NOT_FOUND", "Report update was not found");
-  if (outcome === "last_update") {
-    throw new StatusReportError("LAST_UPDATE", "A report must keep at least one update; delete the report instead");
+  const outcome = await store.deleteUpdate({ reportId, updateId })
+  if (outcome === "missing") {
+    throw new StatusReportError(
+      "UPDATE_NOT_FOUND",
+      "Report update was not found"
+    )
   }
-  return persistResolutionAndSerialize(store, report, now);
+  if (outcome === "last_update") {
+    throw new StatusReportError(
+      "LAST_UPDATE",
+      "A report must keep at least one update; delete the report instead"
+    )
+  }
+  return persistResolutionAndSerialize(store, report, now)
 }
 
 export async function publishStatusReport(
   id: string,
-  dependencies: StatusReportsDependencies = {},
+  dependencies: StatusReportsDependencies = {}
 ): Promise<StatusReportData> {
-  const store = dependencies.store ?? databaseStatusReportsStore;
-  const now = dependencies.now?.() ?? new Date();
-  const outcome = await store.publishReport({ id, now });
-  if (outcome === "missing") throw new StatusReportError("REPORT_NOT_FOUND", "Status report was not found");
-  if (outcome === "already_published") {
-    throw new StatusReportError("ALREADY_PUBLISHED", "The status report is already published");
+  const store = dependencies.store ?? databaseStatusReportsStore
+  const now = dependencies.now?.() ?? new Date()
+  const outcome = await store.publishReport({ id, now })
+  if (outcome === "missing") {
+    throw new StatusReportError(
+      "REPORT_NOT_FOUND",
+      "Status report was not found"
+    )
   }
-  return requireStatusReport(id, dependencies);
+  if (outcome === "already_published") {
+    throw new StatusReportError(
+      "ALREADY_PUBLISHED",
+      "The status report is already published"
+    )
+  }
+  return requireStatusReport(id, dependencies)
 }
 
 /** Matches the public label in lib/reporting/queries/status.ts (failureLabel). */
 export function publicIncidentCause(openingStatusCode: number | null): string {
-  return openingStatusCode !== null ? `HTTP ${openingStatusCode}` : "Availability check failed";
+  return openingStatusCode === null
+    ? "Availability check failed"
+    : `HTTP ${openingStatusCode}`
 }
 
 /**
@@ -877,16 +1117,18 @@ export function publicIncidentCause(openingStatusCode: number | null): string {
  */
 export async function promoteIncident(
   incidentId: string,
-  dependencies: StatusReportsDependencies = {},
+  dependencies: StatusReportsDependencies = {}
 ): Promise<{ report: StatusReportData; created: boolean }> {
-  const store = dependencies.store ?? databaseStatusReportsStore;
-  const now = dependencies.now?.() ?? new Date();
-  const newId = dependencies.newId ?? (() => crypto.randomUUID());
-  const incident = await store.findIncident(incidentId);
-  if (!incident) throw new StatusReportError("INCIDENT_NOT_FOUND", "Incident was not found");
+  const store = dependencies.store ?? databaseStatusReportsStore
+  const now = dependencies.now?.() ?? new Date()
+  const newId = dependencies.newId ?? (() => crypto.randomUUID())
+  const incident = await store.findIncident(incidentId)
+  if (!incident) {
+    throw new StatusReportError("INCIDENT_NOT_FOUND", "Incident was not found")
+  }
 
-  const reportId = dependencies.reportId ?? newId();
-  const cause = publicIncidentCause(incident.openingStatusCode);
+  const reportId = dependencies.reportId ?? newId()
+  const cause = publicIncidentCause(incident.openingStatusCode)
   const update: StatusReportUpdateRow = {
     id: newId(),
     reportId,
@@ -895,7 +1137,7 @@ export async function promoteIncident(
     publishedAt: incident.openedAt,
     createdAt: now,
     updatedAt: now,
-  };
+  }
   const report: StatusReportRow = {
     id: reportId,
     type: "incident",
@@ -907,46 +1149,58 @@ export async function promoteIncident(
     originIncidentId: incident.id,
     createdAt: now,
     updatedAt: now,
-  };
-  const affected: StatusReportAffectedRow[] = [{
-    reportId,
-    monitorId: incident.monitorId,
-    monitorName: incident.monitorName,
-    groupName: incident.groupName,
-    impact: "down",
-  }];
-  const outcome = await store.insertPromotedReport({ report, update, affected });
-  if (outcome.created) {
-    return { report: serializeReport(report, [update], affected), created: true };
   }
-  return { report: await requireStatusReport(outcome.id, dependencies), created: false };
+  const affected: StatusReportAffectedRow[] = [
+    {
+      reportId,
+      monitorId: incident.monitorId,
+      monitorName: incident.monitorName,
+      groupName: incident.groupName,
+      impact: "down",
+    },
+  ]
+  const outcome = await store.insertPromotedReport({ report, update, affected })
+  if (outcome.created) {
+    return {
+      report: serializeReport(report, [update], affected),
+      created: true,
+    }
+  }
+  return {
+    report: await requireStatusReport(outcome.id, dependencies),
+    created: false,
+  }
 }
 
-export type PublicReportPhase = "ongoing" | "upcoming" | "window_ended" | "resolved";
+export type PublicReportPhase =
+  | "ongoing"
+  | "upcoming"
+  | "window_ended"
+  | "resolved"
 
 export type PublicStatusReport = {
-  id: string;
-  type: StatusReportType;
-  title: string;
-  startsAt: string;
-  endsAt: string | null;
-  publishedAt: string;
-  resolvedAt: string | null;
-  originIncidentId: string | null;
-  currentStatus: StatusReportUpdateStatus;
-  phase: PublicReportPhase;
-  latestUpdate: StatusReportUpdateData | null;
-  affected: AffectedServiceData[];
-};
+  id: string
+  type: StatusReportType
+  title: string
+  startsAt: string
+  endsAt: string | null
+  publishedAt: string
+  resolvedAt: string | null
+  originIncidentId: string | null
+  currentStatus: StatusReportUpdateStatus
+  phase: PublicReportPhase
+  latestUpdate: StatusReportUpdateData | null
+  affected: AffectedServiceData[]
+}
 
 export type PublicReports = {
-  ongoing: PublicStatusReport[];
-  upcoming: PublicStatusReport[];
-  windowEnded: PublicStatusReport[];
-  resolved: PublicStatusReport[];
-};
+  ongoing: PublicStatusReport[]
+  upcoming: PublicStatusReport[]
+  windowEnded: PublicStatusReport[]
+  resolved: PublicStatusReport[]
+}
 
-export const PUBLIC_RESOLVED_LIMIT = 10;
+export const PUBLIC_RESOLVED_LIMIT = 10
 
 /**
  * Group-page scoping: a report matches iff it affects a monitor in the
@@ -961,13 +1215,19 @@ export const PUBLIC_RESOLVED_LIMIT = 10;
  * though both collapse to the same slug, and an archived-only group has no
  * live names to compare at all.
  */
-export type PublicReportsFilter = { monitorIds: readonly string[]; groupSlug: string };
+export type PublicReportsFilter = {
+  monitorIds: readonly string[]
+  groupSlug: string
+}
 
 /**
  * Store-level prefilter with the slug already resolved to the exact
  * snapshotted group names it matches, so the store can compare raw strings.
  */
-export type PublicReportRowsFilter = { monitorIds: readonly string[]; groupNames: readonly string[] };
+export type PublicReportRowsFilter = {
+  monitorIds: readonly string[]
+  groupNames: readonly string[]
+}
 
 /**
  * Lifecycle rules: upcoming = published ∧ startsAt > now, for EITHER
@@ -983,14 +1243,22 @@ export type PublicReportRowsFilter = { monitorIds: readonly string[]; groupNames
  */
 export function classifyPublicReport(
   report: Pick<StatusReportRow, "type" | "startsAt" | "endsAt" | "resolvedAt">,
-  now: Date,
+  now: Date
 ): PublicReportPhase {
-  if (report.resolvedAt) return "resolved";
-  if (report.startsAt.getTime() > now.getTime()) return "upcoming";
-  if (report.type === "maintenance" && report.endsAt && report.endsAt.getTime() <= now.getTime()) {
-    return "window_ended";
+  if (report.resolvedAt) {
+    return "resolved"
   }
-  return "ongoing";
+  if (report.startsAt.getTime() > now.getTime()) {
+    return "upcoming"
+  }
+  if (
+    report.type === "maintenance" &&
+    report.endsAt &&
+    report.endsAt.getTime() <= now.getTime()
+  ) {
+    return "window_ended"
+  }
+  return "ongoing"
 }
 
 // Route params reach the store verbatim. A non-UUID value would make Postgres
@@ -999,7 +1267,7 @@ export function classifyPublicReport(
 // lib/api/images.ts.
 
 /** Detail reads keep at most this many (newest) updates per report. */
-const PER_REPORT_UPDATE_LIMIT = 500;
+const PER_REPORT_UPDATE_LIMIT = 500
 
 const reportSelection = {
   id: statusReports.id,
@@ -1012,7 +1280,7 @@ const reportSelection = {
   originIncidentId: statusReports.originIncidentId,
   createdAt: statusReports.createdAt,
   updatedAt: statusReports.updatedAt,
-};
+}
 
 const updateSelection = {
   id: statusReportUpdates.id,
@@ -1022,7 +1290,7 @@ const updateSelection = {
   publishedAt: statusReportUpdates.publishedAt,
   createdAt: statusReportUpdates.createdAt,
   updatedAt: statusReportUpdates.updatedAt,
-};
+}
 
 const affectedSelection = {
   reportId: statusReportAffected.reportId,
@@ -1030,7 +1298,7 @@ const affectedSelection = {
   monitorName: statusReportAffected.monitorName,
   groupName: statusReportAffected.groupName,
   impact: statusReportAffected.impact,
-};
+}
 
 /**
  * Store factory closing over a DatabaseHandle: a plain Database connection
@@ -1040,22 +1308,32 @@ const affectedSelection = {
  * transaction when `handle` is the database, or a savepoint when `handle`
  * is already a transaction.
  */
-export function createDatabaseStatusReportsStore(handle: DatabaseHandle): StatusReportsStore {
+export function createDatabaseStatusReportsStore(
+  handle: DatabaseHandle
+): StatusReportsStore {
   return {
     async findMonitors(ids) {
-      if (ids.length === 0) return [];
+      if (ids.length === 0) {
+        return []
+      }
       return handle
-        .select({ id: monitorRegistry.id, name: monitorRegistry.name, groupName: monitorRegistry.groupName })
+        .select({
+          id: monitorRegistry.id,
+          name: monitorRegistry.name,
+          groupName: monitorRegistry.groupName,
+        })
         .from(monitorRegistry)
-        .where(inArray(monitorRegistry.id, [...ids]));
+        .where(inArray(monitorRegistry.id, [...ids]))
     },
 
     async insertReport({ report, update, affected }) {
       await handle.transaction(async (tx) => {
-        await tx.insert(statusReports).values(report);
-        await tx.insert(statusReportUpdates).values(update);
-        if (affected.length > 0) await tx.insert(statusReportAffected).values(affected);
-      });
+        await tx.insert(statusReports).values(report)
+        await tx.insert(statusReportUpdates).values(update)
+        if (affected.length > 0) {
+          await tx.insert(statusReportAffected).values(affected)
+        }
+      })
     },
 
     async insertPromotedReport({ report, update, affected }) {
@@ -1067,50 +1345,81 @@ export function createDatabaseStatusReportsStore(handle: DatabaseHandle): Status
             target: statusReports.originIncidentId,
             where: sql`${statusReports.originIncidentId} is not null`,
           })
-          .returning({ id: statusReports.id });
+          .returning({ id: statusReports.id })
         if (!inserted[0]) {
           const [existing] = await tx
             .select({ id: statusReports.id })
             .from(statusReports)
             .where(eq(statusReports.originIncidentId, report.originIncidentId!))
-            .limit(1);
-          if (!existing) throw new Error("Promotion conflict without an existing report");
-          return { id: existing.id, created: false };
+            .limit(1)
+          if (!existing) {
+            throw new Error("Promotion conflict without an existing report")
+          }
+          return { id: existing.id, created: false }
         }
-        await tx.insert(statusReportUpdates).values(update);
-        if (affected.length > 0) await tx.insert(statusReportAffected).values(affected);
-        return { id: report.id, created: true };
-      });
+        await tx.insert(statusReportUpdates).values(update)
+        if (affected.length > 0) {
+          await tx.insert(statusReportAffected).values(affected)
+        }
+        return { id: report.id, created: true }
+      })
     },
 
     async getReport(id) {
-      if (!isUuid(id)) return null;
-      const [row] = await handle.select(reportSelection).from(statusReports).where(eq(statusReports.id, id)).limit(1);
-      return row ?? null;
+      if (!isUuid(id)) {
+        return null
+      }
+      const [row] = await handle
+        .select(reportSelection)
+        .from(statusReports)
+        .where(eq(statusReports.id, id))
+        .limit(1)
+      return row ?? null
     },
 
     async listReports({ state, type, cursor, limit }) {
-      const conditions = [];
-      if (state === "draft") conditions.push(isNull(statusReports.publishedAt));
-      if (state === "ongoing") conditions.push(isNotNull(statusReports.publishedAt), isNull(statusReports.resolvedAt));
-      if (state === "resolved") conditions.push(isNotNull(statusReports.publishedAt), isNotNull(statusReports.resolvedAt));
-      if (type !== "all") conditions.push(eq(statusReports.type, type));
+      const conditions = []
+      if (state === "draft") {
+        conditions.push(isNull(statusReports.publishedAt))
+      }
+      if (state === "ongoing") {
+        conditions.push(
+          isNotNull(statusReports.publishedAt),
+          isNull(statusReports.resolvedAt)
+        )
+      }
+      if (state === "resolved") {
+        conditions.push(
+          isNotNull(statusReports.publishedAt),
+          isNotNull(statusReports.resolvedAt)
+        )
+      }
+      if (type !== "all") {
+        conditions.push(eq(statusReports.type, type))
+      }
       if (cursor) {
-        conditions.push(or(
-          lt(statusReports.createdAt, cursor.createdAt),
-          and(eq(statusReports.createdAt, cursor.createdAt), lt(statusReports.id, cursor.id)),
-        )!);
+        conditions.push(
+          or(
+            lt(statusReports.createdAt, cursor.createdAt),
+            and(
+              eq(statusReports.createdAt, cursor.createdAt),
+              lt(statusReports.id, cursor.id)
+            )
+          )!
+        )
       }
       return handle
         .select(reportSelection)
         .from(statusReports)
         .where(conditions.length > 0 ? and(...conditions) : undefined)
         .orderBy(desc(statusReports.createdAt), desc(statusReports.id))
-        .limit(limit + 1);
+        .limit(limit + 1)
     },
 
     async getReportDetails(ids) {
-      if (ids.length === 0) return { updates: [], affected: [] };
+      if (ids.length === 0) {
+        return { updates: [], affected: [] }
+      }
       // Per-report bound: a window rank partitioned by report keeps the newest
       // PER_REPORT_UPDATE_LIMIT updates for EVERY requested report, so one
       // chatty report can never starve the others out of a shared global cap.
@@ -1119,11 +1428,14 @@ export function createDatabaseStatusReportsStore(handle: DatabaseHandle): Status
         handle
           .select({
             ...updateSelection,
-            updateRank: sql<number>`row_number() over (partition by ${statusReportUpdates.reportId} order by ${statusReportUpdates.publishedAt} desc, ${statusReportUpdates.createdAt} desc, ${statusReportUpdates.id} desc)`.as("update_rank"),
+            updateRank:
+              sql<number>`row_number() over (partition by ${statusReportUpdates.reportId} order by ${statusReportUpdates.publishedAt} desc, ${statusReportUpdates.createdAt} desc, ${statusReportUpdates.id} desc)`.as(
+                "update_rank"
+              ),
           })
           .from(statusReportUpdates)
-          .where(inArray(statusReportUpdates.reportId, [...ids])),
-      );
+          .where(inArray(statusReportUpdates.reportId, [...ids]))
+      )
       const [updates, affected] = await Promise.all([
         handle
           .with(ranked)
@@ -1142,15 +1454,19 @@ export function createDatabaseStatusReportsStore(handle: DatabaseHandle): Status
         // each report can hold at most MAX_AFFECTED_PER_REPORT rows (enforced at
         // write time), so this cap can never truncate a page of reports that
         // are each individually within bounds.
-        handle.select(affectedSelection).from(statusReportAffected)
+        handle
+          .select(affectedSelection)
+          .from(statusReportAffected)
           .where(inArray(statusReportAffected.reportId, [...ids]))
           .limit(ids.length * MAX_AFFECTED_PER_REPORT),
-      ]);
-      return { updates, affected };
+      ])
+      return { updates, affected }
     },
 
     async getListDetails(ids) {
-      if (ids.length === 0) return { counts: [], latest: [], affected: [] };
+      if (ids.length === 0) {
+        return { counts: [], latest: [], affected: [] }
+      }
       const [counts, latest, affected] = await Promise.all([
         handle
           .select({ reportId: statusReportUpdates.reportId, count: count() })
@@ -1169,13 +1485,15 @@ export function createDatabaseStatusReportsStore(handle: DatabaseHandle): Status
             statusReportUpdates.reportId,
             desc(statusReportUpdates.publishedAt),
             desc(statusReportUpdates.createdAt),
-            desc(statusReportUpdates.id),
+            desc(statusReportUpdates.id)
           ),
-        handle.select(affectedSelection).from(statusReportAffected)
+        handle
+          .select(affectedSelection)
+          .from(statusReportAffected)
           .where(inArray(statusReportAffected.reportId, [...ids]))
           .limit(ids.length * MAX_AFFECTED_PER_REPORT),
-      ]);
-      return { counts, latest, affected };
+      ])
+      return { counts, latest, affected }
     },
 
     async updateReport({ id, patch, affected, now }) {
@@ -1184,28 +1502,41 @@ export function createDatabaseStatusReportsStore(handle: DatabaseHandle): Status
           .update(statusReports)
           .set({ ...patch, updatedAt: now })
           .where(eq(statusReports.id, id))
-          .returning(reportSelection);
-        if (!row) return null;
-        if (affected !== undefined) {
-          await tx.delete(statusReportAffected).where(eq(statusReportAffected.reportId, id));
-          if (affected.length > 0) await tx.insert(statusReportAffected).values(affected);
+          .returning(reportSelection)
+        if (!row) {
+          return null
         }
-        return row;
-      });
+        if (affected !== undefined) {
+          await tx
+            .delete(statusReportAffected)
+            .where(eq(statusReportAffected.reportId, id))
+          if (affected.length > 0) {
+            await tx.insert(statusReportAffected).values(affected)
+          }
+        }
+        return row
+      })
     },
 
     async deleteReport(id) {
-      if (!isUuid(id)) return false;
-      const rows = await handle.delete(statusReports).where(eq(statusReports.id, id)).returning({ id: statusReports.id });
-      return rows.length > 0;
+      if (!isUuid(id)) {
+        return false
+      }
+      const rows = await handle
+        .delete(statusReports)
+        .where(eq(statusReports.id, id))
+        .returning({ id: statusReports.id })
+      return rows.length > 0
     },
 
     async insertUpdate(row) {
-      await handle.insert(statusReportUpdates).values(row);
+      await handle.insert(statusReportUpdates).values(row)
     },
 
     async insertReportUpdate({ reportId, update }) {
-      if (!isUuid(reportId)) return null;
+      if (!isUuid(reportId)) {
+        return null
+      }
       // `SELECT ... FOR UPDATE` on the report serializes against a concurrent
       // DELETE on the SAME row (mirrors deleteUpdate/recomputeResolution): a
       // racing delete either commits first (the lock then finds zero rows,
@@ -1217,15 +1548,19 @@ export function createDatabaseStatusReportsStore(handle: DatabaseHandle): Status
           .select(reportSelection)
           .from(statusReports)
           .where(eq(statusReports.id, reportId))
-          .for("update");
-        if (!locked) return null;
-        await tx.insert(statusReportUpdates).values(update);
-        return locked;
-      });
+          .for("update")
+        if (!locked) {
+          return null
+        }
+        await tx.insert(statusReportUpdates).values(update)
+        return locked
+      })
     },
 
     async editUpdate({ reportId, updateId, patch, now }) {
-      if (!isUuid(reportId) || !isUuid(updateId)) return null;
+      if (!(isUuid(reportId) && isUuid(updateId))) {
+        return null
+      }
       // Row-locked transaction: `SELECT ... FOR UPDATE` on the report first,
       // mirroring deleteUpdate/recomputeResolution, so every mutation that
       // touches a report's updates takes the report lock in the SAME order.
@@ -1237,19 +1572,28 @@ export function createDatabaseStatusReportsStore(handle: DatabaseHandle): Status
           .select({ id: statusReports.id })
           .from(statusReports)
           .where(eq(statusReports.id, reportId))
-          .for("update");
-        if (!locked) return null;
+          .for("update")
+        if (!locked) {
+          return null
+        }
         const [row] = await tx
           .update(statusReportUpdates)
           .set({ ...patch, updatedAt: now })
-          .where(and(eq(statusReportUpdates.id, updateId), eq(statusReportUpdates.reportId, reportId)))
-          .returning(updateSelection);
-        return row ?? null;
-      });
+          .where(
+            and(
+              eq(statusReportUpdates.id, updateId),
+              eq(statusReportUpdates.reportId, reportId)
+            )
+          )
+          .returning(updateSelection)
+        return row ?? null
+      })
     },
 
     async deleteUpdate({ reportId, updateId }) {
-      if (!isUuid(reportId) || !isUuid(updateId)) return "missing";
+      if (!(isUuid(reportId) && isUuid(updateId))) {
+        return "missing"
+      }
       // Row-locked transaction: `SELECT ... FOR UPDATE` on the report serializes
       // concurrent deletes for the SAME report (Postgres row locks are per-row,
       // so unrelated reports never contend). The unlocked count subquery this
@@ -1262,28 +1606,46 @@ export function createDatabaseStatusReportsStore(handle: DatabaseHandle): Status
           .select({ id: statusReports.id })
           .from(statusReports)
           .where(eq(statusReports.id, reportId))
-          .for("update");
-        if (!locked) return "missing";
+          .for("update")
+        if (!locked) {
+          return "missing"
+        }
         const [existing] = await tx
           .select({ id: statusReportUpdates.id })
           .from(statusReportUpdates)
-          .where(and(eq(statusReportUpdates.id, updateId), eq(statusReportUpdates.reportId, reportId)))
-          .limit(1);
-        if (!existing) return "missing";
+          .where(
+            and(
+              eq(statusReportUpdates.id, updateId),
+              eq(statusReportUpdates.reportId, reportId)
+            )
+          )
+          .limit(1)
+        if (!existing) {
+          return "missing"
+        }
         const [{ total }] = await tx
           .select({ total: count() })
           .from(statusReportUpdates)
-          .where(eq(statusReportUpdates.reportId, reportId));
-        if (total <= 1) return "last_update";
+          .where(eq(statusReportUpdates.reportId, reportId))
+        if (total <= 1) {
+          return "last_update"
+        }
         await tx
           .delete(statusReportUpdates)
-          .where(and(eq(statusReportUpdates.id, updateId), eq(statusReportUpdates.reportId, reportId)));
-        return "deleted";
-      });
+          .where(
+            and(
+              eq(statusReportUpdates.id, updateId),
+              eq(statusReportUpdates.reportId, reportId)
+            )
+          )
+        return "deleted"
+      })
     },
 
     async recomputeResolution({ reportId, now }) {
-      if (!isUuid(reportId)) return null;
+      if (!isUuid(reportId)) {
+        return null
+      }
       // Row-locked transaction: `SELECT ... FOR UPDATE` on the report serializes
       // concurrent recomputes for the SAME report, mirroring deleteUpdate's
       // guard. Without the lock, two mutations racing on the same report could
@@ -1296,37 +1658,56 @@ export function createDatabaseStatusReportsStore(handle: DatabaseHandle): Status
           .select({ id: statusReports.id })
           .from(statusReports)
           .where(eq(statusReports.id, reportId))
-          .for("update");
-        if (!locked) return null;
+          .for("update")
+        if (!locked) {
+          return null
+        }
         // Ordered by the contract total order with the cap taking the NEWEST
         // rows, so a capped read can never drop the update that decides
         // resolvedAt.
-        const updates = await tx.select(updateSelection).from(statusReportUpdates)
+        const updates = await tx
+          .select(updateSelection)
+          .from(statusReportUpdates)
           .where(eq(statusReportUpdates.reportId, reportId))
-          .orderBy(desc(statusReportUpdates.publishedAt), desc(statusReportUpdates.createdAt), desc(statusReportUpdates.id))
-          .limit(1_000);
-        const resolvedAt = deriveResolvedAt(updates);
-        await tx.update(statusReports)
+          .orderBy(
+            desc(statusReportUpdates.publishedAt),
+            desc(statusReportUpdates.createdAt),
+            desc(statusReportUpdates.id)
+          )
+          .limit(1000)
+        const resolvedAt = deriveResolvedAt(updates)
+        await tx
+          .update(statusReports)
           .set({ resolvedAt, updatedAt: now })
-          .where(eq(statusReports.id, reportId));
-        return { updates, resolvedAt };
-      });
+          .where(eq(statusReports.id, reportId))
+        return { updates, resolvedAt }
+      })
     },
 
     async publishReport({ id, now }) {
-      if (!isUuid(id)) return "missing";
+      if (!isUuid(id)) {
+        return "missing"
+      }
       const rows = await handle
         .update(statusReports)
         .set({ publishedAt: now, updatedAt: now })
         .where(and(eq(statusReports.id, id), isNull(statusReports.publishedAt)))
-        .returning({ id: statusReports.id });
-      if (rows.length > 0) return "published";
-      const [existing] = await handle.select({ id: statusReports.id }).from(statusReports).where(eq(statusReports.id, id)).limit(1);
-      return existing ? "already_published" : "missing";
+        .returning({ id: statusReports.id })
+      if (rows.length > 0) {
+        return "published"
+      }
+      const [existing] = await handle
+        .select({ id: statusReports.id })
+        .from(statusReports)
+        .where(eq(statusReports.id, id))
+        .limit(1)
+      return existing ? "already_published" : "missing"
     },
 
     async findIncident(incidentId) {
-      if (!isUuid(incidentId)) return null;
+      if (!isUuid(incidentId)) {
+        return null
+      }
       const [row] = await handle
         .select({
           id: incidents.id,
@@ -1345,10 +1726,18 @@ export function createDatabaseStatusReportsStore(handle: DatabaseHandle): Status
         // INCIDENT_NOT_FOUND path. A null activatedAt fails the comparison, and a
         // genuine ongoing incident is kept since the backfill sets activatedAt at
         // or before its openedAt.
-        .innerJoin(monitorState, eq(monitorState.monitorId, incidents.monitorId))
-        .where(and(eq(incidents.id, incidentId), gte(incidents.openedAt, monitorState.activatedAt)))
-        .limit(1);
-      return row ?? null;
+        .innerJoin(
+          monitorState,
+          eq(monitorState.monitorId, incidents.monitorId)
+        )
+        .where(
+          and(
+            eq(incidents.id, incidentId),
+            gte(incidents.openedAt, monitorState.activatedAt)
+          )
+        )
+        .limit(1)
+      return row ?? null
     },
 
     async getAffectedGroupNames() {
@@ -1359,8 +1748,8 @@ export function createDatabaseStatusReportsStore(handle: DatabaseHandle): Status
       const rows = await handle
         .selectDistinct({ groupName: statusReportAffected.groupName })
         .from(statusReportAffected)
-        .limit(10_000);
-      return rows.map((row) => row.groupName);
+        .limit(10_000)
+      return rows.map((row) => row.groupName)
     },
 
     async getPublicReportRows({ resolvedLimit, now, filter }) {
@@ -1378,7 +1767,7 @@ export function createDatabaseStatusReportsStore(handle: DatabaseHandle): Status
                 or ${filter.groupNames.length > 0 ? inArray(sql`coalesce(${statusReportAffected.groupName}, 'Other')`, [...filter.groupNames]) : sql`false`}
               )
           )`
-        : undefined;
+        : undefined
       // One round-trip: the unresolved branch rides status_reports_ongoing
       // (partial on resolvedAt IS NULL) and the resolved branch the recency
       // sort. The unresolved branch ranks truly ACTIVE rows (started, not yet
@@ -1398,33 +1787,39 @@ export function createDatabaseStatusReportsStore(handle: DatabaseHandle): Status
       const unresolved = handle
         .select(reportSelection)
         .from(statusReports)
-        .where(and(
-          isNotNull(statusReports.publishedAt),
-          isNull(statusReports.resolvedAt),
-          ...(groupScope ? [groupScope] : []),
-        ))
+        .where(
+          and(
+            isNotNull(statusReports.publishedAt),
+            isNull(statusReports.resolvedAt),
+            ...(groupScope ? [groupScope] : [])
+          )
+        )
         .orderBy(
           sql`(${statusReports.endsAt} is not null and ${statusReports.endsAt} <= ${now.toISOString()})`,
           sql`(${statusReports.startsAt} > ${now.toISOString()})`,
           sql`(case when ${statusReports.startsAt} > ${now.toISOString()} then ${statusReports.startsAt} end) asc nulls last`,
-          desc(statusReports.startsAt),
+          desc(statusReports.startsAt)
         )
-        .limit(100);
+        .limit(100)
       const resolved = handle
         .select(reportSelection)
         .from(statusReports)
-        .where(and(
-          isNotNull(statusReports.publishedAt),
-          isNotNull(statusReports.resolvedAt),
-          ...(groupScope ? [groupScope] : []),
-        ))
+        .where(
+          and(
+            isNotNull(statusReports.publishedAt),
+            isNotNull(statusReports.resolvedAt),
+            ...(groupScope ? [groupScope] : [])
+          )
+        )
         .orderBy(desc(statusReports.resolvedAt))
-        .limit(resolvedLimit);
-      return unionAll(unresolved, resolved);
+        .limit(resolvedLimit)
+      return unionAll(unresolved, resolved)
     },
 
     async getLatestUpdates(reportIds) {
-      if (reportIds.length === 0) return [];
+      if (reportIds.length === 0) {
+        return []
+      }
       return handle
         .selectDistinctOn([statusReportUpdates.reportId], updateSelection)
         .from(statusReportUpdates)
@@ -1433,22 +1828,25 @@ export function createDatabaseStatusReportsStore(handle: DatabaseHandle): Status
           statusReportUpdates.reportId,
           desc(statusReportUpdates.publishedAt),
           desc(statusReportUpdates.createdAt),
-          desc(statusReportUpdates.id),
-        );
+          desc(statusReportUpdates.id)
+        )
     },
 
     async getAffected(reportIds) {
-      if (reportIds.length === 0) return [];
+      if (reportIds.length === 0) {
+        return []
+      }
       // Bound derived from the requested reports (see getReportDetails): group
       // filtering and chips must never lose rows to an arbitrary global cap.
       return handle
         .select(affectedSelection)
         .from(statusReportAffected)
         .where(inArray(statusReportAffected.reportId, [...reportIds]))
-        .limit(reportIds.length * MAX_AFFECTED_PER_REPORT);
+        .limit(reportIds.length * MAX_AFFECTED_PER_REPORT)
     },
-  };
+  }
 }
 
 /** Read paths and existing call sites use the shared default-database instance. */
-export const databaseStatusReportsStore: StatusReportsStore = createDatabaseStatusReportsStore(db);
+export const databaseStatusReportsStore: StatusReportsStore =
+  createDatabaseStatusReportsStore(db)

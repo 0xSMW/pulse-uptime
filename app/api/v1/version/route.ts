@@ -4,10 +4,10 @@ import {
   minimumCliVersion,
   objectEnvelope,
   requestIdFrom,
-} from "@/lib/api/envelopes";
+} from "@/lib/api/envelopes"
 
 export async function GET(request: Request) {
-  const requestId = requestIdFrom(request);
+  const requestId = requestIdFrom(request)
   return apiJson(
     objectEnvelope(
       "Version",
@@ -16,7 +16,7 @@ export async function GET(request: Request) {
         minimumCliVersion: minimumCliVersion(),
         latestCliVersion: latestCliVersion(),
       },
-      requestId,
-    ),
-  );
+      requestId
+    )
+  )
 }

@@ -1,15 +1,13 @@
-import { and, desc, eq, gt, isNull } from "drizzle-orm";
-
-import type { MonitoringConfig } from "@/lib/config";
-import { findAcceptedSnapshot } from "@/lib/config/accepted-config";
-import { DEFAULT_MONITOR_VALUES } from "@/lib/config/defaults";
-import { findAccountProfile } from "@/lib/api/account";
-import { normalizeScopes, resolveScopeProfile } from "@/lib/api/scopes";
-import { getStatusPageConfig } from "@/lib/api/status-page-config";
-import { parseUserAgent } from "@/lib/auth/user-agent";
-import { db } from "@/lib/db/client";
-import { getDatabaseHealth } from "@/lib/database-health";
-import { getHealthWarnings } from "@/lib/monitoring/health";
+import { and, desc, eq, gt, isNull } from "drizzle-orm"
+import { findAccountProfile } from "@/lib/api/account"
+import { normalizeScopes, resolveScopeProfile } from "@/lib/api/scopes"
+import { getStatusPageConfig } from "@/lib/api/status-page-config"
+import { parseUserAgent } from "@/lib/auth/user-agent"
+import type { MonitoringConfig } from "@/lib/config"
+import { findAcceptedSnapshot } from "@/lib/config/accepted-config"
+import { DEFAULT_MONITOR_VALUES } from "@/lib/config/defaults"
+import { getDatabaseHealth } from "@/lib/database-health"
+import { db } from "@/lib/db/client"
 import {
   apiTokens,
   cliInstallations,
@@ -17,7 +15,8 @@ import {
   humanSessions,
   monitorRegistry,
   monitorState,
-} from "@/lib/db/schema";
+} from "@/lib/db/schema"
+import { getHealthWarnings } from "@/lib/monitoring/health"
 
 async function getAcceptedConfig(): Promise<MonitoringConfig | null> {
   // A missing accepted snapshot returns null, and an invalid or hash-mismatched
@@ -25,68 +24,89 @@ async function getAcceptedConfig(): Promise<MonitoringConfig | null> {
   // through the pervasive config?. optional chaining, so a bad snapshot must
   // read as absent here rather than crash the whole render.
   try {
-    const snapshot = await findAcceptedSnapshot();
-    return snapshot?.config ?? null;
+    const snapshot = await findAcceptedSnapshot()
+    return snapshot?.config ?? null
   } catch {
-    return null;
+    return null
   }
 }
 
 export async function getMonitorSettings() {
   const [registrations, config] = await Promise.all([
-    db.select({
-      id: monitorRegistry.id,
-      name: monitorRegistry.name,
-      url: monitorRegistry.url,
-      state: monitorState.state,
-      enabled: monitorRegistry.enabled,
-      group: monitorRegistry.groupName,
-    }).from(monitorRegistry)
+    db
+      .select({
+        id: monitorRegistry.id,
+        name: monitorRegistry.name,
+        url: monitorRegistry.url,
+        state: monitorState.state,
+        enabled: monitorRegistry.enabled,
+        group: monitorRegistry.groupName,
+      })
+      .from(monitorRegistry)
       .leftJoin(monitorState, eq(monitorState.monitorId, monitorRegistry.id))
       .where(isNull(monitorRegistry.archivedAt))
       .orderBy(monitorRegistry.name)
       .limit(100),
     getAcceptedConfig(),
-  ]);
-  const configById = new Map(config?.monitors.map((monitor) => [monitor.id, monitor]) ?? []);
-  const groupNames = new Map(config?.groups.map((group) => [group.id, group.name]) ?? []);
+  ])
+  const configById = new Map(
+    config?.monitors.map((monitor) => [monitor.id, monitor]) ?? []
+  )
+  const groupNames = new Map(
+    config?.groups.map((group) => [group.id, group.name]) ?? []
+  )
 
   return {
     monitors: registrations.map((monitor) => {
-      const details = configById.get(monitor.id);
+      const details = configById.get(monitor.id)
       return {
         ...monitor,
         groupId: details?.groupId ?? null,
-        group: details?.groupId ? groupNames.get(details.groupId) ?? monitor.group : null,
-        state: monitor.state === "ARCHIVED" || monitor.state === null ? "PENDING" as const : monitor.state,
+        group: details?.groupId
+          ? (groupNames.get(details.groupId) ?? monitor.group)
+          : null,
+        state:
+          monitor.state === "ARCHIVED" || monitor.state === null
+            ? ("PENDING" as const)
+            : monitor.state,
         method: details?.method ?? DEFAULT_MONITOR_VALUES.method,
-        intervalMinutes: details?.intervalMinutes ?? DEFAULT_MONITOR_VALUES.intervalMinutes,
+        intervalMinutes:
+          details?.intervalMinutes ?? DEFAULT_MONITOR_VALUES.intervalMinutes,
         timeoutMs: details?.timeoutMs ?? DEFAULT_MONITOR_VALUES.timeoutMs,
-        expectedStatusMin: details?.expectedStatus.minimum ?? DEFAULT_MONITOR_VALUES.expectedStatus.minimum,
-        expectedStatusMax: details?.expectedStatus.maximum ?? DEFAULT_MONITOR_VALUES.expectedStatus.maximum,
-        failureThreshold: details?.failureThreshold ?? DEFAULT_MONITOR_VALUES.failureThreshold,
-        recoveryThreshold: details?.recoveryThreshold ?? DEFAULT_MONITOR_VALUES.recoveryThreshold,
+        expectedStatusMin:
+          details?.expectedStatus.minimum ??
+          DEFAULT_MONITOR_VALUES.expectedStatus.minimum,
+        expectedStatusMax:
+          details?.expectedStatus.maximum ??
+          DEFAULT_MONITOR_VALUES.expectedStatus.maximum,
+        failureThreshold:
+          details?.failureThreshold ?? DEFAULT_MONITOR_VALUES.failureThreshold,
+        recoveryThreshold:
+          details?.recoveryThreshold ??
+          DEFAULT_MONITOR_VALUES.recoveryThreshold,
         recipients: details?.recipients ?? [],
-      };
+      }
     }),
     groups: (config?.groups ?? []).map((group) => ({
       ...group,
-      monitorCount: config?.monitors.filter((monitor) => monitor.groupId === group.id).length ?? 0,
+      monitorCount:
+        config?.monitors.filter((monitor) => monitor.groupId === group.id)
+          .length ?? 0,
     })),
     userAgent: config?.settings.userAgent ?? "Not configured",
-  };
+  }
 }
 
 export async function getNotificationSettings() {
-  const config = await getAcceptedConfig();
+  const config = await getAcceptedConfig()
   return {
     defaultRecipients: config?.settings.defaultRecipients ?? [],
     sender: process.env.RESEND_FROM_EMAIL?.trim() || null,
-  };
+  }
 }
 
 export async function getAccountSettings(userId: string) {
-  return findAccountProfile(userId);
+  return findAccountProfile(userId)
 }
 
 const sessionColumns = {
@@ -95,34 +115,44 @@ const sessionColumns = {
   ipAddress: humanSessions.ipAddress,
   createdAt: humanSessions.createdAt,
   lastSeenAt: humanSessions.lastSeenAt,
-};
+}
 
-export async function getSecuritySettings(userId: string, currentSessionId: string, now = new Date()) {
+export async function getSecuritySettings(
+  userId: string,
+  currentSessionId: string,
+  now = new Date()
+) {
   const activeFilter = and(
     eq(humanSessions.userId, userId),
     isNull(humanSessions.revokedAt),
-    gt(humanSessions.expiresAt, now),
-  );
-  const rows = await db.select(sessionColumns).from(humanSessions)
+    gt(humanSessions.expiresAt, now)
+  )
+  const rows = await db
+    .select(sessionColumns)
+    .from(humanSessions)
     .where(activeFilter)
     .orderBy(desc(humanSessions.createdAt))
-    .limit(100);
+    .limit(100)
 
   // The 100-row cap ranks by recency, so a session that's still current but
   // was created long ago can rank past the cutoff, and the page must never
   // omit the current session while it's in use. Rather than trust recency,
   // fetch it directly by id when the capped batch missed it, and prepend it
   // (still bound by the same active-session filter).
-  let allRows = rows;
+  let allRows = rows
   if (!rows.some((row) => row.id === currentSessionId)) {
-    const currentRows = await db.select(sessionColumns).from(humanSessions)
+    const currentRows = await db
+      .select(sessionColumns)
+      .from(humanSessions)
       .where(and(eq(humanSessions.id, currentSessionId), activeFilter))
-      .limit(1);
-    if (currentRows[0]) allRows = [currentRows[0], ...rows];
+      .limit(1)
+    if (currentRows[0]) {
+      allRows = [currentRows[0], ...rows]
+    }
   }
 
   const sessions = allRows.map((row) => {
-    const { browser, os } = parseUserAgent(row.userAgent);
+    const { browser, os } = parseUserAgent(row.userAgent)
     return {
       id: row.id,
       browser,
@@ -131,23 +161,23 @@ export async function getSecuritySettings(userId: string, currentSessionId: stri
       createdAt: row.createdAt.toISOString(),
       lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
       current: row.id === currentSessionId,
-    };
-  });
+    }
+  })
   // Current session first. The rest keep newest-signed-in order (stable sort).
-  sessions.sort((left, right) => Number(right.current) - Number(left.current));
-  return { sessions };
+  sessions.sort((left, right) => Number(right.current) - Number(left.current))
+  return { sessions }
 }
 
 export async function getStatusPageSettings() {
-  const { data, etag } = await getStatusPageConfig();
-  const { updatedAt: _updatedAt, ...document } = data;
-  void _updatedAt;
+  const { data, etag } = await getStatusPageConfig()
+  const { updatedAt: _updatedAt, ...document } = data
+  void _updatedAt
   return {
     // The full document (including the current logo/favicon image ids) is the
     // page's single draft. The ETag rides along for the If-Match PUT.
     config: document,
     etag,
-  };
+  }
 }
 
 export async function getSystemSettings() {
@@ -159,45 +189,56 @@ export async function getSystemSettings() {
     // dashboard banner shows. Surfacing them on the system screen means the
     // monitoring loop being broken is visible the moment an operator opens it.
     getHealthWarnings()
-      .then((warnings) => warnings.filter((warning) => warning.code.startsWith("MONITORING_")))
+      .then((warnings) =>
+        warnings.filter((warning) => warning.code.startsWith("MONITORING_"))
+      )
       .catch(() => []),
-  ]);
+  ])
   return {
     databaseHealth: databaseHealthResult.data,
     databaseHealthError: databaseHealthResult.error,
     monitoringWarnings,
-  };
+  }
 }
 
 export async function getAccessSettings() {
   const [agentTokens, sessions] = await Promise.all([
-    db.select({
-      id: apiTokens.id,
-      name: apiTokens.name,
-      prefix: apiTokens.tokenPrefix,
-      scopes: apiTokens.scopes,
-      expiresAt: apiTokens.expiresAt,
-      lastUsedAt: apiTokens.lastUsedAt,
-    }).from(apiTokens)
+    db
+      .select({
+        id: apiTokens.id,
+        name: apiTokens.name,
+        prefix: apiTokens.tokenPrefix,
+        scopes: apiTokens.scopes,
+        expiresAt: apiTokens.expiresAt,
+        lastUsedAt: apiTokens.lastUsedAt,
+      })
+      .from(apiTokens)
       .where(isNull(apiTokens.revokedAt))
       .orderBy(desc(apiTokens.createdAt))
       .limit(100),
-    db.select({
-      id: cliSessions.id,
-      prefix: cliSessions.tokenPrefix,
-      scopes: cliSessions.scopes,
-      scopeProfile: cliSessions.scopeProfile,
-      expiresAt: cliSessions.expiresAt,
-      lastUsedAt: cliSessions.lastUsedAt,
-      displayName: cliInstallations.displayName,
-      platform: cliInstallations.platform,
-      architecture: cliInstallations.architecture,
-    }).from(cliSessions)
-      .innerJoin(cliInstallations, eq(cliInstallations.id, cliSessions.installationId))
-      .where(and(isNull(cliSessions.revokedAt), isNull(cliInstallations.revokedAt)))
+    db
+      .select({
+        id: cliSessions.id,
+        prefix: cliSessions.tokenPrefix,
+        scopes: cliSessions.scopes,
+        scopeProfile: cliSessions.scopeProfile,
+        expiresAt: cliSessions.expiresAt,
+        lastUsedAt: cliSessions.lastUsedAt,
+        displayName: cliInstallations.displayName,
+        platform: cliInstallations.platform,
+        architecture: cliInstallations.architecture,
+      })
+      .from(cliSessions)
+      .innerJoin(
+        cliInstallations,
+        eq(cliInstallations.id, cliSessions.installationId)
+      )
+      .where(
+        and(isNull(cliSessions.revokedAt), isNull(cliInstallations.revokedAt))
+      )
       .orderBy(desc(cliSessions.createdAt))
       .limit(100),
-  ]);
+  ])
 
   return {
     tokens: [
@@ -220,11 +261,13 @@ export async function getAccessSettings() {
         // The access page must show the scopes auth actually grants. A stored
         // scope profile wins over the literal mint-time snapshot, mirroring
         // findCliSession in lib/api/principal.ts.
-        scopes: resolveScopeProfile(session.scopeProfile) ?? normalizeScopes(session.scopes),
+        scopes:
+          resolveScopeProfile(session.scopeProfile) ??
+          normalizeScopes(session.scopes),
         expiresAt: session.expiresAt.toISOString(),
         lastUsedAt: session.lastUsedAt?.toISOString() ?? null,
       })),
     ],
     origin: process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "",
-  };
+  }
 }

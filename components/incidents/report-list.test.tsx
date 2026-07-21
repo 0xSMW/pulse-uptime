@@ -1,15 +1,15 @@
-import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server"
+import { describe, expect, it, vi } from "vitest"
 
-import { TimezoneProvider } from "@/components/dashboard/timezone-provider";
-import { ReportFilters, reportsHref } from "./report-filters";
-import { ReportList, ReportListPagination, ReportsEmpty } from "./report-list";
-import type { ReportListRowData } from "./report-status";
+import { TimezoneProvider } from "@/components/dashboard/timezone-provider"
+import { ReportFilters, reportsHref } from "./report-filters"
+import { ReportList, ReportListPagination, ReportsEmpty } from "./report-list"
+import type { ReportListRowData } from "./report-status"
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
   usePathname: () => "/incidents/reports",
-}));
+}))
 
 const base: ReportListRowData = {
   id: "rep-1",
@@ -18,34 +18,39 @@ const base: ReportListRowData = {
   publishedAt: "2026-07-18T10:05:00.000Z",
   currentStatus: "investigating",
   updatesCount: 1,
-  latestUpdate: { status: "investigating", publishedAt: "2026-07-18T10:05:00.000Z" },
-};
+  latestUpdate: {
+    status: "investigating",
+    publishedAt: "2026-07-18T10:05:00.000Z",
+  },
+}
 
 function renderList(reports: ReportListRowData[]) {
   return renderToStaticMarkup(
     <TimezoneProvider>
       <ReportList reports={reports} />
-    </TimezoneProvider>,
-  );
+    </TimezoneProvider>
+  )
 }
 
 describe("ReportList", () => {
   it("renders title, status, update count, and latest time", () => {
-    const html = renderList([base]);
-    expect(html).toContain("Elevated API error rates");
-    expect(html).toContain("Investigating");
-    expect(html).toContain("1 update");
-    expect(html).toContain('href="/incidents/reports/rep-1"');
-    expect(html).not.toContain(">Draft<");
-  });
+    const html = renderList([base])
+    expect(html).toContain("Elevated API error rates")
+    expect(html).toContain("Investigating")
+    expect(html).toContain("1 update")
+    expect(html).toContain('href="/incidents/reports/rep-1"')
+    expect(html).not.toContain(">Draft<")
+  })
 
   it("stretches the title link over the row and keeps the actions menu above the overlay (the li is the positioned ancestor, never the ul)", () => {
-    const html = renderList([base]);
-    expect(html).toContain("after:absolute");
-    expect(html).toContain("after:inset-0");
-    expect(html).toContain('class="relative flex items-center gap-4 px-6 py-4 hover:bg-[var(--hover)]"');
-    expect(html).toContain('class="relative z-10 flex items-center gap-2"');
-  });
+    const html = renderList([base])
+    expect(html).toContain("after:absolute")
+    expect(html).toContain("after:inset-0")
+    expect(html).toContain(
+      'class="relative flex items-center gap-4 px-6 py-4 hover:bg-[var(--hover)]"'
+    )
+    expect(html).toContain('class="relative z-10 flex items-center gap-2"')
+  })
 
   it("badges drafts and chips maintenance reports", () => {
     const html = renderList([
@@ -56,76 +61,110 @@ describe("ReportList", () => {
         publishedAt: null,
         currentStatus: "scheduled",
         updatesCount: 2,
-        latestUpdate: { status: "scheduled", publishedAt: "2026-07-18T10:05:00.000Z" },
+        latestUpdate: {
+          status: "scheduled",
+          publishedAt: "2026-07-18T10:05:00.000Z",
+        },
       },
-    ]);
-    expect(html).toContain(">Draft<");
-    expect(html).toContain(">Maintenance<");
-    expect(html).toContain("2 updates");
-    expect(html).toContain("Scheduled");
-  });
-});
+    ])
+    expect(html).toContain(">Draft<")
+    expect(html).toContain(">Maintenance<")
+    expect(html).toContain("2 updates")
+    expect(html).toContain("Scheduled")
+  })
+})
 
 describe("ReportsEmpty", () => {
   it("offers creation when unfiltered", () => {
-    const html = renderToStaticMarkup(<ReportsEmpty filtered={false} />);
-    expect(html).toContain("No status reports yet");
-    expect(html).toContain('href="/incidents/reports/new"');
-  });
+    const html = renderToStaticMarkup(<ReportsEmpty filtered={false} />)
+    expect(html).toContain("No status reports yet")
+    expect(html).toContain('href="/incidents/reports/new"')
+  })
 
   it("explains an empty filter result", () => {
-    const html = renderToStaticMarkup(<ReportsEmpty filtered />);
-    expect(html).toContain("No reports match this filter");
-  });
-});
+    const html = renderToStaticMarkup(<ReportsEmpty filtered />)
+    expect(html).toContain("No reports match this filter")
+  })
+})
 
 describe("ReportFilters", () => {
   it("composes state and type into hrefs, dropping defaults", () => {
-    expect(reportsHref("all", "all")).toBe("/incidents/reports");
-    expect(reportsHref("draft", "all")).toBe("/incidents/reports?state=draft");
-    expect(reportsHref("draft", "maintenance")).toBe("/incidents/reports?state=draft&type=maintenance");
-  });
+    expect(reportsHref("all", "all")).toBe("/incidents/reports")
+    expect(reportsHref("draft", "all")).toBe("/incidents/reports?state=draft")
+    expect(reportsHref("draft", "maintenance")).toBe(
+      "/incidents/reports?state=draft&type=maintenance"
+    )
+  })
 
   it("appends the pagination cursor while preserving filters", () => {
-    expect(reportsHref("all", "all", "abc123")).toBe("/incidents/reports?cursor=abc123");
+    expect(reportsHref("all", "all", "abc123")).toBe(
+      "/incidents/reports?cursor=abc123"
+    )
     expect(reportsHref("draft", "maintenance", "abc123")).toBe(
-      "/incidents/reports?state=draft&type=maintenance&cursor=abc123",
-    );
-    expect(reportsHref("draft", "all", null)).toBe("/incidents/reports?state=draft");
-  });
+      "/incidents/reports?state=draft&type=maintenance&cursor=abc123"
+    )
+    expect(reportsHref("draft", "all", null)).toBe(
+      "/incidents/reports?state=draft"
+    )
+  })
 
   it("marks the active state and preserves the other dimension", () => {
-    const html = renderToStaticMarkup(<ReportFilters state="draft" type="maintenance" />);
-    expect(html).toContain('href="/incidents/reports?state=draft&amp;type=maintenance"');
-    expect(html).toContain('href="/incidents/reports?state=ongoing&amp;type=maintenance"');
-    expect(html).toContain('href="/incidents/reports?state=draft"');
-    const activeCount = (html.match(/aria-current="page"/g) ?? []).length;
-    expect(activeCount).toBe(2);
-  });
-});
+    const html = renderToStaticMarkup(
+      <ReportFilters state="draft" type="maintenance" />
+    )
+    expect(html).toContain(
+      'href="/incidents/reports?state=draft&amp;type=maintenance"'
+    )
+    expect(html).toContain(
+      'href="/incidents/reports?state=ongoing&amp;type=maintenance"'
+    )
+    expect(html).toContain('href="/incidents/reports?state=draft"')
+    const activeCount = (html.match(/aria-current="page"/g) ?? []).length
+    expect(activeCount).toBe(2)
+  })
+})
 
 describe("ReportListPagination", () => {
   it("renders nothing on a single page", () => {
     expect(
-      renderToStaticMarkup(<ReportListPagination state="all" type="all" cursor={null} nextCursor={null} />),
-    ).toBe("");
-  });
+      renderToStaticMarkup(
+        <ReportListPagination
+          cursor={null}
+          nextCursor={null}
+          state="all"
+          type="all"
+        />
+      )
+    ).toBe("")
+  })
 
   it("links older reports through nextCursor and preserves filters", () => {
     const html = renderToStaticMarkup(
-      <ReportListPagination state="draft" type="maintenance" cursor={null} nextCursor="abc123" />,
-    );
-    expect(html).toContain('href="/incidents/reports?state=draft&amp;type=maintenance&amp;cursor=abc123"');
-    expect(html).toContain("Older reports");
-    expect(html).not.toContain("Newer reports");
-  });
+      <ReportListPagination
+        cursor={null}
+        nextCursor="abc123"
+        state="draft"
+        type="maintenance"
+      />
+    )
+    expect(html).toContain(
+      'href="/incidents/reports?state=draft&amp;type=maintenance&amp;cursor=abc123"'
+    )
+    expect(html).toContain("Older reports")
+    expect(html).not.toContain("Newer reports")
+  })
 
   it("offers a newer-reports affordance while a cursor is active", () => {
     const html = renderToStaticMarkup(
-      <ReportListPagination state="ongoing" type="all" cursor="abc123" nextCursor={null} />,
-    );
-    expect(html).toContain('href="/incidents/reports?state=ongoing"');
-    expect(html).toContain("Newer reports");
-    expect(html).not.toContain("Older reports");
-  });
-});
+      <ReportListPagination
+        cursor="abc123"
+        nextCursor={null}
+        state="ongoing"
+        type="all"
+      />
+    )
+    expect(html).toContain('href="/incidents/reports?state=ongoing"')
+    expect(html).toContain("Newer reports")
+    expect(html).not.toContain("Older reports")
+  })
+})

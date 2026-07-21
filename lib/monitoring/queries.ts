@@ -1,10 +1,22 @@
-import { and, eq, gte, inArray, isNull, lt, sql as dsql } from "drizzle-orm";
+import { and, sql as dsql, eq, gte, inArray, isNull, lt } from "drizzle-orm"
 
-import { db } from "@/lib/db/client";
-import { incidents, metricRollups, monitorRegistry, monitorState } from "@/lib/db/schema";
-import { isRangeUnlocked, rollupsSinceActivation } from "@/lib/reporting/queries/first-run";
-import { fetchRawAvailabilityBuckets } from "@/lib/reporting/queries/raw-availability";
-import { blendRawAvailability, buildRollupTimeline, type RawBucketAvailability } from "@/lib/reporting/queries/timeline";
+import { db } from "@/lib/db/client"
+import {
+  incidents,
+  metricRollups,
+  monitorRegistry,
+  monitorState,
+} from "@/lib/db/schema"
+import {
+  isRangeUnlocked,
+  rollupsSinceActivation,
+} from "@/lib/reporting/queries/first-run"
+import { fetchRawAvailabilityBuckets } from "@/lib/reporting/queries/raw-availability"
+import {
+  blendRawAvailability,
+  buildRollupTimeline,
+  type RawBucketAvailability,
+} from "@/lib/reporting/queries/timeline"
 
 const stateOrder = [
   "DOWN",
@@ -14,25 +26,30 @@ const stateOrder = [
   "UP",
   "PAUSED",
   "ARCHIVED",
-] as const;
+] as const
 
 export async function listCommandPaletteMonitors() {
-  const rows = await db.select({
-    id: monitorRegistry.id,
-    name: monitorRegistry.name,
-    state: monitorState.state,
-    lastLatencyMs: monitorState.lastLatencyMs,
-  }).from(monitorRegistry)
+  const rows = await db
+    .select({
+      id: monitorRegistry.id,
+      name: monitorRegistry.name,
+      state: monitorState.state,
+      lastLatencyMs: monitorState.lastLatencyMs,
+    })
+    .from(monitorRegistry)
     .leftJoin(monitorState, eq(monitorState.monitorId, monitorRegistry.id))
-    .where(isNull(monitorRegistry.archivedAt));
+    .where(isNull(monitorRegistry.archivedAt))
 
-  return rows.flatMap((monitor) => {
-    const state = monitor.state ?? ("PENDING" as const);
-    return state === "ARCHIVED" ? [] : [{ ...monitor, state }];
-  }).sort((left, right) => {
-    const state = stateOrder.indexOf(left.state) - stateOrder.indexOf(right.state);
-    return state || left.name.localeCompare(right.name);
-  });
+  return rows
+    .flatMap((monitor) => {
+      const state = monitor.state ?? ("PENDING" as const)
+      return state === "ARCHIVED" ? [] : [{ ...monitor, state }]
+    })
+    .sort((left, right) => {
+      const state =
+        stateOrder.indexOf(left.state) - stateOrder.indexOf(right.state)
+      return state || left.name.localeCompare(right.name)
+    })
 }
 
 // The most recent completed window of quarter-hour buckets. Checks in the
@@ -40,9 +57,9 @@ export async function listCommandPaletteMonitors() {
 // reader covers exactly 24 hours and agrees with the detail page's completed
 // rollup window.
 function completed24hWindow() {
-  const end15m = new Date();
-  end15m.setUTCMinutes(Math.floor(end15m.getUTCMinutes() / 15) * 15, 0, 0);
-  return { start15m: new Date(end15m.getTime() - 86_400_000), end15m };
+  const end15m = new Date()
+  end15m.setUTCMinutes(Math.floor(end15m.getUTCMinutes() / 15) * 15, 0, 0)
+  return { start15m: new Date(end15m.getTime() - 86_400_000), end15m }
 }
 
 // uptime24h blends 15m metric_rollups with scheduler-derived raw slots from
@@ -117,15 +134,17 @@ function uptime24hSql(start15m: Date, end15m: Date) {
                 and covered.bucket_start = bit.bucket_start
             )
         ) raw
-      )`;
+      )`
 }
 
 // Locked windows read null so a monitor still collecting its first full day
 // reports no uptime rather than a partial figure, the same gate the
 // dashboard's collecting placeholder uses.
 export async function uptime24hByMonitorId(ids: readonly string[]) {
-  if (ids.length === 0) return new Map<string, number | null>();
-  const { start15m, end15m } = completed24hWindow();
+  if (ids.length === 0) {
+    return new Map<string, number | null>()
+  }
+  const { start15m, end15m } = completed24hWindow()
   const rows = await db
     .select({
       id: monitorRegistry.id,
@@ -134,15 +153,19 @@ export async function uptime24hByMonitorId(ids: readonly string[]) {
     })
     .from(monitorRegistry)
     .leftJoin(monitorState, eq(monitorState.monitorId, monitorRegistry.id))
-    .where(inArray(monitorRegistry.id, [...ids]));
-  return new Map<string, number | null>(rows.map((row) => [
-    row.id,
-    row.uptime24h !== null && isRangeUnlocked("h24", row.activatedAt, end15m) ? Number(row.uptime24h) : null,
-  ]));
+    .where(inArray(monitorRegistry.id, [...ids]))
+  return new Map<string, number | null>(
+    rows.map((row) => [
+      row.id,
+      row.uptime24h !== null && isRangeUnlocked("h24", row.activatedAt, end15m)
+        ? Number(row.uptime24h)
+        : null,
+    ])
+  )
 }
 
 export async function listDashboardMonitors() {
-  const { start15m, end15m } = completed24hWindow();
+  const { start15m, end15m } = completed24hWindow()
   const rows = await db
     .select({
       id: monitorRegistry.id,
@@ -159,9 +182,12 @@ export async function listDashboardMonitors() {
     .leftJoin(monitorState, eq(monitorState.monitorId, monitorRegistry.id))
     .leftJoin(
       incidents,
-      and(eq(incidents.monitorId, monitorRegistry.id), isNull(incidents.resolvedAt)),
+      and(
+        eq(incidents.monitorId, monitorRegistry.id),
+        isNull(incidents.resolvedAt)
+      )
     )
-    .where(isNull(monitorRegistry.archivedAt));
+    .where(isNull(monitorRegistry.archivedAt))
 
   // One grouped fetch feeds every row's timeline. The bar blends the same two
   // sources the uptime figure does: 15m rollups, plus scheduler-derived raw
@@ -170,33 +196,38 @@ export async function listDashboardMonitors() {
   // no-data, so the bar can never show no-data for a bucket the figure already
   // counts as covered. A bucket with neither a rollup nor a surviving raw row
   // stays no-data.
-  const monitorIds = rows.map((row) => row.id);
+  const monitorIds = rows.map((row) => row.id)
   const timelineRollups = rows.length
     ? await db
-      .select({
-        monitorId: metricRollups.monitorId,
-        bucketStart: metricRollups.bucketStart,
-        expectedChecks: metricRollups.expectedChecks,
-        completedChecks: metricRollups.completedChecks,
-        successfulChecks: metricRollups.successfulChecks,
-        failedChecks: metricRollups.failedChecks,
-        unknownChecks: metricRollups.unknownChecks,
-        downtimeSeconds: metricRollups.downtimeSeconds,
-      })
-      .from(metricRollups)
-      .where(and(
-        inArray(metricRollups.monitorId, monitorIds),
-        eq(metricRollups.resolution, "15m"),
-        gte(metricRollups.bucketStart, start15m),
-        lt(metricRollups.bucketStart, end15m),
-      ))
-      .orderBy(metricRollups.bucketStart)
-    : [];
-  const rollupsByMonitor = new Map<string, typeof timelineRollups>();
+        .select({
+          monitorId: metricRollups.monitorId,
+          bucketStart: metricRollups.bucketStart,
+          expectedChecks: metricRollups.expectedChecks,
+          completedChecks: metricRollups.completedChecks,
+          successfulChecks: metricRollups.successfulChecks,
+          failedChecks: metricRollups.failedChecks,
+          unknownChecks: metricRollups.unknownChecks,
+          downtimeSeconds: metricRollups.downtimeSeconds,
+        })
+        .from(metricRollups)
+        .where(
+          and(
+            inArray(metricRollups.monitorId, monitorIds),
+            eq(metricRollups.resolution, "15m"),
+            gte(metricRollups.bucketStart, start15m),
+            lt(metricRollups.bucketStart, end15m)
+          )
+        )
+        .orderBy(metricRollups.bucketStart)
+    : []
+  const rollupsByMonitor = new Map<string, typeof timelineRollups>()
   for (const rollup of timelineRollups) {
-    const list = rollupsByMonitor.get(rollup.monitorId);
-    if (list) list.push(rollup);
-    else rollupsByMonitor.set(rollup.monitorId, [rollup]);
+    const list = rollupsByMonitor.get(rollup.monitorId)
+    if (list) {
+      list.push(rollup)
+    } else {
+      rollupsByMonitor.set(rollup.monitorId, [rollup])
+    }
   }
 
   // One grouped raw scan for the same window and the same monitors, the timeline
@@ -208,45 +239,59 @@ export async function listDashboardMonitors() {
   // already in hand, so this fetch needs no rollup join of its own.
   const timelineRawBuckets = rows.length
     ? await fetchRawAvailabilityBuckets(monitorIds, start15m, end15m)
-    : [];
-  const rawByMonitor = new Map<string, RawBucketAvailability[]>();
+    : []
+  const rawByMonitor = new Map<string, RawBucketAvailability[]>()
   for (const raw of timelineRawBuckets) {
-    const { monitorId, ...bucket } = raw;
-    const list = rawByMonitor.get(monitorId);
-    if (list) list.push(bucket);
-    else rawByMonitor.set(monitorId, [bucket]);
+    const { monitorId, ...bucket } = raw
+    const list = rawByMonitor.get(monitorId)
+    if (list) {
+      list.push(bucket)
+    } else {
+      rawByMonitor.set(monitorId, [bucket])
+    }
   }
 
   return rows
     .flatMap((row) => {
-      if (row.state === "ARCHIVED") return [];
-      return [{
-        ...row,
-        state: row.state ?? ("PENDING" as const),
-        lastCheckedAt: row.lastCheckedAt?.toISOString() ?? null,
-        activatedAt: row.activatedAt?.toISOString() ?? null,
-        activeIncidentOpenedAt: row.activeIncidentOpenedAt?.toISOString() ?? null,
-        // 32 buckets of 45 minutes each, the table's compact cousin of the
-        // detail page's 60-bucket availability bar over the same window. Raw
-        // batch buckets fill any quarter-hour a rollup has not closed, then the
-        // activation filter drops pre-activation buckets from both sources.
-        timeline: buildRollupTimeline(
-          rollupsSinceActivation(
-            blendRawAvailability(rollupsByMonitor.get(row.id) ?? [], rawByMonitor.get(row.id) ?? []),
-            row.activatedAt,
+      if (row.state === "ARCHIVED") {
+        return []
+      }
+      return [
+        {
+          ...row,
+          state: row.state ?? ("PENDING" as const),
+          lastCheckedAt: row.lastCheckedAt?.toISOString() ?? null,
+          activatedAt: row.activatedAt?.toISOString() ?? null,
+          activeIncidentOpenedAt:
+            row.activeIncidentOpenedAt?.toISOString() ?? null,
+          // 32 buckets of 45 minutes each, the table's compact cousin of the
+          // detail page's 60-bucket availability bar over the same window. Raw
+          // batch buckets fill any quarter-hour a rollup has not closed, then the
+          // activation filter drops pre-activation buckets from both sources.
+          timeline: buildRollupTimeline(
+            rollupsSinceActivation(
+              blendRawAvailability(
+                rollupsByMonitor.get(row.id) ?? [],
+                rawByMonitor.get(row.id) ?? []
+              ),
+              row.activatedAt
+            ),
+            32,
+            86_400_000,
+            end15m
           ),
-          32, 86_400_000, end15m,
-        ),
-        // The card claims a full 24 hours, so it unlocks only once the completed
-        // window reaches a whole day back to activation, the same gate the detail
-        // page uses. A monitor active by wall clock but activated inside the
-        // window still reads as collecting until its window fills.
-        uptime24hUnlocked: isRangeUnlocked("h24", row.activatedAt, end15m),
-        uptime24h: row.uptime24h === null ? null : Number(row.uptime24h),
-      }];
+          // The card claims a full 24 hours, so it unlocks only once the completed
+          // window reaches a whole day back to activation, the same gate the detail
+          // page uses. A monitor active by wall clock but activated inside the
+          // window still reads as collecting until its window fills.
+          uptime24hUnlocked: isRangeUnlocked("h24", row.activatedAt, end15m),
+          uptime24h: row.uptime24h === null ? null : Number(row.uptime24h),
+        },
+      ]
     })
     .sort((left, right) => {
-      const state = stateOrder.indexOf(left.state) - stateOrder.indexOf(right.state);
-      return state || left.name.localeCompare(right.name);
-    });
+      const state =
+        stateOrder.indexOf(left.state) - stateOrder.indexOf(right.state)
+      return state || left.name.localeCompare(right.name)
+    })
 }

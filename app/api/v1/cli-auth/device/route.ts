@@ -1,50 +1,71 @@
-import { apiError, apiJson, objectEnvelope, requestIdFrom } from "@/lib/api/envelopes";
-import { executeIdempotent, requireIdempotencyKey } from "@/lib/api/idempotency";
-import { enforceRateLimit, sourceIpKey } from "@/lib/api/rate-limit";
-import { routeError } from "@/lib/api/route";
-import { DeviceAuthorizationError, startDeviceAuthorization } from "@/lib/api/device-authorization";
-import { credentialDerivationContext, deriveDeviceCode } from "@/lib/api/tokens";
-import { validClientIpFromHeaders } from "@/lib/net/client-ip";
+import {
+  DeviceAuthorizationError,
+  startDeviceAuthorization,
+} from "@/lib/api/device-authorization"
+import {
+  apiError,
+  apiJson,
+  objectEnvelope,
+  requestIdFrom,
+} from "@/lib/api/envelopes"
+import { executeIdempotent, requireIdempotencyKey } from "@/lib/api/idempotency"
+import { enforceRateLimit, sourceIpKey } from "@/lib/api/rate-limit"
+import { routeError } from "@/lib/api/route"
+import { credentialDerivationContext, deriveDeviceCode } from "@/lib/api/tokens"
+import { validClientIpFromHeaders } from "@/lib/net/client-ip"
 
-const DEVICE_START_LIMIT = { routeKey: "cli-device-start", limit: 10, windowSeconds: 10 * 60 };
+const DEVICE_START_LIMIT = {
+  routeKey: "cli-device-start",
+  limit: 10,
+  windowSeconds: 10 * 60,
+}
 
 export async function POST(request: Request) {
-  const requestId = requestIdFrom(request);
-  const rate = await enforceRateLimit(sourceIpKey(request), DEVICE_START_LIMIT);
-  if (!rate.allowed) return limited(requestId, rate.retryAfterSeconds);
+  const requestId = requestIdFrom(request)
+  const rate = await enforceRateLimit(sourceIpKey(request), DEVICE_START_LIMIT)
+  if (!rate.allowed) {
+    return limited(requestId, rate.retryAfterSeconds)
+  }
   try {
-    const input = validateDeviceInput(await request.json());
-    const ipKey = sourceIpKey(request);
-    const idempotencyKey = requireIdempotencyKey(request);
-    const origin = new URL(request.url).origin;
-    const verificationUri = `${origin}/cli/authorize`;
+    const input = validateDeviceInput(await request.json())
+    const ipKey = sourceIpKey(request)
+    const idempotencyKey = requireIdempotencyKey(request)
+    const origin = new URL(request.url).origin
+    const verificationUri = `${origin}/cli/authorize`
     const result = await executeIdempotent<DeviceAuthorizationData>({
       request,
       principalKey: ipKey,
       routeKey: "cli-device-start",
       body: input,
-      work: async ({ operationId, transaction }) => transaction(async (tx) => {
-        const credential = deriveDeviceCode(credentialDerivationContext({
-          kind: "device-authorization",
-          principalKey: ipKey,
-          idempotencyKey,
-          body: input,
-          operationId,
-        }));
-        const authorization = await startDeviceAuthorization({
-          ...input,
-          requestIp: validClientIpFromHeaders(request.headers),
-          deviceCredential: credential,
-        }, new Date(), tx);
-        return {
-          status: 201,
-          body: {
-            ...authorization,
-            verificationUri,
-            verificationUriComplete: `${verificationUri}?user_code=${encodeURIComponent(authorization.userCode)}`,
-          },
-        };
-      }),
+      work: async ({ operationId, transaction }) =>
+        transaction(async (tx) => {
+          const credential = deriveDeviceCode(
+            credentialDerivationContext({
+              kind: "device-authorization",
+              principalKey: ipKey,
+              idempotencyKey,
+              body: input,
+              operationId,
+            })
+          )
+          const authorization = await startDeviceAuthorization(
+            {
+              ...input,
+              requestIp: validClientIpFromHeaders(request.headers),
+              deviceCredential: credential,
+            },
+            new Date(),
+            tx
+          )
+          return {
+            status: 201,
+            body: {
+              ...authorization,
+              verificationUri,
+              verificationUriComplete: `${verificationUri}?user_code=${encodeURIComponent(authorization.userCode)}`,
+            },
+          }
+        }),
       persistBody: (body) => ({
         userCode: body.userCode,
         expiresIn: body.expiresIn,
@@ -54,56 +75,86 @@ export async function POST(request: Request) {
       }),
       replayBody: (stored, { operationId }) => ({
         ...(stored as Omit<DeviceAuthorizationData, "deviceCode">),
-        deviceCode: deriveDeviceCode(credentialDerivationContext({
-          kind: "device-authorization",
-          principalKey: ipKey,
-          idempotencyKey,
-          body: input,
-          operationId,
-        })).raw,
+        deviceCode: deriveDeviceCode(
+          credentialDerivationContext({
+            kind: "device-authorization",
+            principalKey: ipKey,
+            idempotencyKey,
+            body: input,
+            operationId,
+          })
+        ).raw,
       }),
-    });
-    return apiJson(objectEnvelope("DeviceAuthorization", result.body, requestId), { status: result.status });
+    })
+    return apiJson(
+      objectEnvelope("DeviceAuthorization", result.body, requestId),
+      { status: result.status }
+    )
   } catch (error) {
     if (error instanceof DeviceAuthorizationError) {
-      return apiError(requestId, 400, error.code, error.message);
+      return apiError(requestId, 400, error.code, error.message)
     }
-    if (error instanceof InvalidDeviceRequest) return apiError(requestId, 400, "INVALID_DEVICE_REQUEST", error.message);
-    return routeError(error, requestId);
+    if (error instanceof InvalidDeviceRequest) {
+      return apiError(requestId, 400, "INVALID_DEVICE_REQUEST", error.message)
+    }
+    return routeError(error, requestId)
   }
 }
 
 function validateDeviceInput(input: unknown) {
-  if (!input || typeof input !== "object" || Array.isArray(input)) throw new InvalidDeviceRequest("Device details are required");
-  const value = input as Record<string, unknown>;
-  const names = ["clientName", "installationKey", "installationName", "clientVersion", "platform", "architecture", "scopeProfile"] as const;
-  if (Object.keys(value).some((key) => !names.includes(key as (typeof names)[number]))) {
-    throw new InvalidDeviceRequest("Device details contain unsupported fields");
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new InvalidDeviceRequest("Device details are required")
+  }
+  const value = input as Record<string, unknown>
+  const names = [
+    "clientName",
+    "installationKey",
+    "installationName",
+    "clientVersion",
+    "platform",
+    "architecture",
+    "scopeProfile",
+  ] as const
+  if (
+    Object.keys(value).some(
+      (key) => !names.includes(key as (typeof names)[number])
+    )
+  ) {
+    throw new InvalidDeviceRequest("Device details contain unsupported fields")
   }
   for (const name of names) {
-    if (typeof value[name] !== "string" || !value[name].trim() || value[name].length > 200) {
-      throw new InvalidDeviceRequest(`Invalid ${name}`);
+    if (
+      typeof value[name] !== "string" ||
+      !value[name].trim() ||
+      value[name].length > 200
+    ) {
+      throw new InvalidDeviceRequest(`Invalid ${name}`)
     }
   }
-  if (value.clientName !== "pulsectl" || value.scopeProfile !== "administrator") {
-    throw new InvalidDeviceRequest("Unsupported client or scope profile");
+  if (
+    value.clientName !== "pulsectl" ||
+    value.scopeProfile !== "administrator"
+  ) {
+    throw new InvalidDeviceRequest("Unsupported client or scope profile")
   }
-  return Object.fromEntries(names.map((name) => [name, (value[name] as string).trim()])) as Record<(typeof names)[number], string>;
+  return Object.fromEntries(
+    names.map((name) => [name, (value[name] as string).trim()])
+  ) as Record<(typeof names)[number], string>
 }
 
 function limited(requestId: string, retryAfter: number) {
-  const response = apiError(requestId, 429, "RATE_LIMITED", "Too many requests");
-  response.headers.set("Retry-After", String(retryAfter));
-  return response;
+  const response = apiError(requestId, 429, "RATE_LIMITED", "Too many requests")
+  response.headers.set("Retry-After", String(retryAfter))
+  return response
 }
 
 class InvalidDeviceRequest extends Error {}
 
 type DeviceAuthorizationData = {
-  deviceCode: string;
-  userCode: string;
-  expiresIn: number;
-  interval: number;
-  verificationUri: string;
-  verificationUriComplete: string;
-};
+  deviceCode: string
+  userCode: string
+  expiresIn: number
+  interval: number
+  verificationUri: string
+  verificationUriComplete: string
+}

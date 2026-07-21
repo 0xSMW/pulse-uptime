@@ -1,37 +1,37 @@
-import type { ClaimedNotification, NotificationEventType } from "./types";
+import type { ClaimedNotification, NotificationEventType } from "./types"
 
 export interface SqlExecutor {
-  query<T>(text: string, values: readonly unknown[]): Promise<readonly T[]>;
+  query<T>(text: string, values: readonly unknown[]): Promise<readonly T[]>
 }
 
-export const PROVIDER_IDEMPOTENCY_WINDOW_MS = 24 * 60 * 60_000;
-export const PROVIDER_IDEMPOTENCY_RETRY_MARGIN_MS = 5 * 60_000;
+export const PROVIDER_IDEMPOTENCY_WINDOW_MS = 24 * 60 * 60_000
+export const PROVIDER_IDEMPOTENCY_RETRY_MARGIN_MS = 5 * 60_000
 
 interface ClaimedRow {
-  id: string;
-  incident_id: string | null;
-  monitor_id: string | null;
-  dependency_id: string | null;
-  event_type: ClaimedNotification["eventType"];
-  recipient: string;
-  idempotency_key: string;
-  payload: ClaimedNotification["payload"];
-  attempt_count: number;
-  claim_token: string;
+  id: string
+  incident_id: string | null
+  monitor_id: string | null
+  dependency_id: string | null
+  event_type: ClaimedNotification["eventType"]
+  recipient: string
+  idempotency_key: string
+  payload: ClaimedNotification["payload"]
+  attempt_count: number
+  claim_token: string
 }
 
 export type ClaimNotificationsOptions = {
-  now: Date;
-  limit: number;
-  claimToken: string;
+  now: Date
+  limit: number
+  claimToken: string
   /** When set, only claim rows whose event_type is in this list. */
-  eventTypes?: readonly NotificationEventType[];
-};
+  eventTypes?: readonly NotificationEventType[]
+}
 
 export type ReconcileStaleClaimsOptions = {
   /** When set, only reconcile rows whose event_type is in this list. */
-  eventTypes?: readonly NotificationEventType[];
-};
+  eventTypes?: readonly NotificationEventType[]
+}
 
 export const CLAIM_NOTIFICATIONS_SQL = `
 with due as (
@@ -54,7 +54,7 @@ where outbox.id = due.id
 returning outbox.id, outbox.incident_id, outbox.monitor_id, outbox.dependency_id, outbox.event_type,
           outbox.recipient, outbox.idempotency_key, outbox.payload,
           outbox.attempt_count, outbox.claim_token
-`;
+`
 
 // Same claim path with an event_type scope so a dedicated consumer (for example
 // the sweep system.alert drain) never steals ordinary incident or dependency
@@ -81,7 +81,7 @@ where outbox.id = due.id
 returning outbox.id, outbox.incident_id, outbox.monitor_id, outbox.dependency_id, outbox.event_type,
           outbox.recipient, outbox.idempotency_key, outbox.payload,
           outbox.attempt_count, outbox.claim_token
-`;
+`
 
 export const RECONCILE_STALE_CLAIMS_SQL = `
 update notification_outbox
@@ -97,7 +97,7 @@ set status = case when claimed_at <= $3 then 'dead' else 'failed' end,
 where status = 'sending'
   and claimed_at < $2
 returning id, status
-`;
+`
 
 export const RECONCILE_STALE_CLAIMS_BY_EVENT_TYPE_SQL = `
 update notification_outbox
@@ -114,7 +114,7 @@ where status = 'sending'
   and claimed_at < $2
   and event_type = any($4)
 returning id, status
-`;
+`
 
 export const MARK_NOTIFICATION_SENT_SQL = `
 update notification_outbox
@@ -129,7 +129,7 @@ where id = $1
   and status = 'sending'
   and claim_token = $2
 returning id
-`;
+`
 
 export const MARK_NOTIFICATION_FAILED_SQL = `
 update notification_outbox
@@ -143,7 +143,7 @@ where id = $1
   and status = 'sending'
   and claim_token = $2
 returning id
-`;
+`
 
 function mapClaimedRows(rows: readonly ClaimedRow[]): ClaimedNotification[] {
   return rows.map((row) => ({
@@ -157,78 +157,81 @@ function mapClaimedRows(rows: readonly ClaimedRow[]): ClaimedNotification[] {
     payload: row.payload,
     attemptCount: row.attempt_count,
     claimToken: row.claim_token,
-  }));
+  }))
 }
 
 export async function claimNotifications(
   db: SqlExecutor,
-  options: ClaimNotificationsOptions,
+  options: ClaimNotificationsOptions
 ): Promise<ClaimedNotification[]> {
-  if (!Number.isInteger(options.limit) || options.limit < 1 || options.limit > 100) {
-    throw new RangeError("Outbox claim limit must be between 1 and 100");
+  if (
+    !Number.isInteger(options.limit) ||
+    options.limit < 1 ||
+    options.limit > 100
+  ) {
+    throw new RangeError("Outbox claim limit must be between 1 and 100")
   }
-  const eventTypes = options.eventTypes;
+  const eventTypes = options.eventTypes
   if (eventTypes && eventTypes.length > 0) {
-    const rows = await db.query<ClaimedRow>(CLAIM_NOTIFICATIONS_BY_EVENT_TYPE_SQL, [
-      options.now,
-      options.limit,
-      options.claimToken,
-      [...eventTypes],
-    ]);
-    return mapClaimedRows(rows);
+    const rows = await db.query<ClaimedRow>(
+      CLAIM_NOTIFICATIONS_BY_EVENT_TYPE_SQL,
+      [options.now, options.limit, options.claimToken, [...eventTypes]]
+    )
+    return mapClaimedRows(rows)
   }
   const rows = await db.query<ClaimedRow>(CLAIM_NOTIFICATIONS_SQL, [
     options.now,
     options.limit,
     options.claimToken,
-  ]);
-  return mapClaimedRows(rows);
+  ])
+  return mapClaimedRows(rows)
 }
 
 export async function reconcileStaleClaims(
   db: SqlExecutor,
   now: Date,
   staleAfterMs = 5 * 60_000,
-  options: ReconcileStaleClaimsOptions = {},
+  options: ReconcileStaleClaimsOptions = {}
 ): Promise<number> {
-  const cutoff = new Date(now.getTime() - staleAfterMs);
+  const cutoff = new Date(now.getTime() - staleAfterMs)
   const safeRetryCutoff = new Date(
-    now.getTime() - (PROVIDER_IDEMPOTENCY_WINDOW_MS - PROVIDER_IDEMPOTENCY_RETRY_MARGIN_MS),
-  );
-  const eventTypes = options.eventTypes;
+    now.getTime() -
+      (PROVIDER_IDEMPOTENCY_WINDOW_MS - PROVIDER_IDEMPOTENCY_RETRY_MARGIN_MS)
+  )
+  const eventTypes = options.eventTypes
   if (eventTypes && eventTypes.length > 0) {
     const rows = await db.query<{ id: string; status: "failed" | "dead" }>(
       RECONCILE_STALE_CLAIMS_BY_EVENT_TYPE_SQL,
-      [now, cutoff, safeRetryCutoff, [...eventTypes]],
-    );
-    return rows.length;
+      [now, cutoff, safeRetryCutoff, [...eventTypes]]
+    )
+    return rows.length
   }
   const rows = await db.query<{ id: string; status: "failed" | "dead" }>(
     RECONCILE_STALE_CLAIMS_SQL,
-    [now, cutoff, safeRetryCutoff],
-  );
-  return rows.length;
+    [now, cutoff, safeRetryCutoff]
+  )
+  return rows.length
 }
 
 export async function markNotificationSent(
   db: SqlExecutor,
   claimed: Pick<ClaimedNotification, "id" | "claimToken">,
   providerMessageId: string,
-  now: Date,
+  now: Date
 ): Promise<boolean> {
   const rows = await db.query<{ id: string }>(MARK_NOTIFICATION_SENT_SQL, [
     claimed.id,
     claimed.claimToken,
     providerMessageId,
     now,
-  ]);
-  return rows.length === 1;
+  ])
+  return rows.length === 1
 }
 
 export async function markNotificationFailed(
   db: SqlExecutor,
   claimed: Pick<ClaimedNotification, "id" | "claimToken">,
-  failure: { dead: boolean; nextAttemptAt: Date; errorCode: string; now: Date },
+  failure: { dead: boolean; nextAttemptAt: Date; errorCode: string; now: Date }
 ): Promise<boolean> {
   const rows = await db.query<{ id: string }>(MARK_NOTIFICATION_FAILED_SQL, [
     claimed.id,
@@ -237,6 +240,6 @@ export async function markNotificationFailed(
     failure.nextAttemptAt,
     failure.errorCode,
     failure.now,
-  ]);
-  return rows.length === 1;
+  ])
+  return rows.length === 1
 }
