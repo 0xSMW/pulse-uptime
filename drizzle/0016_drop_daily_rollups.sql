@@ -1,1 +1,1 @@
-DROP TABLE "daily_rollups" CASCADE;
+DROP TABLE IF EXISTS "daily_rollups" CASCADE;
