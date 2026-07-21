@@ -1,0 +1,36 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "extends": [
+    "ultracite/biome/core",
+    "ultracite/biome/react",
+    "ultracite/biome/next",
+    "ultracite/biome/vitest"
+  ],
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true,
+    "defaultBranch": "master"
+  },
+  "files": {
+    // Generated or foreign-toolchain files stay out of format and lint
+    "includes": ["**", "!!drizzle/**", "!!cli/**", "!!pnpm-lock.yaml"]
+  },
+  "javascript": {
+    "formatter": {
+      "semicolons": "asNeeded"
+    }
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        // Alphabetical member sorting fights deliberate ordering in schema
+        // definitions, config objects, and API types
+        "useSortedKeys": "off",
+        "useSortedProperties": "off",
+        "useSortedInterfaceMembers": "off",
+        "useSortedTypeFields": "off"
+      }
+    }
+  }
+}
