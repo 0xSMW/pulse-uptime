@@ -1,5 +1,5 @@
 import type { LookupAddress } from "node:dns";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { BlockedTargetError } from "./ip-policy";
 import { createSecureLookup } from "./secure-lookup";
@@ -7,16 +7,15 @@ import { createSecureLookup } from "./secure-lookup";
 type LookupOptions = { all?: boolean; family?: number };
 
 function runLookup(addresses: readonly LookupAddress[], lookupOptions: LookupOptions = {}) {
-  const onAddressSelected = vi.fn();
-  const lookup = createSecureLookup({ resolveAll: async () => addresses, onAddressSelected });
+  const lookup = createSecureLookup({ resolveAll: async () => addresses });
   return new Promise<{ error: NodeJS.ErrnoException | null; address: string | LookupAddress[]; family?: number }>(
     (resolve) => lookup("example.com", lookupOptions as never, (error, address, family) =>
       resolve({ error, address, family })),
-  ).then((result) => ({ ...result, onAddressSelected }));
+  );
 }
 
 describe("secure connection lookup", () => {
-  it("pins the first validated address and records it", async () => {
+  it("returns the first ordered address without reporting selection", async () => {
     const addresses = [
       { address: "8.8.8.8", family: 4 },
       { address: "8.8.4.4", family: 4 },
@@ -25,7 +24,6 @@ describe("secure connection lookup", () => {
     expect(result.error).toBeNull();
     expect(result.address).toBe("8.8.8.8");
     expect(result.family).toBe(4);
-    expect(result.onAddressSelected).toHaveBeenCalledWith(addresses[0]);
   });
 
   it("rejects all answers when one answer is private", async () => {
@@ -34,7 +32,6 @@ describe("secure connection lookup", () => {
       { address: "127.0.0.1", family: 4 },
     ]);
     expect(result.error).toBeInstanceOf(BlockedTargetError);
-    expect(result.onAddressSelected).not.toHaveBeenCalled();
   });
 
   it("returns ENOTFOUND for an empty answer", async () => {
@@ -71,7 +68,6 @@ describe("secure connection lookup", () => {
       expect(result.error).toBeNull();
       expect(result.address).toBe("199.232.165.91");
       expect(result.family).toBe(4);
-      expect(result.onAddressSelected).toHaveBeenCalledWith({ address: "199.232.165.91", family: 4 });
     });
 
     it("orders IPv4 first in the all-address list when no family is requested", async () => {
@@ -138,7 +134,6 @@ describe("secure connection lookup", () => {
         { address: "169.254.1.1", family: 4 },
       ], { all: true });
       expect(result.error).toBeInstanceOf(BlockedTargetError);
-      expect(result.onAddressSelected).not.toHaveBeenCalled();
     });
   });
 });

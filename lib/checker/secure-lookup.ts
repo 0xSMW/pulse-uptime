@@ -52,9 +52,13 @@ function orderByFamilyPreference(
   return [...preferred, ...rest];
 }
 
+/**
+ * DNS-only secure lookup: validates every resolved address as public and
+ * family-consistent, applies family ordering, and returns the validated list
+ * (or single pin). Address-selection telemetry lives on the connector, not here.
+ */
 export function createSecureLookup(options: {
   resolveAll?: ResolveAll;
-  onAddressSelected?: (address: LookupAddress) => void;
 } = {}): SecureLookup {
   const resolveAll = options.resolveAll ?? systemResolveAll;
 
@@ -85,7 +89,6 @@ export function createSecureLookup(options: {
         // the SSRF posture is identical whether we return one or all of them.
         const ordered = orderByFamilyPreference(addresses, requestedFamily(lookupOptions));
         const selected = ordered[0];
-        options.onAddressSelected?.(selected);
         if (wantsAll(lookupOptions)) {
           // Return the full validated list so Node's autoSelectFamily
           // (Happy-Eyeballs) can fail over past a dead anycast pool member or an
