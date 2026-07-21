@@ -79,7 +79,7 @@ function MonitorRowDemo() {
         <div className="min-w-0">
           <p className="font-medium text-[13px]">Marketing site</p>
           <p className="truncate font-data text-[var(--fg-faint)] text-xs">
-            https://www.example.com
+            https://superposition.app
           </p>
         </div>
         <span className="ml-auto font-data text-[var(--fg-muted)] text-xs">
@@ -107,7 +107,7 @@ function CheckSettingsDemo() {
   return (
     <dl className="divide-y divide-[var(--border)]">
       <DemoRow label="Method and URL">
-        GET https://api.example.com/health
+        GET https://inference.superposition.app/health
       </DemoRow>
       <DemoRow label="Interval">Every 1 minute</DemoRow>
       <DemoRow label="Timeout">10 seconds</DemoRow>
@@ -157,9 +157,9 @@ function IncidentDemo() {
       <div className="flex flex-wrap items-center gap-3 rounded-[8px] border border-[var(--border)] px-4 py-3">
         <IncidentStatus ongoing />
         <div className="min-w-0">
-          <p className="font-medium text-[13px]">API</p>
+          <p className="font-medium text-[13px]">Inference</p>
           <p className="truncate font-data text-[var(--fg-muted)] text-xs">
-            HTTP 503 from https://api.example.com/health
+            HTTP 529 from https://inference.superposition.app/health
           </p>
         </div>
         <span className="ml-auto font-data text-[var(--fg-muted)] text-xs">
@@ -177,9 +177,9 @@ function AlertsDemo() {
       <div>
         <p className="mb-2 font-medium text-[13px]">Default Recipients</p>
         <div className="rounded-[6px] border border-[var(--border-strong)] bg-[var(--chip-bg)] px-3 py-2 font-data text-[13px] text-[var(--fg-muted)] leading-6">
-          ops@example.com
+          codex@superposition.app
           <br />
-          alerts@example.com
+          alerts@superposition.app
         </div>
       </div>
       <dl className="divide-y divide-[var(--border)]">
@@ -351,8 +351,8 @@ function PauseToggleDemo() {
 function EmailTestDemo() {
   return (
     <dl className="divide-y divide-[var(--border)]">
-      <DemoRow label="Sender">status@example.com via Resend</DemoRow>
-      <DemoRow label="Last test">Test sent to ops@example.com</DemoRow>
+      <DemoRow label="Sender">status@superposition.app via Resend</DemoRow>
+      <DemoRow label="Last test">Test sent to codex@superposition.app</DemoRow>
     </dl>
   )
 }
@@ -361,7 +361,7 @@ function CliLinkDemo() {
   return (
     <CodeBlock
       code={
-        "go install github.com/0xSMW/pulse-uptime/cli/cmd/pulsectl@latest\npulsectl me --server https://pulse.example.com"
+        "go install github.com/0xSMW/pulse-uptime/cli/cmd/pulsectl@latest\npulsectl me --server https://pulse.superposition.app"
       }
       copyLabel="Copy install commands"
       language="shell"
@@ -373,7 +373,7 @@ function AgentConnectDemo() {
   return (
     <CodeBlock
       code={
-        "export PULSECTL_URL=https://pulse.example.com\nexport PULSECTL_TOKEN=pulse_live_...\npulsectl monitor list --output json"
+        "export PULSECTL_URL=https://pulse.superposition.app\nexport PULSECTL_TOKEN=pulse_live_...\npulsectl monitor list --output json"
       }
       copyLabel="Copy agent setup"
       language="shell"

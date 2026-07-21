@@ -13,7 +13,7 @@
       publicStatus: "Operational",
       emailTitle: "Your services are operational",
       emailCopy: "Pulse will send one clear alert when the state changes.",
-      emailState: "API is up",
+      emailState: "Inference is up",
     },
     {
       state: "VERIFYING_DOWN",
@@ -24,7 +24,7 @@
         "One failure is not an incident yet. Pulse verifies before it alerts anyone.",
       publicTitle: "All systems operational",
       publicStatus: "Operational",
-      emailTitle: "Confirming API availability",
+      emailTitle: "Confirming Inference availability",
       emailCopy: "Pulse is verifying the first failed check before alerting.",
       emailState: "Verification in progress",
     },
@@ -37,7 +37,7 @@
         "A second failure confirms the outage. The incident opens and one alert goes out.",
       publicTitle: "Partial system outage",
       publicStatus: "Outage",
-      emailTitle: "API is down",
+      emailTitle: "Inference returning 529s",
       emailCopy: "Two consecutive checks failed with a connection timeout.",
       emailState: "Outage alert sent",
     },
@@ -50,7 +50,7 @@
         "A check succeeds again. Pulse confirms recovery before resolving the incident.",
       publicTitle: "Partial system outage",
       publicStatus: "Monitoring recovery",
-      emailTitle: "API recovery detected",
+      emailTitle: "Inference recovery detected",
       emailCopy: "Pulse is confirming the endpoint remains available.",
       emailState: "Verification in progress",
     },
@@ -63,7 +63,7 @@
         "Recovery is confirmed and the alert is closed. The full timeline stays in history.",
       publicTitle: "All systems operational",
       publicStatus: "Operational",
-      emailTitle: "API recovered",
+      emailTitle: "Inference recovered",
       emailCopy: "The endpoint is available after a two-minute outage.",
       emailState: "Recovery alert sent",
     },
@@ -83,8 +83,8 @@
     monitors: [
       {
         id: "api",
-        name: "API",
-        url: "https://api.example.com/health",
+        name: "Inference",
+        url: "https://inference.superposition.app/health",
         uptime: "99.99%",
         latency: 42,
         status: "UP",
@@ -92,8 +92,8 @@
       },
       {
         id: "web",
-        name: "Web App",
-        url: "https://app.example.com",
+        name: "Console",
+        url: "https://console.superposition.app",
         uptime: "100%",
         latency: 36,
         status: "UP",
@@ -101,8 +101,8 @@
       },
       {
         id: "docs",
-        name: "Docs",
-        url: "https://docs.example.com",
+        name: "Evals",
+        url: "https://evals.superposition.app",
         uptime: "99.98%",
         latency: 58,
         status: "UP",
@@ -513,7 +513,7 @@
 
     $("#sp-recent").innerHTML =
       demo.stage === 4
-        ? '<div class="sp-recent-row"><span class="sp-row-name"><span class="status-dot"></span><span>API</span></span><time class="mono">12:04 UTC</time><span class="mono">2m 08s</span></div>'
+        ? '<div class="sp-recent-row"><span class="sp-row-name"><span class="status-dot"></span><span>Inference</span></span><time class="mono">12:04 UTC</time><span class="mono">2m 08s</span></div>'
         : '<div class="sp-empty"><span class="status-dot up"></span><span>No recent incidents</span></div>'
 
     $("#sp-updated").textContent =
@@ -945,8 +945,8 @@
       if (demo.output === "json") {
         return JSON.stringify(
           {
-            user: "you@example.com",
-            deployment: "pulse.example.com",
+            user: "shannon@superposition.app",
+            deployment: "pulse.superposition.app",
             authenticated: true,
           },
           null,
@@ -954,8 +954,8 @@
         )
       }
       return [
-        "USER              DEPLOYMENT          AUTH",
-        "you@example.com   pulse.example.com   linked",
+        "USER                        DEPLOYMENT                AUTH",
+        "shannon@superposition.app   pulse.superposition.app   linked",
       ].join("\n")
     }
 
@@ -1023,7 +1023,7 @@
     if (demo.output === "json") {
       return JSON.stringify(
         {
-          monitor: "API",
+          monitor: "Inference",
           status: incidentStatus,
           cause: demo.stage >= 2 ? "TIMEOUT" : null,
           duration,
@@ -1034,7 +1034,7 @@
     }
     return [
       "MONITOR        STATUS      CAUSE      DURATION",
-      `API            ${incidentStatus.padEnd(11)} ${(demo.stage >= 2 ? "TIMEOUT" : "—").padEnd(10)} ${duration ?? "—"}`,
+      `Inference      ${incidentStatus.padEnd(11)} ${(demo.stage >= 2 ? "TIMEOUT" : "—").padEnd(10)} ${duration ?? "—"}`,
     ].join("\n")
   }
 
@@ -1997,7 +1997,7 @@
       return HELP_TEXT
     }
     if (lower === "whoami") {
-      return "you@example.com"
+      return "shannon@superposition.app"
     }
     if (lower === "ls" || lower === "ls -la") {
       return "monitors/    incidents/    dependencies/    status/"
@@ -2019,7 +2019,7 @@
       )
     }
     if (lower.startsWith("ping")) {
-      return `PONG from pulse.example.com: time=${18 + Math.round(Math.random() * 40)}ms`
+      return `PONG from pulse.superposition.app: time=${18 + Math.round(Math.random() * 40)}ms`
     }
     if (lower.startsWith("echo ")) {
       return cmd.slice(5)
@@ -2193,19 +2193,19 @@
       visual: `
         <div class="dv-duo">
           <div class="dv-frame dv-browser">
-            <div class="dv-head"><span class="terminal-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>pulse.example.com</span><span class="dv-live"><span class="status-dot up"></span>Up</span></div>
+            <div class="dv-head"><span class="terminal-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>pulse.superposition.app</span><span class="dv-live"><span class="status-dot up"></span>Up</span></div>
             <div class="dv-rows">
-              <div class="dv-row"><span class="status-dot up"></span><span class="dv-path">API</span><span class="dv-msg">99.99% · 42 ms</span></div>
-              <div class="dv-row"><span class="status-dot up"></span><span class="dv-path">Web App</span><span class="dv-msg">100% · 36 ms</span></div>
-              <div class="dv-row"><span class="status-dot up"></span><span class="dv-path">Docs</span><span class="dv-msg">99.98% · 58 ms</span></div>
+              <div class="dv-row"><span class="status-dot up"></span><span class="dv-path">Inference</span><span class="dv-msg">99.99% · 42 ms</span></div>
+              <div class="dv-row"><span class="status-dot up"></span><span class="dv-path">Console</span><span class="dv-msg">100% · 36 ms</span></div>
+              <div class="dv-row"><span class="status-dot up"></span><span class="dv-path">Evals</span><span class="dv-msg">99.98% · 58 ms</span></div>
             </div>
           </div>
           <div class="dv-frame dv-terminal">
             <div class="dv-head"><span class="terminal-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>pulsectl</span></div>
             <pre class="dv-code"><span class="dv-key">$</span> pulsectl monitor list
-API      <span class="dv-num">UP</span>  42ms
-Web App  <span class="dv-num">UP</span>  36ms
-Docs     <span class="dv-num">UP</span>  58ms
+Inference  <span class="dv-num">UP</span>  42ms
+Console    <span class="dv-num">UP</span>  36ms
+Evals      <span class="dv-num">UP</span>  58ms
 <span class="dv-key">$</span> <span class="terminal-cursor" aria-hidden="true"></span></pre>
           </div>
         </div>`,
@@ -2275,9 +2275,9 @@ Docs     <span class="dv-num">UP</span>  58ms
         <div class="dv-frame">
           <div class="dv-head"><span>outbox</span><span>deduplicated</span></div>
           <div class="dv-rows">
-            <div class="dv-row"><span class="status-dot up"></span><span class="dv-path">API is down</span><span class="dv-msg">team@example.com · 12:04:19 · sent</span></div>
-            <div class="dv-row"><span class="status-dot up"></span><span class="dv-path">API recovered</span><span class="dv-msg">team@example.com · 12:06:20 · sent</span></div>
-            <div class="dv-row"><span class="status-dot verifying"></span><span class="dv-path">Recovery confirmed</span><span class="dv-msg">team@example.com · queued</span></div>
+            <div class="dv-row"><span class="status-dot up"></span><span class="dv-path">Inference returning 529s</span><span class="dv-msg">oncall@superposition.app · 12:04:19 · sent</span></div>
+            <div class="dv-row"><span class="status-dot up"></span><span class="dv-path">Inference recovered</span><span class="dv-msg">oncall@superposition.app · 12:06:20 · sent</span></div>
+            <div class="dv-row"><span class="status-dot verifying"></span><span class="dv-path">Recovery confirmed</span><span class="dv-msg">oncall@superposition.app · queued</span></div>
             <div class="dv-row"><span class="status-dot"></span><span class="dv-path">Daily digest</span><span class="dv-msg">never · not a thing</span></div>
           </div>
         </div>`,
@@ -2526,9 +2526,9 @@ Docs     <span class="dv-num">UP</span>  58ms
       ],
     },
     "secure-lookup": {
-      trace: `<span class="t-prompt">$</span> check https://api.example.com/health
+      trace: `<span class="t-prompt">$</span> check https://inference.superposition.app/health
 
-<span class="t-label">resolve</span>  api.example.com → 93.184.216.34
+<span class="t-label">resolve</span>  inference.superposition.app → 172.64.3.14
 <span class="t-label">policy</span>   <span class="t-up">public range</span> · not private, not link-local
 <span class="t-label">pin</span>      socket pinned to validated address
 <span class="t-label">tls</span>      TLS 1.3 · certificate valid
@@ -2542,7 +2542,7 @@ Docs     <span class="dv-num">UP</span>  58ms
       ],
     },
     validation: {
-      trace: `<span class="t-prompt">$</span> validate https://api.example.com/health
+      trace: `<span class="t-prompt">$</span> validate https://inference.superposition.app/health
 
 <span class="t-label">scheme</span>   https · <span class="t-up">allowed</span>
 <span class="t-label">host</span>     not an IP literal
@@ -2555,7 +2555,7 @@ Docs     <span class="dv-num">UP</span>  58ms
       ],
     },
     credentials: {
-      trace: `<span class="t-prompt">$</span> verify login you@example.com
+      trace: `<span class="t-prompt">$</span> verify login shannon@superposition.app
 
 <span class="t-label">limit</span>    attempt 2 of 5 this window
 <span class="t-label">hash</span>     argon2id · memory-hard

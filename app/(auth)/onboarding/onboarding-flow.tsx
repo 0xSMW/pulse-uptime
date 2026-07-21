@@ -523,7 +523,7 @@ function MonitorStep({
                   }
                 }
               }}
-              placeholder="https://example.com"
+              placeholder="https://superposition.app"
               required
               type="url"
               value={url}
@@ -685,7 +685,7 @@ function VerifyStep({
 function GettingStarted() {
   const origin =
     typeof location === "undefined"
-      ? "https://pulse.example.com"
+      ? "https://pulse.superposition.app"
       : location.origin
   const command = `go install github.com/0xSMW/pulse-uptime/cli/cmd/pulsectl@latest\npulsectl me --server ${origin}`
   const prompt =

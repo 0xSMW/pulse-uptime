@@ -868,7 +868,7 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
                 onChange={(event) =>
                   update({ homepageUrl: textOrNull(event.target.value) })
                 }
-                placeholder="https://example.com"
+                placeholder="https://superposition.app"
                 type="url"
                 value={draft.homepageUrl ?? ""}
               />
@@ -887,7 +887,7 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
                 onChange={(event) =>
                   update({ contactUrl: textOrNull(event.target.value) })
                 }
-                placeholder="mailto:support@example.com"
+                placeholder="mailto:humans@superposition.app"
                 value={draft.contactUrl ?? ""}
               />
             </Field>
@@ -1163,7 +1163,7 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
                     ),
                   })
                 }
-                placeholder="G-XXXXXXXXXX"
+                placeholder="G-5UP3RP05N"
                 value={draft.googleTagId ?? ""}
               />
             </Field>
@@ -1208,7 +1208,7 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
                           )
                           update({ navLinks })
                         }}
-                        placeholder="https://example.com"
+                        placeholder="https://evals.superposition.app"
                         value={link.url}
                       />
                       <Button

@@ -10,14 +10,14 @@ export const metadata: Metadata = {
 }
 
 const quickStart = `go install github.com/0xSMW/pulse-uptime/cli/cmd/pulsectl@latest
-pulsectl me --server https://pulse.example.com`
+pulsectl me --server https://pulse.superposition.app`
 
 const everydayCommands = `pulsectl status
 pulsectl monitor list
 pulsectl incident list
 pulsectl doctor`
 
-const agentSetup = `export PULSECTL_URL=https://pulse.example.com
+const agentSetup = `export PULSECTL_URL=https://pulse.superposition.app
 export PULSECTL_TOKEN=pulse_live_...
 export PULSECTL_OUTPUT=json
 

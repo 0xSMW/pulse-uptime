@@ -623,7 +623,7 @@ vercel deploy --prod --scope &lt;team&gt;</code></pre>
                     <td>Recommended</td>
                     <td>
                       Verified sender, e.g.
-                      <code>Pulse &lt;alerts@example.com&gt;</code>.
+                      <code>Pulse &lt;alerts@superposition.app&gt;</code>.
                     </td>
                   </tr>
                   <tr>
@@ -679,10 +679,10 @@ vercel deploy --prod --scope &lt;team&gt;</code></pre>
                 <div class="email-meta">
                   <span>Pulse</span><span class="mono">incident.opened</span>
                 </div>
-                <h4>API is down</h4>
+                <h4>Inference is down</h4>
                 <p>Pulse confirmed an outage after repeated failed checks</p>
                 <p class="email-lines mono">
-                  Started 08:14 UTC<br>Cause HTTP 503
+                  Started 08:14 UTC<br>Cause HTTP 529
                 </p>
                 <span class="email-cta">View incident</span>
                 <div class="email-foot">
@@ -694,7 +694,7 @@ vercel deploy --prod --scope &lt;team&gt;</code></pre>
                 <div class="email-meta">
                   <span>Pulse</span><span class="mono">incident.resolved</span>
                 </div>
-                <h4>API recovered</h4>
+                <h4>Inference recovered</h4>
                 <p>Pulse confirmed the endpoint is responding again</p>
                 <p class="email-lines mono">
                   Recovered 08:31 UTC<br>Duration 17m
@@ -719,8 +719,8 @@ vercel deploy --prod --scope &lt;team&gt;</code></pre>
               </article>
             </div>
             <p>
-              The subject line is the headline: a monitor named API pages you as
-              “API is down”. Both incident emails deep-link to
+              The subject line is the headline: a monitor named Inference pages
+              you as “Inference is down”. Both incident emails deep-link to
               <code>/incidents/:id</code>, and that is the whole surface. There
               are no digests, reminders, or marketing follow-ups.
             </p>
@@ -856,7 +856,7 @@ vercel deploy --prod --scope &lt;team&gt;</code></pre>
                 <span aria-hidden="true" class="terminal-dots"
                   ><i></i><i></i><i></i></span
                 >
-                <span>pulse.example.com/onboarding</span>
+                <span>pulse.superposition.app/onboarding</span>
               </div>
               <div class="sk-body">
                 <span class="sk-label">System check</span>
@@ -922,7 +922,7 @@ vercel deploy --prod --scope &lt;team&gt;</code></pre>
                 <span aria-hidden="true" class="terminal-dots"
                   ><i></i><i></i><i></i></span
                 >
-                <span>pulse.example.com/</span>
+                <span>pulse.superposition.app/</span>
               </div>
               <div class="sk-body">
                 <div class="sk-row between">
@@ -1005,7 +1005,7 @@ vercel deploy --prod --scope &lt;team&gt;</code></pre>
                 <span aria-hidden="true" class="terminal-dots"
                   ><i></i><i></i><i></i></span
                 >
-                <span>pulse.example.com/monitors/api</span>
+                <span>pulse.superposition.app/monitors/api</span>
               </div>
               <div class="sk-body">
                 <div class="sk-row between">
@@ -1200,7 +1200,7 @@ vercel deploy --prod --scope &lt;team&gt;</code></pre>
                 <span aria-hidden="true" class="terminal-dots"
                   ><i></i><i></i><i></i></span
                 >
-                <span>pulse.example.com/incidents</span>
+                <span>pulse.superposition.app/incidents</span>
               </div>
               <div class="sk-body">
                 <div class="sk-row between">
@@ -1294,7 +1294,7 @@ vercel deploy --prod --scope &lt;team&gt;</code></pre>
                 <span aria-hidden="true" class="terminal-dots"
                   ><i></i><i></i><i></i></span
                 >
-                <span>pulse.example.com/settings/system</span>
+                <span>pulse.superposition.app/settings/system</span>
               </div>
               <div class="sk-body">
                 <div class="sk-shell">
@@ -1368,7 +1368,7 @@ vercel deploy --prod --scope &lt;team&gt;</code></pre>
                 <span aria-hidden="true" class="terminal-dots"
                   ><i></i><i></i><i></i></span
                 >
-                <span>pulse.example.com/status</span>
+                <span>pulse.superposition.app/status</span>
               </div>
               <div class="sk-body">
                 <div class="sk-row between">
@@ -1449,7 +1449,7 @@ vercel deploy --prod --scope &lt;team&gt;</code></pre>
               </figcaption>
               <pre
               ><code class="language-bash">go install github.com/0xSMW/pulse-uptime/cli/cmd/pulsectl@latest
-pulsectl me --server https://pulse.example.com</code></pre>
+pulsectl me --server https://pulse.superposition.app</code></pre>
             </figure>
             <p>
               Build the CLI from source with Go until signed release artifacts
@@ -1528,8 +1528,8 @@ echo "$PULSECTL_TOKEN" | pulsectl monitor list --token-stdin</code></pre>
                 ><button class="code-copy" type="button">Copy</button>
               </figcaption>
               <pre
-              ><code class="language-bash">pulsectl context add production --url https://pulse.example.com --use
-pulsectl context add staging --url https://staging.example.com
+              ><code class="language-bash">pulsectl context add production --url https://pulse.superposition.app --use
+pulsectl context add staging --url https://staging.superposition.app
 pulsectl context list
 pulsectl monitor list --context staging</code></pre>
             </figure>
@@ -1843,7 +1843,7 @@ pulsectl incident list -o yaml</code></pre>
                 ><button class="code-copy" type="button">Copy</button>
               </figcaption>
               <pre
-              ><code class="language-bash">export PULSECTL_URL=https://pulse.example.com
+              ><code class="language-bash">export PULSECTL_URL=https://pulse.superposition.app
 export PULSECTL_TOKEN=pulse_live_...
 export PULSECTL_OUTPUT=json
 
@@ -1894,7 +1894,7 @@ settings:
   defaultFailureThreshold: 2
   defaultRecoveryThreshold: 2
   defaultRecipients:
-    - ops@example.com
+    - codex@superposition.app
   userAgent: Pulse/1.0
 groups:
   - id: production
@@ -1902,7 +1902,7 @@ groups:
 monitors:
   - id: api
     name: API
-    url: https://api.example.com/health
+    url: https://inference.superposition.app/health
     enabled: true
     groupId: production
     method: GET
@@ -2138,7 +2138,7 @@ pulsectl config apply --file monitors.yaml --wait</code></pre>
                 ><button class="code-copy" type="button">Copy</button>
               </figcaption>
               <pre
-              ><code class="language-bash">curl https://pulse.example.com/api/v1/monitors \
+              ><code class="language-bash">curl https://pulse.superposition.app/api/v1/monitors \
   -H "Authorization: Bearer $PULSE_TOKEN"</code></pre>
             </figure>
             <p>Three principal types share one permission model:</p>
@@ -2352,7 +2352,7 @@ pulsectl config apply --file monitors.yaml --wait</code></pre>
                     ><button class="code-copy" type="button">Copy</button>
                   </figcaption>
                   <pre
-                  ><code class="language-bash">curl "https://pulse.example.com/api/v1/monitors?state=DOWN" \
+                  ><code class="language-bash">curl "https://pulse.superposition.app/api/v1/monitors?state=DOWN" \
   -H "Authorization: Bearer $PULSE_TOKEN"
 
 # equivalent
@@ -2370,7 +2370,7 @@ pulsectl monitor list --state DOWN -o json</code></pre>
     {
       "id": "api",
       "name": "API",
-      "url": "https://api.example.com/health",
+      "url": "https://inference.superposition.app/health",
       "enabled": true,
       "group": "Production",
       "groupId": "production",
@@ -2380,7 +2380,7 @@ pulsectl monitor list --state DOWN -o json</code></pre>
       "expectedStatus": { "minimum": 200, "maximum": 299 },
       "failureThreshold": 2,
       "recoveryThreshold": 2,
-      "recipients": ["ops@example.com"],
+      "recipients": ["codex@superposition.app"],
       "state": "DOWN"
     }
   ],
@@ -2412,14 +2412,14 @@ pulsectl monitor list --state DOWN -o json</code></pre>
                     ><button class="code-copy" type="button">Copy</button>
                   </figcaption>
                   <pre
-                  ><code class="language-bash">curl -X POST https://pulse.example.com/api/v1/monitors \
+                  ><code class="language-bash">curl -X POST https://pulse.superposition.app/api/v1/monitors \
   -H "Authorization: Bearer $PULSE_TOKEN" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: $(uuidgen)" \
-  -d '{"id": "web", "name": "Web app", "url": "https://app.example.com"}'
+  -d '{"id": "console", "name": "Console", "url": "https://console.superposition.app"}'
 
 # equivalent
-pulsectl monitor create --id web --name "Web app" --url https://app.example.com</code></pre>
+pulsectl monitor create --id console --name "Console" --url https://console.superposition.app</code></pre>
                 </figure>
               </div>
             </div>
@@ -2443,7 +2443,7 @@ pulsectl monitor create --id web --name "Web app" --url https://app.example.com<
                     ><button class="code-copy" type="button">Copy</button>
                   </figcaption>
                   <pre
-                  ><code class="language-bash">curl https://pulse.example.com/api/v1/monitors/api \
+                  ><code class="language-bash">curl https://pulse.superposition.app/api/v1/monitors/api \
   -H "Authorization: Bearer $PULSE_TOKEN"</code></pre>
                 </figure>
               </div>
@@ -2469,7 +2469,7 @@ pulsectl monitor create --id web --name "Web app" --url https://app.example.com<
                     ><button class="code-copy" type="button">Copy</button>
                   </figcaption>
                   <pre
-                  ><code class="language-bash">curl -X PATCH https://pulse.example.com/api/v1/monitors/api \
+                  ><code class="language-bash">curl -X PATCH https://pulse.superposition.app/api/v1/monitors/api \
   -H "Authorization: Bearer $PULSE_TOKEN" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: $(uuidgen)" \
@@ -2497,7 +2497,7 @@ pulsectl monitor create --id web --name "Web app" --url https://app.example.com<
                     ><button class="code-copy" type="button">Copy</button>
                   </figcaption>
                   <pre
-                  ><code class="language-bash">curl -X DELETE https://pulse.example.com/api/v1/monitors/api \
+                  ><code class="language-bash">curl -X DELETE https://pulse.superposition.app/api/v1/monitors/api \
   -H "Authorization: Bearer $PULSE_TOKEN" \
   -H "Idempotency-Key: $(uuidgen)"</code></pre>
                 </figure>
@@ -2527,10 +2527,10 @@ pulsectl monitor create --id web --name "Web app" --url https://app.example.com<
                     ><button class="code-copy" type="button">Copy</button>
                   </figcaption>
                   <pre
-                  ><code class="language-bash">curl -X POST https://pulse.example.com/api/v1/monitors/api/pause \
+                  ><code class="language-bash">curl -X POST https://pulse.superposition.app/api/v1/monitors/api/pause \
   -H "Authorization: Bearer $PULSE_TOKEN" \
   -H "Idempotency-Key: $(uuidgen)"
-curl -X POST https://pulse.example.com/api/v1/monitors/api/resume \
+curl -X POST https://pulse.superposition.app/api/v1/monitors/api/resume \
   -H "Authorization: Bearer $PULSE_TOKEN" \
   -H "Idempotency-Key: $(uuidgen)"</code></pre>
                 </figure>
@@ -2561,7 +2561,7 @@ curl -X POST https://pulse.example.com/api/v1/monitors/api/resume \
   "data": {
     "successful": true,
     "method": "GET",
-    "finalUrl": "https://api.example.com/health",
+    "finalUrl": "https://inference.superposition.app/health",
     "statusCode": 200,
     "latencyMs": 42,
     "redirectCount": 0,
@@ -2626,7 +2626,7 @@ curl -X POST https://pulse.example.com/api/v1/monitors/api/resume \
                     ><button class="code-copy" type="button">Copy</button>
                   </figcaption>
                   <pre
-                  ><code class="language-bash">curl -X POST https://pulse.example.com/api/v1/groups \
+                  ><code class="language-bash">curl -X POST https://pulse.superposition.app/api/v1/groups \
   -H "Authorization: Bearer $PULSE_TOKEN" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: $(uuidgen)" \
@@ -2655,7 +2655,7 @@ curl -X POST https://pulse.example.com/api/v1/monitors/api/resume \
                     ><button class="code-copy" type="button">Copy</button>
                   </figcaption>
                   <pre
-                  ><code class="language-bash">curl -X PATCH https://pulse.example.com/api/v1/groups/marketing \
+                  ><code class="language-bash">curl -X PATCH https://pulse.superposition.app/api/v1/groups/marketing \
   -H "Authorization: Bearer $PULSE_TOKEN" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: $(uuidgen)" \
@@ -2683,7 +2683,7 @@ curl -X POST https://pulse.example.com/api/v1/monitors/api/resume \
                     ><button class="code-copy" type="button">Copy</button>
                   </figcaption>
                   <pre
-                  ><code class="language-bash">curl -X DELETE https://pulse.example.com/api/v1/groups/marketing \
+                  ><code class="language-bash">curl -X DELETE https://pulse.superposition.app/api/v1/groups/marketing \
   -H "Authorization: Bearer $PULSE_TOKEN" \
   -H "Idempotency-Key: $(uuidgen)"</code></pre>
                 </figure>
@@ -2752,7 +2752,7 @@ curl -X POST https://pulse.example.com/api/v1/monitors/api/resume \
                     ><button class="code-copy" type="button">Copy</button>
                   </figcaption>
                   <pre
-                  ><code class="language-bash">curl https://pulse.example.com/api/v1/incidents/8f4e2c10-… \
+                  ><code class="language-bash">curl https://pulse.superposition.app/api/v1/incidents/8f4e2c10-… \
   -H "Authorization: Bearer $PULSE_TOKEN"
 
 # equivalent
@@ -2786,7 +2786,7 @@ pulsectl incident get 8f4e2c10-…</code></pre>
                     ><button class="code-copy" type="button">Copy</button>
                   </figcaption>
                   <pre
-                  ><code class="language-bash">curl https://pulse.example.com/api/v1/status \
+                  ><code class="language-bash">curl https://pulse.superposition.app/api/v1/status \
   -H "Authorization: Bearer $PULSE_TOKEN"
 
 # equivalent
@@ -2826,7 +2826,7 @@ pulsectl status</code></pre>
                     ><button class="code-copy" type="button">Copy</button>
                   </figcaption>
                   <pre
-                  ><code class="language-bash">curl -i https://pulse.example.com/api/v1/config \
+                  ><code class="language-bash">curl -i https://pulse.superposition.app/api/v1/config \
   -H "Authorization: Bearer $PULSE_TOKEN"
 # ETag: "sha256:2c26b46b…"</code></pre>
                 </figure>
@@ -2953,7 +2953,7 @@ pulsectl status</code></pre>
                     ><button class="code-copy" type="button">Copy</button>
                   </figcaption>
                   <pre
-                  ><code class="language-bash">curl -X POST https://pulse.example.com/api/v1/config/apply \
+                  ><code class="language-bash">curl -X POST https://pulse.superposition.app/api/v1/config/apply \
   -H "Authorization: Bearer $PULSE_TOKEN" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: $(uuidgen)" \
@@ -3124,7 +3124,7 @@ pulsectl status</code></pre>
                     ><button class="code-copy" type="button">Copy</button>
                   </figcaption>
                   <pre
-                  ><code class="language-bash">pulsectl notification test --recipient ops@example.com</code></pre>
+                  ><code class="language-bash">pulsectl notification test --recipient codex@superposition.app</code></pre>
                 </figure>
               </div>
             </div>
@@ -3164,8 +3164,8 @@ pulsectl status</code></pre>
   "data": {
     "deviceCode": "d5c1…",
     "userCode": "BQTV-XKGF",
-    "verificationUri": "https://pulse.example.com/cli/authorize",
-    "verificationUriComplete": "https://pulse.example.com/cli/authorize?code=BQTV-XKGF",
+    "verificationUri": "https://pulse.superposition.app/cli/authorize",
+    "verificationUriComplete": "https://pulse.superposition.app/cli/authorize?code=BQTV-XKGF",
     "expiresIn": 600,
     "interval": 5
   },
@@ -3306,7 +3306,7 @@ pulsectl status</code></pre>
                     ><button class="code-copy" type="button">Copy</button>
                   </figcaption>
                   <pre
-                  ><code class="language-bash">curl -X POST https://pulse.example.com/api/v1/database-health/refresh \
+                  ><code class="language-bash">curl -X POST https://pulse.superposition.app/api/v1/database-health/refresh \
   -H "Authorization: Bearer $PULSE_TOKEN" \
   -H "Idempotency-Key: $(uuidgen)"</code></pre>
                 </figure>

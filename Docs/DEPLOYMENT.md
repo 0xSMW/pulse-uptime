@@ -61,7 +61,7 @@ Verify the sending domain in Resend, create a sending-only API key, and set:
 
 ```text
 RESEND_API_KEY
-RESEND_FROM_EMAIL=Pulse <alerts@example.com>
+RESEND_FROM_EMAIL=Pulse <alerts@superposition.app>
 ```
 
 The readiness screen treats invalid email configuration as a warning and allows setup without alerts. Production validation still requires an actual test message.

@@ -11,7 +11,8 @@ export function CliCard({ origin: initialOrigin }: { origin: string }) {
     () => window.location.origin,
     () => ""
   )
-  const server = initialOrigin || browserOrigin || "https://pulse.example.com"
+  const server =
+    initialOrigin || browserOrigin || "https://pulse.superposition.app"
   const code = `go install github.com/0xSMW/pulse-uptime/cli/cmd/pulsectl@latest
 pulsectl me --server ${server}
 

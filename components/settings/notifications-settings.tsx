@@ -235,7 +235,7 @@ export function NotificationsSettings({
                 aria-invalid={Boolean(recipientError)}
                 className="w-full resize-y rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-3 py-2 font-data text-[13px] leading-5"
                 onChange={(e) => setRecipientsText(e.target.value)}
-                placeholder="ops@example.com"
+                placeholder="codex@superposition.app"
                 rows={Math.max(3, Math.min(recipients.length || 3, 6))}
                 value={recipientsText}
               />

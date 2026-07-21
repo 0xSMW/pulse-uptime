@@ -570,7 +570,7 @@ export function MonitorSheet({
               aria-invalid={Boolean(errors.url)}
               className={`${inputClass} font-data`}
               onChange={(e) => updateUrl(e.target.value)}
-              placeholder="https://example.com/health"
+              placeholder="https://inference.superposition.app/health"
               ref={firstField}
               value={values.url}
             />

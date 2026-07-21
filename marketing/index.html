@@ -817,7 +817,7 @@
 
             <label class="field">
               <span>Name</span>
-              <input autocomplete="off" name="name" required value="API">
+              <input autocomplete="off" name="name" required value="Inference">
             </label>
             <label class="field">
               <span>URL</span>
@@ -825,7 +825,7 @@
                 name="url"
                 required
                 type="url"
-                value="https://api.example.com/health"
+                value="https://inference.superposition.app/health"
               >
             </label>
             <div class="field-grid">
@@ -925,7 +925,7 @@
             <div class="simulator-header">
               <div>
                 <p class="app-kicker">Live Monitor</p>
-                <h3>API</h3>
+                <h3>Inference</h3>
               </div>
               <div class="status-badge" id="sim-status-badge">
                 <span class="status-dot up"></span><span>Up</span>
@@ -934,7 +934,7 @@
 
             <div class="endpoint-line">
               <span class="mono">GET</span>
-              <span class="mono">api.example.com/health</span>
+              <span class="mono">inference.superposition.app/health</span>
               <span class="mono" id="sim-latency">42 ms</span>
             </div>
 
@@ -1085,7 +1085,7 @@
             <div class="incident-header">
               <div>
                 <p class="app-kicker">Incident</p>
-                <h3>API availability</h3>
+                <h3>Inference availability</h3>
               </div>
               <span class="neutral-badge" id="incident-badge">No incident</span>
             </div>
@@ -1147,7 +1147,7 @@
                 ><span class="status-dot up"></span>
                 Pulse Status</span
               >
-              <span class="mono">status.example.com</span>
+              <span class="mono">status.superposition.app</span>
             </div>
             <div class="public-state up-state" id="public-state">
               <span class="status-dot up"></span>
@@ -1155,7 +1155,8 @@
             </div>
             <div class="public-monitor">
               <div>
-                <strong>API</strong><span class="mono">api.example.com</span>
+                <strong>Inference</strong
+                ><span class="mono">inference.superposition.app</span>
               </div>
               <span id="public-monitor-status">Operational</span>
             </div>
@@ -1176,7 +1177,7 @@
             </p>
             <div class="email-footer">
               <span class="status-dot up"></span
-              ><span id="email-state">API is up</span>
+              ><span id="email-state">Inference is up</span>
             </div>
           </article>
         </div>
@@ -1236,8 +1237,7 @@
             </div>
             <div class="dep-rows" id="dependency-rows"></div>
             <p class="dep-note">
-              No uptime percentage. Provider criteria differ, so Pulse never
-              invents a cross-provider number.
+              Pulse mirrors each provider's published status in real time
             </p>
           </div>
         </div>
@@ -1287,7 +1287,7 @@
                 <rect height="6" rx="1.5" width="9" x="3.5" y="7" />
                 <path d="M5.5 7V5.4a2.5 2.5 0 0 1 5 0V7" />
               </svg>
-              status.example.com
+              status.superposition.app
             </span>
           </div>
           <div class="status-page-body">
@@ -1305,7 +1305,8 @@
 
             <article class="sp-incident" hidden id="sp-incident">
               <div class="sp-incident-head">
-                <span class="status-dot down pulse"></span><strong>API</strong>
+                <span class="status-dot down pulse"></span
+                ><strong>Inference</strong>
               </div>
               <p>
                 Ongoing since <span class="mono">12:04 UTC</span> ·
@@ -1882,9 +1883,9 @@
                 class="dv-code security-trace"
                 id="security-trace"
               ><span class="t-prompt">$</span> check
-                            https://api.example.com/health
+                            https://inference.superposition.app/health
 
-                            <span class="t-label">resolve</span> api.example.com → 93.184.216.34
+                            <span class="t-label">resolve</span> inference.superposition.app → 172.64.3.14
                             <span class="t-label">policy</span> <span class="t-up">public range</span> · not private,
                             not link-local
                             <span class="t-label">pin</span> socket pinned to validated address
@@ -2207,7 +2208,7 @@
         </div>
         <label class="field"
           ><span>Name</span>
-          <input autofocus name="name" required value="Web app"></label
+          <input autofocus name="name" required value="Console"></label
         >
         <label class="field"
           ><span>URL</span>
@@ -2215,7 +2216,7 @@
             name="url"
             required
             type="url"
-            value="https://app.example.com"
+            value="https://console.superposition.app"
           ></label
         >
         <label class="field"
