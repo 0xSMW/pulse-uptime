@@ -1,5 +1,9 @@
 "use client";
 
+// TODO: this file is excluded from biome in biome.jsonc because the 2.5.4
+// module resolver panics on it. Once biomejs/biome#10996 ships, remove the
+// exclusion there and run pnpm format so this file picks up house style.
+
 import { useState, useTransition } from "react";
 import { Check, KeyRound, ShieldCheck } from "lucide-react";
 
