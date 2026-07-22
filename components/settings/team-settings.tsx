@@ -293,8 +293,8 @@ export function TeamSettings({ data }: { data: TeamSettingsData }) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="admin">admin</SelectItem>
-                <SelectItem value="viewer">viewer</SelectItem>
+                <SelectItem value="admin">Admin</SelectItem>
+                <SelectItem value="viewer">Viewer</SelectItem>
               </SelectContent>
             </Select>
             <Button
