@@ -257,7 +257,7 @@ describe("runDomainHealthCoordinator", () => {
     }
   })
 
-  it("counts a monitor as unknown when every lookup answers without facts", async () => {
+  it("keeps a factless cert probe a failure even when the apex is uncovered", async () => {
     const { runs, leases } = stores()
     const reconcile = vi.fn(
       async (_input: DomainHealthReconciliation) => undefined
