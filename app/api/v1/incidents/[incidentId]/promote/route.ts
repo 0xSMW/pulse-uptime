@@ -1,3 +1,4 @@
+import { sourceFromPrincipalKey, trackEvent } from "@/lib/analytics-server"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
 import { runStatusReportMutation } from "@/lib/api/status-report-http"
 import {
@@ -33,6 +34,11 @@ export async function POST(
         reportId: operationId,
         store: createDatabaseStatusReportsStore(tx),
       })
+      if (created) {
+        trackEvent("Incident Promoted", {
+          source: sourceFromPrincipalKey(context.principalKey),
+        })
+      }
       return { status: created ? 201 : 200, kind: "StatusReport", data: report }
     },
   })

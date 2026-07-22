@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { sourceFromPrincipalKey, trackEvent } from "@/lib/analytics-server"
 import {
   dependencyError,
   storedDependencyError,
@@ -51,13 +52,18 @@ export async function POST(request: Request) {
       mode: "atomic",
       work: async (tx, { operationId }) => {
         try {
+          const dependency = await addDependency(
+            parsed,
+            { dependencyId: operationId },
+            tx
+          )
+          trackEvent("Dependency Installed", {
+            provider: parsed.presetId,
+            source: sourceFromPrincipalKey(context.principalKey),
+          })
           return {
             status: 201,
-            body: objectEnvelope(
-              "Dependency",
-              await addDependency(parsed, { dependencyId: operationId }, tx),
-              context.requestId
-            ),
+            body: objectEnvelope("Dependency", dependency, context.requestId),
           }
         } catch (error) {
           const stored = storedDependencyError(error, context.requestId)

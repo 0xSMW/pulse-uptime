@@ -10,6 +10,7 @@ import {
   isNull,
   max,
 } from "drizzle-orm"
+import { trackEvent } from "@/lib/analytics-server"
 import { lockMachineCredentialChanges } from "@/lib/api/machine-credential-lock"
 import { isUserRole, type UserRole } from "@/lib/api/scopes"
 import {
@@ -178,6 +179,7 @@ export async function createUserInvite(
     expiresAt: new Date(now.getTime() + INVITE_LIFETIME_MS),
   }
   await handle.insert(userInvites).values(invite)
+  trackEvent("Invite Created", { role: input.role })
   return {
     id: invite.id,
     role: input.role,

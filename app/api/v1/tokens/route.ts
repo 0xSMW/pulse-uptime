@@ -1,3 +1,4 @@
+import { sourceFromPrincipalKey, trackEvent } from "@/lib/analytics-server"
 import {
   apiError,
   apiJson,
@@ -94,6 +95,9 @@ export async function POST(request: Request) {
           new Date(),
           tx
         )
+        trackEvent("Token Created", {
+          source: sourceFromPrincipalKey(context.principalKey),
+        })
         return {
           status: 201,
           body: {

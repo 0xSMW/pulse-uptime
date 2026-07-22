@@ -2,6 +2,7 @@ import "server-only"
 
 import { and, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm"
 
+import { trackEvent } from "@/lib/analytics-server"
 import {
   type DatabaseHandle,
   type DatabaseTransaction,
@@ -205,6 +206,7 @@ export async function approveDeviceAuthorization(
           revokedAt: null,
         },
       })
+    trackEvent("CLI Authorized")
     return {
       id: authorization.id,
       userCode: authorization.userCode,

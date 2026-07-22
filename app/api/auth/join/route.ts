@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server"
-
+import { trackEvent } from "@/lib/analytics-server"
 import { enforceRateLimit, type RateLimitPolicy } from "@/lib/api/rate-limit"
 import { digestBearerToken } from "@/lib/api/tokens"
-import { acceptUserInvite, TeamServiceError } from "@/lib/auth/invites"
+import {
+  acceptUserInvite,
+  findPendingInvite,
+  TeamServiceError,
+} from "@/lib/auth/invites"
 import { mutationOriginAllowed } from "@/lib/auth/origin"
 import { clientIpFromHeaders } from "@/lib/auth/service"
 import { sessionCookie } from "@/lib/auth/session"
@@ -39,6 +43,9 @@ export async function POST(request: Request) {
   }
   try {
     const body = (await request.json()) as Record<string, unknown>
+    // Read the role before the accept consumes the invite. The atomic claim
+    // inside acceptUserInvite stays authoritative, this is analytics only.
+    const pending = await findPendingInvite(String(body.token ?? ""))
     const result = await acceptUserInvite({
       token: String(body.token ?? ""),
       email: String(body.email ?? ""),
@@ -48,6 +55,9 @@ export async function POST(request: Request) {
       userAgent: request.headers.get("user-agent"),
       ipAddress: ip === "unknown" ? null : ip,
     })
+    if (pending) {
+      trackEvent("Member Joined", { role: pending.role })
+    }
     const response = NextResponse.json({ redirect: "/" })
     response.cookies.set(sessionCookie(result.sessionToken, result.expiresAt))
     return response

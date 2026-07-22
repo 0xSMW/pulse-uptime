@@ -1,3 +1,4 @@
+import { sourceFromPrincipalKey, trackEvent } from "@/lib/analytics-server"
 import { apiError, apiJson, listEnvelope } from "@/lib/api/envelopes"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
 import { pageLimit } from "@/lib/api/pagination"
@@ -70,6 +71,10 @@ export async function POST(request: Request) {
       const report = await createStatusReport(body, {
         reportId: operationId,
         store,
+      })
+      trackEvent("Report Created", {
+        kind: report.type,
+        source: sourceFromPrincipalKey(context.principalKey),
       })
       const revalidatePaths = await collectStatusReportPaths(report, [], store)
       return {

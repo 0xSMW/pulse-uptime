@@ -2,6 +2,7 @@ import "server-only"
 import { and, sql as drizzleSql, eq, inArray } from "drizzle-orm"
 import { z } from "zod"
 
+import { sourceFromPrincipalKey, trackEvent } from "@/lib/analytics-server"
 import { runManualCheck } from "@/lib/checker"
 import {
   createMonitorWithDefaults,
@@ -205,6 +206,7 @@ export async function createMonitor(
   handle: DatabaseHandle = db
 ) {
   let created!: MonitorConfig
+  let inserted = false
   const result = await applyConfigChange(
     principalKey,
     (current) => {
@@ -220,12 +222,19 @@ export async function createMonitor(
           "A monitor with this ID already exists"
         )
       }
+      inserted = true
       return nextConfig(current, {
         monitors: [...current.monitors, monitor],
       })
     },
     handle
   )
+  if (inserted) {
+    trackEvent("Monitor Created", {
+      contentCheck: created.expectedText !== undefined,
+      source: sourceFromPrincipalKey(principalKey),
+    })
+  }
   return monitorResponse(
     result.monitors.find((item) => item.id === created.id)!,
     result.groups
@@ -285,6 +294,9 @@ export async function archiveMonitor(
       },
       handle
     )
+    trackEvent("Monitor Deleted", {
+      source: sourceFromPrincipalKey(principalKey),
+    })
   } catch (error) {
     if (
       !(error instanceof MonitorApiError) ||

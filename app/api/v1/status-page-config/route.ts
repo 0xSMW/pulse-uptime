@@ -1,5 +1,6 @@
 import { revalidatePath } from "next/cache"
 
+import { sourceFromPrincipalKey, trackEvent } from "@/lib/analytics-server"
 import {
   apiError,
   apiJson,
@@ -146,6 +147,15 @@ export async function PUT(request: Request) {
     // surface the way report mutations do in collectStatusReportPaths.
     if (!result.replayed) {
       revalidatePath("/status", "layout")
+      const saved = result.body as StatusPageConfigData
+      if (saved.customCss || saved.customHead || saved.googleTagId) {
+        trackEvent("Status Page Customized", {
+          css: Boolean(saved.customCss),
+          gtag: Boolean(saved.googleTagId),
+          head: Boolean(saved.customHead),
+          source: sourceFromPrincipalKey(context.principalKey),
+        })
+      }
     }
     // The ETag is derived from the persisted version, not stored separately,
     // so a replayed idempotency key still returns a correct header without
