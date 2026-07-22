@@ -6,6 +6,7 @@ import { authenticateCurrentSession } from "@/lib/auth/session"
 
 import styles from "../../auth.module.css"
 import { JoinForm } from "./join-form"
+import { SignOutButton } from "./sign-out-button"
 
 export default async function JoinPage({
   params,
@@ -23,6 +24,11 @@ export default async function JoinPage({
           The link may have expired, been revoked, or already been used. Ask the
           person who invited you for a new link.
         </p>
+        <Card className={styles.card}>
+          <Link className="text-sm underline underline-offset-4" href="/login">
+            Back to sign in
+          </Link>
+        </Card>
       </div>
     )
   }
@@ -37,9 +43,7 @@ export default async function JoinPage({
           account, so sign out first to use it.
         </p>
         <Card className={styles.card}>
-          <Link className="text-[13px] underline underline-offset-4" href="/">
-            Back to the dashboard
-          </Link>
+          <SignOutButton />
         </Card>
       </div>
     )

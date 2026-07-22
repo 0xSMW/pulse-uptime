@@ -35,6 +35,7 @@ describe("fetchDomainFacts", () => {
     const facts = await fetchDomainFacts("klu.ai", fetcher)
     expect(facts.expiresAt?.toISOString()).toBe("2027-01-22T10:44:22.000Z")
     expect(facts.registrar).toBe("Namecheap, Inc.")
+    expect(facts.outcome).toBe("resolved")
     expect(fetcher).toHaveBeenCalledWith(
       "https://rdap.org/domain/klu.ai",
       expect.objectContaining({
@@ -43,21 +44,32 @@ describe("fetchDomainFacts", () => {
     )
   })
 
-  it("returns null facts for a TLD without RDAP coverage", async () => {
+  it("returns uncovered null facts for a TLD without RDAP coverage", async () => {
     const fetcher = vi.fn<RdapFetcher>(async () => jsonResponse({}, 404))
     expect(await fetchDomainFacts("gxd.io", fetcher)).toEqual({
       expiresAt: null,
       registrar: null,
+      outcome: "uncovered",
     })
   })
 
-  it("returns null facts on transport errors", async () => {
+  it("returns failed null facts on transport errors", async () => {
     const fetcher = vi.fn<RdapFetcher>(async () => {
       throw new Error("network down")
     })
     expect(await fetchDomainFacts("klu.ai", fetcher)).toEqual({
       expiresAt: null,
       registrar: null,
+      outcome: "failed",
+    })
+  })
+
+  it("returns failed null facts on non-404 error statuses", async () => {
+    const fetcher = vi.fn<RdapFetcher>(async () => jsonResponse({}, 429))
+    expect(await fetchDomainFacts("klu.ai", fetcher)).toEqual({
+      expiresAt: null,
+      registrar: null,
+      outcome: "failed",
     })
   })
 
@@ -70,6 +82,7 @@ describe("fetchDomainFacts", () => {
     expect(await fetchDomainFacts("klu.ai", fetcher)).toEqual({
       expiresAt: null,
       registrar: null,
+      outcome: "failed",
     })
   })
 
@@ -98,6 +111,7 @@ describe("fetchDomainFacts", () => {
     expect(await fetchDomainFacts("klu.ai", fetcher)).toEqual({
       expiresAt: null,
       registrar: null,
+      outcome: "failed",
     })
     // The cap tripped mid-stream rather than after full buffering.
     expect(pushed).toBeLessThan(32)
@@ -117,6 +131,7 @@ describe("fetchDomainFacts", () => {
     expect(await fetchDomainFacts("klu.ai", fetcher)).toEqual({
       expiresAt: null,
       registrar: null,
+      outcome: "resolved",
     })
   })
 })

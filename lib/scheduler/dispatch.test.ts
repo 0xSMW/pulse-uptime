@@ -53,6 +53,7 @@ describe("dispatchDueMonitors", () => {
       successCount: 1,
       failureCount: 1,
       skippedCount: 0,
+      unknownCount: 0,
     })
     expect(peak).toBeLessThanOrEqual(2)
   })

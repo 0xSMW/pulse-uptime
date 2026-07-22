@@ -34,8 +34,8 @@ export function createSqlCronRunStore(db: QueryExecutor): CronRunStore {
     async start(input) {
       const rows = await db.query(
         `insert into cron_runs
-(id, job_name, scheduled_minute, status, started_at, monitor_count, success_count, failure_count, skipped_count, release_id)
-values ($1, $2, $3, 'running', $4, 0, 0, 0, 0, $5)
+(id, job_name, scheduled_minute, status, started_at, monitor_count, success_count, failure_count, skipped_count, unknown_count, release_id)
+values ($1, $2, $3, 'running', $4, 0, 0, 0, 0, 0, $5)
 on conflict (job_name, scheduled_minute) do nothing returning id`,
         [
           input.id,
@@ -50,7 +50,7 @@ on conflict (job_name, scheduled_minute) do nothing returning id`,
     async complete(id, completedAt, counts) {
       await db.query(
         `update cron_runs set status = 'completed', completed_at = $2,
-monitor_count = $3, success_count = $4, failure_count = $5, skipped_count = $6, error_message = null, error_detail = null
+monitor_count = $3, success_count = $4, failure_count = $5, skipped_count = $6, unknown_count = $7, error_message = null, error_detail = null
 where id = $1 and status = 'running' returning id`,
         [
           id,
@@ -59,6 +59,7 @@ where id = $1 and status = 'running' returning id`,
           counts.successCount,
           counts.failureCount,
           counts.skippedCount,
+          counts.unknownCount,
         ]
       )
     },
@@ -71,12 +72,13 @@ where id = $1 and status = 'running' returning id`,
         successCount: 0,
         failureCount: 0,
         skippedCount: 0,
+        unknownCount: 0,
       }
     ) {
       await db.query(
         `update cron_runs set status = 'failed', completed_at = $2, error_message = $3,
-error_detail = $8::jsonb,
-monitor_count = $4, success_count = $5, failure_count = $6, skipped_count = $7
+error_detail = $9::jsonb,
+monitor_count = $4, success_count = $5, failure_count = $6, skipped_count = $7, unknown_count = $8
 where id = $1 and status = 'running' returning id`,
         [
           id,
@@ -86,6 +88,7 @@ where id = $1 and status = 'running' returning id`,
           counts.successCount,
           counts.failureCount,
           counts.skippedCount,
+          counts.unknownCount,
           JSON.stringify(failure.capture),
         ]
       )

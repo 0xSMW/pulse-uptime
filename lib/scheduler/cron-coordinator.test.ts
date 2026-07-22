@@ -8,6 +8,7 @@ const counts: CronRunCounts = {
   successCount: 2,
   failureCount: 1,
   skippedCount: 0,
+  unknownCount: 0,
 }
 
 function emptyStore(overrides: Partial<CronRunStore> = {}): CronRunStore {
@@ -122,6 +123,7 @@ describe("runCronCoordinator", () => {
       successCount: 3,
       failureCount: 0,
       skippedCount: 1,
+      unknownCount: 0,
     }
     const result = await runCronCoordinator(
       {
@@ -181,6 +183,7 @@ describe("runCronCoordinator", () => {
         successCount: 0,
         failureCount: 0,
         skippedCount: 0,
+        unknownCount: 0,
       }
     )
   })
