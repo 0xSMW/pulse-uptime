@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest"
 
 import type { CronRunStore } from "@/lib/scheduler/run-record"
-import { runDomainHealthCoordinator } from "./runtime"
+import {
+  DOMAIN_HEALTH_WORK_BUDGET_MS,
+  runDomainHealthCoordinator,
+} from "./runtime"
 import type { DomainHealthRow } from "./store"
 
 vi.mock("server-only", () => ({}))
@@ -69,6 +72,7 @@ describe("runDomainHealthCoordinator", () => {
     expect(byId.get("app")).toMatchObject({
       hostname: "app.klu.ai",
       apexDomain: "klu.ai",
+      certPort: 443,
       certExpiresAt: certFacts.expiresAt,
       certIssuer: "Let's Encrypt",
       domainExpiresAt: domainFacts.expiresAt,
@@ -77,6 +81,7 @@ describe("runDomainHealthCoordinator", () => {
     // The http monitor carries domain facts but never a certificate probe.
     expect(byId.get("plain")).toMatchObject({
       hostname: "plain.klu.ai",
+      certPort: null,
       certExpiresAt: null,
       certIssuer: null,
       domainExpiresAt: domainFacts.expiresAt,
@@ -95,17 +100,17 @@ describe("runDomainHealthCoordinator", () => {
     }
   })
 
-  it("degrades failed lookups to null facts and still persists rows", async () => {
+  it("persists failed new-port probes as null facts for that port", async () => {
     const { runs, leases } = stores()
     let persisted: DomainHealthRow[] = []
     const result = await runDomainHealthCoordinator({
       leases,
       runs,
       releaseId: "dpl_test",
-      loadMonitors: async () => [{ id: "app", url: "https://app.klu.ai/" }],
-      probeCert: async () => {
-        throw new Error("handshake refused")
-      },
+      loadMonitors: async () => [
+        { id: "app", url: "https://app.klu.ai:8443/" },
+      ],
+      probeCert: async () => ({ expiresAt: null, issuer: null }),
       fetchDomain: async () => ({ expiresAt: null, registrar: null }),
       persist: async (rows) => {
         persisted = [...persisted, ...rows]
@@ -113,6 +118,7 @@ describe("runDomainHealthCoordinator", () => {
     })
     expect(persisted).toHaveLength(1)
     expect(persisted[0]).toMatchObject({
+      certPort: 8443,
       certExpiresAt: null,
       domainExpiresAt: null,
     })
@@ -126,6 +132,7 @@ describe("runDomainHealthCoordinator", () => {
   it("uses a custom port from the monitor URL", async () => {
     const { runs, leases } = stores()
     const probeCert = vi.fn(async () => certFacts)
+    let persisted: DomainHealthRow[] = []
     await runDomainHealthCoordinator({
       leases,
       runs,
@@ -135,9 +142,52 @@ describe("runDomainHealthCoordinator", () => {
       ],
       probeCert,
       fetchDomain: async () => domainFacts,
-      persist: async () => undefined,
+      persist: async (rows) => {
+        persisted = [...persisted, ...rows]
+      },
     })
     expect(probeCert).toHaveBeenCalledWith("alt.klu.ai", 8443)
+    expect(persisted[0]?.certPort).toBe(8443)
+  })
+
+  it("admits both lookup classes before a slow class exhausts the window", async () => {
+    const { runs, leases } = stores()
+    const start = 1_000_000
+    const late = start + DOMAIN_HEALTH_WORK_BUDGET_MS
+    const nowMs = vi
+      .fn(() => late)
+      .mockImplementationOnce(() => start)
+      .mockImplementationOnce(() => start)
+      .mockImplementationOnce(() => start)
+    const probeCert = vi.fn(async () => certFacts)
+    const fetchDomain = vi.fn(async () => domainFacts)
+
+    const result = await runDomainHealthCoordinator({
+      leases,
+      runs,
+      releaseId: "dpl_test",
+      nowMs,
+      loadMonitors: async () => [
+        { id: "one", url: "https://one.example.com" },
+        { id: "two", url: "https://two.example.net" },
+        { id: "three", url: "https://three.example.org" },
+        { id: "four", url: "https://four.example.dev" },
+      ],
+      probeCert,
+      fetchDomain,
+      persist: async () => undefined,
+    })
+
+    expect(fetchDomain).toHaveBeenCalledTimes(1)
+    expect(probeCert).toHaveBeenCalledTimes(1)
+    expect(fetchDomain).toHaveBeenCalledWith("example.com")
+    expect(probeCert).toHaveBeenCalledWith("one.example.com", 443)
+    expect(result.status).toBe("completed")
+    if (result.status === "completed") {
+      expect(result.rdapLookups).toBe(1)
+      expect(result.certProbes).toBe(1)
+      expect(result.skippedLookups).toBe(6)
+    }
   })
 
   it("skips lookups once the deadline has passed but still writes rows", async () => {

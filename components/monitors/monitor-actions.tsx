@@ -382,9 +382,11 @@ function HeaderIconAction({
 }
 
 export function MonitorActions({
+  canManageMonitors,
   monitor,
   groups,
 }: {
+  canManageMonitors: boolean
   monitor: EditableMonitor
   groups: readonly SettingsGroup[]
 }) {
@@ -433,6 +435,10 @@ export function MonitorActions({
 
   const isBusy = action.status === "loading"
   const paused = !monitor.enabled
+
+  if (!canManageMonitors) {
+    return null
+  }
 
   return (
     <>
@@ -483,6 +489,31 @@ export function MonitorActions({
         />
       ) : null}
     </>
+  )
+}
+
+export function MonitorSetupActions({
+  canManageMonitors,
+  groups,
+  monitor,
+}: {
+  canManageMonitors: boolean
+  groups: readonly SettingsGroup[]
+  monitor: EditableMonitor
+}) {
+  if (!canManageMonitors) {
+    return null
+  }
+
+  return (
+    <div className="mt-3 flex flex-wrap gap-2">
+      <MonitorRunTestButton monitor={monitor} />
+      <MonitorEditButton
+        canManageMonitors={canManageMonitors}
+        groups={groups}
+        monitor={monitor}
+      />
+    </div>
   )
 }
 
@@ -552,14 +583,21 @@ export function MonitorRunTestButton({
 }
 
 export function MonitorEditButton({
+  canManageMonitors,
   monitor,
   groups,
 }: {
+  canManageMonitors: boolean
   monitor: EditableMonitor
   groups: readonly SettingsGroup[]
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
+
+  if (!canManageMonitors) {
+    return null
+  }
+
   return (
     <>
       <Button onClick={() => setOpen(true)} size="sm" variant="tertiary">

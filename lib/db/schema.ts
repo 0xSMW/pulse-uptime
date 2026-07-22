@@ -209,6 +209,7 @@ export const monitorDomainHealth = pgTable(
       .references(() => monitorRegistry.id),
     hostname: text("hostname").notNull(),
     apexDomain: text("apex_domain"),
+    certPort: integer("cert_port"),
     certExpiresAt: timestamptz("cert_expires_at"),
     certIssuer: text("cert_issuer"),
     domainExpiresAt: timestamptz("domain_expires_at"),

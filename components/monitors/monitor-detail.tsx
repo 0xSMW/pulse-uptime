@@ -13,7 +13,7 @@ import { ExpiryChip, expiryWarning } from "@/components/monitors/expiry-chip"
 import {
   MonitorActions,
   MonitorEditButton,
-  MonitorRunTestButton,
+  MonitorSetupActions,
 } from "@/components/monitors/monitor-actions"
 import { StatusBadge } from "@/components/monitors/status-badge"
 import {
@@ -484,9 +484,11 @@ function SetupStat() {
 }
 
 export function MonitorDetail({
+  canManageMonitors,
   monitor: snapshot,
   groups,
 }: {
+  canManageMonitors: boolean
   monitor: MonitorDetailData
   groups: readonly SettingsGroup[]
 }) {
@@ -615,7 +617,11 @@ export function MonitorDetail({
               <ExternalLink aria-hidden className="size-3 shrink-0" />
             </div>
           </div>
-          <MonitorActions groups={groups} monitor={monitor} />
+          <MonitorActions
+            canManageMonitors={canManageMonitors}
+            groups={groups}
+            monitor={monitor}
+          />
         </div>
       </header>
 
@@ -668,13 +674,16 @@ export function MonitorDetail({
           </span>
           <p className="mt-1.5 text-[var(--fg-muted)]">
             {monitor.firstRun.setupError
-              ? `The last check failed with ${monitor.firstRun.setupError}. Setup failures are warnings, not incidents. Fix the endpoint or edit the configuration, then run a test to confirm it is reachable. Monitoring begins at the next scheduled check that succeeds.`
+              ? canManageMonitors
+                ? `The last check failed with ${monitor.firstRun.setupError}. Setup failures are warnings, not incidents. Fix the endpoint or edit the configuration, then run a test to confirm it is reachable. Monitoring begins at the next scheduled check that succeeds.`
+                : `The last check failed with ${monitor.firstRun.setupError}. Setup failures are warnings, not incidents. Monitoring begins at the next scheduled check that succeeds.`
               : "Monitoring officially begins after the first successful check. No incidents or downtime are recorded during setup."}
           </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <MonitorRunTestButton monitor={monitor} />
-            <MonitorEditButton groups={groups} monitor={monitor} />
-          </div>
+          <MonitorSetupActions
+            canManageMonitors={canManageMonitors}
+            groups={groups}
+            monitor={monitor}
+          />
         </div>
       ) : null}
 
@@ -965,7 +974,11 @@ export function MonitorDetail({
       <Card>
         <CardHeader className="flex-row items-center justify-between gap-4">
           <CardTitle>Configuration</CardTitle>
-          <MonitorEditButton groups={groups} monitor={monitor} />
+          <MonitorEditButton
+            canManageMonitors={canManageMonitors}
+            groups={groups}
+            monitor={monitor}
+          />
         </CardHeader>
         <CardContent>
           <dl className="grid gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">

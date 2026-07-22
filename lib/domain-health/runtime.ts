@@ -114,6 +114,25 @@ async function runPool(
   await Promise.all(workers)
 }
 
+function interleaveTasks(
+  first: ReadonlyArray<() => Promise<void>>,
+  second: ReadonlyArray<() => Promise<void>>
+): Array<() => Promise<void>> {
+  const tasks: Array<() => Promise<void>> = []
+  const length = Math.max(first.length, second.length)
+  for (let index = 0; index < length; index += 1) {
+    const firstTask = first[index]
+    const secondTask = second[index]
+    if (firstTask) {
+      tasks.push(firstTask)
+    }
+    if (secondTask) {
+      tasks.push(secondTask)
+    }
+  }
+  return tasks
+}
+
 /**
  * The testable core: one lookup per unique https hostname:port for the leaf
  * certificate and one per unique apex for RDAP, fanned back out to a row per
@@ -158,27 +177,28 @@ export async function runDomainHealthCoordinator(
       ]
 
       let skippedLookups = 0
-      const tasks: Array<() => Promise<void>> = [
-        ...certKeys.map((key) => async () => {
-          if (nowMs() >= admissionDeadlineAtMs) {
-            skippedLookups += 1
-            return
-          }
-          const separator = key.lastIndexOf(":")
-          const facts = await deps.probeCert(
-            key.slice(0, separator),
-            Number(key.slice(separator + 1))
-          )
-          certByHostPort.set(key, facts)
-        }),
-        ...apexKeys.map((apex) => async () => {
-          if (nowMs() >= admissionDeadlineAtMs) {
-            skippedLookups += 1
-            return
-          }
-          domainByApex.set(apex, await deps.fetchDomain(apex))
-        }),
-      ]
+      const certTasks = certKeys.map((key) => async () => {
+        if (nowMs() >= admissionDeadlineAtMs) {
+          skippedLookups += 1
+          return
+        }
+        const separator = key.lastIndexOf(":")
+        const facts = await deps.probeCert(
+          key.slice(0, separator),
+          Number(key.slice(separator + 1))
+        )
+        certByHostPort.set(key, facts)
+      })
+      const rdapTasks = apexKeys.map((apex) => async () => {
+        if (nowMs() >= admissionDeadlineAtMs) {
+          skippedLookups += 1
+          return
+        }
+        domainByApex.set(apex, await deps.fetchDomain(apex))
+      })
+      // Alternate task kinds with RDAP first so each class gets early admission
+      // without letting a slow class starve the other before the deadline.
+      const tasks = interleaveTasks(rdapTasks, certTasks)
       await runPool(tasks, LOOKUP_CONCURRENCY)
 
       const checkedAt = (deps.now ?? (() => new Date()))()
@@ -191,6 +211,7 @@ export async function runDomainHealthCoordinator(
           monitorId: target.id,
           hostname: target.hostname,
           apexDomain: target.apex,
+          certPort: target.secure ? target.port : null,
           certExpiresAt: cert?.expiresAt ?? null,
           certIssuer: cert?.issuer ?? null,
           domainExpiresAt: domain?.expiresAt ?? null,

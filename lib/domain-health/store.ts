@@ -7,6 +7,7 @@ export interface DomainHealthRow {
   monitorId: string
   hostname: string
   apexDomain: string | null
+  certPort: number | null
   certExpiresAt: Date | null
   certIssuer: string | null
   domainExpiresAt: Date | null
@@ -15,8 +16,8 @@ export interface DomainHealthRow {
 }
 
 const preserveCertSql = {
-  certExpiresAt: sql`case when ${monitorDomainHealth.hostname} = excluded.hostname then coalesce(excluded.cert_expires_at, ${monitorDomainHealth.certExpiresAt}) else excluded.cert_expires_at end`,
-  certIssuer: sql`case when ${monitorDomainHealth.hostname} = excluded.hostname then coalesce(excluded.cert_issuer, ${monitorDomainHealth.certIssuer}) else excluded.cert_issuer end`,
+  certExpiresAt: sql`case when ${monitorDomainHealth.hostname} = excluded.hostname and ${monitorDomainHealth.certPort} = excluded.cert_port then coalesce(excluded.cert_expires_at, ${monitorDomainHealth.certExpiresAt}) else excluded.cert_expires_at end`,
+  certIssuer: sql`case when ${monitorDomainHealth.hostname} = excluded.hostname and ${monitorDomainHealth.certPort} = excluded.cert_port then coalesce(excluded.cert_issuer, ${monitorDomainHealth.certIssuer}) else excluded.cert_issuer end`,
 }
 
 const overwriteCertSql = {
@@ -26,10 +27,10 @@ const overwriteCertSql = {
 
 /**
  * Upserts one row per monitor. A null fact keeps the previous value as long as
- * the hostname (for cert facts) or apex (for domain facts) is unchanged, so a
- * single failed probe never erases a live expiry warning. A changed hostname
- * or apex takes the new values verbatim, nulls included, so facts never
- * outlive the target they described.
+ * the hostname and port (for cert facts) or apex (for domain facts) is
+ * unchanged, so a single failed probe never erases a live expiry warning. A
+ * changed certificate endpoint or apex takes the new values verbatim, nulls
+ * included, so facts never outlive the target they described.
  *
  * preserveCertFacts: false overwrites cert columns verbatim instead of
  * coalescing. The cron uses it for monitors that are no longer https, where a
@@ -54,6 +55,7 @@ export async function upsertDomainHealth(
       set: {
         hostname: sql`excluded.hostname`,
         apexDomain: sql`excluded.apex_domain`,
+        certPort: sql`excluded.cert_port`,
         ...certSql,
         domainExpiresAt: sql`case when ${monitorDomainHealth.apexDomain} = excluded.apex_domain then coalesce(excluded.domain_expires_at, ${monitorDomainHealth.domainExpiresAt}) else excluded.domain_expires_at end`,
         domainRegistrar: sql`case when ${monitorDomainHealth.apexDomain} = excluded.apex_domain then coalesce(excluded.domain_registrar, ${monitorDomainHealth.domainRegistrar}) else excluded.domain_registrar end`,

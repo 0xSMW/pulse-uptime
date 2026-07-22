@@ -176,6 +176,13 @@
       "when": 1784697645607,
       "tag": "0024_monitor_domain_health",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1784700957344,
+      "tag": "0025_monitor_domain_health_cert_port",
+      "breakpoints": true
     }
   ]
 }

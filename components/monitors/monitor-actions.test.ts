@@ -1,8 +1,18 @@
-import { describe, expect, it } from "vitest"
+import { createElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
+import { describe, expect, it, vi } from "vitest"
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+}))
 
 import {
+  type EditableMonitor,
   hasAdvancedMonitorEditErrors,
+  MonitorActions,
+  MonitorEditButton,
   type MonitorEditValues,
+  MonitorSetupActions,
   validateMonitorEdit,
 } from "./monitor-actions"
 
@@ -20,6 +30,84 @@ const validValues: MonitorEditValues = {
   recipients: "ops@example.com\nowner@example.com",
   enabled: true,
 }
+
+const monitor: EditableMonitor = {
+  id: "public-api",
+  name: "Public API",
+  url: "https://api.example.com/health",
+  groupId: null,
+  group: null,
+  method: "GET",
+  enabled: true,
+  intervalMinutes: 1,
+  timeoutMs: 8000,
+  expectedStatusMin: 200,
+  expectedStatusMax: 399,
+  failureThreshold: 2,
+  recoveryThreshold: 2,
+  recipients: [],
+}
+
+describe("monitor mutation capabilities", () => {
+  it("omits header and setup mutations for viewers", () => {
+    const header = renderToStaticMarkup(
+      createElement(MonitorActions, {
+        canManageMonitors: false,
+        groups: [],
+        monitor,
+      })
+    )
+    const setup = renderToStaticMarkup(
+      createElement(MonitorSetupActions, {
+        canManageMonitors: false,
+        groups: [],
+        monitor,
+      })
+    )
+    const configuration = renderToStaticMarkup(
+      createElement(MonitorEditButton, {
+        canManageMonitors: false,
+        groups: [],
+        monitor,
+      })
+    )
+
+    expect(header).toBe("")
+    expect(setup).toBe("")
+    expect(configuration).toBe("")
+  })
+
+  it("retains monitor mutations for admins", () => {
+    const header = renderToStaticMarkup(
+      createElement(MonitorActions, {
+        canManageMonitors: true,
+        groups: [],
+        monitor,
+      })
+    )
+    const setup = renderToStaticMarkup(
+      createElement(MonitorSetupActions, {
+        canManageMonitors: true,
+        groups: [],
+        monitor,
+      })
+    )
+    const configuration = renderToStaticMarkup(
+      createElement(MonitorEditButton, {
+        canManageMonitors: true,
+        groups: [],
+        monitor,
+      })
+    )
+
+    expect(header).toContain('aria-label="Test Monitor"')
+    expect(header).toContain('aria-label="Pause Monitor"')
+    expect(header).toContain('aria-label="Edit Monitor"')
+    expect(setup).toContain("Run Test")
+    expect(setup).toContain("Edit Monitor")
+    expect(configuration).toContain("Edit Monitor")
+  })
+})
 
 describe("validateMonitorEdit", () => {
   it.each([

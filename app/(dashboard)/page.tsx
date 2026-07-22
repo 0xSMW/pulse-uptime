@@ -6,10 +6,18 @@ import { MonitorTableSkeleton } from "@/components/dashboard/monitor-table-skele
 import { NewMonitorAction } from "@/components/dashboard/new-monitor-action"
 import { DependencyPanel } from "@/components/dependencies/dependency-panel"
 import { DependencyPanelSkeleton } from "@/components/dependencies/dependency-panel-skeleton"
+import { hasScope, roleScopes } from "@/lib/api/scopes"
+import { authenticateCurrentSession } from "@/lib/auth/session"
 import { getHealthWarnings } from "@/lib/monitoring/health"
 import { listDashboardMonitors } from "@/lib/monitoring/queries"
 
-export default function OverviewPage() {
+export default async function OverviewPage() {
+  const session = await authenticateCurrentSession()
+  const canManageMonitors = hasScope(
+    { scopes: roleScopes(session?.role ?? "viewer") },
+    "monitors:write"
+  )
+
   return (
     <>
       {/* Empty fallback: warnings are rare, and layout shift from a
@@ -24,7 +32,7 @@ export default function OverviewPage() {
             Public endpoint availability
           </p>
         </div>
-        <NewMonitorAction />
+        <NewMonitorAction canManageMonitors={canManageMonitors} />
       </div>
       <Suspense fallback={<MonitorTableSkeleton />}>
         <MonitorTableIsland />
