@@ -80,4 +80,3 @@ Pulse Uptime will grow beyond its single-team HTTP monitoring workflow in these 
 |---|---|
 | Multiple users | Invite teammates, assign roles, and manage access without sharing the administrator account. |
 | Additional monitor types | Add domain, certificate, port, and content checks alongside HTTP availability. |
-| Authentication integrations | Sign in with Google and other identity providers, with room for more SSO options as teams grow. |
