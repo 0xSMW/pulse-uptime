@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-
+import { THEME_BOOT_SCRIPT_SHA256 } from "@/lib/theme-boot"
 import { buildStatusPageContentSecurityPolicy } from "./csp"
 
 describe("status page Content Security Policy", () => {
@@ -7,7 +7,9 @@ describe("status page Content Security Policy", () => {
     const policy = buildStatusPageContentSecurityPolicy("nonce123", false)
 
     expect(policy).toContain(
-      "script-src 'self' 'nonce-nonce123' 'strict-dynamic'"
+      "script-src 'self' 'nonce-nonce123' '" +
+        THEME_BOOT_SCRIPT_SHA256 +
+        "' 'strict-dynamic'"
     )
     expect(policy).not.toContain("script-src 'self' 'unsafe-inline'")
     expect(policy).not.toContain("'unsafe-eval'")
@@ -21,7 +23,9 @@ describe("status page Content Security Policy", () => {
     const policy = buildStatusPageContentSecurityPolicy("devnonce", true)
 
     expect(policy).toContain(
-      "script-src 'self' 'nonce-devnonce' 'strict-dynamic' 'unsafe-eval'"
+      "script-src 'self' 'nonce-devnonce' '" +
+        THEME_BOOT_SCRIPT_SHA256 +
+        "' 'strict-dynamic' 'unsafe-eval'"
     )
     expect(policy).not.toContain("script-src 'self' 'unsafe-inline'")
   })

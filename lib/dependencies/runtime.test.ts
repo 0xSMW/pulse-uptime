@@ -80,6 +80,7 @@ describe("toDependencyCronRunCounts", () => {
       successCount: 2,
       failureCount: 1,
       skippedCount: 2,
+      unknownCount: 0,
     })
   })
 })
@@ -160,6 +161,7 @@ describe("runDependencyCronCoordinator", () => {
         successCount: 2,
         failureCount: 0,
         skippedCount: 1,
+        unknownCount: 0,
       },
     })
     expect(deps.runs.start).toHaveBeenCalledWith(
@@ -173,6 +175,7 @@ describe("runDependencyCronCoordinator", () => {
       successCount: 2,
       failureCount: 0,
       skippedCount: 1,
+      unknownCount: 0,
     })
     expect(deps.leases.release).toHaveBeenCalledTimes(1)
   })
@@ -224,6 +227,7 @@ describe("runDependencyCronCoordinator", () => {
         successCount: 2,
         failureCount: 0,
         skippedCount: 2,
+        unknownCount: 0,
       }
     )
   })
@@ -268,6 +272,7 @@ describe("runDependencyCronCoordinator", () => {
         successCount: 0,
         failureCount: 0,
         skippedCount: 0,
+        unknownCount: 0,
       }
     )
     expect(deps.leases.release).toHaveBeenCalledTimes(1)
@@ -311,6 +316,7 @@ describe("runDependencyCronCoordinator", () => {
         successCount: 2,
         failureCount: 0,
         skippedCount: 1,
+        unknownCount: 0,
       }
     )
   })

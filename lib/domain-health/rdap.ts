@@ -13,6 +13,14 @@ const RDAP_MAX_BODY_BYTES = 1024 * 1024
 export interface DomainFacts {
   expiresAt: Date | null
   registrar: string | null
+  /**
+   * Why the facts may be null. "resolved" answered with a parseable record,
+   * "uncovered" means RDAP has no data for this domain or TLD (404), and
+   * "failed" is a transport error, timeout, oversized body, unparseable
+   * JSON, or a non-404 error status. Only "failed" may count as a probe
+   * failure, no surface renders "uncovered" as a problem.
+   */
+  outcome: "resolved" | "uncovered" | "failed"
 }
 
 export type RdapFetcher = (
@@ -132,16 +140,21 @@ function parseRegistrar(entities: unknown): string | null {
 }
 
 /**
- * One RDAP lookup for a registrable apex. Every failure mode, missing TLD
- * coverage (404), transport errors, timeouts, unparseable JSON, degrades to
- * null facts. Callers treat null as "unknown", which no surface renders as a
- * warning.
+ * One RDAP lookup for a registrable apex. Every failure mode degrades to
+ * null facts, and the outcome field says whether the nulls mean "RDAP has
+ * no data" (uncovered) or "the lookup broke" (failed), so run accounting
+ * can separate known non-coverage from real probe regressions. No surface
+ * renders null facts as a warning either way.
  */
 export async function fetchDomainFacts(
   apex: string,
   fetcher: RdapFetcher = fetch
 ): Promise<DomainFacts> {
-  const empty: DomainFacts = { expiresAt: null, registrar: null }
+  const failed: DomainFacts = {
+    expiresAt: null,
+    registrar: null,
+    outcome: "failed",
+  }
   try {
     const response = await fetcher(
       `${RDAP_BASE_URL}${encodeURIComponent(apex)}`,
@@ -151,22 +164,27 @@ export async function fetchDomainFacts(
       }
     )
     if (!response.ok) {
-      return empty
+      // 404 is RDAP's answer for "no data here", a TLD without RDAP or an
+      // unregistered domain. Anything else is the lookup itself misbehaving.
+      return response.status === 404
+        ? { expiresAt: null, registrar: null, outcome: "uncovered" }
+        : failed
     }
     const body = await readCappedBody(response)
     if (body === null) {
-      return empty
+      return failed
     }
     const document: unknown = JSON.parse(body)
     if (!document || typeof document !== "object") {
-      return empty
+      return failed
     }
     const record = document as { events?: unknown; entities?: unknown }
     return {
       expiresAt: parseExpiration(record.events),
       registrar: parseRegistrar(record.entities),
+      outcome: "resolved",
     }
   } catch {
-    return empty
+    return failed
   }
 }

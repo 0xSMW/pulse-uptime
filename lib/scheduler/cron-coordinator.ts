@@ -55,6 +55,7 @@ function createProgressRecorder(): {
         successCount: counts.successCount,
         failureCount: counts.failureCount,
         skippedCount: counts.skippedCount,
+        unknownCount: counts.unknownCount,
       }
     },
     snapshot() {
@@ -63,6 +64,7 @@ function createProgressRecorder(): {
         successCount: latest.successCount,
         failureCount: latest.failureCount,
         skippedCount: latest.skippedCount,
+        unknownCount: latest.unknownCount,
       }
     },
   }

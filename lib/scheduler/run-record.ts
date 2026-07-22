@@ -9,6 +9,12 @@ export interface CronRunCounts {
   successCount: number
   failureCount: number
   skippedCount: number
+  /**
+   * Lookups that answered cleanly but had no facts to give. Not a failure,
+   * a permanently elevated failure count from known non-coverage would mask
+   * real probe regressions.
+   */
+  unknownCount: number
 }
 
 // Structured, faithful capture of a cron failure. Beyond the short single-line
@@ -61,7 +67,13 @@ export interface CronRunStore {
 }
 
 export function emptyRunCounts(): CronRunCounts {
-  return { monitorCount: 0, successCount: 0, failureCount: 0, skippedCount: 0 }
+  return {
+    monitorCount: 0,
+    successCount: 0,
+    failureCount: 0,
+    skippedCount: 0,
+    unknownCount: 0,
+  }
 }
 
 function safeCronError(error: unknown): string {

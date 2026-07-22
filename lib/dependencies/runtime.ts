@@ -202,6 +202,7 @@ export function toDependencyCronRunCounts(poll: {
     successCount: poll.polled,
     failureCount: poll.failed,
     skippedCount: poll.notModified + poll.skipped,
+    unknownCount: 0,
   }
 }
 

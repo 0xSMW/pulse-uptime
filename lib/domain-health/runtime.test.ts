@@ -43,6 +43,7 @@ const certFacts = {
 const domainFacts = {
   expiresAt: new Date("2027-01-22T10:44:22Z"),
   registrar: "Namecheap, Inc.",
+  outcome: "resolved" as const,
 }
 
 describe("runDomainHealthCoordinator", () => {
@@ -213,6 +214,115 @@ describe("runDomainHealthCoordinator", () => {
         successCount: 1,
         failureCount: 0,
         skippedCount: 3,
+        unknownCount: 0,
+      })
+    }
+  })
+
+  it("counts clean lookups without facts as unknown, not failure", async () => {
+    const { runs, leases } = stores()
+    const reconcile = vi.fn(
+      async (_input: DomainHealthReconciliation) => undefined
+    )
+
+    const result = await runDomainHealthCoordinator({
+      leases,
+      runs,
+      releaseId: "dpl_test",
+      loadMonitors: async () => [{ id: "one", url: "https://app.example.com" }],
+      loadAssets: async () => emptyAssets(),
+      probeCert: async () => ({
+        expiresAt: new Date("2026-10-12T00:00:00Z"),
+        issuer: "Let's Encrypt",
+      }),
+      fetchDomain: async () => ({
+        expiresAt: null,
+        registrar: null,
+        outcome: "uncovered" as const,
+      }),
+      reconcile,
+    })
+
+    expect(result.status).toBe("completed")
+    if (result.status === "completed") {
+      // The cert lookup produced facts, so the monitor is a success even
+      // though RDAP has nothing for the apex.
+      expect(result.counts).toEqual({
+        monitorCount: 1,
+        successCount: 1,
+        failureCount: 0,
+        skippedCount: 0,
+        unknownCount: 0,
+      })
+    }
+  })
+
+  it("counts a monitor as unknown when every lookup answers without facts", async () => {
+    const { runs, leases } = stores()
+    const reconcile = vi.fn(
+      async (_input: DomainHealthReconciliation) => undefined
+    )
+
+    const result = await runDomainHealthCoordinator({
+      leases,
+      runs,
+      releaseId: "dpl_test",
+      loadMonitors: async () => [{ id: "one", url: "https://app.example.com" }],
+      loadAssets: async () => emptyAssets(),
+      probeCert: async () => ({ expiresAt: null, issuer: null }),
+      fetchDomain: async () => ({
+        expiresAt: null,
+        registrar: null,
+        outcome: "uncovered" as const,
+      }),
+      reconcile,
+    })
+
+    expect(result.status).toBe("completed")
+    if (result.status === "completed") {
+      // A cert probe that cannot produce facts is a real failure, the
+      // handshake either broke or was refused, so the monitor is a failure.
+      expect(result.counts).toEqual({
+        monitorCount: 1,
+        successCount: 0,
+        failureCount: 1,
+        skippedCount: 0,
+        unknownCount: 0,
+      })
+    }
+  })
+
+  it("counts a domain-only monitor as unknown when RDAP has no coverage", async () => {
+    const { runs, leases } = stores()
+    const reconcile = vi.fn(
+      async (_input: DomainHealthReconciliation) => undefined
+    )
+
+    const result = await runDomainHealthCoordinator({
+      leases,
+      runs,
+      releaseId: "dpl_test",
+      loadMonitors: async () => [{ id: "one", url: "http://app.example.com" }],
+      loadAssets: async () => emptyAssets(),
+      probeCert: async () => {
+        throw new Error("never called for http monitors")
+      },
+      fetchDomain: async () => ({
+        expiresAt: null,
+        registrar: null,
+        outcome: "uncovered" as const,
+      }),
+      reconcile,
+    })
+
+    expect(result.status).toBe("completed")
+    if (result.status === "completed") {
+      expect(result.counts).toEqual({
+        monitorCount: 1,
+        successCount: 0,
+        failureCount: 0,
+        skippedCount: 0,
+        unknownCount: 1,
       })
     }
   })
@@ -245,6 +355,7 @@ describe("runDomainHealthCoordinator", () => {
         successCount: 0,
         failureCount: 1,
         skippedCount: 0,
+        unknownCount: 0,
       })
       expect(result.certProbes).toBe(1)
       expect(result.rdapLookups).toBe(1)

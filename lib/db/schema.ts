@@ -423,6 +423,10 @@ export const cronRuns = pgTable(
     successCount: integer("success_count").notNull().default(0),
     failureCount: integer("failure_count").notNull().default(0),
     skippedCount: integer("skipped_count").notNull().default(0),
+    // Lookups that answered cleanly but had no facts to give, e.g. RDAP with
+    // no data for a domain. Distinct from failure so no-coverage cannot read
+    // as a probe regression.
+    unknownCount: integer("unknown_count").notNull().default(0),
     errorMessage: text("error_message"),
     // Full structured capture of a failure: message, Postgres diagnostic fields,
     // and the wrapped cause chain, bounded and truncation-marked in run-record.
@@ -448,7 +452,7 @@ export const cronRuns = pgTable(
     ),
     check(
       "cron_runs_counts_nonnegative",
-      sql`${table.monitorCount} >= 0 and ${table.successCount} >= 0 and ${table.failureCount} >= 0 and ${table.skippedCount} >= 0`
+      sql`${table.monitorCount} >= 0 and ${table.successCount} >= 0 and ${table.failureCount} >= 0 and ${table.skippedCount} >= 0 and ${table.unknownCount} >= 0`
     ),
     check(
       "cron_runs_completion_order",
