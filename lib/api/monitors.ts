@@ -13,11 +13,11 @@ import {
   monitorConfigSchema,
 } from "@/lib/config"
 import { type DatabaseHandle, db } from "@/lib/db/client"
+import { monitorRegistry, monitorState } from "@/lib/db/schema"
 import {
-  monitorDomainHealth,
-  monitorRegistry,
-  monitorState,
-} from "@/lib/db/schema"
+  domainHealthByMonitorId,
+  type SerializedDomainHealthFacts,
+} from "@/lib/domain-health/queries"
 import { uptime24hByMonitorId } from "@/lib/monitoring/queries"
 import { MONITOR_STATE_ORDER, type MonitorState } from "@/lib/monitoring/types"
 
@@ -361,37 +361,18 @@ const EMPTY_DOMAIN_HEALTH: DomainHealthFacts = {
   domainRegistrar: null,
 }
 
-// Daily domain and certificate facts from the check-domains cron. Absent rows
-// and absent facts read as nulls, which clients must render as "unknown",
-// never as a problem.
-async function domainHealthByMonitorId(
-  ids: readonly string[],
-  handle: DatabaseHandle = db
-): Promise<Map<string, DomainHealthFacts>> {
-  if (ids.length === 0) {
-    return new Map()
+function apiDomainHealth(
+  facts: SerializedDomainHealthFacts | undefined
+): DomainHealthFacts {
+  if (!facts) {
+    return EMPTY_DOMAIN_HEALTH
   }
-  const rows = await handle
-    .select({
-      monitorId: monitorDomainHealth.monitorId,
-      certExpiresAt: monitorDomainHealth.certExpiresAt,
-      certIssuer: monitorDomainHealth.certIssuer,
-      domainExpiresAt: monitorDomainHealth.domainExpiresAt,
-      domainRegistrar: monitorDomainHealth.domainRegistrar,
-    })
-    .from(monitorDomainHealth)
-    .where(inArray(monitorDomainHealth.monitorId, [...ids]))
-  return new Map(
-    rows.map((row) => [
-      row.monitorId,
-      {
-        certExpiresAt: row.certExpiresAt?.toISOString() ?? null,
-        certIssuer: row.certIssuer,
-        domainExpiresAt: row.domainExpiresAt?.toISOString() ?? null,
-        domainRegistrar: row.domainRegistrar,
-      },
-    ])
-  )
+  return {
+    certExpiresAt: facts.certExpiresAt,
+    certIssuer: facts.certIssuer,
+    domainExpiresAt: facts.domainExpiresAt,
+    domainRegistrar: facts.domainRegistrar,
+  }
 }
 
 export async function requireMonitor(id: string, handle: DatabaseHandle = db) {
@@ -417,11 +398,11 @@ export async function requireMonitor(id: string, handle: DatabaseHandle = db) {
         eq(monitorRegistry.id, monitorState.monitorId)
       )
       .where(eq(monitorState.monitorId, id)),
-    domainHealthByMonitorId([id], handle),
+    domainHealthByMonitorId([{ id: monitor.id, url: monitor.url }], handle),
   ])
   const base = {
     ...monitorResponse(monitor, accepted.config.groups),
-    ...(health.get(id) ?? EMPTY_DOMAIN_HEALTH),
+    ...apiDomainHealth(health.get(id)),
   }
   return runtime
     ? {
@@ -556,7 +537,9 @@ export async function listMonitors(options: {
   // the since-activation figure a collecting monitor shows in its place.
   const [uptime, health] = await Promise.all([
     uptime24hByMonitorId(page.map((monitor) => monitor.id)),
-    domainHealthByMonitorId(page.map((monitor) => monitor.id)),
+    domainHealthByMonitorId(
+      page.map((monitor) => ({ id: monitor.id, url: monitor.url }))
+    ),
   ])
   return {
     monitors: page.map((monitor) => {
@@ -565,7 +548,7 @@ export async function listMonitors(options: {
         ...monitor,
         uptime: entry?.uptime24h ?? null,
         observedUptime: entry?.observedUptime ?? null,
-        ...(health.get(monitor.id) ?? EMPTY_DOMAIN_HEALTH),
+        ...apiDomainHealth(health.get(monitor.id)),
       }
     }),
     nextCursor: next,

@@ -183,6 +183,13 @@
       "when": 1784700957344,
       "tag": "0025_monitor_domain_health_cert_port",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1784702250584,
+      "tag": "0026_normalized_domain_health_assets",
+      "breakpoints": true
     }
   ]
 }

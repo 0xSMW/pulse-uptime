@@ -8,18 +8,26 @@ import { DOMAIN_HEALTH_LEASE, type LeaseStore } from "@/lib/scheduler/lease"
 import type { CronRunStore } from "@/lib/scheduler/run-record"
 import { createSqlCronRunStore, createSqlLeaseStore } from "@/lib/scheduler/sql"
 
-import { apexDomain } from "./apex"
 import { type CertificateFacts, probeCertificate } from "./cert"
 import { type DomainFacts, fetchDomainFacts } from "./rdap"
-import { type DomainHealthRow, upsertDomainHealth } from "./store"
+import {
+  type CertificateHealthRefresh,
+  type DomainHealthAssetState,
+  type DomainHealthReconciliation,
+  type DomainHealthRefresh,
+  loadDomainHealthAssets,
+  reconcileDomainHealthAssets,
+} from "./store"
+import {
+  certificateAssetKey,
+  type DomainHealthMonitor,
+  type DomainHealthTargets,
+  deriveDomainHealthTargets,
+} from "./targets"
 
-// Route maxDuration is 60s; this reserves headroom for the upsert, run
-// finalization, and lease release after the lookup pool settles.
 export const DOMAIN_HEALTH_WORK_BUDGET_MS = 52_000
-// A lookup admitted at the deadline may still run its full internal timeout
-// (10s in cert.ts and rdap.ts), so admission stops this far ahead of the
-// budget. Without the margin a slow registry walks the run past maxDuration
-// and the function dies before persisting anything.
+export const DOMAIN_HEALTH_FRESHNESS_MS = 24 * 60 * 60 * 1000
+export const DOMAIN_HEALTH_PRUNE_GRACE_MS = 48 * 60 * 60 * 1000
 const LOOKUP_ADMISSION_MARGIN_MS = 11_000
 const LOOKUP_CONCURRENCY = 4
 
@@ -45,50 +53,42 @@ export interface DomainHealthCronDeps {
   leases: LeaseStore
   runs: CronRunStore
   releaseId: string
-  loadMonitors: () => Promise<Array<{ id: string; url: string }>>
+  loadMonitors: () => Promise<DomainHealthMonitor[]>
+  loadAssets: (targets: DomainHealthTargets) => Promise<DomainHealthAssetState>
   probeCert: (hostname: string, port: number) => Promise<CertificateFacts>
   fetchDomain: (apex: string) => Promise<DomainFacts>
-  persist: (
-    rows: DomainHealthRow[],
-    options: { preserveCertFacts: boolean }
-  ) => Promise<void>
+  reconcile: (input: DomainHealthReconciliation) => Promise<void>
   now?: () => Date
   nowMs?: () => number
   createId?: () => string
 }
 
-interface MonitorTarget {
-  id: string
-  hostname: string
-  port: number
-  secure: boolean
-  apex: string | null
+export interface DueDomainHealthTargets {
+  apexDomains: string[]
+  certificates: DomainHealthTargets["certificates"]
 }
 
-function parseTargets(
-  monitors: ReadonlyArray<{ id: string; url: string }>
-): MonitorTarget[] {
-  const targets: MonitorTarget[] = []
-  for (const monitor of monitors) {
-    let url: URL
-    try {
-      url = new URL(monitor.url)
-    } catch {
-      continue
-    }
-    const secure = url.protocol === "https:"
-    targets.push({
-      id: monitor.id,
-      hostname: url.hostname,
-      port: url.port ? Number(url.port) : secure ? 443 : 80,
-      secure,
-      apex: apexDomain(url.hostname),
-    })
+/** Missing assets and assets at least 24 hours old are due. */
+export function selectDueDomainHealthTargets(
+  targets: DomainHealthTargets,
+  assets: DomainHealthAssetState,
+  now: Date
+): DueDomainHealthTargets {
+  const staleBefore = now.getTime() - DOMAIN_HEALTH_FRESHNESS_MS
+  return {
+    apexDomains: targets.apexDomains.filter((apex) => {
+      const asset = assets.domains.get(apex)
+      return !asset?.checkedAt || asset.checkedAt.getTime() <= staleBefore
+    }),
+    certificates: targets.certificates.filter((target) => {
+      const asset = assets.certificates.get(
+        certificateAssetKey(target.hostname, target.port)
+      )
+      return !asset?.checkedAt || asset.checkedAt.getTime() <= staleBefore
+    }),
   }
-  return targets
 }
 
-/** Runs tasks with bounded concurrency; a task that throws resolves undefined. */
 async function runPool(
   tasks: ReadonlyArray<() => Promise<void>>,
   concurrency: number
@@ -103,11 +103,7 @@ async function runPool(
         if (!task) {
           continue
         }
-        try {
-          await task()
-        } catch {
-          // Lookup failures degrade to absent facts by design.
-        }
+        await task()
       }
     }
   )
@@ -133,13 +129,7 @@ function interleaveTasks(
   return tasks
 }
 
-/**
- * The testable core: one lookup per unique https hostname:port for the leaf
- * certificate and one per unique apex for RDAP, fanned back out to a row per
- * monitor. Lookups that would start after the deadline are skipped; their
- * monitors still get a row so coalescing upserts refresh checked_at without
- * erasing known facts.
- */
+/** Runs due shared-asset lookups with fair, bounded admission. */
 export async function runDomainHealthCoordinator(
   deps: DomainHealthCronDeps
 ): Promise<DomainHealthCronResult> {
@@ -159,93 +149,118 @@ export async function runDomainHealthCoordinator(
     },
     async ({ progress }) => {
       const monitors = await deps.loadMonitors()
-      const targets = parseTargets(monitors)
-
-      const certByHostPort = new Map<string, CertificateFacts>()
-      const domainByApex = new Map<string, DomainFacts>()
-      const certKeys = [
-        ...new Set(
-          targets
-            .filter((target) => target.secure)
-            .map((target) => `${target.hostname}:${target.port}`)
-        ),
-      ]
-      const apexKeys = [
-        ...new Set(
-          targets.flatMap((target) => (target.apex ? [target.apex] : []))
-        ),
-      ]
-
-      let skippedLookups = 0
-      const certTasks = certKeys.map((key) => async () => {
-        if (nowMs() >= admissionDeadlineAtMs) {
-          skippedLookups += 1
-          return
-        }
-        const separator = key.lastIndexOf(":")
-        const facts = await deps.probeCert(
-          key.slice(0, separator),
-          Number(key.slice(separator + 1))
-        )
-        certByHostPort.set(key, facts)
-      })
-      const rdapTasks = apexKeys.map((apex) => async () => {
-        if (nowMs() >= admissionDeadlineAtMs) {
-          skippedLookups += 1
-          return
-        }
-        domainByApex.set(apex, await deps.fetchDomain(apex))
-      })
-      // Alternate task kinds with RDAP first so each class gets early admission
-      // without letting a slow class starve the other before the deadline.
-      const tasks = interleaveTasks(rdapTasks, certTasks)
-      await runPool(tasks, LOOKUP_CONCURRENCY)
-
+      const targets = deriveDomainHealthTargets(monitors)
+      const assets = await deps.loadAssets(targets)
       const checkedAt = (deps.now ?? (() => new Date()))()
-      const toRow = (target: MonitorTarget): DomainHealthRow => {
-        const cert = target.secure
-          ? certByHostPort.get(`${target.hostname}:${target.port}`)
-          : undefined
-        const domain = target.apex ? domainByApex.get(target.apex) : undefined
-        return {
-          monitorId: target.id,
-          hostname: target.hostname,
-          apexDomain: target.apex,
-          certPort: target.secure ? target.port : null,
-          certExpiresAt: cert?.expiresAt ?? null,
-          certIssuer: cert?.issuer ?? null,
-          domainExpiresAt: domain?.expiresAt ?? null,
-          domainRegistrar: domain?.registrar ?? null,
-          checkedAt,
-        }
-      }
-      // Secure targets coalesce so a failed probe keeps known cert facts. A
-      // target that is no longer https overwrites its cert facts with null,
-      // the truth for a monitor with no certificate in play.
-      const secureRows = targets.filter((t) => t.secure).map(toRow)
-      const insecureRows = targets.filter((t) => !t.secure).map(toRow)
-      const rows = [...secureRows, ...insecureRows]
+      const due = selectDueDomainHealthTargets(targets, assets, checkedAt)
+      const domainRefreshes: DomainHealthRefresh[] = []
+      const certificateRefreshes: CertificateHealthRefresh[] = []
+      let skippedLookups = 0
+      const domainOutcomes = new Map<
+        string,
+        "success" | "failure" | "skipped"
+      >()
+      const certificateOutcomes = new Map<
+        string,
+        "success" | "failure" | "skipped"
+      >()
 
+      const rdapTasks = due.apexDomains.map((apex) => async () => {
+        if (nowMs() >= admissionDeadlineAtMs) {
+          skippedLookups += 1
+          domainOutcomes.set(apex, "skipped")
+          return
+        }
+        let facts: DomainFacts
+        try {
+          facts = await deps.fetchDomain(apex)
+        } catch {
+          facts = { expiresAt: null, registrar: null }
+        }
+        domainRefreshes.push({ apexDomain: apex, ...facts, checkedAt })
+        domainOutcomes.set(
+          apex,
+          facts.expiresAt !== null || facts.registrar !== null
+            ? "success"
+            : "failure"
+        )
+      })
+      const certTasks = due.certificates.map((target) => async () => {
+        const key = certificateAssetKey(target.hostname, target.port)
+        if (nowMs() >= admissionDeadlineAtMs) {
+          skippedLookups += 1
+          certificateOutcomes.set(key, "skipped")
+          return
+        }
+        let facts: CertificateFacts
+        try {
+          facts = await deps.probeCert(target.hostname, target.port)
+        } catch {
+          facts = { expiresAt: null, issuer: null }
+        }
+        certificateRefreshes.push({ ...target, ...facts, checkedAt })
+        certificateOutcomes.set(
+          key,
+          facts.expiresAt !== null || facts.issuer !== null
+            ? "success"
+            : "failure"
+        )
+      })
+
+      await runPool(interleaveTasks(rdapTasks, certTasks), LOOKUP_CONCURRENCY)
+
+      const targetsByMonitorId = new Map(
+        targets.monitors.map((target) => [target.id, target])
+      )
+      const monitorOutcomes = monitors.map((monitor) => {
+        const target = targetsByMonitorId.get(monitor.id)
+        if (!target) {
+          return "skipped" as const
+        }
+        const outcomes = [
+          target.apexDomain === null
+            ? undefined
+            : domainOutcomes.get(target.apexDomain),
+          target.certificate === null
+            ? undefined
+            : certificateOutcomes.get(
+                certificateAssetKey(
+                  target.certificate.hostname,
+                  target.certificate.port
+                )
+              ),
+        ].filter((outcome) => outcome !== undefined)
+        if (outcomes.includes("failure")) {
+          return "failure" as const
+        }
+        if (outcomes.includes("skipped")) {
+          return "skipped" as const
+        }
+        return outcomes.length > 0 ? ("success" as const) : ("skipped" as const)
+      })
       const counts = {
         monitorCount: monitors.length,
-        successCount: rows.filter(
-          (row) =>
-            row.certExpiresAt !== null ||
-            row.certIssuer !== null ||
-            row.domainExpiresAt !== null ||
-            row.domainRegistrar !== null
-        ).length,
-        failureCount: 0,
-        skippedCount: skippedLookups,
+        successCount: monitorOutcomes.filter((value) => value === "success")
+          .length,
+        failureCount: monitorOutcomes.filter((value) => value === "failure")
+          .length,
+        skippedCount: monitorOutcomes.filter((value) => value === "skipped")
+          .length,
       }
       progress.record(counts)
-      await deps.persist(secureRows, { preserveCertFacts: true })
-      await deps.persist(insecureRows, { preserveCertFacts: false })
+      await deps.reconcile({
+        domains: domainRefreshes,
+        certificates: certificateRefreshes,
+        referencedAt: checkedAt,
+        pruneBefore: new Date(
+          checkedAt.getTime() - DOMAIN_HEALTH_PRUNE_GRACE_MS
+        ),
+      })
 
       return {
         counts,
-        certProbes: certByHostPort.size,
-        rdapLookups: domainByApex.size,
+        certProbes: certificateRefreshes.length,
+        rdapLookups: domainRefreshes.length,
         skippedLookups,
       }
     }
@@ -257,12 +272,10 @@ export async function runDomainHealthCron(): Promise<DomainHealthCronResult> {
     leases: createSqlLeaseStore(queryExecutor),
     runs: createSqlCronRunStore(queryExecutor),
     releaseId: requirePulseReleaseId(),
-    // Disabled monitors are included: the dashboard still lists them, so their
-    // rows must keep refreshing or a paused monitor would wear a stale expiry
-    // warning forever.
     loadMonitors: async () => (await requireAcceptedConfig()).config.monitors,
+    loadAssets: (targets) => loadDomainHealthAssets(targets),
     probeCert: probeCertificate,
     fetchDomain: fetchDomainFacts,
-    persist: (rows, options) => upsertDomainHealth(rows, options),
+    reconcile: (input) => reconcileDomainHealthAssets(input),
   })
 }

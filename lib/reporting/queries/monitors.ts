@@ -7,12 +7,12 @@ import { portableQueryValues } from "@/lib/db/query-values"
 import {
   incidents,
   metricRollups,
-  monitorDomainHealth,
   monitoringConfigSnapshots,
   monitorRegistry,
   monitorState,
 } from "@/lib/db/schema"
 import { listOverlappingDependencyIncidents } from "@/lib/dependencies/overlap"
+import { domainHealthByMonitorId } from "@/lib/domain-health/queries"
 import type { VisibleMonitorState } from "@/lib/monitoring/types"
 import {
   RECENT_MINUTE_CHECK_TAIL_COUNTS_SQL,
@@ -153,18 +153,9 @@ export const findMonitorIdentity = cache(async (id: string) => {
       lastErrorCode: monitorState.lastErrorCode,
       lastStatusCode: monitorState.lastStatusCode,
       consecutiveFailures: monitorState.consecutiveFailures,
-      apexDomain: monitorDomainHealth.apexDomain,
-      certExpiresAt: monitorDomainHealth.certExpiresAt,
-      certIssuer: monitorDomainHealth.certIssuer,
-      domainExpiresAt: monitorDomainHealth.domainExpiresAt,
-      domainRegistrar: monitorDomainHealth.domainRegistrar,
     })
     .from(monitorRegistry)
     .leftJoin(monitorState, eq(monitorState.monitorId, monitorRegistry.id))
-    .leftJoin(
-      monitorDomainHealth,
-      eq(monitorDomainHealth.monitorId, monitorRegistry.id)
-    )
     .where(and(eq(monitorRegistry.id, id), isNull(monitorRegistry.archivedAt)))
     .limit(1)
   if (!monitor || monitor.state === "ARCHIVED") {
@@ -305,6 +296,7 @@ export async function findMonitorDetail(id: string) {
     accepted,
     recentRawChecks,
     rawAvailability24h,
+    domainHealthById,
   ] = await Promise.all([
     fetchRollups(id, "15m", end15m, 7 * 86_400_000),
     fetchRollups(id, "hour", endHour, 30 * 86_400_000),
@@ -337,6 +329,7 @@ export async function findMonitorDetail(id: string) {
       new Date(end15m.getTime() - 86_400_000),
       end15m
     ),
+    domainHealthByMonitorId([{ id: monitor.id, url: monitor.url }]),
   ])
 
   // Derive the last 24 hours from the fetched seven days of rollups.
@@ -458,12 +451,12 @@ export async function findMonitorDetail(id: string) {
     // Daily facts from the check-domains cron. Nulls mean unknown (no RDAP
     // coverage, http-only monitor, or a cron that has not run yet), never a
     // problem to render.
-    domainHealth: {
-      apexDomain: monitor.apexDomain,
-      certExpiresAt: monitor.certExpiresAt?.toISOString() ?? null,
-      certIssuer: monitor.certIssuer,
-      domainExpiresAt: monitor.domainExpiresAt?.toISOString() ?? null,
-      domainRegistrar: monitor.domainRegistrar,
+    domainHealth: domainHealthById.get(monitor.id) ?? {
+      apexDomain: null,
+      certExpiresAt: null,
+      certIssuer: null,
+      domainExpiresAt: null,
+      domainRegistrar: null,
     },
     latestLatencyMs: monitor.latestLatencyMs,
     lastCheckedAt: monitor.lastCheckedAt?.toISOString() ?? null,

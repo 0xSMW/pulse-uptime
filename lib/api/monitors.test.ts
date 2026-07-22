@@ -1,4 +1,8 @@
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const { domainHealthByMonitorIdMock } = vi.hoisted(() => ({
+  domainHealthByMonitorIdMock: vi.fn(),
+}))
 
 vi.mock("server-only", () => ({}))
 vi.mock("@/lib/db/client", () => {
@@ -26,9 +30,13 @@ vi.mock("@/lib/monitoring/queries", () => ({
       new Map(ids.map((id) => [id, { uptime24h: 99.5, observedUptime: null }]))
   ),
 }))
+vi.mock("@/lib/domain-health/queries", () => ({
+  domainHealthByMonitorId: domainHealthByMonitorIdMock,
+}))
 
 import type { DatabaseHandle } from "@/lib/db/client"
 import { db } from "@/lib/db/client"
+import { domainHealthByMonitorId } from "@/lib/domain-health/queries"
 import { uptime24hByMonitorId } from "@/lib/monitoring/queries"
 
 import { applyConfigChange } from "./config-mutation"
@@ -56,6 +64,24 @@ const BASE_CONFIG = {
   groups: [],
   monitors: [EXISTING],
 }
+
+beforeEach(() => {
+  domainHealthByMonitorIdMock.mockReset()
+  domainHealthByMonitorIdMock.mockResolvedValue(
+    new Map([
+      [
+        "site-home",
+        {
+          apexDomain: "example.com",
+          certExpiresAt: "2026-11-12T13:14:15.000Z",
+          certIssuer: "Example CA",
+          domainExpiresAt: "2027-01-02T03:04:05.000Z",
+          domainRegistrar: "Example Registrar",
+        },
+      ],
+    ])
+  )
+})
 
 describe("monitor API request parsing", () => {
   it("applies the documented safe defaults to creates", () => {
@@ -170,8 +196,16 @@ describe("list uptime", () => {
       id: "site-home",
       uptime: 99.5,
       observedUptime: null,
+      certExpiresAt: "2026-11-12T13:14:15.000Z",
+      certIssuer: "Example CA",
+      domainExpiresAt: "2027-01-02T03:04:05.000Z",
+      domainRegistrar: "Example Registrar",
     })
+    expect(result.monitors[0]).not.toHaveProperty("apexDomain")
     expect(uptime24hByMonitorId).toHaveBeenCalledWith(["site-home"])
+    expect(domainHealthByMonitorId).toHaveBeenCalledWith([
+      { id: "site-home", url: "https://example.com" },
+    ])
   })
 
   it("passes the observed figure through for a collecting monitor", async () => {
@@ -307,7 +341,14 @@ describe("single monitor runtime state", () => {
       state: "UP",
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-02T03:04:05.000Z",
+      certExpiresAt: "2026-11-12T13:14:15.000Z",
+      domainExpiresAt: "2027-01-02T03:04:05.000Z",
     })
+    expect(monitor).not.toHaveProperty("apexDomain")
+    expect(domainHealthByMonitorId).toHaveBeenCalledWith(
+      [{ id: "site-home", url: "https://example.com" }],
+      handle
+    )
     expect(monitor).not.toHaveProperty("uptime")
   })
 

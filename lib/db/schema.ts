@@ -196,11 +196,53 @@ export const monitorState = pgTable(
   ]
 )
 
-// Daily domain and certificate facts per monitor, written only by the
-// check-domains cron. Kept apart from monitor_state so the versioned check
-// pipeline never contends with this row. All fact columns are nullable: a TLD
-// without RDAP coverage or an http-only monitor simply has no value, which no
-// surface may render as a problem.
+// Shared registrable-domain facts, written only by the check-domains cron.
+// checked_at records every attempted refresh while last_success_at records the
+// latest attempt that returned at least one fact. Nullable facts are unknown
+// and no surface may render them as a problem.
+export const domainHealthAssets = pgTable(
+  "domain_health_assets",
+  {
+    apexDomain: text("apex_domain").primaryKey(),
+    expiresAt: timestamptz("expires_at"),
+    registrar: text("registrar"),
+    checkedAt: timestamptz("checked_at"),
+    lastSuccessAt: timestamptz("last_success_at"),
+    lastReferencedAt: timestamptz("last_referenced_at").notNull(),
+  },
+  (table) => [
+    index("domain_health_assets_last_referenced").on(table.lastReferencedAt),
+  ]
+)
+
+// Shared leaf-certificate facts. The effective TLS port is part of identity,
+// so changing a monitor port naturally selects a different asset.
+export const certificateHealthAssets = pgTable(
+  "certificate_health_assets",
+  {
+    hostname: text("hostname").notNull(),
+    port: integer("port").notNull(),
+    expiresAt: timestamptz("expires_at"),
+    issuer: text("issuer"),
+    checkedAt: timestamptz("checked_at"),
+    lastSuccessAt: timestamptz("last_success_at"),
+    lastReferencedAt: timestamptz("last_referenced_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.hostname, table.port] }),
+    index("certificate_health_assets_last_referenced").on(
+      table.lastReferencedAt
+    ),
+    check(
+      "certificate_health_assets_port",
+      sql`${table.port} between 1 and 65535`
+    ),
+  ]
+)
+
+// Deprecated compatibility table retained for one expand-contract release.
+// New code must use the normalized asset tables above. Remove this declaration
+// only after all deployed readers and writers have moved off the legacy table.
 export const monitorDomainHealth = pgTable(
   "monitor_domain_health",
   {
