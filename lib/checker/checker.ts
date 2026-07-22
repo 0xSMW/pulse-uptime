@@ -29,6 +29,10 @@ import { parsePublicHttpUrl, validateCheckTarget } from "./validation"
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
 const MAX_REDIRECTS = 5
 const DEFAULT_USER_AGENT = "Pulse-Uptime/1.0"
+// Content checks scan only this many leading bytes of the final response, so a
+// huge body cannot hold a worker or its memory. Text past the cap is invisible
+// to the match by design.
+const CONTENT_SCAN_LIMIT_BYTES = 100 * 1024
 
 export type DispatcherFactory = (options: {
   origin: string
@@ -129,6 +133,54 @@ const defaultDispatcherFactory: DispatcherFactory = ({
     pipelining: 0,
   })
 
+/**
+ * Discards a response body. Destroying an unconsumed undici body errors the
+ * stream with an AbortError, and a stream error with no listener becomes an
+ * uncaught exception on a later tick that kills the process. Registering a
+ * no-op error listener first keeps every discard silent.
+ */
+function discardBody(body: CheckerResponse["body"]): void {
+  body.on?.("error", ignoreDiscardError)
+  body.destroy()
+}
+
+function ignoreDiscardError(): void {
+  // A discarded body's destroy error is expected and carries no signal.
+}
+
+/**
+ * Reads at most limitBytes from the response body into a UTF-8 string, then
+ * destroys the stream. A body without an async iterator (only mocks) reads as
+ * empty. A multi-byte character split at the cap decodes as a replacement
+ * character, which cannot produce a false positive match.
+ */
+async function readBodyPrefix(
+  body: CheckerResponse["body"],
+  limitBytes: number
+): Promise<string> {
+  const iterate = body[Symbol.asyncIterator]
+  if (!iterate) {
+    discardBody(body)
+    return ""
+  }
+  const chunks: Buffer[] = []
+  let total = 0
+  try {
+    const iterable = { [Symbol.asyncIterator]: () => iterate.call(body) }
+    for await (const chunk of iterable) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+      chunks.push(buffer)
+      total += buffer.length
+      if (total >= limitBytes) {
+        break
+      }
+    }
+  } finally {
+    discardBody(body)
+  }
+  return Buffer.concat(chunks).subarray(0, limitBytes).toString("utf8")
+}
+
 function headerValue(
   headers: CheckerResponse["headers"],
   name: string
@@ -228,7 +280,15 @@ export function createHttpChecker(dependencies: CheckerDependencies = {}) {
             headersTimeout: remaining,
             bodyTimeout: remaining,
             maxRedirections: 0,
-            headers: { "user-agent": userAgent },
+            headers: {
+              "user-agent": userAgent,
+              // Content checks scan raw bytes and never decompress. Absent
+              // Accept-Encoding permits any coding (RFC 9110 12.5.3), so a
+              // CDN's unsolicited gzip would read as a false mismatch.
+              ...(target.expectedText === undefined
+                ? {}
+                : { "accept-encoding": "identity" }),
+            },
           })
         } catch (error) {
           // No confirmed peer for this origin means null, even after a failed connect.
@@ -239,9 +299,9 @@ export function createHttpChecker(dependencies: CheckerDependencies = {}) {
         resolvedAddress = connectedAddresses.get(origin) ?? null
 
         statusCode = response.statusCode
-        response.body.destroy()
 
         if (REDIRECT_STATUSES.has(statusCode)) {
+          discardBody(response.body)
           const location = headerValue(response.headers, "location")
           if (!location) {
             return failure(metadata(), "INVALID_REDIRECT")
@@ -269,7 +329,25 @@ export function createHttpChecker(dependencies: CheckerDependencies = {}) {
           statusCode < target.expectedStatus.minimum ||
           statusCode > target.expectedStatus.maximum
         ) {
+          discardBody(response.body)
           return failure(metadata(), "INVALID_STATUS")
+        }
+
+        if (target.expectedText === undefined) {
+          discardBody(response.body)
+        } else {
+          let bodyPrefix: string
+          try {
+            bodyPrefix = await readBodyPrefix(
+              response.body,
+              CONTENT_SCAN_LIMIT_BYTES
+            )
+          } catch (error) {
+            return failure(metadata(), classifyCheckError(error))
+          }
+          if (!bodyPrefix.includes(target.expectedText)) {
+            return failure(metadata(), "CONTENT_MISMATCH")
+          }
         }
 
         return {
@@ -303,6 +381,9 @@ export function runManualCheck(
       method: options.method ?? "GET",
       timeoutMs: options.timeoutMs ?? 8000,
       expectedStatus: options.expectedStatus ?? { minimum: 200, maximum: 399 },
+      ...(options.expectedText === undefined
+        ? {}
+        : { expectedText: options.expectedText }),
     },
     { mode: "manual" }
   )

@@ -19,6 +19,7 @@ import {
   type LegacyMonitorConfig,
   type MonitorConfig,
   type MonitoringConfig,
+  normalizeMonitoringConfig,
   resolveMonitorRecipients,
   toMonitoringConfig,
   validateApplyPreconditions,
@@ -677,5 +678,59 @@ describe("authoritative destructive consent requirement", () => {
       baseConfigHash: hashDeclarativeConfig(current),
     })
     expect(plan.destructiveConsentRequired).toBe(false)
+  })
+})
+
+describe("expectedText content checks", () => {
+  it("accepts an omitted expectedText and a GET monitor with one", () => {
+    expect(() =>
+      validateMonitoringConfig(runtime([monitor("plain")]))
+    ).not.toThrow()
+    expect(() =>
+      validateMonitoringConfig(
+        runtime([monitor("content", { expectedText: "Sign in" })])
+      )
+    ).not.toThrow()
+  })
+
+  it("rejects expectedText on HEAD monitors", () => {
+    expect(() =>
+      validateMonitoringConfig(
+        runtime([monitor("head", { method: "HEAD", expectedText: "Sign in" })])
+      )
+    ).toThrow(/expectedText requires method GET/)
+  })
+
+  it("rejects empty, oversized, and control-character text", () => {
+    for (const expectedText of ["", "   ", "a".repeat(257), "bad\u0007text"]) {
+      expect(() =>
+        validateMonitoringConfig(runtime([monitor("m", { expectedText })]))
+      ).toThrow()
+    }
+  })
+
+  it("keeps the canonical hash of configs without expectedText unchanged", () => {
+    const before = hashMonitoringConfig(runtime([monitor("stable")]))
+    const after = hashMonitoringConfig(
+      validateMonitoringConfig(runtime([monitor("stable")]))
+    )
+    expect(after).toBe(before)
+  })
+
+  it("changes the canonical hash only for the monitor that adds text", () => {
+    const withText = hashMonitoringConfig(
+      runtime([monitor("stable", { expectedText: "ok" })])
+    )
+    const withoutText = hashMonitoringConfig(runtime([monitor("stable")]))
+    expect(withText).not.toBe(withoutText)
+  })
+
+  it("survives normalization verbatim", () => {
+    const normalized = normalizeMonitoringConfig(
+      runtime([monitor("keep", { expectedText: "Sign in" })])
+    )
+    expect(normalized.monitors[0]?.expectedText).toBe("Sign in")
+    const absent = normalizeMonitoringConfig(runtime([monitor("keep")]))
+    expect("expectedText" in (absent.monitors[0] ?? {})).toBe(false)
   })
 })

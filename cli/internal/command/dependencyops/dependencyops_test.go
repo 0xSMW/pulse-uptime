@@ -60,15 +60,15 @@ func TestCatalogUsesCanonicalEndpointAndScope(t *testing.T) {
 		t.Fatalf("request = %#v", request)
 	}
 	out := stdout.String()
-	if !strings.Contains(out, "ID\tNAME\tCATEGORY\tPROVIDER\tREGION\tINSTALLED") {
+	if !strings.Contains(out, "ID                      NAME                    CATEGORY  PROVIDER  REGION    INSTALLED\n") {
 		t.Fatalf("missing header: %q", out)
 	}
 	for _, row := range []string{
-		"openai_api\tOpenAI API\tai\tOpenAI\t\tyes",
-		"chatgpt\tChatGPT\tai\tOpenAI\t\t",
-		"neon_database\tNeon Database\tdata\tNeon\trequired\taws-us-east-1",
-		"upstash_redis_regional\tUpstash Redis Regional\tdata\tUpstash\trequired\t",
-		"upstash_redis_global\tUpstash Redis Global\tdata\tUpstash\t\t",
+		"openai_api              OpenAI API              ai        OpenAI              yes\n",
+		"chatgpt                 ChatGPT                 ai        OpenAI              \n",
+		"neon_database           Neon Database           data      Neon      required  aws-us-east-1\n",
+		"upstash_redis_regional  Upstash Redis Regional  data      Upstash   required  \n",
+		"upstash_redis_global    Upstash Redis Global    data      Upstash             \n",
 	} {
 		if !strings.Contains(out, row) {
 			t.Errorf("missing row %q in:\n%s", row, out)
@@ -160,25 +160,22 @@ func TestListSendsCursorAndLimitAndRendersTable(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := stdout.String()
-	if !strings.Contains(out, "STATE\tNAME\tPROVIDER\tREGION\tINCIDENT\tUPDATED") {
+	if !strings.Contains(out, "STATE        NAME            PROVIDER  REGION   INCIDENT              UPDATED\n") {
 		t.Fatalf("missing header: %q", out)
 	}
-	if !strings.Contains(out, "OPERATIONAL\tVercel Runtime\tVercel\t\t\t") {
+	if !strings.Contains(out, "OPERATIONAL  Vercel Runtime  Vercel                                   \n") {
 		t.Fatalf("missing operational row: %q", out)
 	}
-	if !strings.Contains(out, "DEGRADED\tStripe API\tStripe\tUS East\tElevated error rates\t2026-07-19T00:00:00Z") {
+	if !strings.Contains(out, "DEGRADED     Stripe API      Stripe    US East  Elevated error rates  2026-07-19T00:00:00Z\n") {
 		t.Fatalf("missing degraded row: %q", out)
 	}
-	// Provider reported caption belongs on stderr, never inside the piped table data.
-	if strings.Contains(out, "provider reported") {
-		t.Fatalf("caption leaked into stdout table data: %q", out)
-	}
-	if !strings.Contains(stderr.String(), "provider reported") {
-		t.Fatalf("missing provider reported caption on stderr: %q", stderr.String())
+	// The list renders pure data, no advisory caption on either stream.
+	if strings.Contains(out, "provider reported") || strings.Contains(stderr.String(), "provider reported") {
+		t.Fatalf("unexpected caption: stdout=%q stderr=%q", out, stderr.String())
 	}
 }
 
-func TestListTSVKeepsCaptionOffStdout(t *testing.T) {
+func TestListTSVEmitsNoCaption(t *testing.T) {
 	dep1 := `{"id":"dep-1","presetId":"vercel_runtime","name":"Vercel Runtime","provider":"Vercel","state":"OPERATIONAL","providerUpdatedAt":null,"activeIncidentTitle":null}`
 	client := &fakeClient{do: func(r Request) error {
 		setListResult(t, r.Result, []string{dep1}, nil)
@@ -193,11 +190,8 @@ func TestListTSVKeepsCaptionOffStdout(t *testing.T) {
 	if !strings.Contains(stdout.String(), "OPERATIONAL\tVercel Runtime\tVercel\t\t\t") {
 		t.Fatalf("missing tsv row: %q", stdout.String())
 	}
-	if strings.Contains(stdout.String(), "provider reported") {
-		t.Fatalf("caption leaked into tsv stdout: %q", stdout.String())
-	}
-	if !strings.Contains(stderr.String(), "provider reported") {
-		t.Fatalf("missing provider reported caption on stderr: %q", stderr.String())
+	if strings.Contains(stdout.String(), "provider reported") || strings.Contains(stderr.String(), "provider reported") {
+		t.Fatalf("unexpected caption: stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 }
 
@@ -313,6 +307,28 @@ func TestGetEscapesIDAndRendersDetail(t *testing.T) {
 	}
 	if strings.Contains(out, "Past incident") {
 		t.Errorf("resolved incident should be trimmed from human output: %s", out)
+	}
+}
+
+func TestGetOmitsRegionRowWithoutComponentLabel(t *testing.T) {
+	detail := `{"id":"dep-1","presetId":"anthropic_api","name":"Anthropic API","provider":"Anthropic","state":"OPERATIONAL","notificationsEnabled":true,"canonicalUrl":"https://status.claude.com/","incidents":[]}`
+	client := &fakeClient{do: func(r Request) error {
+		doc := r.Result.(*Envelope)
+		*doc = Envelope{APIVersion: "v1", Kind: "Dependency", Data: json.RawMessage(detail)}
+		return nil
+	}}
+	var stdout bytes.Buffer
+	cmd := NewGroup(Dependencies{Client: client, Out: &stdout, Format: func() string { return "table" }})
+	cmd.SetArgs([]string{"get", "dep-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	out := stdout.String()
+	if strings.Contains(out, "Region") {
+		t.Fatalf("unscoped dependency must not render a Region row: %q", out)
+	}
+	if !strings.Contains(out, "Provider      Anthropic") {
+		t.Fatalf("missing provider row: %q", out)
 	}
 }
 

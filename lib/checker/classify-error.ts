@@ -42,7 +42,12 @@ export function classifyCheckError(error: unknown): CheckErrorCode {
     if (item instanceof MonitorValidationError) {
       return "INVALID_URL"
     }
-    if (item instanceof DOMException && item.name === "AbortError") {
+    // AbortSignal.timeout surfaces TimeoutError; a plain abort surfaces
+    // AbortError. Both bound the check's time budget.
+    if (
+      item instanceof DOMException &&
+      (item.name === "AbortError" || item.name === "TimeoutError")
+    ) {
       return "TIMEOUT"
     }
     const code =
@@ -84,6 +89,7 @@ export const ERROR_MESSAGES: Record<CheckErrorCode, string> = {
   TOO_MANY_REDIRECTS: "Too many redirects",
   INVALID_REDIRECT: "Redirect destination is invalid",
   INVALID_STATUS: "Response status was outside the expected range",
+  CONTENT_MISMATCH: "Expected text was not found in the response body",
   BLOCKED_TARGET: "Target is not publicly routable",
   INVALID_URL: "Target URL is invalid",
   RESPONSE_ERROR: "Response could not be read",

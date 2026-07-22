@@ -7,6 +7,7 @@ import {
   monitorRegistry,
   monitorState,
 } from "@/lib/db/schema"
+import { domainHealthByMonitorId } from "@/lib/domain-health/queries"
 import {
   isRangeUnlocked,
   rollupsSinceActivation,
@@ -137,12 +138,26 @@ function uptime24hSql(start15m: Date, end15m: Date) {
       )`
 }
 
-// Locked windows read null so a monitor still collecting its first full day
-// reports no uptime rather than a partial figure, the same gate the
-// dashboard's collecting placeholder uses.
-export async function uptime24hByMonitorId(ids: readonly string[]) {
+export interface MonitorListUptime {
+  uptime24h: number | null
+  observedUptime: number | null
+}
+
+// The settled figure stays null until the 24 hour window unlocks, the same
+// gate the dashboard's collecting placeholder uses. A still-locked monitor
+// carries the same expression's value in observedUptime instead: activation
+// lies inside the 24 hour window for every locked monitor, so the SQL's
+// activation clamp makes the value the since-activation figure, matching the
+// detail header's h24 range figure. It reads null until the first
+// post-activation bucket completes, roughly the first quarter hour of a
+// monitor's life, for an unlocked window with no data, and for a
+// never-activated monitor.
+export async function uptime24hByMonitorId(
+  ids: readonly string[]
+): Promise<Map<string, MonitorListUptime>> {
+  const result = new Map<string, MonitorListUptime>()
   if (ids.length === 0) {
-    return new Map<string, number | null>()
+    return result
   }
   const { start15m, end15m } = completed24hWindow()
   const rows = await db
@@ -154,14 +169,15 @@ export async function uptime24hByMonitorId(ids: readonly string[]) {
     .from(monitorRegistry)
     .leftJoin(monitorState, eq(monitorState.monitorId, monitorRegistry.id))
     .where(inArray(monitorRegistry.id, [...ids]))
-  return new Map<string, number | null>(
-    rows.map((row) => [
-      row.id,
-      row.uptime24h !== null && isRangeUnlocked("h24", row.activatedAt, end15m)
-        ? Number(row.uptime24h)
-        : null,
-    ])
-  )
+  for (const row of rows) {
+    const rangeUnlocked = isRangeUnlocked("h24", row.activatedAt, end15m)
+    const value = row.uptime24h === null ? null : Number(row.uptime24h)
+    result.set(row.id, {
+      uptime24h: rangeUnlocked ? value : null,
+      observedUptime: !rangeUnlocked && row.activatedAt !== null ? value : null,
+    })
+  }
+  return result
 }
 
 export async function listDashboardMonitors() {
@@ -197,30 +213,43 @@ export async function listDashboardMonitors() {
   // counts as covered. A bucket with neither a rollup nor a surviving raw row
   // stays no-data.
   const monitorIds = rows.map((row) => row.id)
-  const timelineRollups = rows.length
-    ? await db
-        .select({
-          monitorId: metricRollups.monitorId,
-          bucketStart: metricRollups.bucketStart,
-          expectedChecks: metricRollups.expectedChecks,
-          completedChecks: metricRollups.completedChecks,
-          successfulChecks: metricRollups.successfulChecks,
-          failedChecks: metricRollups.failedChecks,
-          unknownChecks: metricRollups.unknownChecks,
-          downtimeSeconds: metricRollups.downtimeSeconds,
-        })
-        .from(metricRollups)
-        .where(
-          and(
-            inArray(metricRollups.monitorId, monitorIds),
-            eq(metricRollups.resolution, "15m"),
-            gte(metricRollups.bucketStart, start15m),
-            lt(metricRollups.bucketStart, end15m)
+  // One grouped raw scan for the same window and the same monitors, the timeline
+  // twin of the uptime figure's raw side. It decodes check_batches bitmaps over
+  // a bounded 24h range and groups into 15m buckets with the same expected/
+  // completed/failure rules as compaction, so scheduler gaps surface as unknown
+  // rather than perfect coverage. The anti-join that keeps a bucket from being
+  // counted twice runs in blendRawAvailability below, against the rollup buckets
+  // already in hand, so this fetch needs no rollup join of its own.
+  const [health, timelineRollups, timelineRawBuckets] = await Promise.all([
+    domainHealthByMonitorId(rows.map((row) => ({ id: row.id, url: row.url }))),
+    rows.length
+      ? db
+          .select({
+            monitorId: metricRollups.monitorId,
+            bucketStart: metricRollups.bucketStart,
+            expectedChecks: metricRollups.expectedChecks,
+            completedChecks: metricRollups.completedChecks,
+            successfulChecks: metricRollups.successfulChecks,
+            failedChecks: metricRollups.failedChecks,
+            unknownChecks: metricRollups.unknownChecks,
+            downtimeSeconds: metricRollups.downtimeSeconds,
+          })
+          .from(metricRollups)
+          .where(
+            and(
+              inArray(metricRollups.monitorId, monitorIds),
+              eq(metricRollups.resolution, "15m"),
+              gte(metricRollups.bucketStart, start15m),
+              lt(metricRollups.bucketStart, end15m)
+            )
           )
-        )
-        .orderBy(metricRollups.bucketStart)
-    : []
-  const rollupsByMonitor = new Map<string, typeof timelineRollups>()
+          .orderBy(metricRollups.bucketStart)
+      : Promise.resolve([]),
+    rows.length
+      ? fetchRawAvailabilityBuckets(monitorIds, start15m, end15m)
+      : Promise.resolve([]),
+  ])
+  const rollupsByMonitor = new Map<string, (typeof timelineRollups)[number][]>()
   for (const rollup of timelineRollups) {
     const list = rollupsByMonitor.get(rollup.monitorId)
     if (list) {
@@ -229,17 +258,6 @@ export async function listDashboardMonitors() {
       rollupsByMonitor.set(rollup.monitorId, [rollup])
     }
   }
-
-  // One grouped raw scan for the same window and the same monitors, the timeline
-  // twin of the uptime figure's raw side. It decodes check_batches bitmaps over
-  // a bounded 24h range and groups into 15m buckets with the same expected/
-  // completed/failure rules as compaction, so scheduler gaps surface as unknown
-  // rather than perfect coverage. The anti-join that keeps a bucket from being
-  // counted twice runs in blendRawAvailability below, against the rollup buckets
-  // already in hand, so this fetch needs no rollup join of its own.
-  const timelineRawBuckets = rows.length
-    ? await fetchRawAvailabilityBuckets(monitorIds, start15m, end15m)
-    : []
   const rawByMonitor = new Map<string, RawBucketAvailability[]>()
   for (const raw of timelineRawBuckets) {
     const { monitorId, ...bucket } = raw
@@ -262,6 +280,8 @@ export async function listDashboardMonitors() {
           state: row.state ?? ("PENDING" as const),
           lastCheckedAt: row.lastCheckedAt?.toISOString() ?? null,
           activatedAt: row.activatedAt?.toISOString() ?? null,
+          certExpiresAt: health.get(row.id)?.certExpiresAt ?? null,
+          domainExpiresAt: health.get(row.id)?.domainExpiresAt ?? null,
           activeIncidentOpenedAt:
             row.activeIncidentOpenedAt?.toISOString() ?? null,
           // 32 buckets of 45 minutes each, the table's compact cousin of the

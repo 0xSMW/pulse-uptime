@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
 
+import { VercelAnalytics } from "@/components/analytics"
 import { ThemeProvider } from "@/components/dashboard/theme-provider"
 import { TimezoneProvider } from "@/components/dashboard/timezone-provider"
 
@@ -44,6 +45,7 @@ export default function RootLayout({
         <ThemeProvider defaultTheme="dark" enableSystem>
           <TimezoneProvider>{children}</TimezoneProvider>
         </ThemeProvider>
+        <VercelAnalytics />
       </body>
     </html>
   )

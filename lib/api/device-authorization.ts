@@ -2,15 +2,22 @@ import "server-only"
 
 import { and, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm"
 
-import { type DatabaseHandle, db } from "@/lib/db/client"
+import { trackEvent } from "@/lib/analytics-server"
 import {
+  type DatabaseHandle,
+  type DatabaseTransaction,
+  db,
+} from "@/lib/db/client"
+import {
+  adminUsers,
   apiIdempotency,
   apiTokens,
   cliInstallations,
   cliSessions,
   deviceAuthorizations,
+  humanSessions,
 } from "@/lib/db/schema"
-
+import { lockMachineCredentialChanges } from "./machine-credential-lock"
 import type { HumanPrincipal } from "./principal"
 import { ADMINISTRATOR_SCOPES, resolveScopeProfile } from "./scopes"
 import {
@@ -115,16 +122,38 @@ export async function findPendingDeviceAuthorization(
 
 export async function approveDeviceAuthorization(
   userCode: string,
-  human: Pick<HumanPrincipal, "id" | "email">,
+  human: Pick<HumanPrincipal, "id" | "sessionId" | "email">,
   now = new Date()
 ): Promise<PendingDeviceAuthorization | null> {
   const normalized = normalizeUserCode(userCode)
   return db.transaction(async (tx) => {
+    await lockMachineCredentialChanges(tx)
+    const [activeHuman] = await tx
+      .select({ email: adminUsers.email })
+      .from(humanSessions)
+      .innerJoin(adminUsers, eq(adminUsers.id, humanSessions.userId))
+      .where(
+        and(
+          eq(humanSessions.id, human.sessionId),
+          eq(humanSessions.userId, human.id),
+          isNull(humanSessions.revokedAt),
+          gt(humanSessions.expiresAt, now),
+          eq(adminUsers.role, "admin")
+        )
+      )
+      .for("update")
+      .limit(1)
+    if (!activeHuman) {
+      throw new DeviceAuthorizationError(
+        "access_denied",
+        "Administrator session is no longer active"
+      )
+    }
     const [authorization] = await tx
       .update(deviceAuthorizations)
       .set({
         state: "approved",
-        approvedByEmail: human.email,
+        approvedByEmail: activeHuman.email,
         approvedAt: now,
       })
       .where(
@@ -157,7 +186,7 @@ export async function approveDeviceAuthorization(
       .values({
         id: crypto.randomUUID(),
         installationKey: authorization.installationKey,
-        userEmail: human.email,
+        userEmail: activeHuman.email,
         displayName: authorization.installationName,
         platform: authorization.platform,
         architecture: authorization.architecture,
@@ -168,7 +197,7 @@ export async function approveDeviceAuthorization(
       .onConflictDoUpdate({
         target: cliInstallations.installationKey,
         set: {
-          userEmail: human.email,
+          userEmail: activeHuman.email,
           displayName: authorization.installationName,
           platform: authorization.platform,
           architecture: authorization.architecture,
@@ -177,6 +206,7 @@ export async function approveDeviceAuthorization(
           revokedAt: null,
         },
       })
+    trackEvent("CLI Authorized")
     return {
       id: authorization.id,
       userCode: authorization.userCode,
@@ -405,6 +435,7 @@ export async function pollDeviceAuthorization(
       }
     }
 
+    await lockMachineCredentialChanges(tx)
     const [installation] = await tx
       .select({
         id: cliInstallations.id,
@@ -417,6 +448,7 @@ export async function pollDeviceAuthorization(
           isNull(cliInstallations.revokedAt)
         )
       )
+      .for("update")
       .limit(1)
     if (!installation) {
       return {
@@ -481,36 +513,117 @@ export async function revokeCliInstallation(
     return false
   }
   return handle.transaction(async (tx) => {
+    await lockMachineCredentialChanges(tx)
     const [session] = await tx
       .select({ installationId: cliSessions.installationId })
       .from(cliSessions)
       .where(eq(cliSessions.id, principal.id))
+      .for("update")
       .limit(1)
     if (!session) {
       return false
     }
-    const sessions = await tx
-      .select({ id: cliSessions.id })
-      .from(cliSessions)
-      .where(eq(cliSessions.installationId, session.installationId))
+    await revokeInstallationInTransaction(tx, session.installationId, now)
+    return true
+  })
+}
+
+export interface MachineCredentialRevocationResult {
+  installations: number
+  sessions: number
+  tokens: number
+}
+
+export async function revokeCliInstallationById(
+  installationId: string,
+  now = new Date(),
+  handle: DatabaseHandle = db
+): Promise<MachineCredentialRevocationResult | null> {
+  return handle.transaction(async (tx) => {
+    await lockMachineCredentialChanges(tx)
+    return revokeInstallationInTransaction(tx, installationId, now)
+  })
+}
+
+export async function revokeAllMachineCredentials(
+  now = new Date(),
+  handle: DatabaseHandle = db
+): Promise<MachineCredentialRevocationResult> {
+  return handle.transaction(async (tx) => {
+    await lockMachineCredentialChanges(tx)
     await tx
+      .select({ id: cliInstallations.id })
+      .from(cliInstallations)
+      .for("update")
+    await tx.select({ id: cliSessions.id }).from(cliSessions).for("update")
+    await tx.select({ id: apiTokens.id }).from(apiTokens).for("update")
+
+    const revokedInstallations = await tx
       .update(cliInstallations)
       .set({ revokedAt: now })
-      .where(eq(cliInstallations.id, session.installationId))
-    await tx
+      .where(isNull(cliInstallations.revokedAt))
+      .returning({ id: cliInstallations.id })
+    const revokedSessions = await tx
       .update(cliSessions)
       .set({ revokedAt: now })
-      .where(
-        and(
-          eq(cliSessions.installationId, session.installationId),
-          isNull(cliSessions.revokedAt)
-        )
+      .where(isNull(cliSessions.revokedAt))
+      .returning({ id: cliSessions.id })
+    const revokedTokens = await tx
+      .update(apiTokens)
+      .set({ revokedAt: now })
+      .where(isNull(apiTokens.revokedAt))
+      .returning({ id: apiTokens.id })
+
+    return {
+      installations: revokedInstallations.length,
+      sessions: revokedSessions.length,
+      tokens: revokedTokens.length,
+    }
+  })
+}
+
+async function revokeInstallationInTransaction(
+  tx: DatabaseTransaction,
+  installationId: string,
+  now: Date
+): Promise<MachineCredentialRevocationResult | null> {
+  const [installation] = await tx
+    .select({ id: cliInstallations.id, revokedAt: cliInstallations.revokedAt })
+    .from(cliInstallations)
+    .where(eq(cliInstallations.id, installationId))
+    .for("update")
+    .limit(1)
+  if (!installation) {
+    return null
+  }
+  const sessions = await tx
+    .select({ id: cliSessions.id })
+    .from(cliSessions)
+    .where(eq(cliSessions.installationId, installationId))
+    .for("update")
+  const revokedInstallations = await tx
+    .update(cliInstallations)
+    .set({ revokedAt: now })
+    .where(
+      and(
+        eq(cliInstallations.id, installationId),
+        isNull(cliInstallations.revokedAt)
       )
-    // Cascade to any API tokens minted by this installation's CLI sessions so removing
-    // the installation cannot leave a live descendant credential behind.
-    const creators = sessions.map((row) => `cli_session:${row.id}`)
-    if (creators.length > 0) {
-      await tx
+    )
+    .returning({ id: cliInstallations.id })
+  const revokedSessions = await tx
+    .update(cliSessions)
+    .set({ revokedAt: now })
+    .where(
+      and(
+        eq(cliSessions.installationId, installationId),
+        isNull(cliSessions.revokedAt)
+      )
+    )
+    .returning({ id: cliSessions.id })
+  const creators = sessions.map((row) => `cli_session:${row.id}`)
+  const revokedTokens = creators.length
+    ? await tx
         .update(apiTokens)
         .set({ revokedAt: now })
         .where(
@@ -519,9 +632,13 @@ export async function revokeCliInstallation(
             isNull(apiTokens.revokedAt)
           )
         )
-    }
-    return true
-  })
+        .returning({ id: apiTokens.id })
+    : []
+  return {
+    installations: revokedInstallations.length,
+    sessions: revokedSessions.length,
+    tokens: revokedTokens.length,
+  }
 }
 
 export async function resolveRevokedCliRevokeReplay(

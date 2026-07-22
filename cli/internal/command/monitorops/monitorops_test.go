@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -112,6 +113,59 @@ func TestListEmptyDataSerializesAsArray(t *testing.T) {
 	}
 	if !bytes.Contains(encoded, []byte(`"data":[]`)) {
 		t.Fatalf("output = %s", encoded)
+	}
+}
+
+func TestListTableUptimeMatchesDetailFormat(t *testing.T) {
+	// Settled figures render with the detail view's precision, four decimals
+	// above 99, and a collecting monitor falls back to its observed
+	// since-activation figure instead of a blank placeholder.
+	rows := []string{
+		`{"id":"smw-ai","name":"SMW.AI","state":"UP","uptime":100}`,
+		`{"id":"agilefirst-io","name":"agilefirst.io","state":"UP","observedUptime":99.981}`,
+		`{"id":"flaky-io","name":"flaky.io","state":"UP","uptime":98.7}`,
+		`{"id":"thesubvertiser-com","name":"thesubvertiser.com","state":"PENDING"}`,
+	}
+	client := clientFunc(func(_ context.Context, r Request) error {
+		setListResult(t, r.Result, rows, nil)
+		return nil
+	})
+	var stdout bytes.Buffer
+	cmd := NewGroup(Dependencies{Client: client, Out: &stdout, Format: func() string { return "table" }})
+	cmd.SetArgs([]string{"list"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	out := stdout.String()
+	for _, want := range []string{"100%", "99.981%", "98.7%", "—"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "100.0000%") || strings.Contains(out, "99.9810%") {
+		t.Fatalf("trailing zeros must be trimmed: %q", out)
+	}
+}
+
+func TestFormatUptimePercent(t *testing.T) {
+	cases := map[string]string{
+		"100":      "100%",
+		"100.0000": "100%",
+		"99.9999":  "99.9999%",
+		"99.9990":  "99.999%",
+		"99.995":   "99.995%",
+		"99.981":   "99.981%",
+		"99.9":     "99.9%",
+		"99":       "99%",
+		"98.7654":  "98.77%",
+		"0":        "0%",
+		"":         "",
+		"not-a-nr": "",
+	}
+	for in, want := range cases {
+		if got := formatUptimePercent(json.Number(in)); got != want {
+			t.Errorf("formatUptimePercent(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 
@@ -497,5 +551,33 @@ func TestExactMonitorIDUnitHelper(t *testing.T) {
 	}
 	if _, err := exactMonitorID(nil, ""); err == nil {
 		t.Fatal("expected missing id to fail")
+	}
+}
+
+func TestHumanWatchAndCursorOutputNeutralizeTerminalEscapes(t *testing.T) {
+	var out bytes.Buffer
+	var stderr bytes.Buffer
+	event := WatchEvent{
+		Type:       "state_changed",
+		ObservedAt: "now\x1b[2K",
+		MonitorID:  "api\x07",
+		From:       "UP\nforged",
+		To:         "DOWN\u202e",
+	}
+	if err := renderWatch(Dependencies{Out: &out, Err: &stderr}, "table", event); err != nil {
+		t.Fatal(err)
+	}
+	cursor := "next\x1b]52;c;copied\x07"
+	if err := renderList(Dependencies{Out: &out, Err: &stderr}, "table", ListEnvelope{Meta: Meta{NextCursor: &cursor}}); err != nil {
+		t.Fatal(err)
+	}
+	combined := out.String() + stderr.String()
+	if strings.ContainsAny(combined, "\x1b\x07") || strings.ContainsRune(combined, '\u202e') {
+		t.Fatalf("human output leaked terminal controls: %q", combined)
+	}
+	for _, want := range []string{`\x1b`, `\x07`, `\x0a`, `\u202e`} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("human output %q missing %q", combined, want)
+		}
 	}
 }

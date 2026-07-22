@@ -65,6 +65,9 @@ const ALLOWED_REPORTING_TABLES = new Set([
   "metric_rollups",
   "incidents",
   "monitoring_config_snapshots",
+  // Shared daily domain and certificate facts enrich monitor detail.
+  "domain_health_assets",
+  "certificate_health_assets",
 ])
 
 let captured: Set<unknown>
@@ -168,6 +171,8 @@ describe("rollup reporting boundaries", () => {
       tables.add(table)
     }
     assertBoundary(tables)
+    expect(tables.has("domain_health_assets")).toBe(true)
+    expect(tables.has("certificate_health_assets")).toBe(true)
   })
 
   it("public status reads target metric_rollups and no legacy raw telemetry", async () => {

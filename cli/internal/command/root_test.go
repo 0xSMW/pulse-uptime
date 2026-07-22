@@ -19,11 +19,12 @@ import (
 	"github.com/0xSMW/pulse-uptime/cli/internal/auth"
 	"github.com/0xSMW/pulse-uptime/cli/internal/buildinfo"
 	"github.com/0xSMW/pulse-uptime/cli/internal/config"
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
 
 func TestFullAccessRequiresEveryScope(t *testing.T) {
-	all := []string{"config:read", "config:write", "dependencies:read", "dependencies:write", "incidents:read", "monitors:read", "monitors:write", "notifications:test", "reports:read", "reports:write", "status:read", "tokens:manage"}
+	all := []string{"config:read", "config:write", "dependencies:read", "dependencies:write", "incidents:read", "monitors:read", "monitors:write", "notifications:test", "reports:read", "reports:write", "status:read", "tokens:manage", "users:manage"}
 	if !fullAccess(all) {
 		t.Fatalf("full scope set was not recognized as full access")
 	}
@@ -122,6 +123,30 @@ func TestMeMapsServiceErrorsAndPreservesRequestID(t *testing.T) {
 	}
 }
 
+func TestHumanErrorsAndRequestIDsNeutralizeTerminalEscapes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, "{\"error\":{\"code\":\"SCOPE_DENIED\",\"message\":\"denied\\u001b]52;c;copied\\u0007\\nforged\",\"requestId\":\"req\\u001b[2K\\u0007\"}}")
+	}))
+	defer server.Close()
+	t.Setenv("PULSECTL_URL", server.URL)
+	t.Setenv("PULSECTL_TOKEN", "pulse_live_secret")
+	t.Setenv("PULSECTL_OUTPUT", "table")
+
+	code, _, stderr := execute(t, "me")
+	if code != ExitPermission {
+		t.Fatalf("code=%d stderr=%q", code, stderr)
+	}
+	if strings.ContainsAny(stderr, "\x1b\x07") {
+		t.Fatalf("human error leaked terminal controls: %q", stderr)
+	}
+	for _, want := range []string{`\x1b`, `\x07`, `\x0a`} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr %q missing %q", stderr, want)
+		}
+	}
+}
+
 func TestReportScopeDenialIncludesRolloutHint(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
@@ -176,7 +201,7 @@ func TestJSONHelpIsGeneratedFromCommandTree(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.SchemaVersion != 1 || got.Binary != "pulsectl" || len(got.Commands) != 57 {
+	if got.SchemaVersion != 1 || got.Binary != "pulsectl" || len(got.Commands) != 62 {
 		t.Fatalf("incomplete manifest: %#v", got)
 	}
 	for _, item := range got.Commands {
@@ -532,4 +557,69 @@ func execute(t *testing.T, args ...string) (int, string, string) {
 	app := New(Options{In: strings.NewReader(""), Out: &stdout, Err: &stderr, ConfigPath: t.TempDir() + "/missing.yaml"})
 	code := app.Execute(args)
 	return code, stdout.String(), stderr.String()
+}
+
+func TestRootVersionFlagPrintsLocalVersion(t *testing.T) {
+	for _, flag := range []string{"--version", "-v"} {
+		code, stdout, stderr := execute(t, flag)
+		if code != 0 || stderr != "" {
+			t.Fatalf("%s: code=%d stderr=%q", flag, code, stderr)
+		}
+		want := "pulsectl version " + buildinfo.Version + "\n"
+		if stdout != want {
+			t.Fatalf("%s printed %q, want %q", flag, stdout, want)
+		}
+	}
+}
+
+func TestAliasesResolveToCanonicalCommands(t *testing.T) {
+	root := New(Options{}).Root()
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"whoami"}, "pulsectl me"},
+		{[]string{"st"}, "pulsectl status"},
+		{[]string{"monitors", "ls"}, "pulsectl monitor list"},
+		{[]string{"mon", "rm"}, "pulsectl monitor archive"},
+		{[]string{"deps", "show"}, "pulsectl dependency get"},
+		{[]string{"incidents", "ls"}, "pulsectl incident list"},
+		{[]string{"reports", "new"}, "pulsectl report create"},
+		{[]string{"tokens", "delete"}, "pulsectl token revoke"},
+		{[]string{"ctx", "get"}, "pulsectl context show"},
+		{[]string{"auth", "logout"}, "pulsectl auth unlink"},
+		{[]string{"statuspage", "update"}, "pulsectl status-page set"},
+		{[]string{"groups", "add"}, "pulsectl group create"},
+	}
+	for _, tc := range cases {
+		target, _, err := root.Find(tc.args)
+		if err != nil {
+			t.Fatalf("%v did not resolve: %v", tc.args, err)
+		}
+		if got := target.CommandPath(); got != tc.want {
+			t.Fatalf("%v resolved to %q, want %q", tc.args, got, tc.want)
+		}
+	}
+}
+
+// TestNoSiblingAliasCollisions sweeps the whole tree and asserts every name
+// and alias is claimed by exactly one child within each parent, so a new
+// alias can never silently shadow a sibling command.
+func TestNoSiblingAliasCollisions(t *testing.T) {
+	root := New(Options{}).Root()
+	var visit func(cmd *cobra.Command)
+	visit = func(cmd *cobra.Command) {
+		claimed := map[string]string{}
+		for _, child := range cmd.Commands() {
+			for _, token := range append([]string{child.Name()}, child.Aliases...) {
+				if owner, ok := claimed[token]; ok {
+					t.Errorf("%s: %q is claimed by both %q and %q", cmd.CommandPath(), token, owner, child.Name())
+					continue
+				}
+				claimed[token] = child.Name()
+			}
+			visit(child)
+		}
+	}
+	visit(root)
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "monitor_domain_health" ADD COLUMN "cert_port" integer;

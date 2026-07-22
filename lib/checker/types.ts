@@ -9,6 +9,7 @@ const CHECK_ERROR_CODES = [
   "TOO_MANY_REDIRECTS",
   "INVALID_REDIRECT",
   "INVALID_STATUS",
+  "CONTENT_MISMATCH",
   "BLOCKED_TARGET",
   "INVALID_URL",
   "RESPONSE_ERROR",
@@ -24,6 +25,7 @@ export interface CheckTarget {
   method: CheckMethod
   timeoutMs: number
   expectedStatus: { minimum: number; maximum: number }
+  expectedText?: string
 }
 
 interface CheckMetadata {
@@ -48,6 +50,13 @@ export type CheckResult =
 
 interface ResponseBody {
   destroy: (error?: Error) => void
+  // Present on real undici bodies. Discard paths register a no-op error
+  // listener through it before destroy, so destroying an unconsumed body
+  // cannot raise an uncaught stream error.
+  on?: (event: "error", listener: (error: Error) => void) => unknown
+  // Present on real undici bodies; content checks read through it. A mock
+  // without an iterator behaves as an empty body.
+  [Symbol.asyncIterator]?: () => AsyncIterator<Buffer | Uint8Array | string>
 }
 export interface CheckerResponse {
   statusCode: number

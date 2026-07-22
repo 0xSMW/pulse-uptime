@@ -1,7 +1,7 @@
 import "server-only"
 
-import { and, eq, isNull, ne } from "drizzle-orm"
-
+import { and, eq, isNull, ne, sql } from "drizzle-orm"
+import { lockMachineCredentialChanges } from "@/lib/api/machine-credential-lock"
 import {
   enforceRateLimit,
   type RateLimitPolicy,
@@ -679,6 +679,13 @@ const databaseEmailChangeStore: EmailChangeStore = {
     now,
   }) {
     return db.transaction(async (tx) => {
+      // Team removals and demotions revoke CLI credentials by email under this
+      // lock. Renaming the email must serialize with them or a rename that
+      // commits mid-removal strands live CLI sessions under the new address.
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext('pulse:team-roles'))`
+      )
+      await lockMachineCredentialChanges(tx)
       const updated = await tx
         .update(adminUsers)
         .set({ email, updatedAt: now })
@@ -700,13 +707,13 @@ const databaseEmailChangeStore: EmailChangeStore = {
           )
         )
       await tx
-        .update(cliSessions)
-        .set({ userEmail: email })
-        .where(eq(cliSessions.userEmail, previousEmail))
-      await tx
         .update(cliInstallations)
         .set({ userEmail: email })
         .where(eq(cliInstallations.userEmail, previousEmail))
+      await tx
+        .update(cliSessions)
+        .set({ userEmail: email })
+        .where(eq(cliSessions.userEmail, previousEmail))
       return "applied"
     })
   },

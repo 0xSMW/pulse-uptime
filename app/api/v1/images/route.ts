@@ -6,13 +6,15 @@ import {
 } from "@/lib/api/images"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
 import { routeError } from "@/lib/api/route"
+import { hasScope } from "@/lib/api/scopes"
 
 /**
  * Multipart image upload for status page branding and account avatars.
- * Accepts a dashboard session or any config:write credential.
+ * Branding kinds require config:write. Avatars are self-service, so any
+ * signed-in person may upload one, viewers included.
  */
 export async function POST(request: Request) {
-  const context = await authorize(request, { scope: "config:write" })
+  const context = await authorize(request)
   if (isApiResponse(context)) {
     return context
   }
@@ -35,6 +37,16 @@ export async function POST(request: Request) {
       400,
       "INVALID_FORM",
       'Request must be multipart/form-data with "file" and "kind" fields'
+    )
+  }
+  const selfService = kind === "avatar" && context.principal.type === "human"
+  if (!(selfService || hasScope(context.principal, "config:write"))) {
+    return apiError(
+      context.requestId,
+      403,
+      "SCOPE_DENIED",
+      "The credential lacks the required scope",
+      { scope: "config:write" }
     )
   }
   if (file.size > MAX_IMAGE_BYTES) {

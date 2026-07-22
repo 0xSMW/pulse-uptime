@@ -35,7 +35,9 @@ import { POST } from "./route"
 const humanContext: ApiContext = {
   principal: {
     type: "human",
+    role: "admin" as const,
     id: "user-1",
+    sessionId: "session-1",
     email: "admin@example.com",
     scopes: [],
   },
@@ -47,6 +49,7 @@ const session = {
   sessionId: "11111111-1111-4111-8111-111111111111",
   userId: "user-1",
   email: "admin@example.com",
+  role: "admin" as const,
   timezone: null,
   expiresAt: new Date("2026-08-01T00:00:00Z"),
   onboardingCompletedAt: new Date("2026-07-01T00:00:00Z"),

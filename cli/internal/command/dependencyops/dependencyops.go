@@ -168,7 +168,7 @@ type Catalog struct {
 
 func NewGroup(d Dependencies) *cobra.Command {
 	d = defaults(d)
-	group := &cobra.Command{Use: "dependency", Short: "Manage third-party dependencies", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
+	group := &cobra.Command{Use: "dependency", Aliases: []string{"dependencies", "dep", "deps"}, Short: "Manage third-party dependencies", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
 	group.AddCommand(newCatalogCommand(d), newListCommand(d), newGetCommand(d), newAddCommand(d), newBackfillCommand(d), newRemoveCommand(d))
 	return group
 }
@@ -206,7 +206,7 @@ func newListCommand(d Dependencies) *cobra.Command {
 	var limit int
 	var cursor string
 	var all bool
-	cmd := &cobra.Command{Use: "list", Short: "List installed dependencies", Args: cobra.NoArgs, Annotations: annotations("dependencies:read"), RunE: func(cmd *cobra.Command, _ []string) error {
+	cmd := &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List installed dependencies", Args: cobra.NoArgs, Annotations: annotations("dependencies:read"), RunE: func(cmd *cobra.Command, _ []string) error {
 		doc, err := List(cmd.Context(), d.Client, ListOptions{Limit: limit, Cursor: cursor, All: all, Machine: machine(d.Format())})
 		if err != nil {
 			return d.MapError(err)
@@ -220,7 +220,7 @@ func newListCommand(d Dependencies) *cobra.Command {
 }
 
 func newGetCommand(d Dependencies) *cobra.Command {
-	return &cobra.Command{Use: "get <id>", Short: "Get dependency detail", Args: cobra.ExactArgs(1), Annotations: annotations("dependencies:read"), RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "get <id>", Aliases: []string{"show", "info"}, Short: "Get dependency detail", Args: cobra.ExactArgs(1), Annotations: annotations("dependencies:read"), RunE: func(cmd *cobra.Command, args []string) error {
 		if strings.TrimSpace(args[0]) == "" {
 			return invalid("dependency id is required")
 		}
@@ -235,7 +235,7 @@ func newGetCommand(d Dependencies) *cobra.Command {
 func newAddCommand(d Dependencies) *cobra.Command {
 	var scope string
 	var noNotifications bool
-	cmd := &cobra.Command{Use: "add <presetId>", Short: "Add a dependency", Args: cobra.ExactArgs(1), Annotations: annotations("dependencies:write"), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "add <presetId>", Aliases: []string{"create", "new"}, Short: "Add a dependency", Args: cobra.ExactArgs(1), Annotations: annotations("dependencies:write"), RunE: func(cmd *cobra.Command, args []string) error {
 		body := map[string]any{"presetId": args[0]}
 		if scope != "" {
 			body["scopeId"] = scope
@@ -281,7 +281,7 @@ func newBackfillCommand(d Dependencies) *cobra.Command {
 
 func newRemoveCommand(d Dependencies) *cobra.Command {
 	var yes bool
-	cmd := &cobra.Command{Use: "remove <id>", Short: "Remove a dependency", Args: cobra.ExactArgs(1), Annotations: annotations("dependencies:write"), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "remove <id>", Aliases: []string{"rm", "delete"}, Short: "Remove a dependency", Args: cobra.ExactArgs(1), Annotations: annotations("dependencies:write"), RunE: func(cmd *cobra.Command, args []string) error {
 		if strings.TrimSpace(args[0]) == "" {
 			return invalid("dependency id is required")
 		}
@@ -508,18 +508,12 @@ func renderCatalog(d Dependencies, format string, doc Envelope) error {
 		}
 		return nil
 	}
-	fmt.Fprintln(d.Out, "ID\tNAME\tCATEGORY\tPROVIDER\tREGION\tINSTALLED")
+	cells := make([][]string, 0, len(rows))
 	for _, row := range rows {
-		fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\t%s\t%s\n", output.SanitizeDisplay(row.ID), output.SanitizeDisplay(row.Name), output.SanitizeDisplay(row.Category), output.SanitizeDisplay(row.Provider), regionRequirement(row.Scope), output.SanitizeDisplay(installedMarker(row)))
+		cells = append(cells, []string{output.SanitizeDisplay(row.ID), output.SanitizeDisplay(row.Name), output.SanitizeDisplay(row.Category), output.SanitizeDisplay(row.Provider), regionRequirement(row.Scope), output.SanitizeDisplay(installedMarker(row))})
 	}
-	return nil
+	return output.Table(d.Out, []string{"ID", "NAME", "CATEGORY", "PROVIDER", "REGION", "INSTALLED"}, cells)
 }
-
-// dependencyStateCaption clarifies that STATE reflects the provider's own
-// status feed, not an independent Pulse check, per the Provider reported
-// labeling rule. It goes to stderr so it never lands in piped table or tsv
-// data.
-const dependencyStateCaption = "Note: dependency state is provider reported, not a Pulse check."
 
 // dependencyRegion picks the REGION cell for a list row: the resolved scope
 // label when the list payload provides one, else the raw scope id, else blank
@@ -545,7 +539,6 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 	case "yaml":
 		return yamlValue(d.Out, doc)
 	case "tsv":
-		fmt.Fprintln(d.Err, dependencyStateCaption)
 		for _, raw := range doc.Data {
 			var dep Dependency
 			if json.Unmarshal(raw, &dep) == nil {
@@ -556,16 +549,18 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 		}
 		return nil
 	default:
-		fmt.Fprintln(d.Err, dependencyStateCaption)
-		fmt.Fprintln(d.Out, "STATE\tNAME\tPROVIDER\tREGION\tINCIDENT\tUPDATED")
+		rows := make([][]string, 0, len(doc.Data))
 		for _, raw := range doc.Data {
 			var dep Dependency
 			if json.Unmarshal(raw, &dep) == nil {
-				fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\t%s\t%s\n", output.SanitizeDisplay(dep.State), output.SanitizeDisplay(dep.Name), output.SanitizeDisplay(dep.Provider), output.SanitizeDisplay(dependencyRegion(dep)), output.SanitizeDisplay(value(dep.ActiveIncidentTitle)), output.SanitizeDisplay(value(dep.ProviderUpdatedAt)))
+				rows = append(rows, []string{output.SanitizeDisplay(dep.State), output.SanitizeDisplay(dep.Name), output.SanitizeDisplay(dep.Provider), output.SanitizeDisplay(dependencyRegion(dep)), output.SanitizeDisplay(value(dep.ActiveIncidentTitle)), output.SanitizeDisplay(value(dep.ProviderUpdatedAt))})
 			}
 		}
+		if err := output.Table(d.Out, []string{"STATE", "NAME", "PROVIDER", "REGION", "INCIDENT", "UPDATED"}, rows); err != nil {
+			return err
+		}
 		if doc.Meta.NextCursor != nil && *doc.Meta.NextCursor != "" {
-			fmt.Fprintf(d.Err, "More dependencies available. Continue with --cursor %s\n", *doc.Meta.NextCursor)
+			fmt.Fprintf(d.Err, "More dependencies available. Continue with --cursor %s\n", output.SanitizeDisplay(*doc.Meta.NextCursor))
 		}
 		return nil
 	}
@@ -612,7 +607,9 @@ func renderDetailHuman(w io.Writer, detail DependencyDetail) {
 	fmt.Fprintln(w, "Source        Provider reported")
 	fmt.Fprintf(w, "Provider      %s\n", output.SanitizeDisplay(detail.Provider))
 	fmt.Fprintf(w, "Component     %s\n", output.SanitizeDisplay(detail.Name))
-	fmt.Fprintf(w, "Region        %s\n", output.SanitizeDisplay(value(detail.ComponentLabel)))
+	if region := value(detail.ComponentLabel); region != "" {
+		fmt.Fprintf(w, "Region        %s\n", output.SanitizeDisplay(region))
+	}
 	fmt.Fprintf(w, "Notifications %s\n", enabledLabel(detail.NotificationsEnabled))
 	fmt.Fprintf(w, "Last poll     %s\n", output.SanitizeDisplay(value(detail.LastSuccessfulPollAt)))
 	fmt.Fprintf(w, "Canonical URL %s\n", output.SanitizeDisplay(detail.CanonicalURL))

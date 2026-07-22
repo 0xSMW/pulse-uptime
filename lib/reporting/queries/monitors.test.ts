@@ -2,11 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("server-only", () => ({}))
 
-const { dbMock, sqlMock } = vi.hoisted(() => ({
+const { dbMock, domainHealthByMonitorIdMock, sqlMock } = vi.hoisted(() => ({
   dbMock: { select: vi.fn() },
+  domainHealthByMonitorIdMock: vi.fn(),
   sqlMock: { unsafe: vi.fn() },
 }))
 vi.mock("@/lib/db/client", () => ({ db: dbMock, sql: sqlMock }))
+vi.mock("@/lib/domain-health/queries", () => ({
+  domainHealthByMonitorId: domainHealthByMonitorIdMock,
+}))
 
 import {
   findMonitorDetail,
@@ -126,6 +130,21 @@ beforeEach(() => {
   vi.useFakeTimers()
   vi.setSystemTime(NOW)
   dbMock.select.mockReset()
+  domainHealthByMonitorIdMock.mockReset()
+  domainHealthByMonitorIdMock.mockResolvedValue(
+    new Map([
+      [
+        "site-home",
+        {
+          apexDomain: null,
+          certExpiresAt: null,
+          certIssuer: null,
+          domainExpiresAt: null,
+          domainRegistrar: null,
+        },
+      ],
+    ])
+  )
   sqlMock.unsafe.mockReset()
   mockUnsafeBySql() // no raw minute rows, fall back to rollups
 })
@@ -145,6 +164,7 @@ describe("findMonitorLive p95 and incidents", () => {
     // Post-activation bucket alone lands in the <=100ms histogram bucket. The
     // slow pre-activation bucket would have pulled this to 10000ms unfiltered.
     expect(live!.p95LatencyMs).toBe(100)
+    expect(domainHealthByMonitorIdMock).not.toHaveBeenCalled()
   })
 
   it("surfaces no incidents and issues no incident query when the monitor never activated", async () => {
@@ -188,6 +208,20 @@ describe("findMonitorLive p95 and incidents", () => {
 
 describe("findMonitorDetail latency and response chart", () => {
   it("filters p95 and the response chart to activation, dropping the setup bucket", async () => {
+    domainHealthByMonitorIdMock.mockResolvedValueOnce(
+      new Map([
+        [
+          "site-home",
+          {
+            apexDomain: "example.test",
+            certExpiresAt: "2026-11-12T13:14:15.000Z",
+            certIssuer: "Example CA",
+            domainExpiresAt: "2027-01-02T03:04:05.000Z",
+            domainRegistrar: "Example Registrar",
+          },
+        ],
+      ])
+    )
     dbMock.select
       .mockReturnValueOnce(selectChain([identity({})])) // identity
       .mockReturnValueOnce(
@@ -206,6 +240,16 @@ describe("findMonitorDetail latency and response chart", () => {
     expect(detail!.responseTime.h24[0]!.timestamp).toBe(
       POST_BUCKET.toISOString()
     )
+    expect(detail!.domainHealth).toEqual({
+      apexDomain: "example.test",
+      certExpiresAt: "2026-11-12T13:14:15.000Z",
+      certIssuer: "Example CA",
+      domainExpiresAt: "2027-01-02T03:04:05.000Z",
+      domainRegistrar: "Example Registrar",
+    })
+    expect(domainHealthByMonitorIdMock).toHaveBeenCalledWith([
+      { id: "site-home", url: "https://example.test" },
+    ])
   })
 
   it("issues no incident query when the monitor never activated", async () => {

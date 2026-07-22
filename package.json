@@ -1,6 +1,6 @@
 {
   "name": "pulse-uptime",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": true,
   "license": "MIT",
   "engines": {
@@ -45,6 +45,7 @@
     "@base-ui/react": "^1.6.0",
     "@radix-ui/react-select": "^2.3.3",
     "@react-email/components": "^1.0.4",
+    "@vercel/analytics": "^2.0.1",
     "@vercel/edge-config": "^1.4.0",
     "argon2": "^0.44.0",
     "class-variance-authority": "^0.7.1",
@@ -52,7 +53,7 @@
     "drizzle-orm": "^0.45.2",
     "ipaddr.js": "^2.2.0",
     "lucide-react": "^0.468.0",
-    "next": "16.2.10",
+    "next": "16.2.11",
     "parse5": "^8.0.1",
     "postgres": "^3.4.9",
     "react": "19.2.7",
@@ -62,6 +63,7 @@
     "server-only": "^0.0.1",
     "swr": "^2.3.8",
     "tailwind-merge": "^3.4.0",
+    "tldts": "^7.4.9",
     "undici": "^7.18.2",
     "zod": "^4.4.3"
   },

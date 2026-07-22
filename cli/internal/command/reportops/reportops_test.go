@@ -167,10 +167,10 @@ func TestListRendersTableWithStateGlyphs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "STATUS\tTITLE\tTYPE\tCURRENT\tUPDATED\n" +
-		"○ Draft\tAPI outage\tincident\tinvestigating\t2026-07-18T04:00:00Z\n" +
-		"● Ongoing\tDB failover\tincident\tmonitoring\t2026-07-18T05:00:00Z\n" +
-		"✓ Resolved\tCache purge\tmaintenance\tcompleted\t2026-07-18T06:00:00Z\n"
+	want := "STATUS      TITLE        TYPE         CURRENT        UPDATED\n" +
+		"○ Draft     API outage   incident     investigating  2026-07-18T04:00:00Z\n" +
+		"● Ongoing   DB failover  incident     monitoring     2026-07-18T05:00:00Z\n" +
+		"✓ Resolved  Cache purge  maintenance  completed      2026-07-18T06:00:00Z\n"
 	if out.String() != want {
 		t.Fatalf("table = %q", out.String())
 	}
@@ -212,8 +212,8 @@ func TestGetRendersDetailTimelineAndAffected(t *testing.T) {
 		"Resolved   -\n" +
 		"Origin     inc_9\n" +
 		"\nAffected:\n" +
-		"  MONITOR\tNAME\tGROUP\tIMPACT\n" +
-		"  api-prod\tAPI\tCore\tdown\n" +
+		"  MONITOR   NAME  GROUP  IMPACT\n" +
+		"  api-prod  API   Core   down\n" +
 		"\nUpdates:\n" +
 		"  2026-07-18T03:00:00Z  monitoring  (upd_2)\n" +
 		"    A fix is deployed.\n" +

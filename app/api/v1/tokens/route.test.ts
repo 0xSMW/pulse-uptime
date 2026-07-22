@@ -94,7 +94,9 @@ import {
 const humanContext: ApiContext = {
   principal: {
     type: "human",
+    role: "admin",
     id: "user-1",
+    sessionId: "session-1",
     email: "admin@example.com",
     scopes: ["tokens:manage", "monitors:read"],
   },

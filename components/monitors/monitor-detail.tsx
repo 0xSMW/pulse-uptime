@@ -9,10 +9,11 @@ import { LazyLatencyChart } from "@/components/charts/lazy-latency-chart"
 import { useTimezone } from "@/components/dashboard/timezone-provider"
 import { DependencyOverlapCard } from "@/components/dependencies/dependency-overlap-card"
 import type { DependencyIncidentOverlap } from "@/components/incidents/types"
+import { ExpiryChip, expiryWarning } from "@/components/monitors/expiry-chip"
 import {
   MonitorActions,
   MonitorEditButton,
-  MonitorRunTestButton,
+  MonitorSetupActions,
 } from "@/components/monitors/monitor-actions"
 import { StatusBadge } from "@/components/monitors/status-badge"
 import {
@@ -31,6 +32,13 @@ import type { SettingsGroup } from "@/components/settings/settings-api"
 import { buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { daysUntil, expiryLevel } from "@/lib/domain-health/expiry"
+import {
+  formatCalendarDate,
   formatDuration,
   formatLatency,
   formatRelativeDay,
@@ -67,6 +75,14 @@ export interface MonitorDetailData {
   failureThreshold: number
   recoveryThreshold: number
   recipientCount: number
+  expectedText: string | null
+  domainHealth: {
+    apexDomain: string | null
+    certExpiresAt: string | null
+    certIssuer: string | null
+    domainExpiresAt: string | null
+    domainRegistrar: string | null
+  }
   latestLatencyMs: number | null
   lastCheckedAt: string | null
   p95LatencyMs: number | null
@@ -136,6 +152,130 @@ function formatInterval(seconds: number): string {
     return `${seconds / 60}m`
   }
   return `${seconds}s`
+}
+
+// Splits the display URL around its registrable apex so only that segment
+// carries the domain tooltip affordance. Null when the apex is unknown or the
+// URL does not contain it, in which case the URL renders plain.
+function splitUrlAtApex(
+  url: string,
+  apex: string | null
+): { prefix: string; apex: string; suffix: string } | null {
+  if (!apex) {
+    return null
+  }
+  let hostname: string
+  try {
+    hostname = new URL(url).hostname
+  } catch {
+    return null
+  }
+  if (hostname !== apex && !hostname.endsWith(`.${apex}`)) {
+    return null
+  }
+  const hostStart = url.indexOf(hostname)
+  if (hostStart < 0) {
+    return null
+  }
+  const apexStart = hostStart + hostname.length - apex.length
+  return {
+    prefix: url.slice(0, apexStart),
+    apex: url.slice(apexStart, apexStart + apex.length),
+    suffix: url.slice(apexStart + apex.length),
+  }
+}
+
+function expiresLine(
+  label: string,
+  expiresAt: string,
+  detail: string | null,
+  timeZone: string,
+  now: Date
+): string {
+  const days = daysUntil(new Date(expiresAt), now)
+  const when = formatCalendarDate(expiresAt, timeZone)
+  const timing = days < 0 ? `${-days}d ago` : `in ${days}d`
+  return `${label} ${when} · ${timing}${detail ? ` · ${detail}` : ""}`
+}
+
+/**
+ * Option B affordance: a dotted underline on the apex segment of the header
+ * URL, hover or focus revealing renewal and certificate facts. Absent facts
+ * render the URL plain, so a TLD without RDAP coverage adds nothing.
+ */
+function MonitorUrlLabel({
+  url,
+  domainHealth,
+  timeZone,
+}: {
+  url: string
+  domainHealth: MonitorDetailData["domainHealth"]
+  timeZone: string
+}) {
+  const segments = splitUrlAtApex(url, domainHealth.apexDomain)
+  const hasFacts =
+    domainHealth.certExpiresAt !== null || domainHealth.domainExpiresAt !== null
+  if (!(segments && hasFacts)) {
+    return <>{url}</>
+  }
+  const now = new Date()
+  const warning = expiryWarning(
+    domainHealth.certExpiresAt,
+    domainHealth.domainExpiresAt,
+    now
+  )
+  return (
+    <>
+      {segments.prefix}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <span
+              className={cn(
+                "underline decoration-dotted underline-offset-4 outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]",
+                warning?.level === "critical"
+                  ? "decoration-[var(--down-text)]"
+                  : warning
+                    ? "decoration-[var(--verifying-text)]"
+                    : "decoration-[var(--fg-muted)]"
+              )}
+              tabIndex={0}
+            />
+          }
+        >
+          {segments.apex}
+        </TooltipTrigger>
+        <TooltipContent className="px-3 py-2">
+          <div className="space-y-1 text-left">
+            <p className="font-medium">{segments.apex}</p>
+            {domainHealth.domainExpiresAt ? (
+              <p className="text-[var(--fg-muted)]">
+                {expiresLine(
+                  "Renews",
+                  domainHealth.domainExpiresAt,
+                  domainHealth.domainRegistrar,
+                  timeZone,
+                  now
+                )}
+              </p>
+            ) : null}
+            {domainHealth.certExpiresAt ? (
+              <p className="text-[var(--fg-muted)]">
+                {expiresLine(
+                  "Cert expires",
+                  domainHealth.certExpiresAt,
+                  domainHealth.certIssuer,
+                  timeZone,
+                  now
+                )}
+              </p>
+            ) : null}
+          </div>
+        </TooltipContent>
+      </Tooltip>
+      {segments.suffix}
+    </>
+  )
 }
 
 const toneClass: Record<UptimeTone, string> = {
@@ -344,9 +484,11 @@ function SetupStat() {
 }
 
 export function MonitorDetail({
+  canManageMonitors,
   monitor: snapshot,
   groups,
 }: {
+  canManageMonitors: boolean
   monitor: MonitorDetailData
   groups: readonly SettingsGroup[]
 }) {
@@ -401,6 +543,11 @@ export function MonitorDetail({
             : null,
         }
       : snapshot
+  const headerExpiryWarning = expiryWarning(
+    monitor.domainHealth.certExpiresAt,
+    monitor.domainHealth.domainExpiresAt,
+    new Date()
+  )
   const [availabilityRange, setAvailabilityRange] =
     useState<AvailabilityRange>("h24")
   const [responseRange, setResponseRange] = useState<ResponseRange>("h24")
@@ -446,6 +593,9 @@ export function MonitorDetail({
               </h1>
               <StatusBadge state={monitor.state} />
               <LiveIndicator status={live} />
+              {headerExpiryWarning ? (
+                <ExpiryChip warning={headerExpiryWarning} />
+              ) : null}
             </div>
             <div className="mt-2 flex min-w-0 items-center gap-2 font-data text-[13px] text-[var(--fg-muted)]">
               <span className="rounded bg-[var(--chip-bg)] px-1.5 py-0.5 font-medium text-[11px] text-[var(--fg)]">
@@ -458,12 +608,20 @@ export function MonitorDetail({
                 target="_blank"
                 title={monitor.url}
               >
-                {monitor.url}
+                <MonitorUrlLabel
+                  domainHealth={monitor.domainHealth}
+                  timeZone={resolvedTimeZone}
+                  url={monitor.url}
+                />
               </a>
               <ExternalLink aria-hidden className="size-3 shrink-0" />
             </div>
           </div>
-          <MonitorActions groups={groups} monitor={monitor} />
+          <MonitorActions
+            canManageMonitors={canManageMonitors}
+            groups={groups}
+            monitor={monitor}
+          />
         </div>
       </header>
 
@@ -516,13 +674,16 @@ export function MonitorDetail({
           </span>
           <p className="mt-1.5 text-[var(--fg-muted)]">
             {monitor.firstRun.setupError
-              ? `The last check failed with ${monitor.firstRun.setupError}. Setup failures are warnings, not incidents. Fix the endpoint or edit the configuration, then run a test to confirm it is reachable. Monitoring begins at the next scheduled check that succeeds.`
+              ? canManageMonitors
+                ? `The last check failed with ${monitor.firstRun.setupError}. Setup failures are warnings, not incidents. Fix the endpoint or edit the configuration, then run a test to confirm it is reachable. Monitoring begins at the next scheduled check that succeeds.`
+                : `The last check failed with ${monitor.firstRun.setupError}. Setup failures are warnings, not incidents. Monitoring begins at the next scheduled check that succeeds.`
               : "Monitoring officially begins after the first successful check. No incidents or downtime are recorded during setup."}
           </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <MonitorRunTestButton monitor={monitor} />
-            <MonitorEditButton groups={groups} monitor={monitor} />
-          </div>
+          <MonitorSetupActions
+            canManageMonitors={canManageMonitors}
+            groups={groups}
+            monitor={monitor}
+          />
         </div>
       ) : null}
 
@@ -767,10 +928,57 @@ export function MonitorDetail({
         </Card>
       </div>
 
+      {monitor.domainHealth.certExpiresAt ||
+      monitor.domainHealth.domainExpiresAt ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Domain &amp; Certificate</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <dl className="grid gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
+              {monitor.domainHealth.certExpiresAt ? (
+                <ExpiryField
+                  expiresAt={monitor.domainHealth.certExpiresAt}
+                  label="Certificate expires"
+                  timeZone={resolvedTimeZone}
+                />
+              ) : null}
+              {monitor.domainHealth.certIssuer ? (
+                <ConfigurationField
+                  label="Issued by"
+                  value={monitor.domainHealth.certIssuer}
+                />
+              ) : null}
+              {monitor.domainHealth.domainExpiresAt ? (
+                <ExpiryField
+                  expiresAt={monitor.domainHealth.domainExpiresAt}
+                  label="Domain renews"
+                  timeZone={resolvedTimeZone}
+                />
+              ) : null}
+              {monitor.domainHealth.domainRegistrar ? (
+                <ConfigurationField
+                  label="Registrar"
+                  value={monitor.domainHealth.domainRegistrar}
+                />
+              ) : null}
+              <ConfigurationField
+                label="Verified"
+                value="Daily, certificate by TLS probe and domain by RDAP"
+              />
+            </dl>
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card>
         <CardHeader className="flex-row items-center justify-between gap-4">
           <CardTitle>Configuration</CardTitle>
-          <MonitorEditButton groups={groups} monitor={monitor} />
+          <MonitorEditButton
+            canManageMonitors={canManageMonitors}
+            groups={groups}
+            monitor={monitor}
+          />
         </CardHeader>
         <CardContent>
           <dl className="grid gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -795,9 +1003,48 @@ export function MonitorDetail({
               label="Recipients"
               value={`${monitor.recipientCount} ${monitor.recipientCount === 1 ? "recipient" : "recipients"}`}
             />
+            {monitor.expectedText ? (
+              <ConfigurationField
+                label="Content Match"
+                value={`"${monitor.expectedText}"`}
+              />
+            ) : null}
           </dl>
         </CardContent>
       </Card>
+    </div>
+  )
+}
+
+// An expiry date with its day countdown, toned by the shared warning ladder so
+// the card, the header chip, and the URL tooltip always agree.
+function ExpiryField({
+  label,
+  expiresAt,
+  timeZone,
+}: {
+  label: string
+  expiresAt: string
+  timeZone: string
+}) {
+  const now = new Date()
+  const days = daysUntil(new Date(expiresAt), now)
+  const level = expiryLevel(new Date(expiresAt), now)
+  const tone =
+    level === "critical"
+      ? "text-[var(--down-text)]"
+      : level === "warning"
+        ? "text-[var(--verifying-text)]"
+        : "text-[var(--fg-muted)]"
+  return (
+    <div>
+      <dt className="text-[var(--fg-muted)] text-xs">{label}</dt>
+      <dd className="mt-1 font-data text-[13px]">
+        {formatCalendarDate(expiresAt, timeZone)}{" "}
+        <span className={tone}>
+          {days < 0 ? `(${-days}d ago)` : `(${days} days)`}
+        </span>
+      </dd>
     </div>
   )
 }

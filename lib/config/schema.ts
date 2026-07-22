@@ -14,7 +14,7 @@ const recipientsSchema = z.array(emailSchema).max(20)
 // display fields: downstream consumers (the CLI's terminal/TSV output, logs) render
 // them verbatim, so an ESC or bidi override in a monitor name becomes ANSI injection
 // or forged tabular rows. Reject them at the trust boundary.
-const DISPLAY_CONTROL_CHARS =
+export const DISPLAY_CONTROL_CHARS =
   // biome-ignore lint/suspicious/noControlCharactersInRegex: matching control and bidi characters is the point, they are rejected at the trust boundary
   /[\u0000-\u001F\u007F-\u009F\u200E\u200F\u202A-\u202E\u2066-\u2069]/
 
@@ -78,9 +78,19 @@ const monitorFields = {
 export const monitorConfigSchema = z
   .object({
     ...monitorFields,
+    // Optional rather than nullable with a default: an omitted key must stay
+    // omitted so existing configs keep their canonical hash across upgrades.
+    expectedText: displayName(1, 256).optional(),
     groupId: groupConfigSchema.shape.id.nullable(),
   })
   .strict()
+  .refine(
+    (monitor) => monitor.expectedText === undefined || monitor.method === "GET",
+    {
+      message: "expectedText requires method GET",
+      path: ["expectedText"],
+    }
+  )
 
 export const legacyMonitorConfigSchema = z
   .object({

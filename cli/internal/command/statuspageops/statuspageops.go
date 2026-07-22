@@ -80,8 +80,9 @@ var fieldOrder = []string{
 func NewGroup(d Dependencies) *cobra.Command {
 	d = defaults(d)
 	group := &cobra.Command{
-		Use:   "status-page",
-		Short: "Manage the public status page",
+		Use:     "status-page",
+		Aliases: []string{"statuspage"},
+		Short:   "Manage the public status page",
 		Long: "Read and edit the public status page configuration: branding, links,\n" +
 			"announcement banner, history math, analytics, and time zone. Writes use the\n" +
 			"configuration's ETag so concurrent edits fail instead of overwriting.",
@@ -126,6 +127,7 @@ func getCommand(d Dependencies) *cobra.Command {
 	var asJSON bool
 	cmd := &cobra.Command{
 		Use:         "get",
+		Aliases:     []string{"show", "info"},
 		Short:       "Show status page configuration",
 		Long:        "Show the full status page configuration as a field listing, or as JSON with\n--json or --output json.",
 		Args:        cobra.NoArgs,
@@ -149,8 +151,9 @@ func getCommand(d Dependencies) *cobra.Command {
 
 func setCommand(d Dependencies) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "set [field=value ...]",
-		Short: "Update status page fields",
+		Use:     "set [field=value ...]",
+		Aliases: []string{"update", "edit"},
+		Short:   "Update status page fields",
 		Long: "Update one or more configuration fields and save the document in a single\n" +
 			"write. Give fields as long flags (--name, --history-days, and so on) or as\n" +
 			"field=value arguments; run with --help to see every field and its allowed\n" +

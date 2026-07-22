@@ -1,4 +1,8 @@
-export type CronJobName = "monitor-check" | "maintenance" | "check-dependencies"
+export type CronJobName =
+  | "monitor-check"
+  | "maintenance"
+  | "check-dependencies"
+  | "check-domains"
 
 export interface CronRunCounts {
   monitorCount: number

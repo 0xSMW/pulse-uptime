@@ -100,6 +100,9 @@ export async function runMonitoringCron() {
         method: monitor.method,
         timeoutMs: monitor.timeoutMs,
         expectedStatus: monitor.expectedStatus,
+        ...(monitor.expectedText === undefined
+          ? {}
+          : { expectedText: monitor.expectedText }),
       })
       minuteResults.set(monitor.id, {
         monitorId: monitor.id,

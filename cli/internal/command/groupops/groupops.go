@@ -94,7 +94,7 @@ type ListOptions struct {
 
 func NewGroup(d Dependencies) *cobra.Command {
 	d = defaults(d)
-	group := &cobra.Command{Use: "group", Short: "Manage monitor groups", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
+	group := &cobra.Command{Use: "group", Aliases: []string{"groups"}, Short: "Manage monitor groups", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
 	group.AddCommand(newListCommand(d), newCreateCommand(d), newRenameCommand(d), newDeleteCommand(d))
 	return group
 }
@@ -120,7 +120,7 @@ func defaults(d Dependencies) Dependencies {
 
 func newListCommand(d Dependencies) *cobra.Command {
 	var o ListOptions
-	cmd := &cobra.Command{Use: "list", Short: "List monitor groups", Args: cobra.NoArgs, Annotations: annotations("monitors:read"), RunE: func(cmd *cobra.Command, _ []string) error {
+	cmd := &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List monitor groups", Args: cobra.NoArgs, Annotations: annotations("monitors:read"), RunE: func(cmd *cobra.Command, _ []string) error {
 		o.Machine = machine(d.Format())
 		doc, err := List(cmd.Context(), d.Client, o)
 		if err != nil {
@@ -136,7 +136,7 @@ func newListCommand(d Dependencies) *cobra.Command {
 
 func newCreateCommand(d Dependencies) *cobra.Command {
 	var id, name string
-	cmd := &cobra.Command{Use: "create", Short: "Create a monitor group", Args: cobra.NoArgs, Annotations: annotations("monitors:write"), RunE: func(cmd *cobra.Command, _ []string) error {
+	cmd := &cobra.Command{Use: "create", Aliases: []string{"add", "new"}, Short: "Create a monitor group", Args: cobra.NoArgs, Annotations: annotations("monitors:write"), RunE: func(cmd *cobra.Command, _ []string) error {
 		if strings.TrimSpace(id) == "" || strings.TrimSpace(name) == "" {
 			return invalid("--id and --name are required")
 		}
@@ -164,7 +164,7 @@ func newRenameCommand(d Dependencies) *cobra.Command {
 
 func newDeleteCommand(d Dependencies) *cobra.Command {
 	var yes bool
-	cmd := &cobra.Command{Use: "delete <groupId>", Short: "Delete an empty monitor group", Args: cobra.ExactArgs(1), Annotations: annotations("monitors:write"), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "delete <groupId>", Aliases: []string{"rm", "remove"}, Short: "Delete an empty monitor group", Args: cobra.ExactArgs(1), Annotations: annotations("monitors:write"), RunE: func(cmd *cobra.Command, args []string) error {
 		if strings.TrimSpace(args[0]) == "" {
 			return invalid("group id is required")
 		}
@@ -361,15 +361,18 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 		}
 		return nil
 	default:
-		fmt.Fprintln(d.Out, "ID\tNAME\tMONITORS")
+		rows := make([][]string, 0, len(doc.Data))
 		for _, raw := range doc.Data {
 			var group Group
 			if json.Unmarshal(raw, &group) == nil {
-				fmt.Fprintf(d.Out, "%s\t%s\t%d\n", output.SanitizeDisplay(group.ID), output.SanitizeDisplay(group.Name), group.MonitorCount)
+				rows = append(rows, []string{output.SanitizeDisplay(group.ID), output.SanitizeDisplay(group.Name), strconv.Itoa(group.MonitorCount)})
 			}
 		}
+		if err := output.Table(d.Out, []string{"ID", "NAME", "MONITORS"}, rows); err != nil {
+			return err
+		}
 		if doc.Meta.NextCursor != nil && *doc.Meta.NextCursor != "" {
-			fmt.Fprintf(d.Err, "More groups available. Continue with --cursor %s\n", *doc.Meta.NextCursor)
+			fmt.Fprintf(d.Err, "More groups available. Continue with --cursor %s\n", output.SanitizeDisplay(*doc.Meta.NextCursor))
 		}
 		return nil
 	}

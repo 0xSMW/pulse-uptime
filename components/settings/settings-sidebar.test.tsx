@@ -52,8 +52,21 @@ describe("SettingsSidebar", () => {
     expect(html).toContain('href="/settings/notifications"')
     expect(html).toContain('href="/settings/monitors"')
     expect(html).toContain('href="/settings/access"')
+    expect(html).toContain('href="/settings/team"')
     expect(html).toContain('href="/settings/system"')
     expect(html).toContain('aria-label="Settings sections"')
+  })
+
+  it("hides every workspace surface from viewers", () => {
+    const html = renderToStaticMarkup(<SettingsSidebar userRole="viewer" />)
+    expect(html).toContain('href="/settings/account"')
+    expect(html).toContain('href="/settings/security"')
+    expect(html).not.toContain(">Workspace</span>")
+    expect(html).not.toContain('href="/settings/status-page"')
+    expect(html).not.toContain('href="/settings/monitors"')
+    expect(html).not.toContain('href="/settings/access"')
+    expect(html).not.toContain('href="/settings/team"')
+    expect(html).not.toContain('href="/settings/system"')
   })
 
   it("groups items under Account and Workspace section labels", () => {

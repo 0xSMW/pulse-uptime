@@ -196,6 +196,71 @@ export const monitorState = pgTable(
   ]
 )
 
+// Shared registrable-domain facts, written only by the check-domains cron.
+// checked_at records every attempted refresh while last_success_at records the
+// latest attempt that returned at least one fact. Nullable facts are unknown
+// and no surface may render them as a problem.
+export const domainHealthAssets = pgTable(
+  "domain_health_assets",
+  {
+    apexDomain: text("apex_domain").primaryKey(),
+    expiresAt: timestamptz("expires_at"),
+    registrar: text("registrar"),
+    checkedAt: timestamptz("checked_at"),
+    lastSuccessAt: timestamptz("last_success_at"),
+    lastReferencedAt: timestamptz("last_referenced_at").notNull(),
+  },
+  (table) => [
+    index("domain_health_assets_last_referenced").on(table.lastReferencedAt),
+  ]
+)
+
+// Shared leaf-certificate facts. The effective TLS port is part of identity,
+// so changing a monitor port naturally selects a different asset.
+export const certificateHealthAssets = pgTable(
+  "certificate_health_assets",
+  {
+    hostname: text("hostname").notNull(),
+    port: integer("port").notNull(),
+    expiresAt: timestamptz("expires_at"),
+    issuer: text("issuer"),
+    checkedAt: timestamptz("checked_at"),
+    lastSuccessAt: timestamptz("last_success_at"),
+    lastReferencedAt: timestamptz("last_referenced_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.hostname, table.port] }),
+    index("certificate_health_assets_last_referenced").on(
+      table.lastReferencedAt
+    ),
+    check(
+      "certificate_health_assets_port",
+      sql`${table.port} between 1 and 65535`
+    ),
+  ]
+)
+
+// Deprecated compatibility table retained for one expand-contract release.
+// New code must use the normalized asset tables above. Remove this declaration
+// only after all deployed readers and writers have moved off the legacy table.
+export const monitorDomainHealth = pgTable(
+  "monitor_domain_health",
+  {
+    monitorId: text("monitor_id")
+      .primaryKey()
+      .references(() => monitorRegistry.id),
+    hostname: text("hostname").notNull(),
+    apexDomain: text("apex_domain"),
+    certPort: integer("cert_port"),
+    certExpiresAt: timestamptz("cert_expires_at"),
+    certIssuer: text("cert_issuer"),
+    domainExpiresAt: timestamptz("domain_expires_at"),
+    domainRegistrar: text("domain_registrar"),
+    checkedAt: timestamptz("checked_at").notNull(),
+  },
+  (table) => [index("monitor_domain_health_checked").on(table.checkedAt)]
+)
+
 export const checkResults = pgTable(
   "check_results",
   {
@@ -718,6 +783,7 @@ export const adminUsers = pgTable(
     name: text("name"),
     avatarImageId: uuid("avatar_image_id").references(() => images.id),
     timezone: text("timezone"),
+    role: text("role").notNull().default("admin"),
     createdAt: timestamptz("created_at").notNull(),
     updatedAt: timestamptz("updated_at").notNull(),
     passwordChangedAt: timestamptz("password_changed_at").notNull(),
@@ -727,6 +793,31 @@ export const adminUsers = pgTable(
     check(
       "admin_users_normalized_email",
       sql`${table.email} = lower(btrim(${table.email}))`
+    ),
+    check("admin_users_role", sql`${table.role} in ('admin', 'viewer')`),
+  ]
+)
+
+export const userInvites = pgTable(
+  "user_invites",
+  {
+    id: uuid("id").primaryKey(),
+    tokenDigest: bytea("token_digest").notNull().unique(),
+    role: text("role").notNull(),
+    // Principal key of the creator ("human:<id>"), text like api_tokens so a
+    // later removal of the creator never breaks the row.
+    createdByPrincipal: text("created_by_principal").notNull(),
+    createdAt: timestamptz("created_at").notNull(),
+    expiresAt: timestamptz("expires_at").notNull(),
+    acceptedAt: timestamptz("accepted_at"),
+    acceptedByUserId: uuid("accepted_by_user_id"),
+    revokedAt: timestamptz("revoked_at"),
+  },
+  (table) => [
+    check("user_invites_role", sql`${table.role} in ('admin', 'viewer')`),
+    check(
+      "user_invites_expiry_order",
+      sql`${table.expiresAt} > ${table.createdAt}`
     ),
   ]
 )

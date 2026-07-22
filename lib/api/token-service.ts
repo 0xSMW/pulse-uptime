@@ -1,9 +1,26 @@
-import { and, desc, eq, isNull, lt, or } from "drizzle-orm"
+import { and, desc, eq, gt, isNull, lt, or } from "drizzle-orm"
 
-import { type DatabaseHandle, db } from "@/lib/db/client"
-import { apiTokens } from "@/lib/db/schema"
+import {
+  type DatabaseHandle,
+  type DatabaseTransaction,
+  db,
+} from "@/lib/db/client"
+import {
+  adminUsers,
+  apiTokens,
+  cliInstallations,
+  cliSessions,
+  humanSessions,
+} from "@/lib/db/schema"
 
-import { type ApiScope, canDelegateScopes, normalizeScopes } from "./scopes"
+import { lockMachineCredentialChanges } from "./machine-credential-lock"
+import {
+  type ApiScope,
+  canDelegateScopes,
+  normalizeScopes,
+  resolveScopeProfile,
+  roleScopes,
+} from "./scopes"
 import { createBearerToken } from "./tokens"
 
 const MAX_TOKEN_LIFETIME_MS = 365 * 24 * 60 * 60_000
@@ -81,18 +98,20 @@ export function validateTokenInput(
       "Requested scopes exceed the caller's effective scopes"
     )
   }
-  // Only the human administrator may delegate the token-management scope. Machine
-  // credentials (api tokens, CLI sessions) cannot mint children that themselves mint
-  // tokens, which bounds any delegation chain to a single level and keeps cascade
+  // Only the human administrator may delegate the token-management and
+  // user-management scopes. Machine credentials (api tokens, CLI sessions)
+  // cannot mint children that themselves mint tokens or invite users, which
+  // bounds any delegation chain to a single level and keeps cascade
   // revocation of a revoked parent complete.
   if (
     principal.type &&
     principal.type !== "human" &&
-    requestedScopes.includes("tokens:manage")
+    (requestedScopes.includes("tokens:manage") ||
+      requestedScopes.includes("users:manage"))
   ) {
     throw new TokenServiceError(
       "SCOPE_DENIED",
-      "Machine credentials cannot delegate the tokens:manage scope"
+      "Machine credentials cannot delegate the tokens:manage or users:manage scopes"
     )
   }
   // No explicit expiry: apply the default lifetime, clamped down to the
@@ -162,40 +181,167 @@ export async function createApiToken(
     name: string
     scopes: ApiScope[]
     expiresAt: Date
-    principal: { type: string; id: string }
+    principal: { type: string; id: string; sessionId?: string }
     credential?: ReturnType<typeof createBearerToken>
   },
   now = new Date(),
   handle: DatabaseHandle = db
 ): Promise<{ token: TokenRecord; secret: string }> {
-  const credential = input.credential ?? createBearerToken()
-  if (input.credential) {
-    const [existing] = await handle
-      .select(tokenSelection)
-      .from(apiTokens)
-      .where(eq(apiTokens.tokenDigest, credential.digest))
-      .limit(1)
-    if (existing) {
-      return { token: serializeToken(existing), secret: credential.raw }
+  return handle.transaction(async (tx) => {
+    await lockMachineCredentialChanges(tx)
+    await lockCreatingPrincipal(tx, input, now)
+
+    const credential = input.credential ?? createBearerToken()
+    if (input.credential) {
+      const [existing] = await tx
+        .select(tokenSelection)
+        .from(apiTokens)
+        .where(eq(apiTokens.tokenDigest, credential.digest))
+        .limit(1)
+      if (existing) {
+        return { token: serializeToken(existing), secret: credential.raw }
+      }
     }
+    const [row] = await tx
+      .insert(apiTokens)
+      .values({
+        id: crypto.randomUUID(),
+        name: input.name,
+        tokenPrefix: credential.prefix,
+        tokenDigest: credential.digest,
+        principalType: input.principal.type,
+        principalId: input.principal.id,
+        scopes: input.scopes,
+        createdAt: now,
+        createdByPrincipal: `${input.principal.type}:${input.principal.id}`,
+        expiresAt: input.expiresAt,
+      })
+      .returning(tokenSelection)
+    // A single-row insert with returning always yields the inserted row.
+    return { token: serializeToken(row!), secret: credential.raw }
+  })
+}
+
+async function lockCreatingPrincipal(
+  tx: DatabaseTransaction,
+  input: {
+    scopes: ApiScope[]
+    expiresAt: Date
+    principal: { type: string; id: string; sessionId?: string }
+  },
+  now: Date
+) {
+  if (input.principal.type === "human") {
+    if (!input.principal.sessionId) {
+      throw new TokenServiceError(
+        "SCOPE_DENIED",
+        "The creating session is no longer active"
+      )
+    }
+    const [parent] = await tx
+      .select({ role: adminUsers.role })
+      .from(humanSessions)
+      .innerJoin(adminUsers, eq(adminUsers.id, humanSessions.userId))
+      .where(
+        and(
+          eq(humanSessions.id, input.principal.sessionId),
+          eq(humanSessions.userId, input.principal.id),
+          isNull(humanSessions.revokedAt),
+          gt(humanSessions.expiresAt, now)
+        )
+      )
+      .for("update")
+      .limit(1)
+    requireActiveCreatingPrincipal(
+      parent
+        ? { scopes: roleScopes(parent.role === "admin" ? "admin" : "viewer") }
+        : undefined,
+      input
+    )
+    return
   }
-  const [row] = await handle
-    .insert(apiTokens)
-    .values({
-      id: crypto.randomUUID(),
-      name: input.name,
-      tokenPrefix: credential.prefix,
-      tokenDigest: credential.digest,
-      principalType: input.principal.type,
-      principalId: input.principal.id,
-      scopes: input.scopes,
-      createdAt: now,
-      createdByPrincipal: `${input.principal.type}:${input.principal.id}`,
-      expiresAt: input.expiresAt,
-    })
-    .returning(tokenSelection)
-  // A single-row insert with returning always yields the inserted row.
-  return { token: serializeToken(row!), secret: credential.raw }
+
+  if (input.principal.type === "api_token") {
+    const [parent] = await tx
+      .select({ scopes: apiTokens.scopes, expiresAt: apiTokens.expiresAt })
+      .from(apiTokens)
+      .where(
+        and(
+          eq(apiTokens.id, input.principal.id),
+          isNull(apiTokens.revokedAt),
+          gt(apiTokens.expiresAt, now)
+        )
+      )
+      .for("update")
+      .limit(1)
+    requireActiveCreatingPrincipal(parent, input)
+    return
+  }
+
+  if (input.principal.type === "cli_session") {
+    const [parent] = await tx
+      .select({
+        scopes: cliSessions.scopes,
+        scopeProfile: cliSessions.scopeProfile,
+        expiresAt: cliSessions.expiresAt,
+      })
+      .from(cliSessions)
+      .innerJoin(
+        cliInstallations,
+        eq(cliInstallations.id, cliSessions.installationId)
+      )
+      .where(
+        and(
+          eq(cliSessions.id, input.principal.id),
+          isNull(cliSessions.revokedAt),
+          gt(cliSessions.expiresAt, now),
+          isNull(cliInstallations.revokedAt)
+        )
+      )
+      .for("update", { of: cliSessions })
+      .limit(1)
+    requireActiveCreatingPrincipal(
+      parent
+        ? {
+            scopes:
+              resolveScopeProfile(parent.scopeProfile) ??
+              normalizeScopes(parent.scopes),
+            expiresAt: parent.expiresAt,
+          }
+        : undefined,
+      input
+    )
+    return
+  }
+
+  throw new TokenServiceError(
+    "SCOPE_DENIED",
+    "The creating credential is not allowed to delegate tokens"
+  )
+}
+
+function requireActiveCreatingPrincipal(
+  parent: { scopes: string[]; expiresAt?: Date } | undefined,
+  input: { scopes: ApiScope[]; expiresAt: Date }
+) {
+  if (!parent) {
+    throw new TokenServiceError(
+      "SCOPE_DENIED",
+      "The creating credential is no longer active or cannot delegate these scopes"
+    )
+  }
+  const hasDelegationAuthority =
+    parent.scopes.includes("tokens:manage") &&
+    canDelegateScopes({ scopes: parent.scopes }, input.scopes)
+  if (
+    !hasDelegationAuthority ||
+    (parent.expiresAt !== undefined && input.expiresAt > parent.expiresAt)
+  ) {
+    throw new TokenServiceError(
+      "SCOPE_DENIED",
+      "The creating credential is no longer active or cannot delegate these scopes"
+    )
+  }
 }
 
 export async function listApiTokens(input: {
@@ -235,6 +381,16 @@ export async function revokeApiToken(
   handle: DatabaseHandle = db
 ): Promise<TokenRecord | null> {
   return handle.transaction(async (tx) => {
+    await lockMachineCredentialChanges(tx)
+    const [locked] = await tx
+      .select({ id: apiTokens.id })
+      .from(apiTokens)
+      .where(eq(apiTokens.id, tokenId))
+      .for("update")
+      .limit(1)
+    if (!locked) {
+      return null
+    }
     const [row] = await tx
       .update(apiTokens)
       .set({ revokedAt: now })

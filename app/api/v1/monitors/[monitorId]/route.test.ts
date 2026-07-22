@@ -90,6 +90,10 @@ const monitor = {
   failureThreshold: 2,
   recoveryThreshold: 2,
   recipients: [],
+  certExpiresAt: null,
+  certIssuer: null,
+  domainExpiresAt: null,
+  domainRegistrar: null,
 }
 const params = { params: Promise.resolve({ monitorId: "site-home" }) }
 

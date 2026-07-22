@@ -17,7 +17,9 @@ const IMAGE_ID = "55555555-5555-4555-8555-555555555555"
 const humanContext: ApiContext = {
   principal: {
     type: "human",
+    role: "admin",
     id: "user-1",
+    sessionId: "session-1",
     email: "admin@example.com",
     scopes: [],
   },

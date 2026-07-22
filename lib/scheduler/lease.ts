@@ -2,6 +2,7 @@ export const LEASE_DURATION_MS = 90_000
 export const MONITORING_LEASE = "monitor-check"
 export const MAINTENANCE_LEASE = "maintenance"
 export const DEPENDENCY_LEASE = "dependency-check"
+export const DOMAIN_HEALTH_LEASE = "domain-health"
 
 export interface LeaseStore {
   acquire: (

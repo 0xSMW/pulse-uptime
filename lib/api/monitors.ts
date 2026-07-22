@@ -2,6 +2,7 @@ import "server-only"
 import { and, sql as drizzleSql, eq, inArray } from "drizzle-orm"
 import { z } from "zod"
 
+import { sourceFromPrincipalKey, trackEvent } from "@/lib/analytics-server"
 import { runManualCheck } from "@/lib/checker"
 import {
   createMonitorWithDefaults,
@@ -13,6 +14,10 @@ import {
 } from "@/lib/config"
 import { type DatabaseHandle, db } from "@/lib/db/client"
 import { monitorRegistry, monitorState } from "@/lib/db/schema"
+import {
+  domainHealthByMonitorId,
+  type SerializedDomainHealthFacts,
+} from "@/lib/domain-health/queries"
 import { uptime24hByMonitorId } from "@/lib/monitoring/queries"
 import { MONITOR_STATE_ORDER, type MonitorState } from "@/lib/monitoring/types"
 
@@ -49,6 +54,9 @@ const createSchemaBase = z
     failureThreshold: z.number().int().min(1).max(5).optional(),
     recoveryThreshold: z.number().int().min(1).max(5).optional(),
     recipients: z.array(z.string()).max(20).optional(),
+    // null clears the content check on PATCH; the stored config keeps the key
+    // omitted rather than null so canonical hashes stay stable.
+    expectedText: displayName(1, 256).nullable().optional(),
   })
   .strict()
 const exclusiveGroup = (value: { group?: unknown; groupId?: unknown }) =>
@@ -131,12 +139,21 @@ function resolveGroupId(
   return groupId
 }
 
+function withoutClearedExpectedText<T extends { expectedText?: string | null }>(
+  fields: T
+): Omit<T, "expectedText"> & { expectedText?: string } {
+  const { expectedText, ...rest } = fields
+  return expectedText === null || expectedText === undefined
+    ? rest
+    : { ...rest, expectedText }
+}
+
 export function parseCreateMonitor(
   input: unknown,
   groups: readonly GroupConfig[] = []
 ): MonitorConfig {
   const value = createSchema.parse(input)
-  const fields = { ...value }
+  const fields = withoutClearedExpectedText({ ...value })
   delete fields.group
   return monitorConfigSchema.parse({
     ...createMonitorWithDefaults(fields),
@@ -155,11 +172,20 @@ export function mergeMonitorPatch(
 ): MonitorConfig {
   const fields = { ...patch }
   delete fields.group
-  return monitorConfigSchema.parse({
+  const merged: Record<string, unknown> = {
     ...monitor,
     ...fields,
     expectedStatus: patch.expectedStatus ?? monitor.expectedStatus,
-  })
+  }
+  // expectedText: null clears the check, undefined leaves it alone, and the
+  // merged config never stores the key as null.
+  if (patch.expectedText === null) {
+    delete merged.expectedText
+  }
+  if (merged.expectedText === undefined) {
+    delete merged.expectedText
+  }
+  return monitorConfigSchema.parse(merged)
 }
 
 function monitorResponse(
@@ -180,6 +206,7 @@ export async function createMonitor(
   handle: DatabaseHandle = db
 ) {
   let created!: MonitorConfig
+  let inserted = false
   const result = await applyConfigChange(
     principalKey,
     (current) => {
@@ -195,12 +222,19 @@ export async function createMonitor(
           "A monitor with this ID already exists"
         )
       }
+      inserted = true
       return nextConfig(current, {
         monitors: [...current.monitors, monitor],
       })
     },
     handle
   )
+  if (inserted) {
+    trackEvent("Monitor Created", {
+      contentCheck: created.expectedText !== undefined,
+      source: sourceFromPrincipalKey(principalKey),
+    })
+  }
   return monitorResponse(
     result.monitors.find((item) => item.id === created.id)!,
     result.groups
@@ -260,6 +294,9 @@ export async function archiveMonitor(
       },
       handle
     )
+    trackEvent("Monitor Deleted", {
+      source: sourceFromPrincipalKey(principalKey),
+    })
   } catch (error) {
     if (
       !(error instanceof MonitorApiError) ||
@@ -310,6 +347,34 @@ export async function setMonitorEnabled(
   )
 }
 
+interface DomainHealthFacts {
+  certExpiresAt: string | null
+  certIssuer: string | null
+  domainExpiresAt: string | null
+  domainRegistrar: string | null
+}
+
+const EMPTY_DOMAIN_HEALTH: DomainHealthFacts = {
+  certExpiresAt: null,
+  certIssuer: null,
+  domainExpiresAt: null,
+  domainRegistrar: null,
+}
+
+function apiDomainHealth(
+  facts: SerializedDomainHealthFacts | undefined
+): DomainHealthFacts {
+  if (!facts) {
+    return EMPTY_DOMAIN_HEALTH
+  }
+  return {
+    certExpiresAt: facts.certExpiresAt,
+    certIssuer: facts.certIssuer,
+    domainExpiresAt: facts.domainExpiresAt,
+    domainRegistrar: facts.domainRegistrar,
+  }
+}
+
 export async function requireMonitor(id: string, handle: DatabaseHandle = db) {
   const accepted = await requireAcceptedConfig()
   const monitor = accepted.config.monitors.find((item) => item.id === id)
@@ -320,16 +385,25 @@ export async function requireMonitor(id: string, handle: DatabaseHandle = db) {
   // state from the state table plus createdAt and updatedAt from the registry and
   // state rows. uptime stays list only. A monitor with no registry row yet reads
   // the config shape alone.
-  const [runtime] = await handle
-    .select({
-      state: monitorState.state,
-      createdAt: monitorRegistry.firstSeenAt,
-      updatedAt: monitorState.updatedAt,
-    })
-    .from(monitorState)
-    .innerJoin(monitorRegistry, eq(monitorRegistry.id, monitorState.monitorId))
-    .where(eq(monitorState.monitorId, id))
-  const base = monitorResponse(monitor, accepted.config.groups)
+  const [[runtime], health] = await Promise.all([
+    handle
+      .select({
+        state: monitorState.state,
+        createdAt: monitorRegistry.firstSeenAt,
+        updatedAt: monitorState.updatedAt,
+      })
+      .from(monitorState)
+      .innerJoin(
+        monitorRegistry,
+        eq(monitorRegistry.id, monitorState.monitorId)
+      )
+      .where(eq(monitorState.monitorId, id)),
+    domainHealthByMonitorId([{ id: monitor.id, url: monitor.url }], handle),
+  ])
+  const base = {
+    ...monitorResponse(monitor, accepted.config.groups),
+    ...apiDomainHealth(health.get(id)),
+  }
   return runtime
     ? {
         ...base,
@@ -457,14 +531,26 @@ export async function listMonitors(options: {
     after.length > page.length && last
       ? encodeCursor({ sort: `${fingerprint}\0${keyFor(last)}`, id: last.id })
       : null
-  // uptime is the one reporting-owned field on the list payload, computed for
-  // the returned page only. A locked window or missing registry row reads null.
-  const uptime = await uptime24hByMonitorId(page.map((monitor) => monitor.id))
+  // uptime and observedUptime are the reporting-owned fields on the list
+  // payload, computed for the returned page only. uptime is the settled 24h
+  // figure, null while locked or without a registry row. observedUptime is
+  // the since-activation figure a collecting monitor shows in its place.
+  const [uptime, health] = await Promise.all([
+    uptime24hByMonitorId(page.map((monitor) => monitor.id)),
+    domainHealthByMonitorId(
+      page.map((monitor) => ({ id: monitor.id, url: monitor.url }))
+    ),
+  ])
   return {
-    monitors: page.map((monitor) => ({
-      ...monitor,
-      uptime: uptime.get(monitor.id) ?? null,
-    })),
+    monitors: page.map((monitor) => {
+      const entry = uptime.get(monitor.id)
+      return {
+        ...monitor,
+        uptime: entry?.uptime24h ?? null,
+        observedUptime: entry?.observedUptime ?? null,
+        ...apiDomainHealth(health.get(monitor.id)),
+      }
+    }),
     nextCursor: next,
   }
 }
@@ -479,6 +565,7 @@ export async function testMonitor(id: string) {
     method: monitor.method,
     timeoutMs: monitor.timeoutMs,
     expectedStatus: monitor.expectedStatus,
+    expectedText: monitor.expectedText,
     userAgent: accepted.config.settings.userAgent,
   })
   return {

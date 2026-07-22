@@ -12,6 +12,7 @@ import {
   monitorState,
 } from "@/lib/db/schema"
 import { listOverlappingDependencyIncidents } from "@/lib/dependencies/overlap"
+import { domainHealthByMonitorId } from "@/lib/domain-health/queries"
 import type { VisibleMonitorState } from "@/lib/monitoring/types"
 import {
   RECENT_MINUTE_CHECK_TAIL_COUNTS_SQL,
@@ -295,6 +296,7 @@ export async function findMonitorDetail(id: string) {
     accepted,
     recentRawChecks,
     rawAvailability24h,
+    domainHealthById,
   ] = await Promise.all([
     fetchRollups(id, "15m", end15m, 7 * 86_400_000),
     fetchRollups(id, "hour", endHour, 30 * 86_400_000),
@@ -327,6 +329,7 @@ export async function findMonitorDetail(id: string) {
       new Date(end15m.getTime() - 86_400_000),
       end15m
     ),
+    domainHealthByMonitorId([{ id: monitor.id, url: monitor.url }]),
   ])
 
   // Derive the last 24 hours from the fetched seven days of rollups.
@@ -444,6 +447,17 @@ export async function findMonitorDetail(id: string) {
       ? config.recipients.length ||
         (acceptedConfig?.settings.defaultRecipients.length ?? 0)
       : 0,
+    expectedText: config?.expectedText ?? null,
+    // Daily facts from the check-domains cron. Nulls mean unknown (no RDAP
+    // coverage, http-only monitor, or a cron that has not run yet), never a
+    // problem to render.
+    domainHealth: domainHealthById.get(monitor.id) ?? {
+      apexDomain: null,
+      certExpiresAt: null,
+      certIssuer: null,
+      domainExpiresAt: null,
+      domainRegistrar: null,
+    },
     latestLatencyMs: monitor.latestLatencyMs,
     lastCheckedAt: monitor.lastCheckedAt?.toISOString() ?? null,
     // Latency reads the same activation-filtered rollups uptime does, so a slow

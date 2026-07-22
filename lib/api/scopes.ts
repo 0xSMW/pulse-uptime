@@ -7,6 +7,7 @@ export const API_SCOPES = [
   "config:write",
   "notifications:test",
   "tokens:manage",
+  "users:manage",
   "status:read",
   "reports:read",
   "reports:write",
@@ -18,6 +19,27 @@ export type ApiScope = (typeof API_SCOPES)[number]
 
 export const ADMINISTRATOR_SCOPES: readonly ApiScope[] = [...API_SCOPES]
 
+/** Every read-only scope. Viewers observe the whole install but mutate nothing. */
+export const VIEWER_SCOPES: readonly ApiScope[] = API_SCOPES.filter((scope) =>
+  scope.endsWith(":read")
+)
+
+export const USER_ROLES = ["admin", "viewer"] as const
+
+export type UserRole = (typeof USER_ROLES)[number]
+
+export function isUserRole(value: string): value is UserRole {
+  return (USER_ROLES as readonly string[]).includes(value)
+}
+
+/**
+ * Effective scopes for a human session. Unknown values from the database fall
+ * back to viewer so a bad row can never widen access.
+ */
+export function roleScopes(role: string): ApiScope[] {
+  return role === "admin" ? [...ADMINISTRATOR_SCOPES] : [...VIEWER_SCOPES]
+}
+
 /**
  * Named scope profiles are resolved at AUTH time, not at mint time: a CLI
  * session that stores the "administrator" profile gains newly introduced
@@ -25,6 +47,7 @@ export const ADMINISTRATOR_SCOPES: readonly ApiScope[] = [...API_SCOPES]
  */
 const SCOPE_PROFILES: Readonly<Record<string, readonly ApiScope[]>> = {
   administrator: ADMINISTRATOR_SCOPES,
+  viewer: VIEWER_SCOPES,
 }
 
 export function resolveScopeProfile(

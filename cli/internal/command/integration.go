@@ -27,6 +27,7 @@ import (
 	"github.com/0xSMW/pulse-uptime/cli/internal/command/readops"
 	"github.com/0xSMW/pulse-uptime/cli/internal/command/reportops"
 	"github.com/0xSMW/pulse-uptime/cli/internal/command/statuspageops"
+	"github.com/0xSMW/pulse-uptime/cli/internal/command/userops"
 	"github.com/0xSMW/pulse-uptime/cli/internal/config"
 	"github.com/0xSMW/pulse-uptime/cli/internal/output"
 	"github.com/0xSMW/pulse-uptime/cli/internal/progress"
@@ -157,10 +158,10 @@ func (a *App) linkInstallation(ctx context.Context, r config.Resolved, noBrowser
 	if err := started.Data.ValidateVerificationOrigin(r.Server); err != nil {
 		return "", cliError(ExitUnexpected, "INVALID_RESPONSE", err.Error())
 	}
-	fmt.Fprintf(a.opts.Err, "Open %s\n\nEnter code: %s\n\nWaiting for approval...\n", started.Data.VerificationURI, started.Data.UserCode)
+	fmt.Fprintf(a.opts.Err, "Open %s\n\nEnter code: %s\n\nWaiting for approval...\n", output.SanitizeDisplay(started.Data.VerificationURI), output.SanitizeDisplay(started.Data.UserCode))
 	if !noBrowser && a.opts.StdinTTY {
 		if err := a.openBrowser(ctx, started.Data.VerificationURIComplete); err != nil {
-			fmt.Fprintf(a.opts.Err, "Browser unavailable: %s\n", err)
+			fmt.Fprintf(a.opts.Err, "Browser unavailable: %s\n", output.SanitizeDisplay(err.Error()))
 		}
 	}
 	poller := auth.Poller{Wait: a.pollWait}
@@ -240,7 +241,7 @@ func (a *App) authGroup() *cobra.Command {
 }
 
 func (a *App) contextGroup() *cobra.Command {
-	group := &cobra.Command{Use: "context", Short: "Manage service contexts", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
+	group := &cobra.Command{Use: "context", Aliases: []string{"contexts", "ctx"}, Short: "Manage service contexts", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
 	group.AddCommand(a.contextAddCommand(), a.contextListCommand(), a.contextShowCommand(), a.contextUseCommand(), a.contextRemoveCommand())
 	return group
 }
@@ -249,7 +250,7 @@ func (a *App) contextAddCommand() *cobra.Command {
 	var server, format string
 	var timeout time.Duration
 	var activate, force bool
-	cmd := &cobra.Command{Use: "add <name>", Short: "Add a context", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "add <name>", Aliases: []string{"create", "new"}, Short: "Add a context", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if server == "" {
 			return cliError(ExitInvalidInput, "INVALID_ARGUMENT", "--url is required")
 		}
@@ -278,7 +279,7 @@ func (a *App) contextAddCommand() *cobra.Command {
 }
 
 func (a *App) contextListCommand() *cobra.Command {
-	return &cobra.Command{Use: "list", Short: "List contexts", Args: cobra.NoArgs, RunE: func(_ *cobra.Command, _ []string) error {
+	return &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List contexts", Args: cobra.NoArgs, RunE: func(_ *cobra.Command, _ []string) error {
 		path, _ := a.configPath()
 		f, err := config.Load(path)
 		if err != nil {
@@ -293,7 +294,7 @@ func (a *App) contextListCommand() *cobra.Command {
 }
 
 func (a *App) contextShowCommand() *cobra.Command {
-	return &cobra.Command{Use: "show [name]", Short: "Show a context", Args: cobra.MaximumNArgs(1), RunE: func(_ *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "show [name]", Aliases: []string{"get", "info"}, Short: "Show a context", Args: cobra.MaximumNArgs(1), RunE: func(_ *cobra.Command, args []string) error {
 		path, _ := a.configPath()
 		f, err := config.Load(path)
 		if err != nil {
@@ -329,7 +330,7 @@ func (a *App) contextUseCommand() *cobra.Command {
 }
 
 func (a *App) contextRemoveCommand() *cobra.Command {
-	return &cobra.Command{Use: "remove <name>", Short: "Remove a context", Args: cobra.ExactArgs(1), RunE: func(_ *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "remove <name>", Aliases: []string{"rm", "delete"}, Short: "Remove a context", Args: cobra.ExactArgs(1), RunE: func(_ *cobra.Command, args []string) error {
 		path, _ := a.configPath()
 		f, err := config.Load(path)
 		if err != nil {
@@ -462,6 +463,17 @@ func (t groupAdapter) Do(ctx context.Context, request groupops.Request) error {
 	return requestErr
 }
 
+type userAdapter struct{ app *App }
+
+func (t userAdapter) Do(ctx context.Context, request userops.Request) error {
+	_, client, err := t.app.authenticatedClient()
+	if err != nil {
+		return err
+	}
+	_, requestErr := client.DoJSON(ctx, api.Request{Method: request.Method, Path: request.Path, Query: request.Query, Body: request.Body, IdempotencyKey: request.IdempotencyKey}, request.Result)
+	return requestErr
+}
+
 type reportAdapter struct{ app *App }
 
 func (t reportAdapter) Do(ctx context.Context, request reportops.Request) error {
@@ -542,7 +554,7 @@ func (a *App) newClient(r config.Resolved, token string) *api.Client {
 	client := api.NewClient(r.Server, token, buildinfo.UserAgent(), r.Timeout, a.opts.HTTPClient)
 	if a.debug {
 		client.SetDebugHook(func(event api.DebugEvent) {
-			fmt.Fprintf(a.opts.Err, "%s %s status=%d attempt=%d request_id=%s elapsed=%s\n", event.Method, event.URL, event.Status, event.Attempt, event.RequestID, event.Elapsed.Round(time.Millisecond))
+			fmt.Fprintf(a.opts.Err, "%s %s status=%d attempt=%d request_id=%s elapsed=%s\n", output.SanitizeDisplay(event.Method), output.SanitizeDisplay(event.URL), event.Status, event.Attempt, output.SanitizeDisplay(event.RequestID), event.Elapsed.Round(time.Millisecond))
 		})
 	}
 	if a.opts.StderrTTY && !a.debug && os.Getenv("TERM") != "dumb" {
@@ -605,6 +617,16 @@ func (a *App) monitorDependencies() monitorops.Dependencies {
 		}
 		return a.outputFor(defaultOutput(a.opts.StdoutTTY, "table", "jsonl"))
 	}, StdinTTY: a.opts.StdinTTY, StdoutTTY: a.opts.StdoutTTY, NewID: randomUUID, MapError: mapAPIOrCLIError}
+}
+
+func (a *App) userDependencies() userops.Dependencies {
+	return userops.Dependencies{Client: userAdapter{a}, In: a.opts.In, Out: a.opts.Out, Err: a.opts.Err, Format: func() string { return a.outputFor(defaultOutput(a.opts.StdoutTTY, "table", "json")) }, StdinTTY: a.opts.StdinTTY, NewID: randomUUID, MapError: mapAPIOrCLIError, ServerURL: func() string {
+		r, err := a.resolve()
+		if err != nil {
+			return ""
+		}
+		return strings.TrimRight(r.Server, "/")
+	}}
 }
 
 func (a *App) groupDependencies() groupops.Dependencies {

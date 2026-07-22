@@ -27,5 +27,5 @@ func JSON(w io.Writer, value any) error {
 }
 
 func HumanError(w io.Writer, message string) {
-	fmt.Fprintf(w, "Error: %s\n", message)
+	fmt.Fprintf(w, "Error: %s\n", SanitizeDisplay(message))
 }

@@ -19,6 +19,12 @@ import {
 } from "./actions"
 import styles from "./authorize.module.css"
 
+const PLATFORM_LABELS: Record<string, string> = {
+  darwin: "macOS",
+  linux: "Linux",
+  windows: "Windows",
+}
+
 const PERMISSIONS = [
   "Manage monitors",
   "View incidents and private status",
@@ -103,7 +109,8 @@ export function AuthorizationFlow({
                   <span>{accountEmail}</span>
                 </p>
                 <p className={styles.meta}>
-                  {request.clientVersion} · {request.platform}/
+                  {request.clientVersion} ·{" "}
+                  {PLATFORM_LABELS[request.platform] ?? request.platform}/
                   {request.architecture}
                   {request.requestIp ? ` · ${request.requestIp}` : ""}
                 </p>

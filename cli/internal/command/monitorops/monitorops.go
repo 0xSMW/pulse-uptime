@@ -115,6 +115,7 @@ type Monitor struct {
 	Recipients        []string       `json:"recipients" yaml:"recipients"`
 	State             string         `json:"state" yaml:"state"`
 	Uptime            json.Number    `json:"uptime,omitempty" yaml:"uptime,omitempty"`
+	ObservedUptime    json.Number    `json:"observedUptime,omitempty" yaml:"observedUptime,omitempty"`
 	CreatedAt         string         `json:"createdAt,omitempty" yaml:"createdAt,omitempty"`
 	UpdatedAt         string         `json:"updatedAt,omitempty" yaml:"updatedAt,omitempty"`
 }
@@ -144,7 +145,7 @@ type WatchEvent struct {
 
 func NewGroup(d Dependencies) *cobra.Command {
 	d = defaults(d)
-	group := &cobra.Command{Use: "monitor", Short: "Manage endpoint monitors", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
+	group := &cobra.Command{Use: "monitor", Aliases: []string{"monitors", "mon"}, Short: "Manage endpoint monitors", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
 	group.AddCommand(newListCommand(d), newGetCommand(d), newCreateCommand(d), newUpdateCommand(d), newActionCommand(d, "pause"), newActionCommand(d, "resume"), newArchiveCommand(d), newActionCommand(d, "test"), newWatchCommand(d))
 	return group
 }
@@ -189,7 +190,7 @@ func defaults(d Dependencies) Dependencies {
 func newListCommand(d Dependencies) *cobra.Command {
 	var o ListOptions
 	var enabled, disabled bool
-	cmd := &cobra.Command{Use: "list", Short: "List monitors", Args: cobra.NoArgs, Annotations: annotations("monitors:read"), RunE: func(cmd *cobra.Command, _ []string) error {
+	cmd := &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List monitors", Args: cobra.NoArgs, Annotations: annotations("monitors:read"), RunE: func(cmd *cobra.Command, _ []string) error {
 		if cmd.Flags().Changed("group") && cmd.Flags().Changed("group-id") {
 			return invalid("--group and --group-id cannot be combined")
 		}
@@ -226,7 +227,7 @@ func newListCommand(d Dependencies) *cobra.Command {
 
 func newGetCommand(d Dependencies) *cobra.Command {
 	var flagID string
-	cmd := &cobra.Command{Use: "get [id]", Short: "Get a monitor", Args: cobra.MaximumNArgs(1), Annotations: annotations("monitors:read"), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "get [id]", Aliases: []string{"show", "info"}, Short: "Get a monitor", Args: cobra.MaximumNArgs(1), Annotations: annotations("monitors:read"), RunE: func(cmd *cobra.Command, args []string) error {
 		id, err := exactMonitorID(args, flagID)
 		if err != nil {
 			return err
@@ -258,7 +259,7 @@ const (
 
 func newCreateCommand(d Dependencies) *cobra.Command {
 	var f editFlags
-	cmd := &cobra.Command{Use: "create", Short: "Create a monitor", Args: cobra.NoArgs, Annotations: annotations("monitors:write"), RunE: func(cmd *cobra.Command, _ []string) error {
+	cmd := &cobra.Command{Use: "create", Aliases: []string{"add", "new"}, Short: "Create a monitor", Args: cobra.NoArgs, Annotations: annotations("monitors:write"), RunE: func(cmd *cobra.Command, _ []string) error {
 		if f.id == "" || f.name == "" || f.targetURL == "" {
 			return invalid("--id, --name, and --url are required")
 		}
@@ -277,7 +278,7 @@ func newCreateCommand(d Dependencies) *cobra.Command {
 
 func newUpdateCommand(d Dependencies) *cobra.Command {
 	var f editFlags
-	cmd := &cobra.Command{Use: "update <id>", Short: "Update a monitor", Args: cobra.ExactArgs(1), Annotations: annotations("monitors:write"), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "update <id>", Aliases: []string{"edit", "set"}, Short: "Update a monitor", Args: cobra.ExactArgs(1), Annotations: annotations("monitors:write"), RunE: func(cmd *cobra.Command, args []string) error {
 		id, err := exactMonitorID(args, "")
 		if err != nil {
 			return err
@@ -444,7 +445,10 @@ func newActionCommand(d Dependencies, action string) *cobra.Command {
 func newArchiveCommand(d Dependencies) *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{
-		Use:         "archive <id>",
+		Use: "archive <id>",
+		// Archival is the monitor removal operation, it issues a DELETE and
+		// sits behind the same confirmation gate under every alias.
+		Aliases:     []string{"delete", "rm", "remove"},
 		Short:       "Archive a monitor",
 		Args:        cobra.ExactArgs(1),
 		Annotations: annotations("monitors:write"),
@@ -777,6 +781,30 @@ func renderEnvelope(d Dependencies, format string, doc Envelope) error {
 		return e
 	}
 }
+
+// formatUptimePercent renders an uptime figure with the web detail view's
+// precision rules: four decimals above 99 so a near-perfect figure keeps its
+// failure signal instead of rounding to a clean 100%, two decimals at or
+// below 99, trailing zeros trimmed either way. A fully up monitor reads 100%
+// and 99.9990 reads 99.999%. Empty or unparsable input reads "".
+func formatUptimePercent(n json.Number) string {
+	if n == "" {
+		return ""
+	}
+	f, err := strconv.ParseFloat(string(n), 64)
+	if err != nil {
+		return ""
+	}
+	decimals := 2
+	if f > 99 {
+		decimals = 4
+	}
+	s := strconv.FormatFloat(f, 'f', decimals, 64)
+	s = strings.TrimRight(s, "0")
+	s = strings.TrimRight(s, ".")
+	return s + "%"
+}
+
 func renderList(d Dependencies, format string, doc ListEnvelope) error {
 	switch format {
 	case "json":
@@ -801,24 +829,28 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 		}
 		return nil
 	default:
-		fmt.Fprintln(d.Out, "ID\tNAME\tSTATE\tUPTIME")
+		rows := make([][]string, 0, len(doc.Data))
 		for _, raw := range doc.Data {
 			var m Monitor
 			if json.Unmarshal(raw, &m) == nil {
-				uptime := "—"
-				if m.Uptime != "" {
-					if f, e := strconv.ParseFloat(string(m.Uptime), 64); e == nil {
-						// Four decimals per CLI-31: operators must distinguish
-						// 99.9900% from 99.9990%. Compact web lists round, human
-						// CLI tables do not.
-						uptime = fmt.Sprintf("%.4f%%", f)
-					}
+				// The settled 24h figure wins, the observed since-activation
+				// figure stands in during a monitor's first collecting day,
+				// so a fresh monitor shows data rather than a placeholder.
+				uptime := formatUptimePercent(m.Uptime)
+				if uptime == "" {
+					uptime = formatUptimePercent(m.ObservedUptime)
 				}
-				fmt.Fprintf(d.Out, "%s\t%s\t%s\t%s\n", output.SanitizeDisplay(m.ID), output.SanitizeDisplay(m.Name), output.SanitizeDisplay(m.State), uptime)
+				if uptime == "" {
+					uptime = "—"
+				}
+				rows = append(rows, []string{output.SanitizeDisplay(m.ID), output.SanitizeDisplay(m.Name), output.SanitizeDisplay(m.State), uptime})
 			}
 		}
+		if err := output.Table(d.Out, []string{"ID", "NAME", "STATE", "UPTIME"}, rows); err != nil {
+			return err
+		}
 		if doc.Meta.NextCursor != nil && *doc.Meta.NextCursor != "" {
-			fmt.Fprintf(d.Err, "More monitors available. Continue with --cursor %s\n", *doc.Meta.NextCursor)
+			fmt.Fprintf(d.Err, "More monitors available. Continue with --cursor %s\n", output.SanitizeDisplay(*doc.Meta.NextCursor))
 		}
 		return nil
 	}
@@ -828,7 +860,7 @@ func renderWatch(d Dependencies, format string, event WatchEvent) error {
 		return json.NewEncoder(d.Out).Encode(event)
 	}
 	if event.Type == "state_changed" {
-		_, e := fmt.Fprintf(d.Out, "%s  %s  %s -> %s\n", event.ObservedAt, event.MonitorID, event.From, event.To)
+		_, e := fmt.Fprintf(d.Out, "%s  %s  %s -> %s\n", output.SanitizeDisplay(event.ObservedAt), output.SanitizeDisplay(event.MonitorID), output.SanitizeDisplay(event.From), output.SanitizeDisplay(event.To))
 		return e
 	}
 	doc := ListEnvelope{APIVersion: "v1", Kind: "MonitorList", Data: event.Monitors}

@@ -35,6 +35,7 @@ describe("principal resolution", () => {
           sessionId: "ses_human",
           userId: "usr_1",
           email: "admin@example.com",
+          role: "admin",
           timezone: null,
           expiresAt: new Date("2026-08-01T00:00:00Z"),
           onboardingCompletedAt: new Date("2026-07-18T00:00:00Z"),
@@ -42,11 +43,38 @@ describe("principal resolution", () => {
       }
     )
     expect(principal).toMatchObject({ type: "human", id: "usr_1" })
-    expect(principal?.scopes).toHaveLength(12)
+    expect(principal?.scopes).toHaveLength(13)
     expect(principal?.scopes).toContain("reports:read")
     expect(principal?.scopes).toContain("reports:write")
     expect(principal?.scopes).toContain("dependencies:read")
     expect(principal?.scopes).toContain("dependencies:write")
+    expect(principal?.scopes).toContain("users:manage")
+  })
+
+  it("grants only read scopes to a viewer session", async () => {
+    const principal = await authenticatePrincipal(
+      new Request("https://pulse.test/api/v1/me"),
+      {
+        authenticateHumanSession: async () => ({
+          sessionId: "ses_viewer",
+          userId: "usr_2",
+          email: "viewer@example.com",
+          role: "viewer",
+          timezone: null,
+          expiresAt: new Date("2026-08-01T00:00:00Z"),
+          onboardingCompletedAt: new Date("2026-07-18T00:00:00Z"),
+        }),
+      }
+    )
+    expect(principal).toMatchObject({ type: "human", role: "viewer" })
+    expect(principal?.scopes).toEqual([
+      "monitors:read",
+      "incidents:read",
+      "config:read",
+      "status:read",
+      "reports:read",
+      "dependencies:read",
+    ])
   })
 
   it("verifies an API token by digest and performs a bounded touch", async () => {

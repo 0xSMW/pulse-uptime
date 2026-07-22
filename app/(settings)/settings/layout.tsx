@@ -26,7 +26,7 @@ export default async function SettingsLayout({
       <TimezoneServerSync timezone={session.timezone} />
       <div className="min-h-dvh md:flex">
         <AutoRefresh />
-        <SettingsSidebar />
+        <SettingsSidebar userRole={session.role} />
         <main className="min-w-0 flex-1">
           <div className="mx-auto w-full max-w-[820px] px-6 py-8 md:px-10 md:py-12">
             {children}

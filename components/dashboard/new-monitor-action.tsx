@@ -21,7 +21,11 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 
-export function NewMonitorAction() {
+export function NewMonitorAction({
+  canManageMonitors,
+}: {
+  canManageMonitors: boolean
+}) {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [groups, setGroups] = useState<SettingsGroup[]>([])
@@ -50,6 +54,10 @@ export function NewMonitorAction() {
         group,
       ])
     )
+  }
+
+  if (!canManageMonitors) {
+    return null
   }
 
   return (
