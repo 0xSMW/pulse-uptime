@@ -158,10 +158,10 @@ func (a *App) linkInstallation(ctx context.Context, r config.Resolved, noBrowser
 	if err := started.Data.ValidateVerificationOrigin(r.Server); err != nil {
 		return "", cliError(ExitUnexpected, "INVALID_RESPONSE", err.Error())
 	}
-	fmt.Fprintf(a.opts.Err, "Open %s\n\nEnter code: %s\n\nWaiting for approval...\n", started.Data.VerificationURI, started.Data.UserCode)
+	fmt.Fprintf(a.opts.Err, "Open %s\n\nEnter code: %s\n\nWaiting for approval...\n", output.SanitizeDisplay(started.Data.VerificationURI), output.SanitizeDisplay(started.Data.UserCode))
 	if !noBrowser && a.opts.StdinTTY {
 		if err := a.openBrowser(ctx, started.Data.VerificationURIComplete); err != nil {
-			fmt.Fprintf(a.opts.Err, "Browser unavailable: %s\n", err)
+			fmt.Fprintf(a.opts.Err, "Browser unavailable: %s\n", output.SanitizeDisplay(err.Error()))
 		}
 	}
 	poller := auth.Poller{Wait: a.pollWait}
@@ -554,7 +554,7 @@ func (a *App) newClient(r config.Resolved, token string) *api.Client {
 	client := api.NewClient(r.Server, token, buildinfo.UserAgent(), r.Timeout, a.opts.HTTPClient)
 	if a.debug {
 		client.SetDebugHook(func(event api.DebugEvent) {
-			fmt.Fprintf(a.opts.Err, "%s %s status=%d attempt=%d request_id=%s elapsed=%s\n", event.Method, event.URL, event.Status, event.Attempt, event.RequestID, event.Elapsed.Round(time.Millisecond))
+			fmt.Fprintf(a.opts.Err, "%s %s status=%d attempt=%d request_id=%s elapsed=%s\n", output.SanitizeDisplay(event.Method), output.SanitizeDisplay(event.URL), event.Status, event.Attempt, output.SanitizeDisplay(event.RequestID), event.Elapsed.Round(time.Millisecond))
 		})
 	}
 	if a.opts.StderrTTY && !a.debug && os.Getenv("TERM") != "dumb" {

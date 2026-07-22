@@ -61,6 +61,8 @@ const expectedOperations = [
   "POST /api/v1/cli-auth/device",
   "POST /api/v1/cli-auth/token",
   "POST /api/v1/cli-auth/revoke",
+  "DELETE /api/v1/cli-auth/installations/{installationId}",
+  "POST /api/v1/cli-auth/installations/revoke-all",
   "GET /api/v1/database-health",
   "POST /api/v1/database-health/refresh",
   "GET /api/v1/status-page-config",
@@ -306,6 +308,8 @@ describe("committed OpenAPI v1 source", () => {
       ["/api/v1/monitors/{monitorId}", "delete"],
       ["/api/v1/tokens/{tokenId}", "delete"],
       ["/api/v1/cli-auth/revoke", "post"],
+      ["/api/v1/cli-auth/installations/{installationId}", "delete"],
+      ["/api/v1/cli-auth/installations/revoke-all", "post"],
       ["/api/v1/status-reports/{reportId}", "delete"],
       ["/api/v1/status-reports/{reportId}/updates/{updateId}", "delete"],
     ] as const) {

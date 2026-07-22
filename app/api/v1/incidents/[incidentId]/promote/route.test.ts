@@ -44,6 +44,7 @@ const context: ApiContext = {
     type: "human",
     role: "admin",
     id: "usr-1",
+    sessionId: "session-1",
     email: "admin@example.com",
     scopes: ["reports:write"],
   },

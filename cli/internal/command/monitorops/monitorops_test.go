@@ -553,3 +553,31 @@ func TestExactMonitorIDUnitHelper(t *testing.T) {
 		t.Fatal("expected missing id to fail")
 	}
 }
+
+func TestHumanWatchAndCursorOutputNeutralizeTerminalEscapes(t *testing.T) {
+	var out bytes.Buffer
+	var stderr bytes.Buffer
+	event := WatchEvent{
+		Type:       "state_changed",
+		ObservedAt: "now\x1b[2K",
+		MonitorID:  "api\x07",
+		From:       "UP\nforged",
+		To:         "DOWN\u202e",
+	}
+	if err := renderWatch(Dependencies{Out: &out, Err: &stderr}, "table", event); err != nil {
+		t.Fatal(err)
+	}
+	cursor := "next\x1b]52;c;copied\x07"
+	if err := renderList(Dependencies{Out: &out, Err: &stderr}, "table", ListEnvelope{Meta: Meta{NextCursor: &cursor}}); err != nil {
+		t.Fatal(err)
+	}
+	combined := out.String() + stderr.String()
+	if strings.ContainsAny(combined, "\x1b\x07") || strings.ContainsRune(combined, '\u202e') {
+		t.Fatalf("human output leaked terminal controls: %q", combined)
+	}
+	for _, want := range []string{`\x1b`, `\x07`, `\x0a`, `\u202e`} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("human output %q missing %q", combined, want)
+		}
+	}
+}

@@ -123,6 +123,30 @@ func TestMeMapsServiceErrorsAndPreservesRequestID(t *testing.T) {
 	}
 }
 
+func TestHumanErrorsAndRequestIDsNeutralizeTerminalEscapes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, "{\"error\":{\"code\":\"SCOPE_DENIED\",\"message\":\"denied\\u001b]52;c;copied\\u0007\\nforged\",\"requestId\":\"req\\u001b[2K\\u0007\"}}")
+	}))
+	defer server.Close()
+	t.Setenv("PULSECTL_URL", server.URL)
+	t.Setenv("PULSECTL_TOKEN", "pulse_live_secret")
+	t.Setenv("PULSECTL_OUTPUT", "table")
+
+	code, _, stderr := execute(t, "me")
+	if code != ExitPermission {
+		t.Fatalf("code=%d stderr=%q", code, stderr)
+	}
+	if strings.ContainsAny(stderr, "\x1b\x07") {
+		t.Fatalf("human error leaked terminal controls: %q", stderr)
+	}
+	for _, want := range []string{`\x1b`, `\x07`, `\x0a`} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr %q missing %q", stderr, want)
+		}
+	}
+}
+
 func TestReportScopeDenialIncludesRolloutHint(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusForbidden)

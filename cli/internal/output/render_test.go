@@ -152,6 +152,30 @@ func TestEscapeTSVFieldPreventsForgedRowsAndCells(t *testing.T) {
 	}
 }
 
+func TestHumanErrorSanitizesHostileServiceText(t *testing.T) {
+	var out bytes.Buffer
+	HumanError(&out, "denied\x1b]52;c;copied\x07\nforged")
+	if strings.ContainsAny(out.String(), "\x1b\x07") {
+		t.Fatalf("human error leaked terminal controls: %q", out.String())
+	}
+	for _, want := range []string{`\x1b`, `\x07`, `\x0a`} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("human error %q missing %q", out.String(), want)
+		}
+	}
+}
+
+func FuzzSanitizeDisplayNeverEmitsTerminalControls(f *testing.F) {
+	f.Add("plain Unicode สวัสดี 🌐")
+	f.Add("\x1b]52;c;clipboard\x07\nforged\u202e")
+	f.Fuzz(func(t *testing.T, value string) {
+		got := SanitizeDisplay(value)
+		if strings.ContainsFunc(got, isDisplayControl) {
+			t.Fatalf("sanitized output contains a terminal control: %q", got)
+		}
+	})
+}
+
 func TestRenderTableNeutralizesInjectedName(t *testing.T) {
 	value := map[string]any{"apiVersion": "v1", "kind": "MonitorList", "data": []any{map[string]any{"id": "api", "name": "API\x1b[2K\tDOWN"}}}
 	var out bytes.Buffer

@@ -372,7 +372,7 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 			return err
 		}
 		if doc.Meta.NextCursor != nil && *doc.Meta.NextCursor != "" {
-			fmt.Fprintf(d.Err, "More groups available. Continue with --cursor %s\n", *doc.Meta.NextCursor)
+			fmt.Fprintf(d.Err, "More groups available. Continue with --cursor %s\n", output.SanitizeDisplay(*doc.Meta.NextCursor))
 		}
 		return nil
 	}

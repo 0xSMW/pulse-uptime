@@ -2645,6 +2645,51 @@
           }
         }
       }
+    },
+    "/api/v1/cli-auth/installations/{installationId}": {
+      "delete": {
+        "operationId": "adminRevokeCliInstallation",
+        "tags": ["CLI authorization"],
+        "summary": "Revoke a CLI installation as an administrator",
+        "description": "Requires an administrator dashboard session. Revokes the installation, every session, and API tokens minted by those sessions.",
+        "x-required-scopes": ["tokens:manage"],
+        "security": [{"humanSession": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"},
+          {"$ref": "#/components/parameters/IdempotencyKey"},
+          {"$ref": "#/components/parameters/InstallationId"}
+        ],
+        "responses": {
+          "200": {"description": "Machine credentials revoked", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MachineCredentialRevocationEnvelope"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      }
+    },
+    "/api/v1/cli-auth/installations/revoke-all": {
+      "post": {
+        "operationId": "revokeAllMachineCredentials",
+        "tags": ["CLI authorization"],
+        "summary": "Revoke every machine credential",
+        "description": "Emergency recovery operation requiring an administrator dashboard session. Revokes every CLI installation, CLI session, and API token.",
+        "x-required-scopes": ["tokens:manage"],
+        "security": [{"humanSession": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "responses": {
+          "200": {"description": "Machine credentials revoked", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MachineCredentialRevocationEnvelope"}}}},
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      }
     }
   },
   "components": {
@@ -2775,6 +2820,15 @@
       },
       "InviteId": {
         "name": "inviteId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "InstallationId": {
+        "name": "installationId",
         "in": "path",
         "required": true,
         "schema": {
@@ -5944,6 +5998,26 @@
           "meta": {
             "$ref": "#/components/schemas/Meta"
           }
+        }
+      },
+      "MachineCredentialRevocationEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["apiVersion", "kind", "data", "meta"],
+        "properties": {
+          "apiVersion": {"$ref": "#/components/schemas/ApiVersion"},
+          "kind": {"const": "MachineCredentialRevocation"},
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["installations", "sessions", "tokens"],
+            "properties": {
+              "installations": {"type": "integer", "minimum": 0},
+              "sessions": {"type": "integer", "minimum": 0},
+              "tokens": {"type": "integer", "minimum": 0}
+            }
+          },
+          "meta": {"$ref": "#/components/schemas/Meta"}
         }
       },
       "ActionEnvelope": {

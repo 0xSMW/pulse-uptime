@@ -322,7 +322,7 @@ func writeDestructiveChangeReasons(w io.Writer, reasons []DestructiveChangeReaso
 			fmt.Fprintf(
 				w,
 				"- active group %s would lose all %d monitors\n",
-				reason.Group,
+				output.SanitizeDisplay(reason.Group),
 				reason.PreviousActiveCount,
 			)
 		}

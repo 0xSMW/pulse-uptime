@@ -850,7 +850,7 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 			return err
 		}
 		if doc.Meta.NextCursor != nil && *doc.Meta.NextCursor != "" {
-			fmt.Fprintf(d.Err, "More monitors available. Continue with --cursor %s\n", *doc.Meta.NextCursor)
+			fmt.Fprintf(d.Err, "More monitors available. Continue with --cursor %s\n", output.SanitizeDisplay(*doc.Meta.NextCursor))
 		}
 		return nil
 	}
@@ -860,7 +860,7 @@ func renderWatch(d Dependencies, format string, event WatchEvent) error {
 		return json.NewEncoder(d.Out).Encode(event)
 	}
 	if event.Type == "state_changed" {
-		_, e := fmt.Fprintf(d.Out, "%s  %s  %s -> %s\n", event.ObservedAt, event.MonitorID, event.From, event.To)
+		_, e := fmt.Fprintf(d.Out, "%s  %s  %s -> %s\n", output.SanitizeDisplay(event.ObservedAt), output.SanitizeDisplay(event.MonitorID), output.SanitizeDisplay(event.From), output.SanitizeDisplay(event.To))
 		return e
 	}
 	doc := ListEnvelope{APIVersion: "v1", Kind: "MonitorList", Data: event.Monitors}

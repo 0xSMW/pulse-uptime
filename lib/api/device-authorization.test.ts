@@ -9,7 +9,7 @@ process.env.API_TOKEN_HASH_KEY = "api-token-key-with-at-least-32-characters"
 const { db } = vi.hoisted(() => {
   function chain(result: unknown[]) {
     const c: Record<string, unknown> = {}
-    for (const method of ["from", "where", "limit", "for"]) {
+    for (const method of ["from", "where", "limit", "for", "innerJoin"]) {
       c[method] = vi.fn(() => c)
     }
     c.then = (
@@ -27,6 +27,7 @@ const { db } = vi.hoisted(() => {
   const insertValues: unknown[] = []
 
   const dbImpl = {
+    execute: vi.fn(async () => []),
     select: vi.fn((columns: unknown) => {
       selectColumnsCalls.push(columns)
       return chain(selectResults.shift() ?? [])
@@ -109,9 +110,14 @@ beforeEach(resetDb)
 
 describe("approveDeviceAuthorization", () => {
   const now = new Date("2026-07-18T12:00:00.000Z")
-  const human = { id: "human-1", email: "owner@example.com" }
+  const human = {
+    id: "human-1",
+    sessionId: "session-1",
+    email: "owner@example.com",
+  }
 
   it("returns exactly the fields the caller consumes and passes them through to the installation upsert", async () => {
+    db.selectResults.push([{ email: human.email }])
     db.updateResults.push([
       {
         id: "auth-1",
@@ -168,6 +174,7 @@ describe("approveDeviceAuthorization", () => {
   })
 
   it("throws expired_token and never touches the installation table when no pending row matches", async () => {
+    db.selectResults.push([{ email: human.email }])
     db.updateResults.push([])
 
     await expect(
@@ -175,6 +182,17 @@ describe("approveDeviceAuthorization", () => {
     ).rejects.toMatchObject({
       code: "expired_token",
     })
+    expect(db.impl.insert).not.toHaveBeenCalled()
+  })
+
+  it("rejects approval after the human session is revoked", async () => {
+    db.selectResults.push([])
+
+    await expect(
+      approveDeviceAuthorization("abcd-1234", human, now)
+    ).rejects.toMatchObject({ code: "access_denied" })
+
+    expect(db.impl.update).not.toHaveBeenCalled()
     expect(db.impl.insert).not.toHaveBeenCalled()
   })
 })

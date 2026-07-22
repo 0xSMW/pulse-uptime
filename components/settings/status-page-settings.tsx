@@ -1019,7 +1019,7 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
                 value={draft.customCss ?? ""}
               />
               <span className="mt-1 block text-[var(--fg-muted)] text-xs">
-                Injected into the public page as a style tag. Up to 10 KB.
+                Loaded as a public stylesheet. Up to 10 KB.
               </span>
             </label>
             <label className="block">

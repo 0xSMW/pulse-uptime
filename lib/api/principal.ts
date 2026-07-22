@@ -19,6 +19,7 @@ import { digestBearerToken, parseBearerAuthorization } from "./tokens"
 export interface HumanPrincipal {
   type: "human"
   id: string
+  sessionId: string
   email: string
   role: UserRole
   scopes: ApiScope[]
@@ -86,6 +87,7 @@ export async function authenticatePrincipal(
       ? {
           type: "human",
           id: session.userId,
+          sessionId: session.sessionId,
           email: session.email,
           role: session.role,
           scopes: roleScopes(session.role),

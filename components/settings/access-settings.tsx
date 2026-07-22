@@ -16,6 +16,7 @@ export interface AccessSettingsData {
     id: string
     name: string
     kind: "agent" | "cli"
+    installationId: string | null
     detail: string | null
     prefix: string
     scopes: string[]
@@ -59,6 +60,10 @@ export function AccessSettings({ data }: { data: AccessSettingsData }) {
   const { resolvedTimeZone } = useTimezone()
   const [tokenSheet, setTokenSheet] = useState(false)
   const [revokeId, setRevokeId] = useState<string | null>(null)
+  const [revokeInstallationId, setRevokeInstallationId] = useState<
+    string | null
+  >(null)
+  const [revokeAllPending, setRevokeAllPending] = useState(false)
   const [tokenBusy, setTokenBusy] = useState(false)
   const [tokenStatus, setTokenStatus] = useState("")
 
@@ -81,18 +86,86 @@ export function AccessSettings({ data }: { data: AccessSettingsData }) {
     }
   }
 
+  async function revokeCliInstallation(id: string) {
+    setTokenBusy(true)
+    setTokenStatus("")
+    try {
+      await apiRequest(
+        `/api/v1/cli-auth/installations/${encodeURIComponent(id)}`,
+        { method: "DELETE" },
+        { mutation: true }
+      )
+      setRevokeInstallationId(null)
+      setTokenStatus("CLI installation revoked")
+      router.refresh()
+    } catch (error) {
+      setTokenStatus(messageForError(error))
+    } finally {
+      setTokenBusy(false)
+    }
+  }
+
+  async function revokeAllMachineCredentials() {
+    setTokenBusy(true)
+    setTokenStatus("")
+    try {
+      await apiRequest(
+        "/api/v1/cli-auth/installations/revoke-all",
+        { method: "POST" },
+        { mutation: true }
+      )
+      setRevokeAllPending(false)
+      setTokenStatus("Machine credentials revoked")
+      router.refresh()
+    } catch (error) {
+      setTokenStatus(messageForError(error))
+    } finally {
+      setTokenBusy(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <Card className="overflow-hidden">
         <CardHeading
           action={
-            <Button
-              onClick={() => setTokenSheet(true)}
-              size="sm"
-              variant="primary"
-            >
-              Create Token
-            </Button>
+            <div className="flex items-center gap-2">
+              {revokeAllPending ? (
+                <>
+                  <Button
+                    disabled={tokenBusy}
+                    onClick={() => setRevokeAllPending(false)}
+                    size="sm"
+                    variant="secondary"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    disabled={tokenBusy}
+                    onClick={revokeAllMachineCredentials}
+                    size="sm"
+                    variant="secondary"
+                  >
+                    {tokenBusy ? "Revoking…" : "Confirm All"}
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  onClick={() => setRevokeAllPending(true)}
+                  size="sm"
+                  variant="secondary"
+                >
+                  Revoke All
+                </Button>
+              )}
+              <Button
+                onClick={() => setTokenSheet(true)}
+                size="sm"
+                variant="primary"
+              >
+                Create Token
+              </Button>
+            </div>
           }
           title="API Tokens"
         />
@@ -180,10 +253,42 @@ export function AccessSettings({ data }: { data: AccessSettingsData }) {
                           Revoke
                         </Button>
                       )
-                    ) : (
-                      <span className="text-[var(--fg-faint)] text-xs">
-                        Linked session
+                    ) : revokeInstallationId === token.installationId ? (
+                      <span className="inline-flex items-center gap-2">
+                        <span className="text-[var(--down-text)] text-xs">
+                          Revoke?
+                        </span>
+                        <Button
+                          disabled={tokenBusy}
+                          onClick={() => setRevokeInstallationId(null)}
+                          size="sm"
+                          variant="secondary"
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          disabled={tokenBusy}
+                          onClick={() =>
+                            token.installationId
+                              ? revokeCliInstallation(token.installationId)
+                              : undefined
+                          }
+                          size="sm"
+                          variant="secondary"
+                        >
+                          {tokenBusy ? "Revoking…" : "Confirm"}
+                        </Button>
                       </span>
+                    ) : (
+                      <Button
+                        onClick={() =>
+                          setRevokeInstallationId(token.installationId)
+                        }
+                        size="sm"
+                        variant="secondary"
+                      >
+                        Revoke
+                      </Button>
                     )}
                   </td>
                 </tr>

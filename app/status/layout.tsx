@@ -1,3 +1,4 @@
+import { headers } from "next/headers"
 import type { ReactNode } from "react"
 
 import styles from "@/components/status-page/status-page.module.css"
@@ -12,7 +13,8 @@ import { cn } from "@/lib/utils"
  * customHead: restricted meta and icon link elements only. React hoists
  * validated elements into the document head even when this nested layout
  * emits them from the page shell. They remain React nodes, not raw HTML.
- * customCss and the Google tag stay on their existing paths.
+ * customCss is loaded from a text/css resource so it never enters an HTML raw
+ * text context. The Google tag uses the request nonce from the status CSP.
  */
 export default async function PublicStatusLayout({
   children,
@@ -20,6 +22,7 @@ export default async function PublicStatusLayout({
   children: ReactNode
 }) {
   const config = await getStatusPageDisplayConfig()
+  const nonce = (await headers()).get("x-nonce") ?? undefined
   const forcedTheme = config.theme === "system" ? null : config.theme
 
   return (
@@ -33,14 +36,14 @@ export default async function PublicStatusLayout({
     >
       {renderSafeCustomHead(config.customHead)}
       {config.customCss ? (
-        // biome-ignore lint/security/noDangerouslySetInnerHtml: custom css is the status page owner's own configured stylesheet, an intentional customization
-        <style dangerouslySetInnerHTML={{ __html: config.customCss }} />
+        <link href="/status/custom.css" rel="stylesheet" />
       ) : null}
       {children}
       {config.googleTagId ? (
         <>
           <script
             async
+            nonce={nonce}
             src={`https://www.googletagmanager.com/gtag/js?id=${config.googleTagId}`}
           />
           <script
@@ -50,6 +53,7 @@ export default async function PublicStatusLayout({
             dangerouslySetInnerHTML={{
               __html: `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${config.googleTagId}');`,
             }}
+            nonce={nonce}
           />
         </>
       ) : null}

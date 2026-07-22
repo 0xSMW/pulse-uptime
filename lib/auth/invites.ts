@@ -10,9 +10,8 @@ import {
   isNull,
   max,
 } from "drizzle-orm"
-
-import { isUserRole, type UserRole } from "@/lib/api/scopes"
 import { lockMachineCredentialChanges } from "@/lib/api/machine-credential-lock"
+import { isUserRole, type UserRole } from "@/lib/api/scopes"
 import {
   createBearerToken,
   digestBearerToken,
@@ -430,6 +429,7 @@ export async function changeUserRole(
   const role = input.role
   return db.transaction(async (tx) => {
     await tx.execute(TEAM_LOCK_SQL)
+    await lockMachineCredentialChanges(tx)
     const [target] = await tx
       .select({
         id: adminUsers.id,
@@ -481,6 +481,7 @@ export async function removeUser(
   }
   return db.transaction(async (tx) => {
     await tx.execute(TEAM_LOCK_SQL)
+    await lockMachineCredentialChanges(tx)
     const [target] = await tx
       .select({
         id: adminUsers.id,
@@ -546,7 +547,6 @@ async function revokeIssuedCredentials(
   email: string,
   now: Date
 ): Promise<{ revokedCliSessions: number; revokedApiTokens: number }> {
-  await lockMachineCredentialChanges(tx)
   // Sessions in every revocation state participate in the token closure: a
   // child token of an already-revoked session is still live on its own row.
   const sessions = await tx

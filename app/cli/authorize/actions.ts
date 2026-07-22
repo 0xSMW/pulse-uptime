@@ -86,6 +86,7 @@ export async function approveAuthorization(
   try {
     await approveDeviceAuthorization(userCode, {
       id: session.userId,
+      sessionId: session.sessionId,
       email: session.email,
     })
     return { ok: true, state: "approved" }

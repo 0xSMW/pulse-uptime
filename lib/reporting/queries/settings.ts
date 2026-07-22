@@ -215,6 +215,7 @@ export async function getAccessSettings() {
     db
       .select({
         id: cliSessions.id,
+        installationId: cliInstallations.id,
         prefix: cliSessions.tokenPrefix,
         scopes: cliSessions.scopes,
         scopeProfile: cliSessions.scopeProfile,
@@ -242,6 +243,7 @@ export async function getAccessSettings() {
         id: token.id,
         name: token.name,
         kind: "agent" as const,
+        installationId: null,
         detail: null,
         prefix: token.prefix,
         scopes: token.scopes,
@@ -252,6 +254,7 @@ export async function getAccessSettings() {
         id: session.id,
         name: session.displayName,
         kind: "cli" as const,
+        installationId: session.installationId,
         detail: `${session.platform}/${session.architecture}`,
         prefix: session.prefix,
         // The access page must show the scopes auth actually grants. A stored

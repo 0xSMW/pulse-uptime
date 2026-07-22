@@ -23,6 +23,7 @@ const humanContext: ApiContext = {
     type: "human",
     role: "admin" as const,
     id: "user-1",
+    sessionId: "session-1",
     email: "admin@example.com",
     scopes: [],
   },

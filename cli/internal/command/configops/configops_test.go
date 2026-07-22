@@ -168,6 +168,23 @@ func TestApplyExplainsTripwireReasonsBeforeInteractiveConsent(t *testing.T) {
 	}
 }
 
+func TestDestructiveChangeGroupIsSanitizedForTerminalOutput(t *testing.T) {
+	var output bytes.Buffer
+	writeDestructiveChangeReasons(&output, []DestructiveChangeReason{{
+		Type:                "active-group-removed",
+		Group:               "payments\x1b]52;c;copied\a\nforged",
+		PreviousActiveCount: 2,
+	}})
+
+	got := strings.TrimSuffix(output.String(), "\n")
+	if strings.ContainsAny(got, "\x1b\a\n\r") {
+		t.Fatalf("terminal controls reached output: %q", got)
+	}
+	if !strings.Contains(got, `payments\x1b]52;c;copied\x07\x0aforged`) {
+		t.Fatalf("sanitized group missing from output: %q", got)
+	}
+}
+
 func TestAllowDeleteFlagIsRetired(t *testing.T) {
 	cmd := NewCommand(Dependencies{})
 	apply, _, err := cmd.Find([]string{"apply"})

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/0xSMW/pulse-uptime/cli/internal/output"
 )
 
 // Exit codes mirror internal/command/exit.go for the states the session can
@@ -155,5 +157,5 @@ func runAction(ctx context.Context, env *Env, action Action) bool {
 }
 
 func showError(env *Env, err error) {
-	fmt.Fprintf(env.Err, "\n%s\n\n", err.Error())
+	fmt.Fprintf(env.Err, "\n%s\n\n", output.SanitizeDisplay(err.Error()))
 }

@@ -14,6 +14,7 @@ const data: AccessSettingsData = {
       id: "tok-1",
       name: "CI deploys",
       kind: "agent",
+      installationId: null,
       detail: null,
       prefix: "pulse_live_a1b2",
       scopes: ["monitors:read", "config:write", "reports:write"],
@@ -24,6 +25,7 @@ const data: AccessSettingsData = {
       id: "cli-1",
       name: "Stephen's MacBook",
       kind: "cli",
+      installationId: "00000000-0000-4000-8000-000000000001",
       detail: "darwin/arm64",
       prefix: "pulse_cli_z9y8",
       scopes: ["monitors:read"],
@@ -35,7 +37,7 @@ const data: AccessSettingsData = {
 }
 
 describe("AccessSettings", () => {
-  it("renders agent tokens with revoke and CLI sessions as linked", () => {
+  it("renders revocation controls for tokens and CLI installations", () => {
     const html = renderToStaticMarkup(
       <TimezoneProvider>
         <AccessSettings data={data} />
@@ -45,7 +47,7 @@ describe("AccessSettings", () => {
     expect(html).toContain("Agent token")
     expect(html).toContain(">Revoke</button>")
     expect(html).toContain("CLI session · darwin/arm64")
-    expect(html).toContain("Linked session")
+    expect(html).toContain("Revoke All")
     expect(html).toContain("pulse_live_a1b2····")
     expect(html).toContain("config:write")
     expect(html).toContain("reports:write")

@@ -1,7 +1,7 @@
 import "server-only"
 
 import { and, eq, isNull, ne, sql } from "drizzle-orm"
-
+import { lockMachineCredentialChanges } from "@/lib/api/machine-credential-lock"
 import {
   enforceRateLimit,
   type RateLimitPolicy,
@@ -685,6 +685,7 @@ const databaseEmailChangeStore: EmailChangeStore = {
       await tx.execute(
         sql`select pg_advisory_xact_lock(hashtext('pulse:team-roles'))`
       )
+      await lockMachineCredentialChanges(tx)
       const updated = await tx
         .update(adminUsers)
         .set({ email, updatedAt: now })
@@ -706,13 +707,13 @@ const databaseEmailChangeStore: EmailChangeStore = {
           )
         )
       await tx
-        .update(cliSessions)
-        .set({ userEmail: email })
-        .where(eq(cliSessions.userEmail, previousEmail))
-      await tx
         .update(cliInstallations)
         .set({ userEmail: email })
         .where(eq(cliInstallations.userEmail, previousEmail))
+      await tx
+        .update(cliSessions)
+        .set({ userEmail: email })
+        .where(eq(cliSessions.userEmail, previousEmail))
       return "applied"
     })
   },
