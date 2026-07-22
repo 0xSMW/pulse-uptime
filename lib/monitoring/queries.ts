@@ -4,6 +4,7 @@ import { db } from "@/lib/db/client"
 import {
   incidents,
   metricRollups,
+  monitorDomainHealth,
   monitorRegistry,
   monitorState,
 } from "@/lib/db/schema"
@@ -192,6 +193,8 @@ export async function listDashboardMonitors() {
       activatedAt: monitorState.activatedAt,
       activeIncidentOpenedAt: incidents.openedAt,
       uptime24h: uptime24hSql(start15m, end15m),
+      certExpiresAt: monitorDomainHealth.certExpiresAt,
+      domainExpiresAt: monitorDomainHealth.domainExpiresAt,
     })
     .from(monitorRegistry)
     .leftJoin(monitorState, eq(monitorState.monitorId, monitorRegistry.id))
@@ -201,6 +204,10 @@ export async function listDashboardMonitors() {
         eq(incidents.monitorId, monitorRegistry.id),
         isNull(incidents.resolvedAt)
       )
+    )
+    .leftJoin(
+      monitorDomainHealth,
+      eq(monitorDomainHealth.monitorId, monitorRegistry.id)
     )
     .where(isNull(monitorRegistry.archivedAt))
 
@@ -277,6 +284,8 @@ export async function listDashboardMonitors() {
           state: row.state ?? ("PENDING" as const),
           lastCheckedAt: row.lastCheckedAt?.toISOString() ?? null,
           activatedAt: row.activatedAt?.toISOString() ?? null,
+          certExpiresAt: row.certExpiresAt?.toISOString() ?? null,
+          domainExpiresAt: row.domainExpiresAt?.toISOString() ?? null,
           activeIncidentOpenedAt:
             row.activeIncidentOpenedAt?.toISOString() ?? null,
           // 32 buckets of 45 minutes each, the table's compact cousin of the

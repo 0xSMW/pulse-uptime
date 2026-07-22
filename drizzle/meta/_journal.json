@@ -169,6 +169,13 @@
       "when": 1784695310310,
       "tag": "0023_multi_user_roles",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1784697645607,
+      "tag": "0024_monitor_domain_health",
+      "breakpoints": true
     }
   ]
 }

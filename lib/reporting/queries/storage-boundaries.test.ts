@@ -65,6 +65,8 @@ const ALLOWED_REPORTING_TABLES = new Set([
   "metric_rollups",
   "incidents",
   "monitoring_config_snapshots",
+  // Daily domain and certificate facts joined onto the monitor identity.
+  "monitor_domain_health",
 ])
 
 let captured: Set<unknown>

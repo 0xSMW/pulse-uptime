@@ -533,3 +533,121 @@ describe("createSecureConnect", () => {
     expect(onConnectedAddress).not.toHaveBeenCalled()
   })
 })
+
+describe("content checks", () => {
+  function textResponse(
+    statusCode: number,
+    chunks: readonly string[]
+  ): CheckerResponse {
+    const destroy = vi.fn()
+    return {
+      statusCode,
+      headers: {},
+      body: {
+        destroy,
+        async *[Symbol.asyncIterator]() {
+          for (const chunk of chunks) {
+            yield Buffer.from(chunk)
+          }
+        },
+      },
+    }
+  }
+
+  const contentTarget = { ...target, expectedText: "Sign in" }
+
+  it("succeeds when the expected text appears in the body", async () => {
+    const request = vi.fn(async () =>
+      textResponse(200, ["<html><body>Sign in to Pulse</body></html>"])
+    )
+    const { checker } = harness(request)
+    const result = await checker(contentTarget)
+    expect(result).toMatchObject({ success: true, errorCode: null })
+  })
+
+  it("matches text split across chunk boundaries", async () => {
+    const request = vi.fn(async () => textResponse(200, ["<p>Sig", "n in</p>"]))
+    const { checker } = harness(request)
+    const result = await checker(contentTarget)
+    expect(result.success).toBe(true)
+  })
+
+  it("fails with CONTENT_MISMATCH when the text is absent", async () => {
+    const mismatch = textResponse(200, ["<html>maintenance page</html>"])
+    const request = vi.fn(async () => mismatch)
+    const { checker, close } = harness(request)
+    const result = await checker(contentTarget)
+    expect(result).toMatchObject({
+      success: false,
+      errorCode: "CONTENT_MISMATCH",
+      statusCode: 200,
+    })
+    expect(mismatch.body.destroy).toHaveBeenCalled()
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it("cannot match text past the 100KB scan cap", async () => {
+    const request = vi.fn(async () =>
+      textResponse(200, ["x".repeat(100 * 1024), "Sign in"])
+    )
+    const { checker } = harness(request)
+    const result = await checker(contentTarget)
+    expect(result).toMatchObject({
+      success: false,
+      errorCode: "CONTENT_MISMATCH",
+    })
+  })
+
+  it("treats a body without an iterator as empty", async () => {
+    const request = vi.fn(async () => response(200))
+    const { checker } = harness(request)
+    const result = await checker(contentTarget)
+    expect(result).toMatchObject({
+      success: false,
+      errorCode: "CONTENT_MISMATCH",
+    })
+  })
+
+  it("still checks status before content", async () => {
+    const request = vi.fn(async () => textResponse(500, ["Sign in eventually"]))
+    const { checker } = harness(request)
+    const result = await checker(contentTarget)
+    expect(result).toMatchObject({
+      success: false,
+      errorCode: "INVALID_STATUS",
+    })
+  })
+
+  it("classifies a body read failure instead of reporting a mismatch", async () => {
+    const destroy = vi.fn()
+    const request = vi.fn(async () => ({
+      statusCode: 200,
+      headers: {},
+      body: {
+        destroy,
+        // biome-ignore lint/correctness/useYield: the stream fails before producing a chunk
+        async *[Symbol.asyncIterator]() {
+          throw Object.assign(new Error("aborted"), {
+            code: "UND_ERR_BODY_TIMEOUT",
+          })
+        },
+      },
+    }))
+    const { checker } = harness(request)
+    const result = await checker(contentTarget)
+    expect(result).toMatchObject({ success: false, errorCode: "TIMEOUT" })
+    expect(destroy).toHaveBeenCalled()
+  })
+
+  it("rejects expectedText on HEAD targets at validation", async () => {
+    const request = vi.fn(async () => response(200))
+    const { checker } = harness(request)
+    const result = await checker({
+      ...target,
+      method: "HEAD",
+      expectedText: "Sign in",
+    })
+    expect(result).toMatchObject({ success: false, errorCode: "INVALID_URL" })
+    expect(request).not.toHaveBeenCalled()
+  })
+})

@@ -402,3 +402,76 @@ describe("handle threading to applyConfigChange (finding: the mutation and the i
     expect(result).toEqual({ id: "site-missing", archived: true })
   })
 })
+
+describe("expectedText through create and patch", () => {
+  it("stores trimmed text on create and rejects it for HEAD monitors", () => {
+    const created = parseCreateMonitor({
+      id: "site-content",
+      name: "Content",
+      url: "https://example.com",
+      expectedText: "  Sign in  ",
+    })
+    expect(created.expectedText).toBe("Sign in")
+    expect(() =>
+      parseCreateMonitor({
+        id: "site-head",
+        name: "Head",
+        url: "https://example.com",
+        method: "HEAD",
+        expectedText: "Sign in",
+      })
+    ).toThrow()
+  })
+
+  it("keeps an omitted create free of the key entirely", () => {
+    const created = parseCreateMonitor({
+      id: "site-plain",
+      name: "Plain",
+      url: "https://example.com",
+    })
+    expect("expectedText" in created).toBe(false)
+    const explicitNull = parseCreateMonitor({
+      id: "site-null",
+      name: "Null",
+      url: "https://example.com",
+      expectedText: null,
+    })
+    expect("expectedText" in explicitNull).toBe(false)
+  })
+
+  it("patches text on, leaves it alone when absent, and clears it on null", () => {
+    const withText = mergeMonitorPatch(
+      EXISTING,
+      parsePatchMonitor({ expectedText: "Welcome" })
+    )
+    expect(withText.expectedText).toBe("Welcome")
+
+    const untouched = mergeMonitorPatch(
+      withText,
+      parsePatchMonitor({ name: "Renamed" })
+    )
+    expect(untouched.expectedText).toBe("Welcome")
+
+    const cleared = mergeMonitorPatch(
+      withText,
+      parsePatchMonitor({ expectedText: null })
+    )
+    expect("expectedText" in cleared).toBe(false)
+  })
+
+  it("rejects a patch that switches to HEAD while text is configured", () => {
+    const withText = mergeMonitorPatch(
+      EXISTING,
+      parsePatchMonitor({ expectedText: "Welcome" })
+    )
+    expect(() =>
+      mergeMonitorPatch(withText, parsePatchMonitor({ method: "HEAD" }))
+    ).toThrow()
+    expect(() =>
+      mergeMonitorPatch(
+        withText,
+        parsePatchMonitor({ method: "HEAD", expectedText: null })
+      )
+    ).not.toThrow()
+  })
+})

@@ -3597,6 +3597,12 @@
               "format": "email"
             },
             "uniqueItems": true
+          },
+          "expectedText": {
+            "type": ["string", "null"],
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Literal substring the first 100KB of the response body must contain for a check to succeed. GET monitors only. Null on update clears the check. Stored configurations omit the field rather than storing null."
           }
         }
       },
@@ -3684,6 +3690,24 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "certExpiresAt": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "Leaf certificate expiry from the daily check-domains probe. Null means unknown (http monitor or no probe yet), never a problem."
+          },
+          "certIssuer": {
+            "type": ["string", "null"],
+            "description": "Issuing organization of the leaf certificate."
+          },
+          "domainExpiresAt": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "Domain registration expiry from the daily RDAP lookup. Null means unknown, including TLDs without RDAP coverage."
+          },
+          "domainRegistrar": {
+            "type": ["string", "null"],
+            "description": "Registrar display name from RDAP."
           }
         }
       },
@@ -3880,6 +3904,7 @@
                 "TOO_MANY_REDIRECTS",
                 "INVALID_REDIRECT",
                 "INVALID_STATUS",
+                "CONTENT_MISMATCH",
                 "BLOCKED_TARGET",
                 "INVALID_URL",
                 "RESPONSE_ERROR",

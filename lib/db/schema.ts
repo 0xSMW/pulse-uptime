@@ -196,6 +196,28 @@ export const monitorState = pgTable(
   ]
 )
 
+// Daily domain and certificate facts per monitor, written only by the
+// check-domains cron. Kept apart from monitor_state so the versioned check
+// pipeline never contends with this row. All fact columns are nullable: a TLD
+// without RDAP coverage or an http-only monitor simply has no value, which no
+// surface may render as a problem.
+export const monitorDomainHealth = pgTable(
+  "monitor_domain_health",
+  {
+    monitorId: text("monitor_id")
+      .primaryKey()
+      .references(() => monitorRegistry.id),
+    hostname: text("hostname").notNull(),
+    apexDomain: text("apex_domain"),
+    certExpiresAt: timestamptz("cert_expires_at"),
+    certIssuer: text("cert_issuer"),
+    domainExpiresAt: timestamptz("domain_expires_at"),
+    domainRegistrar: text("domain_registrar"),
+    checkedAt: timestamptz("checked_at").notNull(),
+  },
+  (table) => [index("monitor_domain_health_checked").on(table.checkedAt)]
+)
+
 export const checkResults = pgTable(
   "check_results",
   {

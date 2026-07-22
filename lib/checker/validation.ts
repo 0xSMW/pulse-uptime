@@ -69,8 +69,16 @@ const checkTargetSchema = z
         message: "maximum must be greater than or equal to minimum",
         path: ["maximum"],
       }),
+    expectedText: z.string().min(1).max(256).optional(),
   })
   .strict()
+  .refine(
+    (target) => target.expectedText === undefined || target.method === "GET",
+    {
+      message: "expectedText requires method GET",
+      path: ["expectedText"],
+    }
+  )
 
 export function validateCheckTarget(value: unknown) {
   const parsed = checkTargetSchema.safeParse(value)

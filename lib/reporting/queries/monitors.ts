@@ -7,6 +7,7 @@ import { portableQueryValues } from "@/lib/db/query-values"
 import {
   incidents,
   metricRollups,
+  monitorDomainHealth,
   monitoringConfigSnapshots,
   monitorRegistry,
   monitorState,
@@ -152,9 +153,18 @@ export const findMonitorIdentity = cache(async (id: string) => {
       lastErrorCode: monitorState.lastErrorCode,
       lastStatusCode: monitorState.lastStatusCode,
       consecutiveFailures: monitorState.consecutiveFailures,
+      apexDomain: monitorDomainHealth.apexDomain,
+      certExpiresAt: monitorDomainHealth.certExpiresAt,
+      certIssuer: monitorDomainHealth.certIssuer,
+      domainExpiresAt: monitorDomainHealth.domainExpiresAt,
+      domainRegistrar: monitorDomainHealth.domainRegistrar,
     })
     .from(monitorRegistry)
     .leftJoin(monitorState, eq(monitorState.monitorId, monitorRegistry.id))
+    .leftJoin(
+      monitorDomainHealth,
+      eq(monitorDomainHealth.monitorId, monitorRegistry.id)
+    )
     .where(and(eq(monitorRegistry.id, id), isNull(monitorRegistry.archivedAt)))
     .limit(1)
   if (!monitor || monitor.state === "ARCHIVED") {
@@ -444,6 +454,17 @@ export async function findMonitorDetail(id: string) {
       ? config.recipients.length ||
         (acceptedConfig?.settings.defaultRecipients.length ?? 0)
       : 0,
+    expectedText: config?.expectedText ?? null,
+    // Daily facts from the check-domains cron. Nulls mean unknown (no RDAP
+    // coverage, http-only monitor, or a cron that has not run yet), never a
+    // problem to render.
+    domainHealth: {
+      apexDomain: monitor.apexDomain,
+      certExpiresAt: monitor.certExpiresAt?.toISOString() ?? null,
+      certIssuer: monitor.certIssuer,
+      domainExpiresAt: monitor.domainExpiresAt?.toISOString() ?? null,
+      domainRegistrar: monitor.domainRegistrar,
+    },
     latestLatencyMs: monitor.latestLatencyMs,
     lastCheckedAt: monitor.lastCheckedAt?.toISOString() ?? null,
     // Latency reads the same activation-filtered rollups uptime does, so a slow

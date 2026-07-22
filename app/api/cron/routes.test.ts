@@ -56,6 +56,32 @@ describe("cron route security", () => {
     ).toBe(false)
   })
 
+  it("requires the same exact bearer secret for the domain health cron route", () => {
+    const secret = "d".repeat(32)
+    expect(
+      isAuthorizedCronRequest(
+        new Request("https://pulse.test/api/cron/check-domains", {
+          headers: { authorization: `Bearer ${secret}` },
+        }),
+        secret
+      )
+    ).toBe(true)
+    expect(
+      isAuthorizedCronRequest(
+        new Request("https://pulse.test/api/cron/check-domains", {
+          headers: { authorization: "Bearer wrong" },
+        }),
+        secret
+      )
+    ).toBe(false)
+    expect(
+      isAuthorizedCronRequest(
+        new Request("https://pulse.test/api/cron/check-domains"),
+        secret
+      )
+    ).toBe(false)
+  })
+
   it("requires the same exact bearer secret for the deploy-proof route", () => {
     const secret = "c".repeat(32)
     expect(

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import { useTimezone } from "@/components/dashboard/timezone-provider"
+import { ExpiryChip, expiryWarning } from "@/components/monitors/expiry-chip"
 import {
   StatusDot,
   type VisibleMonitorState,
@@ -46,6 +47,8 @@ export interface DashboardMonitor {
   activeIncidentOpenedAt: string | null
   uptime24hUnlocked: boolean
   timeline: TimelineBucket[]
+  certExpiresAt: string | null
+  domainExpiresAt: string | null
 }
 
 // The 24h column is a full-window claim, so it stays a placeholder until a
@@ -242,18 +245,28 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
                   </span>
                 </td>
                 <td className="px-4">
-                  <Link
-                    className="font-medium"
-                    href={`/monitors/${encodeURIComponent(monitor.id)}`}
-                    onClick={(event) => {
-                      if (isPlainLeftClick(event)) {
-                        markPending(monitor.id)
-                      }
-                    }}
-                    prefetch={false}
-                  >
-                    {monitor.name}
-                  </Link>
+                  <span className="inline-flex max-w-full items-center gap-2">
+                    <Link
+                      className="truncate font-medium"
+                      href={`/monitors/${encodeURIComponent(monitor.id)}`}
+                      onClick={(event) => {
+                        if (isPlainLeftClick(event)) {
+                          markPending(monitor.id)
+                        }
+                      }}
+                      prefetch={false}
+                    >
+                      {monitor.name}
+                    </Link>
+                    {(() => {
+                      const warning = expiryWarning(
+                        monitor.certExpiresAt,
+                        monitor.domainExpiresAt,
+                        new Date()
+                      )
+                      return warning ? <ExpiryChip warning={warning} /> : null
+                    })()}
+                  </span>
                   <div className="max-w-[320px] truncate font-data text-[var(--fg-muted)] text-xs">
                     {monitor.url}
                   </div>
