@@ -46,12 +46,17 @@ export function JoinForm({ role, token }: { role: string; token: string }) {
         } else if (/email/i.test(message)) {
           emailRef.current?.focus()
         }
+        setBusy(false)
         return
       }
+      // busy stays true through the redirect so the button never snaps back
+      // to idle while the browser is navigating away.
       location.assign(body.redirect ?? "/")
     } catch {
       setError("Couldn't reach the server. Check your connection and try again")
-    } finally {
+      // Disabling the submit button dropped focus to the body, restore an
+      // anchor so keyboard users can retry without hunting.
+      emailRef.current?.focus()
       setBusy(false)
     }
   }
