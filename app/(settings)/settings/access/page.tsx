@@ -2,6 +2,7 @@ import { Suspense } from "react"
 
 import { AccessSettings } from "@/components/settings/access-settings"
 import { SettingsCardsSkeleton } from "@/components/settings/settings-skeleton"
+import { requireAdminSettings } from "@/lib/auth/require-admin"
 import { getAccessSettings } from "@/lib/reporting/queries/settings"
 
 export default function AccessSettingsPage() {
@@ -23,5 +24,6 @@ export default function AccessSettingsPage() {
 }
 
 async function AccessSettingsIsland() {
+  await requireAdminSettings()
   return <AccessSettings data={await getAccessSettings()} />
 }

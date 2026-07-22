@@ -7,6 +7,7 @@ describe("principal serialization", () => {
     expect(
       serializePrincipal({
         type: "human",
+        role: "admin",
         id: "usr_1",
         email: "admin@example.com",
         scopes: ["monitors:read"],
@@ -29,6 +30,7 @@ describe("principal serialization", () => {
       serializePrincipal(
         {
           type: "human",
+          role: "admin",
           id: "usr_1",
           email: "admin@example.com",
           scopes: ["monitors:read"],

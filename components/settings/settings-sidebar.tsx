@@ -10,6 +10,7 @@ import {
   type LucideIcon,
   Palette,
   ShieldCheck,
+  Users,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
@@ -31,25 +32,27 @@ interface SidebarSection {
   items: SidebarItem[]
 }
 
-const sections: SidebarSection[] = [
-  {
-    label: "Account",
-    items: [
-      { href: "/settings/account", label: "Account", icon: CircleUser },
-      { href: "/settings/security", label: "Security", icon: ShieldCheck },
-    ],
-  },
-  {
-    label: "Workspace",
-    items: [
-      { href: "/settings/status-page", label: "Status page", icon: Palette },
-      { href: "/settings/notifications", label: "Notifications", icon: Bell },
-      { href: "/settings/monitors", label: "Monitors", icon: Activity },
-      { href: "/settings/access", label: "Access", icon: KeyRound },
-      { href: "/settings/system", label: "System", icon: Database },
-    ],
-  },
-]
+const accountSection: SidebarSection = {
+  label: "Account",
+  items: [
+    { href: "/settings/account", label: "Account", icon: CircleUser },
+    { href: "/settings/security", label: "Security", icon: ShieldCheck },
+  ],
+}
+
+// Admin only: every workspace surface mutates shared install state, which
+// viewer scopes cannot operate.
+const workspaceSection: SidebarSection = {
+  label: "Workspace",
+  items: [
+    { href: "/settings/status-page", label: "Status page", icon: Palette },
+    { href: "/settings/notifications", label: "Notifications", icon: Bell },
+    { href: "/settings/monitors", label: "Monitors", icon: Activity },
+    { href: "/settings/access", label: "Access", icon: KeyRound },
+    { href: "/settings/team", label: "Team", icon: Users },
+    { href: "/settings/system", label: "System", icon: Database },
+  ],
+}
 
 function storedReturnPath(): string {
   try {
@@ -62,7 +65,13 @@ function storedReturnPath(): string {
   }
 }
 
-export function SettingsSidebar() {
+export function SettingsSidebar({
+  userRole = "admin",
+}: {
+  userRole?: "admin" | "viewer"
+}) {
+  const sections =
+    userRole === "admin" ? [accountSection, workspaceSection] : [accountSection]
   const pathname = usePathname()
   const router = useRouter()
   const dirtyContext = useSettingsDirty()

@@ -4,6 +4,7 @@ import { canonicalSerialize } from "@/lib/config/canonical"
 
 const API_TOKEN_PREFIX = "pulse_live_"
 export const CLI_SESSION_PREFIX = "pulse_cli_"
+export const INVITE_TOKEN_PREFIX = "pulse_join_"
 const TOKEN_BYTES = 32
 
 export function digestBearerToken(

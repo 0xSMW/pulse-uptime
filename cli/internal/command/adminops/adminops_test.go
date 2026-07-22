@@ -163,8 +163,8 @@ func TestSupportedScopesIncludeDependencies(t *testing.T) {
 			t.Errorf("scope %q is not supported", scope)
 		}
 	}
-	if len(SupportedScopes) != 12 {
-		t.Fatalf("SupportedScopes = %d, want 12", len(SupportedScopes))
+	if len(SupportedScopes) != 13 {
+		t.Fatalf("SupportedScopes = %d, want 13", len(SupportedScopes))
 	}
 }
 

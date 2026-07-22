@@ -25,6 +25,10 @@ export type AuthorizationActionResult =
   | { ok: true; state: "approved" | "denied" }
   | { ok: false; message: string; signedOut?: boolean }
 
+// CLI sessions are minted with the administrator scope profile, so a viewer
+// approving one would escalate their own access.
+const ADMIN_ONLY_MESSAGE = "Only admins can authorize CLI access"
+
 function presentRequest(
   request: Awaited<ReturnType<typeof findPendingDeviceAuthorization>>
 ): AuthorizationRequestView | null {
@@ -55,6 +59,9 @@ export async function lookupAuthorization(
   if (!session) {
     return { ok: false, signedOut: true, message: "Sign in to continue" }
   }
+  if (session.role !== "admin") {
+    return { ok: false, message: ADMIN_ONLY_MESSAGE }
+  }
 
   const now = new Date()
   await expireStaleDeviceAuthorizations(parsed.code, now)
@@ -72,6 +79,9 @@ export async function approveAuthorization(
   const session = await authenticateCurrentSession()
   if (!session) {
     return { ok: false, signedOut: true, message: "Sign in to continue" }
+  }
+  if (session.role !== "admin") {
+    return { ok: false, message: ADMIN_ONLY_MESSAGE }
   }
   try {
     await approveDeviceAuthorization(userCode, {
@@ -93,6 +103,9 @@ export async function denyAuthorization(
   const session = await authenticateCurrentSession()
   if (!session) {
     return { ok: false, signedOut: true, message: "Sign in to continue" }
+  }
+  if (session.role !== "admin") {
+    return { ok: false, message: ADMIN_ONLY_MESSAGE }
   }
   try {
     await denyDeviceAuthorization(userCode, {

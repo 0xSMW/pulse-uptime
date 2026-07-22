@@ -1,9 +1,11 @@
 import Link from "next/link"
 
 import { StatusPageSettings } from "@/components/settings/status-page-settings"
+import { requireAdminSettings } from "@/lib/auth/require-admin"
 import { getStatusPageSettings } from "@/lib/reporting/queries/settings"
 
 export default async function StatusPageSettingsPage() {
+  await requireAdminSettings()
   const data = await getStatusPageSettings()
 
   return (

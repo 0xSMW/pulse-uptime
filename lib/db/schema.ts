@@ -718,6 +718,7 @@ export const adminUsers = pgTable(
     name: text("name"),
     avatarImageId: uuid("avatar_image_id").references(() => images.id),
     timezone: text("timezone"),
+    role: text("role").notNull().default("admin"),
     createdAt: timestamptz("created_at").notNull(),
     updatedAt: timestamptz("updated_at").notNull(),
     passwordChangedAt: timestamptz("password_changed_at").notNull(),
@@ -727,6 +728,31 @@ export const adminUsers = pgTable(
     check(
       "admin_users_normalized_email",
       sql`${table.email} = lower(btrim(${table.email}))`
+    ),
+    check("admin_users_role", sql`${table.role} in ('admin', 'viewer')`),
+  ]
+)
+
+export const userInvites = pgTable(
+  "user_invites",
+  {
+    id: uuid("id").primaryKey(),
+    tokenDigest: bytea("token_digest").notNull().unique(),
+    role: text("role").notNull(),
+    // Principal key of the creator ("human:<id>"), text like api_tokens so a
+    // later removal of the creator never breaks the row.
+    createdByPrincipal: text("created_by_principal").notNull(),
+    createdAt: timestamptz("created_at").notNull(),
+    expiresAt: timestamptz("expires_at").notNull(),
+    acceptedAt: timestamptz("accepted_at"),
+    acceptedByUserId: uuid("accepted_by_user_id"),
+    revokedAt: timestamptz("revoked_at"),
+  },
+  (table) => [
+    check("user_invites_role", sql`${table.role} in ('admin', 'viewer')`),
+    check(
+      "user_invites_expiry_order",
+      sql`${table.expiresAt} > ${table.createdAt}`
     ),
   ]
 )

@@ -20,7 +20,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var SupportedScopes = []string{"config:read", "config:write", "dependencies:read", "dependencies:write", "incidents:read", "monitors:read", "monitors:write", "notifications:test", "reports:read", "reports:write", "status:read", "tokens:manage"}
+var SupportedScopes = []string{"config:read", "config:write", "dependencies:read", "dependencies:write", "incidents:read", "monitors:read", "monitors:write", "notifications:test", "reports:read", "reports:write", "status:read", "tokens:manage", "users:manage"}
 
 // Hostile-server pagination bounds. A malicious server that returns a repeating
 // or non-advancing cursor, or an endless stream of pages, must not drive the

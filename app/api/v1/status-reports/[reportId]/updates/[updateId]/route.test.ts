@@ -45,6 +45,7 @@ import { DELETE, PATCH } from "./route"
 const context: ApiContext = {
   principal: {
     type: "human",
+    role: "admin",
     id: "usr-1",
     email: "admin@example.com",
     scopes: ["reports:write"],

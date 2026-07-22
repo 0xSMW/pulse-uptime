@@ -24,7 +24,7 @@ import (
 )
 
 func TestFullAccessRequiresEveryScope(t *testing.T) {
-	all := []string{"config:read", "config:write", "dependencies:read", "dependencies:write", "incidents:read", "monitors:read", "monitors:write", "notifications:test", "reports:read", "reports:write", "status:read", "tokens:manage"}
+	all := []string{"config:read", "config:write", "dependencies:read", "dependencies:write", "incidents:read", "monitors:read", "monitors:write", "notifications:test", "reports:read", "reports:write", "status:read", "tokens:manage", "users:manage"}
 	if !fullAccess(all) {
 		t.Fatalf("full scope set was not recognized as full access")
 	}
@@ -177,7 +177,7 @@ func TestJSONHelpIsGeneratedFromCommandTree(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.SchemaVersion != 1 || got.Binary != "pulsectl" || len(got.Commands) != 57 {
+	if got.SchemaVersion != 1 || got.Binary != "pulsectl" || len(got.Commands) != 62 {
 		t.Fatalf("incomplete manifest: %#v", got)
 	}
 	for _, item := range got.Commands {

@@ -1,7 +1,9 @@
 import { NotificationsSettings } from "@/components/settings/notifications-settings"
+import { requireAdminSettings } from "@/lib/auth/require-admin"
 import { getNotificationSettings } from "@/lib/reporting/queries/settings"
 
 export default async function NotificationSettingsPage() {
+  await requireAdminSettings()
   const data = await getNotificationSettings()
 
   return (

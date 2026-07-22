@@ -23,6 +23,7 @@ import (
 	"github.com/0xSMW/pulse-uptime/cli/internal/command/readops"
 	"github.com/0xSMW/pulse-uptime/cli/internal/command/reportops"
 	"github.com/0xSMW/pulse-uptime/cli/internal/command/statuspageops"
+	"github.com/0xSMW/pulse-uptime/cli/internal/command/userops"
 	"github.com/0xSMW/pulse-uptime/cli/internal/config"
 	"github.com/0xSMW/pulse-uptime/cli/internal/output"
 	"github.com/spf13/cobra"
@@ -145,7 +146,7 @@ func (a *App) ExecuteContext(ctx context.Context, args []string) int {
 	} else {
 		output.HumanError(a.opts.Err, ce.Message)
 		if ce.RequestID != "" {
-			fmt.Fprintf(a.opts.Err, "Request ID: %s\n", ce.RequestID)
+			fmt.Fprintf(a.opts.Err, "Request ID: %s\n", output.SanitizeDisplay(ce.RequestID))
 		}
 	}
 	return ce.Exit
@@ -198,6 +199,7 @@ func (a *App) newRoot() *cobra.Command {
 	root.AddCommand(adminops.NewTokenCommand(a.adminDependencies()))
 	root.AddCommand(monitorops.NewGroup(a.monitorDependencies()))
 	root.AddCommand(groupops.NewGroup(a.groupDependencies()))
+	root.AddCommand(userops.NewGroup(a.userDependencies()))
 	root.AddCommand(dependencyops.NewGroup(a.dependencyDependencies()))
 	incidents := readops.NewIncidentGroup(a.readDependencies())
 	incidents.AddCommand(reportops.NewPromoteCommand(a.reportDependencies()))
@@ -293,7 +295,7 @@ func (a *App) renderMe(format string, envelope meEnvelope) error {
 		if envelope.Data.Installation != nil {
 			fmt.Fprintf(a.opts.Out, "Installation  %s\n", output.SanitizeDisplay(envelope.Data.Installation.Name))
 		}
-		fmt.Fprintf(a.opts.Out, "Server        %s\n", envelope.Data.Server)
+		fmt.Fprintf(a.opts.Out, "Server        %s\n", output.SanitizeDisplay(envelope.Data.Server))
 		access := fmt.Sprintf("%d scopes", len(envelope.Data.Scopes))
 		if fullAccess(envelope.Data.Scopes) {
 			access = "Full access"
@@ -304,7 +306,7 @@ func (a *App) renderMe(format string, envelope meEnvelope) error {
 }
 
 func fullAccess(scopes []string) bool {
-	want := []string{"config:read", "config:write", "dependencies:read", "dependencies:write", "incidents:read", "monitors:read", "monitors:write", "notifications:test", "reports:read", "reports:write", "status:read", "tokens:manage"}
+	want := []string{"config:read", "config:write", "dependencies:read", "dependencies:write", "incidents:read", "monitors:read", "monitors:write", "notifications:test", "reports:read", "reports:write", "status:read", "tokens:manage", "users:manage"}
 	return len(scopes) == len(want) && strings.Join(scopes, "\x00") == strings.Join(want, "\x00")
 }
 

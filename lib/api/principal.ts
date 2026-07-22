@@ -8,10 +8,11 @@ import { db } from "@/lib/db/client"
 import { apiTokens, cliInstallations, cliSessions } from "@/lib/db/schema"
 
 import {
-  ADMINISTRATOR_SCOPES,
   type ApiScope,
   normalizeScopes,
   resolveScopeProfile,
+  roleScopes,
+  type UserRole,
 } from "./scopes"
 import { digestBearerToken, parseBearerAuthorization } from "./tokens"
 
@@ -19,6 +20,7 @@ export interface HumanPrincipal {
   type: "human"
   id: string
   email: string
+  role: UserRole
   scopes: ApiScope[]
 }
 
@@ -85,7 +87,8 @@ export async function authenticatePrincipal(
           type: "human",
           id: session.userId,
           email: session.email,
-          scopes: [...ADMINISTRATOR_SCOPES],
+          role: session.role,
+          scopes: roleScopes(session.role),
         }
       : null
   }

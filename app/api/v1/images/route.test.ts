@@ -16,6 +16,7 @@ import { POST } from "./route"
 const context: ApiContext = {
   principal: {
     type: "human",
+    role: "admin",
     id: "user-1",
     email: "admin@example.com",
     scopes: ["config:write"],
@@ -56,11 +57,57 @@ beforeEach(() => {
 })
 
 describe("POST /api/v1/images", () => {
-  it("requires the config:write scope (session or token)", async () => {
-    await POST(uploadRequest({ file: pngFile(), kind: "avatar" }))
-    expect(authorize).toHaveBeenCalledWith(expect.any(Request), {
-      scope: "config:write",
+  it("lets a read-only human session upload an avatar", async () => {
+    vi.mocked(authorize).mockResolvedValue({
+      ...context,
+      principal: {
+        type: "human",
+        role: "viewer",
+        id: "user-2",
+        email: "viewer@example.com",
+        scopes: ["monitors:read"],
+      },
     })
+    const response = await POST(
+      uploadRequest({ file: pngFile(), kind: "avatar" })
+    )
+    expect(response.status).toBe(201)
+  })
+
+  it("requires config:write for branding kinds", async () => {
+    vi.mocked(authorize).mockResolvedValue({
+      ...context,
+      principal: {
+        type: "human",
+        role: "viewer",
+        id: "user-2",
+        email: "viewer@example.com",
+        scopes: ["monitors:read"],
+      },
+    })
+    const response = await POST(
+      uploadRequest({ file: pngFile(), kind: "logo-light" })
+    )
+    expect(response.status).toBe(403)
+    expect((await response.json()).error.code).toBe("SCOPE_DENIED")
+    expect(databaseImageStore.insert).not.toHaveBeenCalled()
+  })
+
+  it("denies avatar uploads from machine credentials without config:write", async () => {
+    vi.mocked(authorize).mockResolvedValue({
+      ...context,
+      principal: {
+        type: "api_token",
+        id: "tok-1",
+        name: "reader",
+        scopes: ["monitors:read"],
+        expiresAt: new Date("2026-12-01T00:00:00Z"),
+      },
+    } as unknown as ApiContext)
+    const response = await POST(
+      uploadRequest({ file: pngFile(), kind: "avatar" })
+    )
+    expect(response.status).toBe(403)
   })
 
   it("returns the authorization failure untouched", async () => {

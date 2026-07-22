@@ -3,6 +3,7 @@ import { Suspense } from "react"
 import { DatabaseHealthCard } from "@/components/settings/database-health"
 import { MonitoringLoopCard } from "@/components/settings/monitoring-health"
 import { SettingsCardsSkeleton } from "@/components/settings/settings-skeleton"
+import { requireAdminSettings } from "@/lib/auth/require-admin"
 import { getSystemSettings } from "@/lib/reporting/queries/settings"
 
 export default function SystemSettingsPage() {
@@ -24,6 +25,7 @@ export default function SystemSettingsPage() {
 }
 
 async function SystemSettingsIsland() {
+  await requireAdminSettings()
   const { databaseHealth, databaseHealthError, monitoringWarnings } =
     await getSystemSettings()
   return (

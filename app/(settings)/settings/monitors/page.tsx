@@ -2,6 +2,7 @@ import { Suspense } from "react"
 
 import { MonitorsSettings } from "@/components/settings/monitors-settings"
 import { SettingsCardsSkeleton } from "@/components/settings/settings-skeleton"
+import { requireAdminSettings } from "@/lib/auth/require-admin"
 import { getMonitorSettings } from "@/lib/reporting/queries/settings"
 
 export default function MonitorSettingsPage() {
@@ -25,5 +26,6 @@ export default function MonitorSettingsPage() {
 }
 
 async function MonitorSettingsIsland() {
+  await requireAdminSettings()
   return <MonitorsSettings data={await getMonitorSettings()} />
 }

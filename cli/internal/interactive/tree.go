@@ -71,6 +71,7 @@ func Tree() []Section {
 		configSection(),
 		notificationsSection(),
 		tokensSection(),
+		usersSection(),
 		authSection(),
 		contextsSection(),
 		diagnosticsSection(),
@@ -694,6 +695,53 @@ func tokensSection() Section {
 					Args:          []string{"token", "revoke", id, "--yes"},
 					Confirm:       "Revoke this token?",
 					ConfirmDetail: fmt.Sprintf("%s stops working immediately.", label),
+				}, nil
+			}},
+		},
+	}
+}
+
+func usersSection() Section {
+	roleOptions := []Option{{Label: "Viewer (read only)", Value: "viewer"}, {Label: "Admin", Value: "admin"}}
+	return Section{
+		Title:       "Users",
+		Description: "Invite teammates and manage roles",
+		Actions: []Action{
+			simple("List users and invites", "users", "list"),
+			{Title: "Create an invite link", Command: []string{"users", "invite"}, Build: func(ctx context.Context, env *Env) (*Invocation, error) {
+				role, err := env.UI.Select("Role for the invited user", "", roleOptions)
+				if err != nil {
+					return nil, err
+				}
+				return &Invocation{Args: []string{"users", "invite", "--role", role}}, nil
+			}},
+			{Title: "Revoke a pending invite", Command: []string{"users", "revoke-invite"}, Build: func(ctx context.Context, env *Env) (*Invocation, error) {
+				id, err := env.UI.Input("Invite ID (from users list)", "", "", ValidateRequired("invite ID"))
+				if err != nil {
+					return nil, err
+				}
+				return &Invocation{Args: []string{"users", "revoke-invite", id}}, nil
+			}},
+			{Title: "Change a user's role", Command: []string{"users", "role"}, Build: func(ctx context.Context, env *Env) (*Invocation, error) {
+				id, err := env.UI.Input("User ID (from users list)", "", "", ValidateRequired("user ID"))
+				if err != nil {
+					return nil, err
+				}
+				role, err := env.UI.Select("New role", "", roleOptions)
+				if err != nil {
+					return nil, err
+				}
+				return &Invocation{Args: []string{"users", "role", id, "--role", role}}, nil
+			}},
+			{Title: "Remove a user", Command: []string{"users", "remove"}, Destructive: true, Build: func(ctx context.Context, env *Env) (*Invocation, error) {
+				id, err := env.UI.Input("User ID (from users list)", "", "", ValidateRequired("user ID"))
+				if err != nil {
+					return nil, err
+				}
+				return &Invocation{
+					Args:          []string{"users", "remove", id, "--yes"},
+					Confirm:       "Remove this user?",
+					ConfirmDetail: "Their sessions, CLI logins, and API tokens are revoked immediately.",
 				}, nil
 			}},
 		},

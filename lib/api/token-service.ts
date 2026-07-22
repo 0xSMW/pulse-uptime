@@ -81,18 +81,20 @@ export function validateTokenInput(
       "Requested scopes exceed the caller's effective scopes"
     )
   }
-  // Only the human administrator may delegate the token-management scope. Machine
-  // credentials (api tokens, CLI sessions) cannot mint children that themselves mint
-  // tokens, which bounds any delegation chain to a single level and keeps cascade
+  // Only the human administrator may delegate the token-management and
+  // user-management scopes. Machine credentials (api tokens, CLI sessions)
+  // cannot mint children that themselves mint tokens or invite users, which
+  // bounds any delegation chain to a single level and keeps cascade
   // revocation of a revoked parent complete.
   if (
     principal.type &&
     principal.type !== "human" &&
-    requestedScopes.includes("tokens:manage")
+    (requestedScopes.includes("tokens:manage") ||
+      requestedScopes.includes("users:manage"))
   ) {
     throw new TokenServiceError(
       "SCOPE_DENIED",
-      "Machine credentials cannot delegate the tokens:manage scope"
+      "Machine credentials cannot delegate the tokens:manage or users:manage scopes"
     )
   }
   // No explicit expiry: apply the default lifetime, clamped down to the

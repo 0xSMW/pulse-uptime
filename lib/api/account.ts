@@ -1,6 +1,6 @@
 import "server-only"
 
-import { and, eq, isNull, ne } from "drizzle-orm"
+import { and, eq, isNull, ne, sql } from "drizzle-orm"
 
 import {
   enforceRateLimit,
@@ -679,6 +679,12 @@ const databaseEmailChangeStore: EmailChangeStore = {
     now,
   }) {
     return db.transaction(async (tx) => {
+      // Team removals and demotions revoke CLI credentials by email under this
+      // lock. Renaming the email must serialize with them or a rename that
+      // commits mid-removal strands live CLI sessions under the new address.
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext('pulse:team-roles'))`
+      )
       const updated = await tx
         .update(adminUsers)
         .set({ email, updatedAt: now })

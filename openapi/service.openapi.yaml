@@ -937,7 +937,7 @@
         "operationId": "uploadImage",
         "tags": ["Images"],
         "summary": "Upload an image",
-        "description": "Multipart upload for status page branding and account avatars. PNG, JPEG, SVG, WebP, or ICO; 512 KB cap, 32 KB for kind=favicon. File content is verified against the declared type. Accepts a dashboard session or any config:write credential. Public logos are later served from /status/assets/{imageId}; favicons are inlined by the status page; avatars stay dashboard-private.",
+        "description": "Multipart upload for status page branding and account avatars. PNG, JPEG, SVG, WebP, or ICO; 512 KB cap, 32 KB for kind=favicon. File content is verified against the declared type. Branding kinds require a config:write credential. kind=avatar is self-service and accepts any signed-in dashboard session, viewers included. Public logos are later served from /status/assets/{imageId}; favicons are inlined by the status page; avatars stay dashboard-private.",
         "x-required-scopes": ["config:write"],
         "security": [{"bearerAuth": []}, {"humanSession": []}],
         "parameters": [{"$ref": "#/components/parameters/RequestId"}],
@@ -2209,6 +2209,302 @@
         }
       }
     },
+    "/api/v1/users": {
+      "get": {
+        "operationId": "listUsers",
+        "tags": [
+          "Users"
+        ],
+        "summary": "List users and pending invites",
+        "x-required-scopes": [
+          "users:manage"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every user plus every pending invite, without invite secrets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/v1/users/{userId}": {
+      "patch": {
+        "operationId": "changeUserRole",
+        "tags": [
+          "Users"
+        ],
+        "summary": "Change a user's role",
+        "description": "Narrowing an admin to viewer also revokes their CLI sessions and the API tokens they created. The last remaining admin cannot be narrowed.",
+        "x-required-scopes": [
+          "users:manage"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/UserId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserRoleChangeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated user with revocation counts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamUserEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "removeUser",
+        "tags": [
+          "Users"
+        ],
+        "summary": "Remove a user",
+        "description": "Deletes the account and revokes everything it holds: web sessions, CLI sessions and installations, and API tokens the user created. Callers cannot remove themselves and the last remaining admin cannot be removed.",
+        "x-required-scopes": [
+          "users:manage"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/UserId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Mutation completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/v1/users/invites": {
+      "post": {
+        "operationId": "createUserInvite",
+        "tags": [
+          "Users"
+        ],
+        "summary": "Create invite link",
+        "description": "Creates a single-use invite with a role attached. The join token is shown once in this response and expires in 7 days. The server never stores or resends the secret.",
+        "x-required-scopes": [
+          "users:manage"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Show-once invite link token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedInviteEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/v1/users/invites/{inviteId}": {
+      "delete": {
+        "operationId": "revokeUserInvite",
+        "tags": [
+          "Users"
+        ],
+        "summary": "Revoke pending invite",
+        "x-required-scopes": [
+          "users:manage"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/InviteId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Mutation completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
     "/api/v1/cli-auth/device": {
       "post": {
         "operationId": "startCliDeviceAuthorization",
@@ -2461,6 +2757,24 @@
       },
       "OperationId": {
         "name": "operationId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "UserId": {
+        "name": "userId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "InviteId": {
+        "name": "inviteId",
         "in": "path",
         "required": true,
         "schema": {
@@ -2790,6 +3104,7 @@
           "config:write",
           "notifications:test",
           "tokens:manage",
+          "users:manage",
           "status:read",
           "reports:read",
           "reports:write",
@@ -4565,6 +4880,250 @@
           }
         }
       },
+      "UserRole": {
+        "type": "string",
+        "enum": [
+          "admin",
+          "viewer"
+        ]
+      },
+      "UserRoleChangeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "role"
+        ],
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/UserRole"
+          }
+        }
+      },
+      "InviteCreateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "role"
+        ],
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/UserRole"
+          }
+        }
+      },
+      "TeamUser": {
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "role",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastSeenAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "TeamInvite": {
+        "type": "object",
+        "required": [
+          "id",
+          "role",
+          "createdAt",
+          "expiresAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole"
+          },
+          "createdBy": {
+            "type": "string",
+            "description": "Principal key of the inviter, for example human:<userId>."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TeamEnvelope": {
+        "type": "object",
+        "required": [
+          "apiVersion",
+          "kind",
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "const": "Team"
+          },
+          "data": {
+            "type": "object",
+            "required": [
+              "users",
+              "invites"
+            ],
+            "properties": {
+              "users": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TeamUser"
+                }
+              },
+              "invites": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TeamInvite"
+                }
+              }
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "TeamUserEnvelope": {
+        "type": "object",
+        "required": [
+          "apiVersion",
+          "kind",
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "const": "TeamUser"
+          },
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "email",
+              "role",
+              "revokedCliSessions",
+              "revokedApiTokens"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "email": {
+                "type": "string"
+              },
+              "role": {
+                "$ref": "#/components/schemas/UserRole"
+              },
+              "revokedCliSessions": {
+                "type": "integer",
+                "description": "CLI sessions revoked because the role narrowed to viewer."
+              },
+              "revokedApiTokens": {
+                "type": "integer",
+                "description": "API tokens revoked because the role narrowed to viewer."
+              }
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "CreatedInviteEnvelope": {
+        "type": "object",
+        "required": [
+          "apiVersion",
+          "kind",
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "const": "CreatedInvite"
+          },
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "role",
+              "token",
+              "joinPath",
+              "expiresAt"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "role": {
+                "$ref": "#/components/schemas/UserRole"
+              },
+              "token": {
+                "type": "string",
+                "description": "Show-once join secret. Compose the link as <origin><joinPath>."
+              },
+              "joinPath": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "expiresAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
       "TokenListEnvelope": {
         "type": "object",
         "required": [
@@ -5020,7 +5579,7 @@
           "contactUrl": {"type": ["string", "null"], "maxLength": 2048, "description": "http, https, or mailto URL"},
           "navLinks": {"type": "array", "maxItems": 8, "items": {"$ref": "#/components/schemas/StatusPageNavLink"}},
           "googleTagId": {"type": ["string", "null"], "pattern": "^G(T)?-[A-Z0-9]+$", "maxLength": 40},
-          "customCss": {"type": ["string", "null"], "description": "At most 10 KB; injected as a style element on the public status page (accepted self-XSS for the single operator, see SECURITY.md)"},
+          "customCss": {"type": ["string", "null"], "description": "At most 10 KB; served as a text/css resource on the public status page"},
           "customHead": {"type": ["string", "null"], "description": "At most 10 KB; restricted fragment of meta and icon-related link elements only. Parsed on write and again on render as inert React nodes, never raw HTML. Scripts, event handlers, and other tags are rejected."},
           "announcementEnabled": {"type": "boolean"},
           "announcementMarkdown": {"type": ["string", "null"], "description": "At most 2 KB; restricted markdown"},

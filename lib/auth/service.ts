@@ -7,6 +7,7 @@ import {
   type RateLimitPolicy,
   type RateLimitResult,
 } from "@/lib/api/rate-limit"
+import { isUserRole, type UserRole } from "@/lib/api/scopes"
 import { digestBearerToken } from "@/lib/api/tokens"
 import { db } from "@/lib/db/client"
 import { adminUsers, humanSessions, onboardingProgress } from "@/lib/db/schema"
@@ -28,6 +29,7 @@ export interface HumanSession {
   sessionId: string
   userId: string
   email: string
+  role: UserRole
   timezone: string | null
   expiresAt: Date
   onboardingCompletedAt: Date | null
@@ -193,6 +195,7 @@ const databaseAdminCreationStore: AdminCreationStore = {
             email: input.email,
             name: input.name,
             passwordDigest: input.passwordDigest,
+            role: "admin",
             createdAt: input.now,
             updatedAt: input.now,
             passwordChangedAt: input.now,
@@ -441,6 +444,7 @@ export async function findSessionByDigest(
       sessionId: humanSessions.id,
       userId: adminUsers.id,
       email: adminUsers.email,
+      role: adminUsers.role,
       timezone: adminUsers.timezone,
       expiresAt: humanSessions.expiresAt,
       onboardingCompletedAt: adminUsers.onboardingCompletedAt,
@@ -456,7 +460,11 @@ export async function findSessionByDigest(
       )
     )
     .limit(1)
-  return row ?? null
+  if (!row) {
+    return null
+  }
+  // An unrecognized stored value narrows to viewer, never widens.
+  return { ...row, role: isUserRole(row.role) ? row.role : "viewer" }
 }
 
 export async function recordHumanSessionActivity(

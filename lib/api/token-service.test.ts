@@ -66,10 +66,10 @@ describe("token request validation", () => {
     ).toThrow(/cannot outlive/)
   })
 
-  it("forbids machine credentials from delegating tokens:manage", () => {
+  it("forbids machine credentials from delegating tokens:manage and users:manage", () => {
     const machine = {
       type: "api_token",
-      scopes: ["monitors:read", "tokens:manage"],
+      scopes: ["monitors:read", "tokens:manage", "users:manage"],
       expiresAt: new Date("2026-12-01T00:00:00.000Z"),
     }
     expect(() =>
@@ -82,7 +82,18 @@ describe("token request validation", () => {
         machine,
         now
       )
-    ).toThrow(/cannot delegate the tokens:manage scope/)
+    ).toThrow(/cannot delegate the tokens:manage or users:manage scopes/)
+    expect(() =>
+      validateTokenInput(
+        {
+          name: "Inviter",
+          scopes: ["users:manage"],
+          expiresAt: "2026-09-01T00:00:00.000Z",
+        },
+        machine,
+        now
+      )
+    ).toThrow(/cannot delegate the tokens:manage or users:manage scopes/)
     // The same machine credential may still delegate non-minting scopes.
     expect(
       validateTokenInput(

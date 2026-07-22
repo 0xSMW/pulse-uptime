@@ -27,6 +27,7 @@ import (
 	"github.com/0xSMW/pulse-uptime/cli/internal/command/readops"
 	"github.com/0xSMW/pulse-uptime/cli/internal/command/reportops"
 	"github.com/0xSMW/pulse-uptime/cli/internal/command/statuspageops"
+	"github.com/0xSMW/pulse-uptime/cli/internal/command/userops"
 	"github.com/0xSMW/pulse-uptime/cli/internal/config"
 	"github.com/0xSMW/pulse-uptime/cli/internal/output"
 	"github.com/0xSMW/pulse-uptime/cli/internal/progress"
@@ -462,6 +463,17 @@ func (t groupAdapter) Do(ctx context.Context, request groupops.Request) error {
 	return requestErr
 }
 
+type userAdapter struct{ app *App }
+
+func (t userAdapter) Do(ctx context.Context, request userops.Request) error {
+	_, client, err := t.app.authenticatedClient()
+	if err != nil {
+		return err
+	}
+	_, requestErr := client.DoJSON(ctx, api.Request{Method: request.Method, Path: request.Path, Query: request.Query, Body: request.Body, IdempotencyKey: request.IdempotencyKey}, request.Result)
+	return requestErr
+}
+
 type reportAdapter struct{ app *App }
 
 func (t reportAdapter) Do(ctx context.Context, request reportops.Request) error {
@@ -605,6 +617,16 @@ func (a *App) monitorDependencies() monitorops.Dependencies {
 		}
 		return a.outputFor(defaultOutput(a.opts.StdoutTTY, "table", "jsonl"))
 	}, StdinTTY: a.opts.StdinTTY, StdoutTTY: a.opts.StdoutTTY, NewID: randomUUID, MapError: mapAPIOrCLIError}
+}
+
+func (a *App) userDependencies() userops.Dependencies {
+	return userops.Dependencies{Client: userAdapter{a}, In: a.opts.In, Out: a.opts.Out, Err: a.opts.Err, Format: func() string { return a.outputFor(defaultOutput(a.opts.StdoutTTY, "table", "json")) }, StdinTTY: a.opts.StdinTTY, NewID: randomUUID, MapError: mapAPIOrCLIError, ServerURL: func() string {
+		r, err := a.resolve()
+		if err != nil {
+			return ""
+		}
+		return strings.TrimRight(r.Server, "/")
+	}}
 }
 
 func (a *App) groupDependencies() groupops.Dependencies {
