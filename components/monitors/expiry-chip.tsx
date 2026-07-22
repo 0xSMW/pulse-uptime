@@ -63,7 +63,8 @@ export function ExpiryChip({ warning }: { warning: ExpiryWarning }) {
       }
     >
       <TriangleAlert aria-hidden className="size-3" />
-      {warning.kind} {overdue ? "expired" : `${warning.days}d`}
+      {warning.kind === "cert" ? "Cert" : "Domain"}{" "}
+      {overdue ? "expired" : `${warning.days}d`}
     </span>
   )
 }

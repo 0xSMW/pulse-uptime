@@ -51,7 +51,7 @@ export function JoinForm({ role, token }: { role: string; token: string }) {
       <Card className={styles.card}>
         <form noValidate onSubmit={submit}>
           <div className={styles.fields}>
-            <Field htmlFor="name" label="Name (optional)">
+            <Field htmlFor="name" label="Name">
               <Input autoComplete="name" id="name" name="name" type="text" />
             </Field>
             <Field htmlFor="email" label="Email">

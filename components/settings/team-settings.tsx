@@ -49,10 +49,19 @@ interface ChangedUserEnvelope {
   }
 }
 
+// Roles are stored and transported lowercase, capitalization is display only.
+function roleLabel(role: string): string {
+  return role.charAt(0).toUpperCase() + role.slice(1)
+}
+
+function roleNoun(role: string): string {
+  return role === "admin" ? "an admin" : "a viewer"
+}
+
 function RoleBadge({ role }: { role: string }) {
   return (
     <span className="rounded-full bg-[var(--chip-bg)] px-2 py-0.5 font-data text-[11px]">
-      {role}
+      {roleLabel(role)}
     </span>
   )
 }
@@ -134,8 +143,8 @@ export function TeamSettings({ data }: { data: TeamSettingsData }) {
         envelope.data.revokedCliSessions + envelope.data.revokedApiTokens
       setStatus(
         revoked > 0
-          ? `${envelope.data.email} is now ${envelope.data.role}. ${revoked} CLI ${revoked === 1 ? "session or API token was" : "sessions and API tokens were"} revoked`
-          : `${envelope.data.email} is now ${envelope.data.role}`
+          ? `${envelope.data.email} is now ${roleNoun(envelope.data.role)}. ${revoked} CLI ${revoked === 1 ? "session or API token was" : "sessions and API tokens were"} revoked`
+          : `${envelope.data.email} is now ${roleNoun(envelope.data.role)}`
       )
       router.refresh()
     } catch (error) {
@@ -225,8 +234,8 @@ export function TeamSettings({ data }: { data: TeamSettingsData }) {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="admin">admin</SelectItem>
-                            <SelectItem value="viewer">viewer</SelectItem>
+                            <SelectItem value="admin">Admin</SelectItem>
+                            <SelectItem value="viewer">Viewer</SelectItem>
                           </SelectContent>
                         </Select>
                       )}
