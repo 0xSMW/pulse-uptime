@@ -39,8 +39,7 @@ export async function POST(request: Request) {
       'Request must be multipart/form-data with "file" and "kind" fields'
     )
   }
-  const selfService =
-    kind === "avatar" && context.principal.type === "human"
+  const selfService = kind === "avatar" && context.principal.type === "human"
   if (!(selfService || hasScope(context.principal, "config:write"))) {
     return apiError(
       context.requestId,
