@@ -28,6 +28,68 @@ func TestTableAlignsMixedWidthCells(t *testing.T) {
 	}
 }
 
+func TestTableWithLimitTruncatesWidestColumn(t *testing.T) {
+	// Total content width is 47 plus separators. A limit of 40 must come out
+	// of the widest column (NAME) alone, with every line fitting the limit
+	// and narrow columns untouched.
+	header := []string{"ID", "NAME", "STATE"}
+	rows := [][]string{
+		{"dep-1", "a very long dependency incident title here", "UP"},
+		{"dep-2", "short", "DOWN"},
+	}
+	var out bytes.Buffer
+	if err := tableWithLimit(&out, header, rows, 40); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	for _, line := range lines {
+		if width := len([]rune(strings.TrimRight(line, " "))); width > 40 {
+			t.Errorf("line exceeds limit (%d runes): %q", width, line)
+		}
+	}
+	if !strings.Contains(out.String(), "…") {
+		t.Fatalf("expected ellipsis in truncated output: %q", out.String())
+	}
+	if !strings.Contains(out.String(), "dep-1") || !strings.Contains(out.String(), "DOWN") {
+		t.Fatalf("narrow columns must stay intact: %q", out.String())
+	}
+}
+
+func TestTableWithLimitKeepsFittingRowsUntouched(t *testing.T) {
+	header := []string{"ID", "STATE"}
+	rows := [][]string{{"api", "UP"}}
+	var wide, unlimited bytes.Buffer
+	if err := tableWithLimit(&wide, header, rows, 80); err != nil {
+		t.Fatal(err)
+	}
+	if err := tableWithLimit(&unlimited, header, rows, 0); err != nil {
+		t.Fatal(err)
+	}
+	if wide.String() != unlimited.String() {
+		t.Fatalf("fitting table changed under a limit: %q vs %q", wide.String(), unlimited.String())
+	}
+}
+
+func TestTableWithLimitStopsShrinkingAtColumnFloors(t *testing.T) {
+	// Both columns bottom out at their floors under an impossible limit, so
+	// output still renders instead of vanishing, merely wider than asked.
+	header := []string{"ID", "NAME"}
+	rows := [][]string{{"a-rather-long-identifier", "an even longer display name value"}}
+	var out bytes.Buffer
+	if err := tableWithLimit(&out, header, rows, 10); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected header and one row: %q", out.String())
+	}
+	for _, line := range lines[1:] {
+		if width := len([]rune(strings.TrimRight(line, " "))); width > 18 {
+			t.Errorf("columns must bottom out at floor widths (8 each plus separator), got %d runes: %q", width, line)
+		}
+	}
+}
+
 func TestRenderHumanUsesStableColumns(t *testing.T) {
 	value := map[string]any{"apiVersion": "v1", "kind": "MonitorList", "data": []any{map[string]any{"state": "UP", "name": "API", "id": "api"}}}
 	var out bytes.Buffer

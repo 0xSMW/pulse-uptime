@@ -515,12 +515,6 @@ func renderCatalog(d Dependencies, format string, doc Envelope) error {
 	return output.Table(d.Out, []string{"ID", "NAME", "CATEGORY", "PROVIDER", "REGION", "INSTALLED"}, cells)
 }
 
-// dependencyStateCaption clarifies that STATE reflects the provider's own
-// status feed, not an independent Pulse check, per the Provider reported
-// labeling rule. It goes to stderr so it never lands in piped table or tsv
-// data.
-const dependencyStateCaption = "Note: dependency state is provider reported, not a Pulse check."
-
 // dependencyRegion picks the REGION cell for a list row: the resolved scope
 // label when the list payload provides one, else the raw scope id, else blank
 // for an unscoped dependency.
@@ -545,7 +539,6 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 	case "yaml":
 		return yamlValue(d.Out, doc)
 	case "tsv":
-		fmt.Fprintln(d.Err, dependencyStateCaption)
 		for _, raw := range doc.Data {
 			var dep Dependency
 			if json.Unmarshal(raw, &dep) == nil {
@@ -556,7 +549,6 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 		}
 		return nil
 	default:
-		fmt.Fprintln(d.Err, dependencyStateCaption)
 		rows := make([][]string, 0, len(doc.Data))
 		for _, raw := range doc.Data {
 			var dep Dependency
@@ -615,7 +607,9 @@ func renderDetailHuman(w io.Writer, detail DependencyDetail) {
 	fmt.Fprintln(w, "Source        Provider reported")
 	fmt.Fprintf(w, "Provider      %s\n", output.SanitizeDisplay(detail.Provider))
 	fmt.Fprintf(w, "Component     %s\n", output.SanitizeDisplay(detail.Name))
-	fmt.Fprintf(w, "Region        %s\n", output.SanitizeDisplay(value(detail.ComponentLabel)))
+	if region := value(detail.ComponentLabel); region != "" {
+		fmt.Fprintf(w, "Region        %s\n", output.SanitizeDisplay(region))
+	}
 	fmt.Fprintf(w, "Notifications %s\n", enabledLabel(detail.NotificationsEnabled))
 	fmt.Fprintf(w, "Last poll     %s\n", output.SanitizeDisplay(value(detail.LastSuccessfulPollAt)))
 	fmt.Fprintf(w, "Canonical URL %s\n", output.SanitizeDisplay(detail.CanonicalURL))

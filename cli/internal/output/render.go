@@ -7,15 +7,48 @@ import (
 	"sort"
 	"strings"
 	"text/tabwriter"
+	"unicode/utf8"
+
+	"golang.org/x/term"
 
 	"gopkg.in/yaml.v3"
 )
 
 // Table writes an aligned human table with two spaces between columns. Column
-// widths are counted in runes, so glyph and em-dash cells line up. Callers must
+// widths are counted in runes, so glyph and em-dash cells line up. When the
+// writer is a terminal, cells are truncated with an ellipsis so no row exceeds
+// the terminal width, since a wrapped row breaks alignment for the whole
+// table. Piped and buffered output keeps full cell content. Callers must
 // sanitize every cell with SanitizeDisplay before passing it in, the SEC-07
 // boundary depends on escaped tabs never reaching the writer as cell content.
 func Table(w io.Writer, header []string, rows [][]string) error {
+	return tableWithLimit(w, header, rows, terminalWidth(w))
+}
+
+// terminalWidth reports the column count of w when it is a terminal, or 0 for
+// no width limit.
+func terminalWidth(w io.Writer) int {
+	file, ok := w.(interface{ Fd() uintptr })
+	if !ok {
+		return 0
+	}
+	fd := int(file.Fd())
+	if !term.IsTerminal(fd) {
+		return 0
+	}
+	width, _, err := term.GetSize(fd)
+	if err != nil || width <= 0 {
+		return 0
+	}
+	return width
+}
+
+// minColumnWidth keeps a truncated column readable. A column never shrinks
+// below its header width or this floor.
+const minColumnWidth = 8
+
+func tableWithLimit(w io.Writer, header []string, rows [][]string, limit int) error {
+	rows = truncateToLimit(header, rows, limit)
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	if _, err := fmt.Fprintln(tw, strings.Join(header, "\t")); err != nil {
 		return err
@@ -26,6 +59,69 @@ func Table(w io.Writer, header []string, rows [][]string) error {
 		}
 	}
 	return tw.Flush()
+}
+
+// truncateToLimit shortens cells so no rendered line exceeds limit runes. The
+// widest column gives up width first, and every column keeps at least its
+// header width or minColumnWidth, whichever is larger. When every column is
+// already at its floor the remaining excess stands, since crushing columns
+// further would destroy readability without preventing the wrap. A limit of
+// zero leaves rows untouched. Rows must not carry more cells than the header
+// has columns, cells beyond the header count are neither measured nor
+// truncated and would escape the limit.
+func truncateToLimit(header []string, rows [][]string, limit int) [][]string {
+	if limit <= 0 || len(header) == 0 {
+		return rows
+	}
+	widths := make([]int, len(header))
+	floors := make([]int, len(header))
+	for i, cell := range header {
+		widths[i] = utf8.RuneCountInString(cell)
+		floors[i] = max(widths[i], minColumnWidth)
+	}
+	for _, row := range rows {
+		for i, cell := range row {
+			if i < len(widths) {
+				widths[i] = max(widths[i], utf8.RuneCountInString(cell))
+			}
+		}
+	}
+	total := 2 * (len(widths) - 1)
+	for _, cw := range widths {
+		total += cw
+	}
+	excess := total - limit
+	if excess <= 0 {
+		return rows
+	}
+	for excess > 0 {
+		idx := -1
+		for i, cw := range widths {
+			if cw > floors[i] && (idx == -1 || cw > widths[idx]) {
+				idx = i
+			}
+		}
+		if idx == -1 {
+			break
+		}
+		shrink := min(excess, widths[idx]-floors[idx])
+		widths[idx] -= shrink
+		excess -= shrink
+	}
+	truncated := make([][]string, len(rows))
+	for r, row := range rows {
+		cells := make([]string, len(row))
+		for i, cell := range row {
+			if i < len(widths) && utf8.RuneCountInString(cell) > widths[i] {
+				runes := []rune(cell)
+				cells[i] = strings.TrimRight(string(runes[:widths[i]-1]), " ") + "…"
+			} else {
+				cells[i] = cell
+			}
+		}
+		truncated[r] = cells
+	}
+	return truncated
 }
 
 // Render writes a complete API envelope without adding diagnostics or prose.
