@@ -2,6 +2,8 @@
 
 import { useState } from "react"
 
+import styles from "../../auth.module.css"
+
 export function SignOutButton() {
   const [signingOut, setSigningOut] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -29,7 +31,7 @@ export function SignOutButton() {
   return (
     <>
       <button
-        className="text-sm underline underline-offset-4 disabled:opacity-60"
+        className="-mx-2 px-2 py-2.5 text-sm underline underline-offset-4 disabled:opacity-60"
         disabled={signingOut}
         onClick={signOut}
         type="button"
@@ -37,7 +39,7 @@ export function SignOutButton() {
         {signingOut ? "Signing out…" : "Sign out and use this invite"}
       </button>
       {failed ? (
-        <p className="mt-2 text-[var(--fg-muted)] text-sm" role="alert">
+        <p className={styles.error} role="alert">
           Sign-out failed. Try again, or sign out from the dashboard.
         </p>
       ) : null}

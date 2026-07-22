@@ -45,7 +45,7 @@ export default async function IncidentDetailPage({
   return (
     <>
       <Link
-        className="mb-5 inline-flex items-center gap-1.5 py-1 text-[13px] text-[var(--fg-muted)] hover:text-[var(--fg)]"
+        className="-mt-1 mb-4 inline-flex items-center gap-1.5 py-2 text-[13px] text-[var(--fg-muted)] hover:text-[var(--fg)]"
         href="/incidents"
       >
         <ArrowLeft aria-hidden="true" className="size-3.5" />

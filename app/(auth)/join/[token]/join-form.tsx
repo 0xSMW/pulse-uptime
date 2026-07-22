@@ -13,33 +13,47 @@ export function JoinForm({ role, token }: { role: string; token: string }) {
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
   const emailRef = useRef<HTMLInputElement>(null)
+  const passwordRef = useRef<HTMLInputElement>(null)
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setBusy(true)
     setError("")
     const data = new FormData(event.currentTarget)
-    const response = await fetch("/api/auth/join", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        token,
-        name: data.get("name"),
-        email: data.get("email"),
-        password: data.get("password"),
-        passwordConfirmation: data.get("passwordConfirmation"),
-      }),
-    })
-    const body = (await response.json()) as {
-      redirect?: string
-      error?: string
+    try {
+      const response = await fetch("/api/auth/join", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token,
+          name: data.get("name"),
+          email: data.get("email"),
+          password: data.get("password"),
+          passwordConfirmation: data.get("passwordConfirmation"),
+        }),
+      })
+      const body = (await response.json()) as {
+        redirect?: string
+        error?: string
+      }
+      if (!response.ok) {
+        const message = body.error || "Join failed"
+        setError(message)
+        // Send focus to the field the error is about. Errors naming neither
+        // field (an expired invite, a server fault) leave focus where it is
+        // and the alert announcement carries the message.
+        if (/password/i.test(message)) {
+          passwordRef.current?.focus()
+        } else if (/email/i.test(message)) {
+          emailRef.current?.focus()
+        }
+        return
+      }
+      location.assign(body.redirect ?? "/")
+    } catch {
+      setError("Couldn't reach the server. Check your connection and try again")
+    } finally {
+      setBusy(false)
     }
-    setBusy(false)
-    if (!response.ok) {
-      setError(body.error || "Join failed")
-      emailRef.current?.focus()
-      return
-    }
-    location.assign(body.redirect ?? "/")
   }
   return (
     <div className={styles.flow}>
@@ -49,7 +63,7 @@ export function JoinForm({ role, token }: { role: string; token: string }) {
         You were invited as {role === "admin" ? "an admin" : "a viewer"}
       </p>
       <Card className={styles.card}>
-        <form noValidate onSubmit={submit}>
+        <form onSubmit={submit}>
           <div className={styles.fields}>
             <Field htmlFor="name" label="Name">
               <Input autoComplete="name" id="name" name="name" type="text" />
@@ -68,8 +82,10 @@ export function JoinForm({ role, token }: { role: string; token: string }) {
               <Input
                 autoComplete="new-password"
                 id="password"
+                maxLength={128}
                 minLength={12}
                 name="password"
+                ref={passwordRef}
                 required
                 type="password"
               />
@@ -78,6 +94,7 @@ export function JoinForm({ role, token }: { role: string; token: string }) {
               <Input
                 autoComplete="new-password"
                 id="passwordConfirmation"
+                maxLength={128}
                 minLength={12}
                 name="passwordConfirmation"
                 required
