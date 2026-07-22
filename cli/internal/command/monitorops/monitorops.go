@@ -782,9 +782,11 @@ func renderEnvelope(d Dependencies, format string, doc Envelope) error {
 	}
 }
 
-// formatUptimePercent renders an uptime figure the way the web dashboard's
-// tables do, two decimals with trailing zeros trimmed, so a fully up monitor
-// reads 100% rather than 100.0000%. Empty or unparsable input reads "".
+// formatUptimePercent renders an uptime figure with the web detail view's
+// precision rules: four decimals above 99 so a near-perfect figure keeps its
+// failure signal instead of rounding to a clean 100%, two decimals at or
+// below 99, trailing zeros trimmed either way. A fully up monitor reads 100%
+// and 99.9990 reads 99.999%. Empty or unparsable input reads "".
 func formatUptimePercent(n json.Number) string {
 	if n == "" {
 		return ""
@@ -793,7 +795,11 @@ func formatUptimePercent(n json.Number) string {
 	if err != nil {
 		return ""
 	}
-	s := strconv.FormatFloat(f, 'f', 2, 64)
+	decimals := 2
+	if f > 99 {
+		decimals = 4
+	}
+	s := strconv.FormatFloat(f, 'f', decimals, 64)
 	s = strings.TrimRight(s, "0")
 	s = strings.TrimRight(s, ".")
 	return s + "%"
