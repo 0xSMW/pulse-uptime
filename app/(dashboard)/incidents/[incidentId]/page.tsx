@@ -45,7 +45,7 @@ export default async function IncidentDetailPage({
   return (
     <>
       <Link
-        className="mb-5 inline-flex items-center gap-1.5 text-[13px] text-[var(--fg-muted)] hover:text-[var(--fg)]"
+        className="-mt-1 mb-4 inline-flex items-center gap-1.5 py-2 text-[13px] text-[var(--fg-muted)] hover:text-[var(--fg)]"
         href="/incidents"
       >
         <ArrowLeft aria-hidden="true" className="size-3.5" />
@@ -84,7 +84,9 @@ export default async function IncidentDetailPage({
         >
           Opening Failure
         </h2>
-        <p className="mt-2 font-data text-[13px]">{incident.openingFailure}</p>
+        <p className="mt-2 font-data text-[13px]">
+          {incident.openingFailure || "Cause not yet determined"}
+        </p>
         <div className="mt-4 flex flex-wrap gap-x-8 gap-y-2 text-[var(--fg-muted)] text-xs">
           <span className="inline-flex gap-2">
             Notifications{" "}

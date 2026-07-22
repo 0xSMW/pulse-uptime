@@ -42,6 +42,7 @@ export type DomainHealthCronResult =
         successCount: number
         failureCount: number
         skippedCount: number
+        unknownCount: number
       }
       certProbes: number
       rdapLookups: number
@@ -158,11 +159,11 @@ export async function runDomainHealthCoordinator(
       let skippedLookups = 0
       const domainOutcomes = new Map<
         string,
-        "success" | "failure" | "skipped"
+        "success" | "failure" | "skipped" | "unknown"
       >()
       const certificateOutcomes = new Map<
         string,
-        "success" | "failure" | "skipped"
+        "success" | "failure" | "skipped" | "unknown"
       >()
 
       const rdapTasks = due.apexDomains.map((apex) => async () => {
@@ -175,14 +176,24 @@ export async function runDomainHealthCoordinator(
         try {
           facts = await deps.fetchDomain(apex)
         } catch {
-          facts = { expiresAt: null, registrar: null }
+          facts = { expiresAt: null, registrar: null, outcome: "failed" }
         }
-        domainRefreshes.push({ apexDomain: apex, ...facts, checkedAt })
+        domainRefreshes.push({
+          apexDomain: apex,
+          expiresAt: facts.expiresAt,
+          registrar: facts.registrar,
+          checkedAt,
+        })
+        // A lookup that answered without facts is unknown, not a failure.
+        // RDAP non-coverage is permanent for some TLDs and must not read as
+        // a probe regression in the run record.
         domainOutcomes.set(
           apex,
-          facts.expiresAt !== null || facts.registrar !== null
-            ? "success"
-            : "failure"
+          facts.outcome === "failed"
+            ? "failure"
+            : facts.expiresAt !== null || facts.registrar !== null
+              ? "success"
+              : "unknown"
         )
       })
       const certTasks = due.certificates.map((target) => async () => {
@@ -236,7 +247,11 @@ export async function runDomainHealthCoordinator(
         if (outcomes.includes("skipped")) {
           return "skipped" as const
         }
-        return outcomes.length > 0 ? ("success" as const) : ("skipped" as const)
+        if (outcomes.includes("success")) {
+          return "success" as const
+        }
+        // Every lookup answered and none produced facts.
+        return outcomes.length > 0 ? ("unknown" as const) : ("skipped" as const)
       })
       const counts = {
         monitorCount: monitors.length,
@@ -245,6 +260,8 @@ export async function runDomainHealthCoordinator(
         failureCount: monitorOutcomes.filter((value) => value === "failure")
           .length,
         skippedCount: monitorOutcomes.filter((value) => value === "skipped")
+          .length,
+        unknownCount: monitorOutcomes.filter((value) => value === "unknown")
           .length,
       }
       progress.record(counts)

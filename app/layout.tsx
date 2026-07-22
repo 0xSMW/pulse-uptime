@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google"
 import { VercelAnalytics } from "@/components/analytics"
 import { ThemeProvider } from "@/components/dashboard/theme-provider"
 import { TimezoneProvider } from "@/components/dashboard/timezone-provider"
+import { THEME_BOOT_SCRIPT } from "@/lib/theme-boot"
 
 import "./globals.css"
 
@@ -41,6 +42,16 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html data-theme="dark" lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          // Runs before first paint so a stored light or system preference
+          // never flashes dark, while first-time visitors keep the dark
+          // default that matches the server-rendered attribute. The status
+          // page CSP admits this exact script by hash, see lib/theme-boot.ts.
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: static pre-hydration theme stamp, no untrusted input
+          dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }}
+        />
+      </head>
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
         <ThemeProvider defaultTheme="dark" enableSystem>
           <TimezoneProvider>{children}</TimezoneProvider>

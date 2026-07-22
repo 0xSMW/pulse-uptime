@@ -1,0 +1,3 @@
+ALTER TABLE "cron_runs" DROP CONSTRAINT "cron_runs_counts_nonnegative";--> statement-breakpoint
+ALTER TABLE "cron_runs" ADD COLUMN "unknown_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "cron_runs" ADD CONSTRAINT "cron_runs_counts_nonnegative" CHECK ("cron_runs"."monitor_count" >= 0 and "cron_runs"."success_count" >= 0 and "cron_runs"."failure_count" >= 0 and "cron_runs"."skipped_count" >= 0 and "cron_runs"."unknown_count" >= 0);

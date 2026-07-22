@@ -37,6 +37,7 @@ export async function dispatchDueMonitors(options: {
     successCount: 0,
     failureCount: 0,
     skippedCount: 0,
+    unknownCount: 0,
   }
   let cursor = 0
 

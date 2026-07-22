@@ -18,23 +18,33 @@ export function LoginForm({ returnTo }: { returnTo: string }) {
     setBusy(true)
     setError("")
     const data = new FormData(event.currentTarget)
-    const response = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: data.get("email"),
-        password: data.get("password"),
-        returnTo,
-      }),
-    })
-    const body = await response.json()
-    setBusy(false)
-    if (!response.ok) {
-      setError("Sign in failed")
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: data.get("email"),
+          password: data.get("password"),
+          returnTo,
+        }),
+      })
+      const body = await response.json()
+      if (!response.ok) {
+        setError("Sign in failed")
+        emailRef.current?.focus()
+        setBusy(false)
+        return
+      }
+      // busy stays true through the redirect so the button never snaps back
+      // to idle while the browser is navigating away.
+      location.assign(body.redirect)
+    } catch {
+      setError("Couldn't reach the server. Check your connection and try again")
+      // Disabling the submit button dropped focus to the body, restore an
+      // anchor so keyboard users can retry without hunting.
       emailRef.current?.focus()
-      return
+      setBusy(false)
     }
-    location.assign(body.redirect)
   }
   return (
     <div className={styles.flow}>
@@ -42,7 +52,7 @@ export function LoginForm({ returnTo }: { returnTo: string }) {
       <h1 className={styles.title}>Sign in to Pulse</h1>
       <p className={styles.lede}>Manage monitors and incidents</p>
       <Card className={styles.card}>
-        <form noValidate onSubmit={submit}>
+        <form onSubmit={submit}>
           <div className={styles.fields}>
             <Field htmlFor="email" label="Email">
               <Input

@@ -222,15 +222,19 @@ export async function reconcileDomainHealthAssets(
             )
       )
 
+    // Raw sql template parameters bypass drizzle's column mapping, so every
+    // value must be a pre-serialized string with an explicit SQL cast. A bare
+    // number makes referenced.port text and the integer comparison fails with
+    // 42883, and a bare Date fails to bind at all on unprepared statements.
     await tx.delete(certificateHealthAssets).where(
       currentTargets.certificates.length === 0
         ? lt(certificateHealthAssets.lastReferencedAt, input.pruneBefore)
-        : sql`${certificateHealthAssets.lastReferencedAt} < ${input.pruneBefore}
+        : sql`${certificateHealthAssets.lastReferencedAt} < ${input.pruneBefore.toISOString()}::timestamptz
           and not exists (
           select 1
           from (values ${sql.join(
             currentTargets.certificates.map(
-              (target) => sql`(${target.hostname}, ${target.port})`
+              (target) => sql`(${target.hostname}, ${String(target.port)}::int)`
             ),
             sql`, `
           )}) as referenced(hostname, port)

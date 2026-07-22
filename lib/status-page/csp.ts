@@ -1,3 +1,5 @@
+import { THEME_BOOT_SCRIPT_SHA256 } from "@/lib/theme-boot"
+
 const GOOGLE_ANALYTICS_ORIGINS = [
   "https://www.google-analytics.com",
   "https://region1.google-analytics.com",
@@ -9,7 +11,9 @@ export function buildStatusPageContentSecurityPolicy(
 ): string {
   const directives = [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${development ? " 'unsafe-eval'" : ""}`,
+    // The theme boot hash admits the root layout's pre-hydration theme stamp,
+    // which renders on every route including these.
+    `script-src 'self' 'nonce-${nonce}' '${THEME_BOOT_SCRIPT_SHA256}' 'strict-dynamic'${development ? " 'unsafe-eval'" : ""}`,
     `style-src-elem 'self' 'nonce-${nonce}'`,
     "style-src-attr 'unsafe-inline'",
     `img-src 'self' data: ${GOOGLE_ANALYTICS_ORIGINS.join(" ")}`,

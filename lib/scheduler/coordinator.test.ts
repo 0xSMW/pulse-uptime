@@ -163,6 +163,7 @@ describe("runMonitoringCoordinator", () => {
         successCount: 1,
         failureCount: 0,
         skippedCount: 0,
+        unknownCount: 0,
       }
     )
   })

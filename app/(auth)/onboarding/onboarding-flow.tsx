@@ -393,6 +393,12 @@ function Account({
           </Field>
           <Field htmlFor="confirmation" label="Confirm Password">
             <Input
+              aria-describedby={
+                error === "Passwords do not match"
+                  ? "account-step-error"
+                  : undefined
+              }
+              aria-invalid={error === "Passwords do not match" || undefined}
               autoComplete="new-password"
               id="confirmation"
               name="confirmation"
@@ -415,7 +421,7 @@ function Account({
           </Field>
         </div>
         {error ? (
-          <p className={styles.error} role="alert">
+          <p className={styles.error} id="account-step-error" role="alert">
             {error}
           </p>
         ) : null}
