@@ -1,3 +1,4 @@
+import { Analytics } from "@vercel/analytics/next"
 import type { Metadata, Viewport } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
 
@@ -44,6 +45,7 @@ export default function RootLayout({
         <ThemeProvider defaultTheme="dark" enableSystem>
           <TimezoneProvider>{children}</TimezoneProvider>
         </ThemeProvider>
+        <Analytics />
       </body>
     </html>
   )
