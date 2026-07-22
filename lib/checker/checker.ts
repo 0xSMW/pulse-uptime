@@ -134,6 +134,21 @@ const defaultDispatcherFactory: DispatcherFactory = ({
   })
 
 /**
+ * Discards a response body. Destroying an unconsumed undici body errors the
+ * stream with an AbortError, and a stream error with no listener becomes an
+ * uncaught exception on a later tick that kills the process. Registering a
+ * no-op error listener first keeps every discard silent.
+ */
+function discardBody(body: CheckerResponse["body"]): void {
+  body.on?.("error", ignoreDiscardError)
+  body.destroy()
+}
+
+function ignoreDiscardError(): void {
+  // A discarded body's destroy error is expected and carries no signal.
+}
+
+/**
  * Reads at most limitBytes from the response body into a UTF-8 string, then
  * destroys the stream. A body without an async iterator (only mocks) reads as
  * empty. A multi-byte character split at the cap decodes as a replacement
@@ -145,7 +160,7 @@ async function readBodyPrefix(
 ): Promise<string> {
   const iterate = body[Symbol.asyncIterator]
   if (!iterate) {
-    body.destroy()
+    discardBody(body)
     return ""
   }
   const chunks: Buffer[] = []
@@ -161,7 +176,7 @@ async function readBodyPrefix(
       }
     }
   } finally {
-    body.destroy()
+    discardBody(body)
   }
   return Buffer.concat(chunks).subarray(0, limitBytes).toString("utf8")
 }
@@ -286,7 +301,7 @@ export function createHttpChecker(dependencies: CheckerDependencies = {}) {
         statusCode = response.statusCode
 
         if (REDIRECT_STATUSES.has(statusCode)) {
-          response.body.destroy()
+          discardBody(response.body)
           const location = headerValue(response.headers, "location")
           if (!location) {
             return failure(metadata(), "INVALID_REDIRECT")
@@ -314,12 +329,12 @@ export function createHttpChecker(dependencies: CheckerDependencies = {}) {
           statusCode < target.expectedStatus.minimum ||
           statusCode > target.expectedStatus.maximum
         ) {
-          response.body.destroy()
+          discardBody(response.body)
           return failure(metadata(), "INVALID_STATUS")
         }
 
         if (target.expectedText === undefined) {
-          response.body.destroy()
+          discardBody(response.body)
         } else {
           let bodyPrefix: string
           try {

@@ -145,6 +145,9 @@ export type ManagedDispatcher = Dispatcher & {
 
 type FetchResponseBody = AsyncIterable<Uint8Array> & {
   destroy: (error?: Error) => void
+  // Present on real undici bodies. Every discard path registers a no-op error
+  // listener through it before destroy, see destroyBody.
+  on?: (event: "error", listener: (error: Error) => void) => unknown
 }
 
 export interface FetchResponse {
@@ -446,12 +449,21 @@ function classifyBodyError(
   )
 }
 
-function destroyBody(
-  body: { destroy?: (error?: Error) => void },
-  error?: Error
-): void {
+function ignoreDiscardError(): void {
+  // A discarded body's destroy error is expected and carries no signal.
+}
+
+/**
+ * Discards a response body. Destroying an unconsumed undici body errors the
+ * stream with an AbortError, and a stream error with no listener becomes an
+ * uncaught exception on a later tick that kills the process after the route
+ * has already responded. Registering a no-op error listener first keeps every
+ * discard silent, whether or not the stream errors on destroy.
+ */
+function destroyBody(body: FetchResponseBody, error?: Error): void {
   try {
-    body.destroy?.(error)
+    body.on?.("error", ignoreDiscardError)
+    body.destroy(error)
   } catch {
     // Destroy is best-effort. The original failure is what the caller needs.
   }
@@ -713,7 +725,7 @@ export async function fetchProviderDocument(
       }
 
       if (response.statusCode === 304) {
-        response.body.destroy()
+        destroyBody(response.body)
         return {
           status: "not_modified",
           etag:
@@ -728,7 +740,7 @@ export async function fetchProviderDocument(
       }
 
       if (REDIRECT_STATUSES.has(response.statusCode)) {
-        response.body.destroy()
+        destroyBody(response.body)
         const location = headerValue(response.headers, "location")
         if (!location) {
           throw new ProviderFetchError(
@@ -767,7 +779,7 @@ export async function fetchProviderDocument(
       }
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        response.body.destroy()
+        destroyBody(response.body)
         const retryAfterMs = parseRetryAfterMs(
           headerValue(response.headers, "retry-after"),
           now()

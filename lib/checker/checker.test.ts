@@ -94,6 +94,24 @@ describe("HTTP checker", () => {
     expect(close).toHaveBeenCalledTimes(1)
   })
 
+  it("registers an error listener before destroying a discarded body", async () => {
+    const on = vi.fn()
+    const destroy = vi.fn()
+    const request = vi.fn(async () => ({
+      statusCode: 204,
+      headers: {},
+      body: { on, destroy },
+    }))
+    const { checker } = harness(request)
+    const result = await checker(target)
+
+    expect(result.success).toBe(true)
+    expect(on).toHaveBeenCalledWith("error", expect.any(Function))
+    expect(on.mock.invocationCallOrder[0]).toBeLessThan(
+      destroy.mock.invocationCallOrder[0] ?? 0
+    )
+  })
+
   it("follows only defined redirects and evaluates final status", async () => {
     const request = vi
       .fn<RequestExecutor>()

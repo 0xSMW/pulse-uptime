@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 vi.mock("server-only", () => ({}))
 
 import type { LookupAddress } from "node:dns"
+import { Readable } from "node:stream"
 import { BlockedTargetError } from "@/lib/checker/ip-policy"
 import type { SecureLookup } from "@/lib/checker/secure-lookup"
 
@@ -818,6 +819,64 @@ describe("fetchProviderDocument error boundary stages", () => {
       sourceId: "vercel",
     })
     expect(body.destroy).toHaveBeenCalled()
+  })
+})
+
+describe("fetchProviderDocument body discard safety", () => {
+  it("registers an error listener before destroying a discarded 304 body", async () => {
+    const on = vi.fn()
+    const destroy = vi.fn()
+    const body: FetchResponse["body"] = { ...jsonBody({}), on, destroy }
+    const request = respondWith({
+      statusCode: 304,
+      headers: { etag: '"v2"' },
+      body,
+    })
+    const result = await fetchProviderDocument(
+      SOURCE,
+      {
+        url: "https://www.vercel-status.com/summary.json",
+        validators: { etag: '"v1"', lastModified: null },
+      },
+      { request, createDispatcher: () => fakeDispatcher() }
+    )
+    expect(result.status).toBe("not_modified")
+    expect(on).toHaveBeenCalledWith("error", expect.any(Function))
+    expect(on.mock.invocationCallOrder[0]).toBeLessThan(
+      destroy.mock.invocationCallOrder[0] ?? 0
+    )
+  })
+
+  it("survives a body that errors when destroyed unconsumed, as undici bodies do", async () => {
+    const stream = new Readable({
+      read() {
+        // A 304 body is never read, the fetch discards it.
+      },
+      destroy(error, callback) {
+        callback(
+          error ??
+            Object.assign(new Error("Request aborted"), { name: "AbortError" })
+        )
+      },
+    })
+    const request = respondWith({
+      statusCode: 304,
+      headers: {},
+      body: stream as unknown as FetchResponse["body"],
+    })
+    const result = await fetchProviderDocument(
+      SOURCE,
+      {
+        url: "https://www.vercel-status.com/summary.json",
+        validators: { etag: '"v1"', lastModified: null },
+      },
+      { request, createDispatcher: () => fakeDispatcher() }
+    )
+    expect(result.status).toBe("not_modified")
+    // Flush the destroy callback tick. Without the listener registered by
+    // destroyBody, this emits an unhandled AbortError that fails the run.
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(stream.destroyed).toBe(true)
   })
 })
 
