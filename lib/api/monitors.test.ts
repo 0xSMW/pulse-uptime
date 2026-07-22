@@ -22,7 +22,8 @@ vi.mock("./config-mutation", async (importOriginal) => ({
 }))
 vi.mock("@/lib/monitoring/queries", () => ({
   uptime24hByMonitorId: vi.fn(
-    async (ids: readonly string[]) => new Map(ids.map((id) => [id, 99.5]))
+    async (ids: readonly string[]) =>
+      new Map(ids.map((id) => [id, { uptime24h: 99.5, observedUptime: null }]))
   ),
 }))
 
@@ -165,14 +166,34 @@ describe("list uptime", () => {
   it("attaches the 24h uptime for the returned page and asks only for page ids", async () => {
     const result = await listMonitors({ cursor: null, limit: 10 })
     expect(result.monitors).toHaveLength(1)
-    expect(result.monitors[0]).toMatchObject({ id: "site-home", uptime: 99.5 })
+    expect(result.monitors[0]).toMatchObject({
+      id: "site-home",
+      uptime: 99.5,
+      observedUptime: null,
+    })
     expect(uptime24hByMonitorId).toHaveBeenCalledWith(["site-home"])
+  })
+
+  it("passes the observed figure through for a collecting monitor", async () => {
+    vi.mocked(uptime24hByMonitorId).mockResolvedValueOnce(
+      new Map([["site-home", { uptime24h: null, observedUptime: 99.981 }]])
+    )
+    const result = await listMonitors({ cursor: null, limit: 10 })
+    expect(result.monitors[0]).toMatchObject({
+      id: "site-home",
+      uptime: null,
+      observedUptime: 99.981,
+    })
   })
 
   it("reads null when the uptime lookup has no row for a monitor", async () => {
     vi.mocked(uptime24hByMonitorId).mockResolvedValueOnce(new Map())
     const result = await listMonitors({ cursor: null, limit: 10 })
-    expect(result.monitors[0]).toMatchObject({ id: "site-home", uptime: null })
+    expect(result.monitors[0]).toMatchObject({
+      id: "site-home",
+      uptime: null,
+      observedUptime: null,
+    })
   })
 })
 

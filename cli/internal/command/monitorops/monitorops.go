@@ -115,6 +115,7 @@ type Monitor struct {
 	Recipients        []string       `json:"recipients" yaml:"recipients"`
 	State             string         `json:"state" yaml:"state"`
 	Uptime            json.Number    `json:"uptime,omitempty" yaml:"uptime,omitempty"`
+	ObservedUptime    json.Number    `json:"observedUptime,omitempty" yaml:"observedUptime,omitempty"`
 	CreatedAt         string         `json:"createdAt,omitempty" yaml:"createdAt,omitempty"`
 	UpdatedAt         string         `json:"updatedAt,omitempty" yaml:"updatedAt,omitempty"`
 }
@@ -780,6 +781,24 @@ func renderEnvelope(d Dependencies, format string, doc Envelope) error {
 		return e
 	}
 }
+
+// formatUptimePercent renders an uptime figure the way the web dashboard's
+// tables do, two decimals with trailing zeros trimmed, so a fully up monitor
+// reads 100% rather than 100.0000%. Empty or unparsable input reads "".
+func formatUptimePercent(n json.Number) string {
+	if n == "" {
+		return ""
+	}
+	f, err := strconv.ParseFloat(string(n), 64)
+	if err != nil {
+		return ""
+	}
+	s := strconv.FormatFloat(f, 'f', 2, 64)
+	s = strings.TrimRight(s, "0")
+	s = strings.TrimRight(s, ".")
+	return s + "%"
+}
+
 func renderList(d Dependencies, format string, doc ListEnvelope) error {
 	switch format {
 	case "json":
@@ -808,14 +827,15 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 		for _, raw := range doc.Data {
 			var m Monitor
 			if json.Unmarshal(raw, &m) == nil {
-				uptime := "—"
-				if m.Uptime != "" {
-					if f, e := strconv.ParseFloat(string(m.Uptime), 64); e == nil {
-						// Four decimals per CLI-31: operators must distinguish
-						// 99.9900% from 99.9990%. Compact web lists round, human
-						// CLI tables do not.
-						uptime = fmt.Sprintf("%.4f%%", f)
-					}
+				// The settled 24h figure wins, the observed since-activation
+				// figure stands in during a monitor's first collecting day,
+				// so a fresh monitor shows data rather than a placeholder.
+				uptime := formatUptimePercent(m.Uptime)
+				if uptime == "" {
+					uptime = formatUptimePercent(m.ObservedUptime)
+				}
+				if uptime == "" {
+					uptime = "—"
 				}
 				rows = append(rows, []string{output.SanitizeDisplay(m.ID), output.SanitizeDisplay(m.Name), output.SanitizeDisplay(m.State), uptime})
 			}

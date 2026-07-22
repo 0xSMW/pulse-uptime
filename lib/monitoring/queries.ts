@@ -137,12 +137,26 @@ function uptime24hSql(start15m: Date, end15m: Date) {
       )`
 }
 
-// Locked windows read null so a monitor still collecting its first full day
-// reports no uptime rather than a partial figure, the same gate the
-// dashboard's collecting placeholder uses.
-export async function uptime24hByMonitorId(ids: readonly string[]) {
+export interface MonitorListUptime {
+  uptime24h: number | null
+  observedUptime: number | null
+}
+
+// The settled figure stays null until the 24 hour window unlocks, the same
+// gate the dashboard's collecting placeholder uses. A still-locked monitor
+// carries the same expression's value in observedUptime instead: activation
+// lies inside the 24 hour window for every locked monitor, so the SQL's
+// activation clamp makes the value the since-activation figure, matching the
+// detail header's h24 range figure. It reads null until the first
+// post-activation bucket completes, roughly the first quarter hour of a
+// monitor's life, for an unlocked window with no data, and for a
+// never-activated monitor.
+export async function uptime24hByMonitorId(
+  ids: readonly string[]
+): Promise<Map<string, MonitorListUptime>> {
+  const result = new Map<string, MonitorListUptime>()
   if (ids.length === 0) {
-    return new Map<string, number | null>()
+    return result
   }
   const { start15m, end15m } = completed24hWindow()
   const rows = await db
@@ -154,14 +168,15 @@ export async function uptime24hByMonitorId(ids: readonly string[]) {
     .from(monitorRegistry)
     .leftJoin(monitorState, eq(monitorState.monitorId, monitorRegistry.id))
     .where(inArray(monitorRegistry.id, [...ids]))
-  return new Map<string, number | null>(
-    rows.map((row) => [
-      row.id,
-      row.uptime24h !== null && isRangeUnlocked("h24", row.activatedAt, end15m)
-        ? Number(row.uptime24h)
-        : null,
-    ])
-  )
+  for (const row of rows) {
+    const rangeUnlocked = isRangeUnlocked("h24", row.activatedAt, end15m)
+    const value = row.uptime24h === null ? null : Number(row.uptime24h)
+    result.set(row.id, {
+      uptime24h: rangeUnlocked ? value : null,
+      observedUptime: !rangeUnlocked && row.activatedAt !== null ? value : null,
+    })
+  }
+  return result
 }
 
 export async function listDashboardMonitors() {

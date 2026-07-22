@@ -38,7 +38,7 @@ func TestTableWithLimitTruncatesWidestColumn(t *testing.T) {
 		{"dep-2", "short", "DOWN"},
 	}
 	var out bytes.Buffer
-	if err := tableWithLimit(&out, header, rows, 40); err != nil {
+	if err := tableWithLimit(&out, header, rows, 40, false); err != nil {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
@@ -59,10 +59,10 @@ func TestTableWithLimitKeepsFittingRowsUntouched(t *testing.T) {
 	header := []string{"ID", "STATE"}
 	rows := [][]string{{"api", "UP"}}
 	var wide, unlimited bytes.Buffer
-	if err := tableWithLimit(&wide, header, rows, 80); err != nil {
+	if err := tableWithLimit(&wide, header, rows, 80, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := tableWithLimit(&unlimited, header, rows, 0); err != nil {
+	if err := tableWithLimit(&unlimited, header, rows, 0, false); err != nil {
 		t.Fatal(err)
 	}
 	if wide.String() != unlimited.String() {
@@ -76,7 +76,7 @@ func TestTableWithLimitStopsShrinkingAtColumnFloors(t *testing.T) {
 	header := []string{"ID", "NAME"}
 	rows := [][]string{{"a-rather-long-identifier", "an even longer display name value"}}
 	var out bytes.Buffer
-	if err := tableWithLimit(&out, header, rows, 10); err != nil {
+	if err := tableWithLimit(&out, header, rows, 10, false); err != nil {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
@@ -87,6 +87,28 @@ func TestTableWithLimitStopsShrinkingAtColumnFloors(t *testing.T) {
 		if width := len([]rune(strings.TrimRight(line, " "))); width > 18 {
 			t.Errorf("columns must bottom out at floor widths (8 each plus separator), got %d runes: %q", width, line)
 		}
+	}
+}
+
+func TestTableDimHeaderWrapsOnlyHeaderLine(t *testing.T) {
+	// The dim codes wrap the aligned header line whole, after width math, so
+	// styling adds no width and data rows stay byte-identical to unstyled.
+	header := []string{"ID", "STATE"}
+	rows := [][]string{{"api", "UP"}}
+	var dimmed, plain bytes.Buffer
+	if err := tableWithLimit(&dimmed, header, rows, 0, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := tableWithLimit(&plain, header, rows, 0, false); err != nil {
+		t.Fatal(err)
+	}
+	dimLines := strings.SplitN(dimmed.String(), "\n", 2)
+	plainLines := strings.SplitN(plain.String(), "\n", 2)
+	if dimLines[0] != "\x1b[2m"+plainLines[0]+"\x1b[0m" {
+		t.Fatalf("header line = %q, want dim-wrapped %q", dimLines[0], plainLines[0])
+	}
+	if dimLines[1] != plainLines[1] {
+		t.Fatalf("data rows changed under styling: %q vs %q", dimLines[1], plainLines[1])
 	}
 }
 

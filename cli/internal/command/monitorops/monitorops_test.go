@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -112,6 +113,54 @@ func TestListEmptyDataSerializesAsArray(t *testing.T) {
 	}
 	if !bytes.Contains(encoded, []byte(`"data":[]`)) {
 		t.Fatalf("output = %s", encoded)
+	}
+}
+
+func TestListTableUptimeMatchesDashboardFormat(t *testing.T) {
+	// Settled figures render two decimals with trailing zeros trimmed, and a
+	// collecting monitor falls back to its observed since-activation figure
+	// instead of a blank placeholder.
+	rows := []string{
+		`{"id":"smw-ai","name":"SMW.AI","state":"UP","uptime":100}`,
+		`{"id":"agilefirst-io","name":"agilefirst.io","state":"UP","observedUptime":99.981}`,
+		`{"id":"flaky-io","name":"flaky.io","state":"UP","uptime":99.9}`,
+		`{"id":"thesubvertiser-com","name":"thesubvertiser.com","state":"PENDING"}`,
+	}
+	client := clientFunc(func(_ context.Context, r Request) error {
+		setListResult(t, r.Result, rows, nil)
+		return nil
+	})
+	var stdout bytes.Buffer
+	cmd := NewGroup(Dependencies{Client: client, Out: &stdout, Format: func() string { return "table" }})
+	cmd.SetArgs([]string{"list"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	out := stdout.String()
+	for _, want := range []string{"100%", "99.98%", "99.9%", "—"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "100.0000%") || strings.Contains(out, "99.90%") {
+		t.Fatalf("trailing zeros must be trimmed: %q", out)
+	}
+}
+
+func TestFormatUptimePercent(t *testing.T) {
+	cases := map[string]string{
+		"100":      "100%",
+		"100.0000": "100%",
+		"99.981":   "99.98%",
+		"99.9":     "99.9%",
+		"0":        "0%",
+		"":         "",
+		"not-a-nr": "",
+	}
+	for in, want := range cases {
+		if got := formatUptimePercent(json.Number(in)); got != want {
+			t.Errorf("formatUptimePercent(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 

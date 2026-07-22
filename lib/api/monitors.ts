@@ -457,14 +457,20 @@ export async function listMonitors(options: {
     after.length > page.length && last
       ? encodeCursor({ sort: `${fingerprint}\0${keyFor(last)}`, id: last.id })
       : null
-  // uptime is the one reporting-owned field on the list payload, computed for
-  // the returned page only. A locked window or missing registry row reads null.
+  // uptime and observedUptime are the reporting-owned fields on the list
+  // payload, computed for the returned page only. uptime is the settled 24h
+  // figure, null while locked or without a registry row. observedUptime is
+  // the since-activation figure a collecting monitor shows in its place.
   const uptime = await uptime24hByMonitorId(page.map((monitor) => monitor.id))
   return {
-    monitors: page.map((monitor) => ({
-      ...monitor,
-      uptime: uptime.get(monitor.id) ?? null,
-    })),
+    monitors: page.map((monitor) => {
+      const entry = uptime.get(monitor.id)
+      return {
+        ...monitor,
+        uptime: entry?.uptime24h ?? null,
+        observedUptime: entry?.observedUptime ?? null,
+      }
+    }),
     nextCursor: next,
   }
 }

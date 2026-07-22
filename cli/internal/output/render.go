@@ -1,9 +1,11 @@
 package output
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -18,11 +20,17 @@ import (
 // widths are counted in runes, so glyph and em-dash cells line up. When the
 // writer is a terminal, cells are truncated with an ellipsis so no row exceeds
 // the terminal width, since a wrapped row breaks alignment for the whole
-// table. Piped and buffered output keeps full cell content. Callers must
+// table, and the header line renders dim so it reads apart from the data
+// rows, matching the dashboard's muted column headers. Piped and buffered
+// output keeps full cell content with no styling bytes. Callers must
 // sanitize every cell with SanitizeDisplay before passing it in, the SEC-07
 // boundary depends on escaped tabs never reaching the writer as cell content.
 func Table(w io.Writer, header []string, rows [][]string) error {
-	return tableWithLimit(w, header, rows, terminalWidth(w))
+	width := terminalWidth(w)
+	// Header styling gates on the same NO_COLOR convention the interactive
+	// mode applies, and on the writer being a terminal.
+	dim := os.Getenv("NO_COLOR") == "" && width > 0
+	return tableWithLimit(w, header, rows, width, dim)
 }
 
 // terminalWidth reports the column count of w when it is a terminal, or 0 for
@@ -47,9 +55,18 @@ func terminalWidth(w io.Writer) int {
 // below its header width or this floor.
 const minColumnWidth = 8
 
-func tableWithLimit(w io.Writer, header []string, rows [][]string, limit int) error {
+// dimStart and dimReset wrap the rendered header line after alignment, never
+// individual cells, since escape bytes inside a cell would count into
+// tabwriter's column widths and skew them.
+const (
+	dimStart = "\x1b[2m"
+	dimReset = "\x1b[0m"
+)
+
+func tableWithLimit(w io.Writer, header []string, rows [][]string, limit int, dimHeader bool) error {
 	rows = truncateToLimit(header, rows, limit)
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	var buf bytes.Buffer
+	tw := tabwriter.NewWriter(&buf, 0, 0, 2, ' ', 0)
 	if _, err := fmt.Fprintln(tw, strings.Join(header, "\t")); err != nil {
 		return err
 	}
@@ -58,7 +75,17 @@ func tableWithLimit(w io.Writer, header []string, rows [][]string, limit int) er
 			return err
 		}
 	}
-	return tw.Flush()
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	rendered := buf.String()
+	if dimHeader {
+		if idx := strings.IndexByte(rendered, '\n'); idx >= 0 {
+			rendered = dimStart + rendered[:idx] + dimReset + rendered[idx:]
+		}
+	}
+	_, err := io.WriteString(w, rendered)
+	return err
 }
 
 // truncateToLimit shortens cells so no rendered line exceeds limit runes. The

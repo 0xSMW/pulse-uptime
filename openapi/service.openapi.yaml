@@ -3343,7 +3343,8 @@
           {
             "type": "object",
             "required": [
-              "uptime"
+              "uptime",
+              "observedUptime"
             ],
             "properties": {
               "uptime": {
@@ -3351,6 +3352,12 @@
                 "minimum": 0,
                 "maximum": 100,
                 "description": "Uptime percent over the most recent completed 24 hour window, matching the dashboard's Uptime 24h. Null until a full day has been observed since activation."
+              },
+              "observedUptime": {
+                "type": ["number", "null"],
+                "minimum": 0,
+                "maximum": 100,
+                "description": "Uptime percent observed since activation while the 24 hour window is still filling, matching the detail header's 24 hour range figure over completed buckets. Null once uptime unlocks, before the first completed post-activation bucket, and for a monitor that has not activated."
               }
             }
           }
