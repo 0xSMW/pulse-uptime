@@ -74,14 +74,20 @@ func runSession(ctx context.Context, env *Env, tree []Section) int {
 
 // runSection loops inside one section until the user backs out. The second
 // return reports that the whole session should end with the given code.
+// Arrange runs once per section entry so the order reflects live state
+// without a fetch on every loop iteration.
 func runSection(ctx context.Context, env *Env, section Section) (int, bool) {
-	options := make([]Option, 0, len(section.Actions)+1)
-	for _, action := range section.Actions {
+	actions := section.Actions
+	if section.Arrange != nil {
+		actions = section.Arrange(ctx, env, actions)
+	}
+	options := make([]Option, 0, len(actions)+1)
+	for _, action := range actions {
 		options = append(options, Option{Label: action.Title, Value: action.Title})
 	}
 	options = append(options, Option{Label: "Back", Value: backValue})
 	byTitle := map[string]Action{}
-	for _, action := range section.Actions {
+	for _, action := range actions {
 		byTitle[action.Title] = action
 	}
 	for {

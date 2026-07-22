@@ -9,17 +9,22 @@ import (
 	"github.com/0xSMW/pulse-uptime/cli/internal/command/adminops"
 )
 
-// Section is one top level menu entry holding related actions.
+// Section is one top level menu entry holding related actions. A non nil
+// Arrange reorders the actions on every section entry from live state and
+// must fall back to the given order on any failure, never an error.
 type Section struct {
 	Title       string
 	Description string
 	Actions     []Action
+	Arrange     func(ctx context.Context, env *Env, actions []Action) []Action
 }
 
 // Action is one runnable menu entry. Command is the cobra command path the
-// invocation starts with, Build gathers inputs and returns the full argv.
-// Destructive actions must return an Invocation carrying confirm text, the
-// session loop refuses to run them otherwise.
+// action is anchored to for wiring checks, Build gathers inputs and returns
+// the full argv, which may resolve to a different command for composite
+// flows such as browse then install. Destructive actions must return an
+// Invocation carrying confirm text, the session loop refuses to run them
+// otherwise.
 type Action struct {
 	Title       string
 	Command     []string
@@ -47,7 +52,6 @@ var (
 	monitorPicker    = PickerSpec{Title: "Select a monitor", List: []string{"monitor", "list", "--all"}, ID: "id", Labels: []string{"name", "url"}}
 	groupPicker      = PickerSpec{Title: "Select a group", List: []string{"group", "list", "--all"}, ID: "id", Labels: []string{"name"}}
 	dependencyPicker = PickerSpec{Title: "Select a dependency", List: []string{"dependency", "list", "--all"}, ID: "id", Labels: []string{"name"}}
-	catalogPicker    = PickerSpec{Title: "Select a catalog preset", List: []string{"dependency", "catalog"}, ID: "id", Labels: []string{"name"}}
 	incidentPicker   = PickerSpec{Title: "Select an incident", List: []string{"incident", "list", "--all"}, ID: "id", Labels: []string{"monitorName", "name"}}
 	reportPicker     = PickerSpec{Title: "Select a report", List: []string{"report", "list", "--all"}, ID: "id", Labels: []string{"title", "name"}}
 	tokenPicker      = PickerSpec{Title: "Select a token", List: []string{"token", "list", "--all"}, ID: "id", Labels: []string{"name"}}
@@ -239,8 +243,9 @@ func dependenciesSection() Section {
 	return Section{
 		Title:       "Dependencies",
 		Description: "Track third party services your stack depends on",
+		Arrange:     arrangeDependencyActions,
 		Actions: []Action{
-			simple("Browse the catalog", "dependency", "catalog"),
+			{Title: "Browse the catalog", Command: []string{"dependency", "catalog"}, Build: buildCatalogBrowse},
 			simple("List dependencies", "dependency", "list", "--all"),
 			{Title: "Show a dependency", Command: []string{"dependency", "get"}, Build: func(ctx context.Context, env *Env) (*Invocation, error) {
 				id, _, err := pickEntity(ctx, env, dependencyPicker)
@@ -250,19 +255,11 @@ func dependenciesSection() Section {
 				return &Invocation{Args: []string{"dependency", "get", id}}, nil
 			}},
 			{Title: "Add a dependency", Command: []string{"dependency", "add"}, Build: func(ctx context.Context, env *Env) (*Invocation, error) {
-				preset, _, err := pickEntity(ctx, env, catalogPicker)
+				preset, err := pickCatalogPreset(ctx, env)
 				if err != nil {
 					return nil, err
 				}
-				notify, err := env.UI.Confirm("Enable notifications for this dependency?", "")
-				if err != nil {
-					return nil, err
-				}
-				args := []string{"dependency", "add", preset}
-				if !notify {
-					args = append(args, "--no-notifications")
-				}
-				return &Invocation{Args: args}, nil
+				return buildDependencyInstall(ctx, env, preset)
 			}},
 			{Title: "Backfill dependency history", Command: []string{"dependency", "backfill"}, Build: func(ctx context.Context, env *Env) (*Invocation, error) {
 				id, _, err := pickEntity(ctx, env, dependencyPicker)
@@ -284,6 +281,51 @@ func dependenciesSection() Section {
 			}},
 		},
 	}
+}
+
+// arrangeDependencyActions puts List dependencies first when at least one
+// dependency is installed and keeps Browse the catalog first otherwise. Any
+// fetch or parse failure keeps the static order, the menu never blocks on
+// this probe.
+func arrangeDependencyActions(ctx context.Context, env *Env, actions []Action) []Action {
+	raw, err := fetchJSON(ctx, env, []string{"dependency", "list", "--all"})
+	if err != nil {
+		return actions
+	}
+	if len(CollectOptions(raw, "id", []string{"name"})) == 0 {
+		return actions
+	}
+	return moveActionFirst(actions, "List dependencies")
+}
+
+// moveActionFirst returns the actions with the named one first and the rest
+// in their original order. An unknown title returns the input unchanged.
+func moveActionFirst(actions []Action, title string) []Action {
+	for i, action := range actions {
+		if action.Title != title {
+			continue
+		}
+		result := make([]Action, 0, len(actions))
+		result = append(result, actions[i])
+		result = append(result, actions[:i]...)
+		result = append(result, actions[i+1:]...)
+		return result
+	}
+	return actions
+}
+
+// buildCatalogBrowse prints the full catalog table, then offers the
+// installable presets and flows into the shared install path. Backing out of
+// the picker leaves the printed table behind and returns to the section.
+func buildCatalogBrowse(ctx context.Context, env *Env) (*Invocation, error) {
+	if code := runCommand(ctx, env, []string{"dependency", "catalog"}); code != 0 {
+		return nil, fmt.Errorf("catalog listing exited with status %d", code)
+	}
+	preset, err := pickCatalogPreset(ctx, env)
+	if err != nil {
+		return nil, err
+	}
+	return buildDependencyInstall(ctx, env, preset)
 }
 
 func incidentsSection() Section {

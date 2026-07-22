@@ -20,15 +20,24 @@ type execCall struct {
 }
 
 type fakeExec struct {
-	calls    []execCall
-	listJSON string
+	calls       []execCall
+	listJSON    string
+	catalogJSON string
+	code        int
 }
 
 func (f *fakeExec) fn() Executor {
 	return func(_ context.Context, args []string, out, _ io.Writer, tty bool) int {
 		f.calls = append(f.calls, execCall{args: append([]string{}, args...), tty: tty})
+		if f.code != 0 {
+			return f.code
+		}
 		if !tty {
-			_, _ = io.WriteString(out, f.listJSON)
+			payload := f.listJSON
+			if contains(args, "catalog") {
+				payload = f.catalogJSON
+			}
+			_, _ = io.WriteString(out, payload)
 		}
 		return 0
 	}
@@ -48,7 +57,27 @@ const sampleListJSON = `{"apiVersion":"v1","kind":"List","data":[` +
 	`{"id":"itm_1","name":"First","title":"First","monitorName":"First","url":"https://one.example.com"},` +
 	`{"id":"itm_2","name":"Second","title":"Second","monitorName":"Second","url":"https://two.example.com"}]}`
 
-func newFakeExec() *fakeExec { return &fakeExec{listJSON: sampleListJSON} }
+// sampleCatalogJSON mirrors the catalog wire shape: openai_api is installed
+// unscoped, legacy_api is disabled, flaky_api has a validation error, so
+// none of the three may be offered. chatgpt installs unscoped and
+// neon_database requires a scope with one option installed and one
+// unavailable, leaving a single installable scope.
+const sampleCatalogJSON = `{"apiVersion":"v1","kind":"DependencyCatalog","data":{"categories":[` +
+	`{"category":"ai","presets":[` +
+	`{"id":"openai_api","name":"OpenAI API","provider":"OpenAI","enabled":true,"installed":true,"scopeSelection":null},` +
+	`{"id":"legacy_api","name":"Legacy API","provider":"OpenAI","enabled":false,"installed":false,"scopeSelection":null},` +
+	`{"id":"flaky_api","name":"Flaky API","provider":"OpenAI","enabled":true,"hasValidationError":true,"installed":false,"scopeSelection":null},` +
+	`{"id":"chatgpt","name":"ChatGPT","provider":"OpenAI","enabled":true,"installed":false,"scopeSelection":null}]},` +
+	`{"category":"db","presets":[` +
+	`{"id":"neon_database","name":"Neon Database","provider":"Neon","enabled":true,"installed":false,"installedScopeIds":["aws-us-east-1"],` +
+	`"scopeSelection":{"required":true,"allowsUnscoped":false,"status":"static","options":[` +
+	`{"id":"aws-us-east-1","label":"AWS us-east-1","available":true},` +
+	`{"id":"aws-eu-west-2","label":"AWS eu-west-2","available":true},` +
+	`{"id":"gcp-secret","label":"GCP secret","available":false}]}}]}]}}`
+
+func newFakeExec() *fakeExec {
+	return &fakeExec{listJSON: sampleListJSON, catalogJSON: sampleCatalogJSON}
+}
 
 // autoUI answers every prompt mechanically so whole-tree sweeps need no per
 // action scripting. Selects take the last option with a nonempty value,
@@ -110,12 +139,14 @@ type scriptedUI struct {
 	selects  []string
 	inputs   []string
 	confirms []bool
+	offered  [][]Option
 }
 
-func (u *scriptedUI) Select(title, _ string, _ []Option) (string, error) {
+func (u *scriptedUI) Select(title, _ string, options []Option) (string, error) {
 	if len(u.selects) == 0 {
 		u.t.Fatalf("unexpected select %q", title)
 	}
+	u.offered = append(u.offered, options)
 	value := u.selects[0]
 	u.selects = u.selects[1:]
 	return value, nil
@@ -214,8 +245,14 @@ func TestEveryActionBuildsRunnableArgv(t *testing.T) {
 				if invocation == nil {
 					t.Fatalf("%s built nothing", name)
 				}
-				if len(invocation.Args) < len(action.Command) || !equalPrefix(invocation.Args, action.Command) {
-					t.Fatalf("%s argv %v does not extend command path %v", name, invocation.Args, action.Command)
+				// The anchor command must exist even when a composite flow
+				// builds argv for a different command.
+				anchor, _, anchorErr := root.Find(action.Command)
+				if anchorErr != nil {
+					t.Fatalf("%s command path %v does not resolve: %v", name, action.Command, anchorErr)
+				}
+				if !anchor.HasAvailableSubCommands() {
+					covered[anchor.CommandPath()] = true
 				}
 				target, remaining, findErr := root.Find(invocation.Args)
 				if findErr != nil {
@@ -329,15 +366,6 @@ func assertLeafCoverage(t *testing.T, root *cobra.Command, covered map[string]bo
 	visit(root)
 }
 
-func equalPrefix(args, prefix []string) bool {
-	for i, token := range prefix {
-		if args[i] != token {
-			return false
-		}
-	}
-	return true
-}
-
 func contains(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
@@ -423,6 +451,192 @@ func TestRunSessionTraversal(t *testing.T) {
 	calls := exec.ttyCalls()
 	if len(calls) != 1 || strings.Join(calls[0].args, " ") != "monitor list --all" {
 		t.Fatalf("unexpected executed calls %+v", calls)
+	}
+}
+
+func findSection(t *testing.T, title string) Section {
+	t.Helper()
+	for _, section := range Tree() {
+		if section.Title == title {
+			return section
+		}
+	}
+	t.Fatalf("section %s not found", title)
+	return Section{}
+}
+
+func actionTitles(actions []Action) []string {
+	titles := make([]string, 0, len(actions))
+	for _, action := range actions {
+		titles = append(titles, action.Title)
+	}
+	return titles
+}
+
+// TestDependencySectionOrdering pins the entry order rule: List dependencies
+// leads when something is installed, Browse the catalog leads on an empty
+// listing and on any probe failure.
+func TestDependencySectionOrdering(t *testing.T) {
+	section := findSection(t, "Dependencies")
+	if section.Arrange == nil {
+		t.Fatal("Dependencies section has no Arrange hook")
+	}
+	cases := []struct {
+		name  string
+		setup func(f *fakeExec)
+		first string
+	}{
+		{name: "installed dependencies float list first", setup: func(*fakeExec) {}, first: "List dependencies"},
+		{name: "empty listing keeps browse first", setup: func(f *fakeExec) { f.listJSON = `{"data":[]}` }, first: "Browse the catalog"},
+		{name: "probe failure keeps browse first", setup: func(f *fakeExec) { f.code = 9 }, first: "Browse the catalog"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			exec := newFakeExec()
+			tc.setup(exec)
+			env := &Env{UI: &autoUI{}, Exec: exec.fn(), Out: io.Discard, Err: io.Discard}
+			arranged := section.Arrange(context.Background(), env, section.Actions)
+			if arranged[0].Title != tc.first {
+				t.Fatalf("first action = %q, want %q", arranged[0].Title, tc.first)
+			}
+			want := map[string]bool{}
+			for _, title := range actionTitles(section.Actions) {
+				want[title] = true
+			}
+			if len(arranged) != len(section.Actions) {
+				t.Fatalf("arranged %d actions, want %d", len(arranged), len(section.Actions))
+			}
+			for _, title := range actionTitles(arranged) {
+				if !want[title] {
+					t.Fatalf("unexpected action %q after arranging", title)
+				}
+			}
+		})
+	}
+}
+
+// TestDependencyAddScopeRequiredUsesSelect proves a required scope with
+// enumerated options prompts a select restricted to installable scopes and
+// lands in argv.
+func TestDependencyAddScopeRequiredUsesSelect(t *testing.T) {
+	action := findAction(t, "Dependencies", "Add a dependency")
+	ui := &scriptedUI{t: t, selects: []string{"neon_database", "aws-eu-west-2"}, confirms: []bool{true}}
+	exec := newFakeExec()
+	env := &Env{UI: ui, Exec: exec.fn(), Out: io.Discard, Err: io.Discard}
+	invocation, err := action.Build(context.Background(), env)
+	if err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+	if got := strings.Join(invocation.Args, " "); got != "dependency add neon_database --scope aws-eu-west-2" {
+		t.Fatalf("unexpected argv %q", got)
+	}
+	if len(ui.offered) != 2 {
+		t.Fatalf("got %d selects, want preset then scope", len(ui.offered))
+	}
+	scopeOptions := ui.offered[1]
+	if len(scopeOptions) != 1 || scopeOptions[0].Value != "aws-eu-west-2" {
+		t.Fatalf("scope select offered %+v, want only the uninstalled available scope", scopeOptions)
+	}
+}
+
+// TestDependencyAddSkipsDiscoveryPendingPreset proves a required scope with
+// no enumerated options is never offered because the server rejects every
+// typed scope while discovery is pending.
+func TestDependencyAddSkipsDiscoveryPendingPreset(t *testing.T) {
+	action := findAction(t, "Dependencies", "Add a dependency")
+	exec := newFakeExec()
+	exec.catalogJSON = `{"data":{"categories":[{"category":"db","presets":[` +
+		`{"id":"upstash_redis_regional","name":"Upstash Redis Regional","provider":"Upstash","enabled":true,"installed":false,` +
+		`"scope":{"kind":"discovered_children","required":true}},` +
+		`{"id":"chatgpt","name":"ChatGPT","provider":"OpenAI","enabled":true,"installed":false}]}]}}`
+	ui := &scriptedUI{t: t, selects: []string{"chatgpt"}, confirms: []bool{true}}
+	env := &Env{UI: ui, Exec: exec.fn(), Out: io.Discard, Err: io.Discard}
+	invocation, err := action.Build(context.Background(), env)
+	if err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+	if got := strings.Join(invocation.Args, " "); got != "dependency add chatgpt" {
+		t.Fatalf("unexpected argv %q", got)
+	}
+	if len(ui.offered) != 1 || len(ui.offered[0]) != 1 || ui.offered[0][0].Value != "chatgpt" {
+		t.Fatalf("picker offered %+v, discovery pending preset must be skipped", ui.offered)
+	}
+}
+
+// TestPickCatalogPresetErrorMessages splits the unavailable catalog case
+// from the all-installed case.
+func TestPickCatalogPresetErrorMessages(t *testing.T) {
+	env := func(exec *fakeExec) *Env {
+		return &Env{UI: &autoUI{}, Exec: exec.fn(), Out: io.Discard, Err: io.Discard}
+	}
+	broken := newFakeExec()
+	broken.catalogJSON = "not json"
+	if _, err := pickCatalogPreset(context.Background(), env(broken)); err == nil || !strings.Contains(err.Error(), "unavailable") {
+		t.Fatalf("malformed catalog error = %v, want unavailable wording", err)
+	}
+	empty := newFakeExec()
+	empty.catalogJSON = `{"data":{"categories":[]}}`
+	if _, err := pickCatalogPreset(context.Background(), env(empty)); err == nil || !strings.Contains(err.Error(), "unavailable") {
+		t.Fatalf("empty catalog error = %v, want unavailable wording", err)
+	}
+	installed := newFakeExec()
+	installed.catalogJSON = `{"data":{"categories":[{"category":"ai","presets":[` +
+		`{"id":"openai_api","name":"OpenAI API","provider":"OpenAI","enabled":true,"installed":true}]}]}}`
+	if _, err := pickCatalogPreset(context.Background(), env(installed)); err == nil || !strings.Contains(err.Error(), "already installed") {
+		t.Fatalf("all installed error = %v, want installed wording", err)
+	}
+}
+
+// TestDependencyAddUnscopedOmitsScope proves no scope prompt or flag appears
+// for a preset without a scope requirement.
+func TestDependencyAddUnscopedOmitsScope(t *testing.T) {
+	action := findAction(t, "Dependencies", "Add a dependency")
+	ui := &scriptedUI{t: t, selects: []string{"chatgpt"}, confirms: []bool{true}}
+	exec := newFakeExec()
+	env := &Env{UI: ui, Exec: exec.fn(), Out: io.Discard, Err: io.Discard}
+	invocation, err := action.Build(context.Background(), env)
+	if err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+	if got := strings.Join(invocation.Args, " "); got != "dependency add chatgpt" {
+		t.Fatalf("unexpected argv %q", got)
+	}
+	if len(ui.offered) != 1 {
+		t.Fatalf("got %d selects, want the preset picker only", len(ui.offered))
+	}
+	presetValues := make([]string, 0, len(ui.offered[0]))
+	for _, option := range ui.offered[0] {
+		presetValues = append(presetValues, option.Value)
+	}
+	if strings.Join(presetValues, " ") != "chatgpt neon_database" {
+		t.Fatalf("preset picker offered %v, installed unscoped preset must be skipped", presetValues)
+	}
+}
+
+// TestBrowseCatalogFlow proves browse prints the full table first, then
+// installs the chosen preset through the shared add path.
+func TestBrowseCatalogFlow(t *testing.T) {
+	action := findAction(t, "Dependencies", "Browse the catalog")
+	ui := &scriptedUI{t: t, selects: []string{"chatgpt"}, confirms: []bool{true}}
+	exec := newFakeExec()
+	env := &Env{UI: ui, Exec: exec.fn(), Out: io.Discard, Err: io.Discard}
+	if quit := runAction(context.Background(), env, action); quit {
+		t.Fatal("session ended unexpectedly")
+	}
+	if len(exec.calls) != 3 {
+		t.Fatalf("got %d exec calls, want table then fetch then install", len(exec.calls))
+	}
+	table := exec.calls[0]
+	if !table.tty || strings.Join(table.args, " ") != "dependency catalog" {
+		t.Fatalf("unexpected table call %+v", table)
+	}
+	fetch := exec.calls[1]
+	if fetch.tty || strings.Join(fetch.args, " ") != "dependency catalog --output json" {
+		t.Fatalf("unexpected fetch call %+v", fetch)
+	}
+	install := exec.calls[2]
+	if !install.tty || strings.Join(install.args, " ") != "dependency add chatgpt" {
+		t.Fatalf("unexpected install call %+v", install)
 	}
 }
 
