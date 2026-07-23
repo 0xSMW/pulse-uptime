@@ -20,13 +20,29 @@ suite("seed staging for expiry display screenshots", () => {
 
     const now = new Date()
     const monitors = [
-      { id: "thenootropics-guide", name: "thenootropics.guide", url: "https://thenootropics.guide/" },
-      { id: "agilefirst-io", name: "agilefirst.io", url: "https://agilefirst.io/" },
-      { id: "productstrategy-co", name: "productstrategy.co", url: "https://productstrategy.co/" },
-      { id: "stephenwalker-co", name: "stephenwalker.co", url: "https://stephenwalker.co/" },
+      {
+        id: "thenootropics-guide",
+        name: "thenootropics.guide",
+        url: "https://thenootropics.guide/",
+      },
+      {
+        id: "agilefirst-io",
+        name: "agilefirst.io",
+        url: "https://agilefirst.io/",
+      },
+      {
+        id: "productstrategy-co",
+        name: "productstrategy.co",
+        url: "https://productstrategy.co/",
+      },
+      {
+        id: "stephenwalker-co",
+        name: "stephenwalker.co",
+        url: "https://stephenwalker.co/",
+      },
     ]
     const config = {
-      schemaVersion: 2,
+      schemaVersion: 2 as const,
       configVersion: 1,
       settings: { ...DEFAULT_MONITOR_SETTINGS },
       groups: [],
@@ -62,21 +78,85 @@ suite("seed staging for expiry display screenshots", () => {
       }))
     )
     await db.insert(schema.monitorState).values(
-      monitors.map((m) => ({ monitorId: m.id, state: "UP", updatedAt: now }))
+      monitors.map((m) => ({
+        monitorId: m.id,
+        state: "UP" as const,
+        updatedAt: now,
+      }))
     )
 
     const at = (days: number) => new Date(now.getTime() + days * DAY)
     await db.insert(schema.domainHealthAssets).values([
-      { apexDomain: "thenootropics.guide", expiresAt: at(1.5), registrar: "Porkbun LLC", checkedAt: now, lastSuccessAt: now, lastReferencedAt: now },
-      { apexDomain: "agilefirst.io", expiresAt: at(3.5), registrar: "Porkbun LLC", checkedAt: now, lastSuccessAt: now, lastReferencedAt: now },
-      { apexDomain: "productstrategy.co", expiresAt: at(320), registrar: "Porkbun LLC", checkedAt: now, lastSuccessAt: now, lastReferencedAt: now },
-      { apexDomain: "stephenwalker.co", expiresAt: at(300), registrar: "Porkbun LLC", checkedAt: now, lastSuccessAt: now, lastReferencedAt: now },
+      {
+        apexDomain: "thenootropics.guide",
+        expiresAt: at(1.5),
+        registrar: "Porkbun LLC",
+        checkedAt: now,
+        lastSuccessAt: now,
+        lastReferencedAt: now,
+      },
+      {
+        apexDomain: "agilefirst.io",
+        expiresAt: at(3.5),
+        registrar: "Porkbun LLC",
+        checkedAt: now,
+        lastSuccessAt: now,
+        lastReferencedAt: now,
+      },
+      {
+        apexDomain: "productstrategy.co",
+        expiresAt: at(320),
+        registrar: "Porkbun LLC",
+        checkedAt: now,
+        lastSuccessAt: now,
+        lastReferencedAt: now,
+      },
+      {
+        apexDomain: "stephenwalker.co",
+        expiresAt: at(300),
+        registrar: "Porkbun LLC",
+        checkedAt: now,
+        lastSuccessAt: now,
+        lastReferencedAt: now,
+      },
     ])
     await db.insert(schema.certificateHealthAssets).values([
-      { hostname: "thenootropics.guide", port: 443, expiresAt: at(46.5), issuer: "Google Trust Services", checkedAt: now, lastSuccessAt: now, lastReferencedAt: now },
-      { hostname: "agilefirst.io", port: 443, expiresAt: at(20.5), issuer: "Google Trust Services", checkedAt: now, lastSuccessAt: now, lastReferencedAt: now },
-      { hostname: "productstrategy.co", port: 443, expiresAt: at(20.5), issuer: "Google Trust Services", checkedAt: now, lastSuccessAt: now, lastReferencedAt: now },
-      { hostname: "stephenwalker.co", port: 443, expiresAt: at(80.5), issuer: "Google Trust Services", checkedAt: now, lastSuccessAt: now, lastReferencedAt: now },
+      {
+        hostname: "thenootropics.guide",
+        port: 443,
+        expiresAt: at(46.5),
+        issuer: "Google Trust Services",
+        checkedAt: now,
+        lastSuccessAt: now,
+        lastReferencedAt: now,
+      },
+      {
+        hostname: "agilefirst.io",
+        port: 443,
+        expiresAt: at(20.5),
+        issuer: "Google Trust Services",
+        checkedAt: now,
+        lastSuccessAt: now,
+        lastReferencedAt: now,
+      },
+      {
+        hostname: "productstrategy.co",
+        port: 443,
+        expiresAt: at(20.5),
+        issuer: "Google Trust Services",
+        checkedAt: now,
+        lastSuccessAt: now,
+        lastReferencedAt: now,
+      },
+      {
+        hostname: "stephenwalker.co",
+        port: 443,
+        expiresAt: at(80.5),
+        issuer: "Google Trust Services",
+        checkedAt: now,
+        lastSuccessAt: now,
+        lastReferencedAt: now,
+      },
     ])
 
     await db.delete(schema.humanSessions)
