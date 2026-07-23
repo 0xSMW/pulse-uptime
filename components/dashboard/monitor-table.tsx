@@ -248,7 +248,7 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
                   </span>
                 </td>
                 <td className="px-4">
-                  <span className="inline-flex max-w-full items-center gap-2">
+                  <span className="inline-flex max-w-[320px] items-center gap-2">
                     <Link
                       className="truncate font-medium"
                       href={`/monitors/${encodeURIComponent(monitor.id)}`}

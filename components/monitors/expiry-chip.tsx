@@ -121,7 +121,9 @@ export function ExpiryHeaderChip({ warning }: { warning: ExpiryWarning }) {
   return (
     <button
       className={cn(
-        "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 font-data font-medium text-[11px]",
+        // The after pseudo-element extends the hit area past the 24px target
+        // floor while the rendered pill keeps its streamlined size.
+        "relative inline-flex shrink-0 cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 font-data font-medium text-[11px] after:absolute after:inset-x-0 after:-inset-y-1 after:content-['']",
         warning.level === "critical"
           ? "bg-[var(--down-bg)] text-[var(--down-text)]"
           : "bg-[var(--verifying-bg)] text-[var(--verifying-text)]"

@@ -712,7 +712,10 @@ export function MonitorDetail({
                   ? "Ongoing incident"
                   : "Recently resolved"}
               </span>
-              <span className="truncate font-data text-[var(--fg-muted)]">
+              <span
+                className="truncate font-data text-[var(--fg-muted)]"
+                title={monitor.latestIncident.openingFailure}
+              >
                 {monitor.latestIncident.openingFailure}
               </span>
             </span>
