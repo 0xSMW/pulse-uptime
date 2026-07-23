@@ -9,7 +9,10 @@ import { LazyLatencyChart } from "@/components/charts/lazy-latency-chart"
 import { useTimezone } from "@/components/dashboard/timezone-provider"
 import { DependencyOverlapCard } from "@/components/dependencies/dependency-overlap-card"
 import type { DependencyIncidentOverlap } from "@/components/incidents/types"
-import { ExpiryChip, expiryWarning } from "@/components/monitors/expiry-chip"
+import {
+  ExpiryHeaderChip,
+  expiryWarnings,
+} from "@/components/monitors/expiry-chip"
 import {
   MonitorActions,
   MonitorEditButton,
@@ -219,11 +222,11 @@ function MonitorUrlLabel({
     return <>{url}</>
   }
   const now = new Date()
-  const warning = expiryWarning(
+  const warning = expiryWarnings(
     domainHealth.certExpiresAt,
     domainHealth.domainExpiresAt,
     now
-  )
+  )[0]
   return (
     <>
       {segments.prefix}
@@ -543,7 +546,7 @@ export function MonitorDetail({
             : null,
         }
       : snapshot
-  const headerExpiryWarning = expiryWarning(
+  const headerExpiryWarnings = expiryWarnings(
     monitor.domainHealth.certExpiresAt,
     monitor.domainHealth.domainExpiresAt,
     new Date()
@@ -593,9 +596,9 @@ export function MonitorDetail({
               </h1>
               <StatusBadge state={monitor.state} />
               <LiveIndicator status={live} />
-              {headerExpiryWarning ? (
-                <ExpiryChip warning={headerExpiryWarning} />
-              ) : null}
+              {headerExpiryWarnings.map((warning) => (
+                <ExpiryHeaderChip key={warning.kind} warning={warning} />
+              ))}
             </div>
             <div className="mt-2 flex min-w-0 items-center gap-2 font-data text-[13px] text-[var(--fg-muted)]">
               <span className="rounded bg-[var(--chip-bg)] px-1.5 py-0.5 font-medium text-[11px] text-[var(--fg)]">
@@ -930,7 +933,7 @@ export function MonitorDetail({
 
       {monitor.domainHealth.certExpiresAt ||
       monitor.domainHealth.domainExpiresAt ? (
-        <Card>
+        <Card id="domain-certificate">
           <CardHeader>
             <CardTitle>Domain &amp; Certificate</CardTitle>
           </CardHeader>
