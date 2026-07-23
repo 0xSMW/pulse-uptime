@@ -6,7 +6,10 @@ import { useRouter } from "next/navigation"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import { useTimezone } from "@/components/dashboard/timezone-provider"
-import { ExpiryChip, expiryWarning } from "@/components/monitors/expiry-chip"
+import {
+  ExpiryInlineWarnings,
+  expiryWarnings,
+} from "@/components/monitors/expiry-chip"
 import {
   StatusDot,
   type VisibleMonitorState,
@@ -245,7 +248,7 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
                   </span>
                 </td>
                 <td className="px-4">
-                  <span className="inline-flex max-w-full items-center gap-2">
+                  <span className="inline-flex max-w-[320px] items-center gap-2">
                     <Link
                       className="truncate font-medium"
                       href={`/monitors/${encodeURIComponent(monitor.id)}`}
@@ -258,17 +261,16 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
                     >
                       {monitor.name}
                     </Link>
-                    {(() => {
-                      const warning = expiryWarning(
+                  </span>
+                  <div className="flex max-w-[320px] items-center gap-2 font-data text-[var(--fg-muted)] text-xs">
+                    <span className="min-w-0 truncate">{monitor.url}</span>
+                    <ExpiryInlineWarnings
+                      warnings={expiryWarnings(
                         monitor.certExpiresAt,
                         monitor.domainExpiresAt,
                         new Date()
-                      )
-                      return warning ? <ExpiryChip warning={warning} /> : null
-                    })()}
-                  </span>
-                  <div className="max-w-[320px] truncate font-data text-[var(--fg-muted)] text-xs">
-                    {monitor.url}
+                      )}
+                    />
                   </div>
                 </td>
                 <td className="px-4 text-right font-data">
