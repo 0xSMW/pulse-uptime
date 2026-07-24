@@ -69,7 +69,7 @@ export interface DueDomainHealthTargets {
   certificates: DomainHealthTargets["certificates"]
 }
 
-/** Missing assets and assets at least 24 hours old are due. */
+/** Missing and stale assets are due, plus expirations unseen since they elapsed. */
 export function selectDueDomainHealthTargets(
   targets: DomainHealthTargets,
   assets: DomainHealthAssetState,
@@ -79,7 +79,13 @@ export function selectDueDomainHealthTargets(
   return {
     apexDomains: targets.apexDomains.filter((apex) => {
       const asset = assets.domains.get(apex)
-      return !asset?.checkedAt || asset.checkedAt.getTime() <= staleBefore
+      return (
+        !asset?.checkedAt ||
+        asset.checkedAt.getTime() <= staleBefore ||
+        (asset.expiresAt !== null &&
+          asset.expiresAt.getTime() <= now.getTime() &&
+          asset.checkedAt.getTime() <= asset.expiresAt.getTime())
+      )
     }),
     certificates: targets.certificates.filter((target) => {
       const asset = assets.certificates.get(

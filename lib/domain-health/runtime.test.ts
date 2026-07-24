@@ -5,6 +5,7 @@ import {
   DOMAIN_HEALTH_FRESHNESS_MS,
   DOMAIN_HEALTH_WORK_BUDGET_MS,
   runDomainHealthCoordinator,
+  selectDueDomainHealthTargets,
 } from "./runtime"
 import type {
   DomainHealthAssetState,
@@ -47,6 +48,301 @@ const domainFacts = {
 }
 
 describe("runDomainHealthCoordinator", () => {
+  it("refreshes an elapsed domain expiration not checked since it elapsed", () => {
+    const now = new Date("2026-07-24T12:00:00Z")
+    const expiresAt = new Date("2026-07-24T06:28:05Z")
+    const checkedAt = new Date("2026-07-24T06:28:04Z")
+    const due = selectDueDomainHealthTargets(
+      {
+        apexDomains: ["thenootropics.guide"],
+        certificates: [],
+        monitors: [],
+      },
+      {
+        domains: new Map([
+          [
+            "thenootropics.guide",
+            {
+              apexDomain: "thenootropics.guide",
+              expiresAt,
+              registrar: "Porkbun LLC",
+              checkedAt,
+              lastSuccessAt: checkedAt,
+              lastReferencedAt: checkedAt,
+            },
+          ],
+        ]),
+        certificates: new Map(),
+      },
+      now
+    )
+
+    expect(due.apexDomains).toEqual(["thenootropics.guide"])
+  })
+
+  it("keeps post-expiry refreshes inside the freshness window", () => {
+    const now = new Date("2026-07-24T12:00:00Z")
+    const expiresAt = new Date("2026-07-24T06:28:05Z")
+    const checkedAt = new Date("2026-07-24T06:28:06Z")
+    const due = selectDueDomainHealthTargets(
+      {
+        apexDomains: ["thenootropics.guide"],
+        certificates: [],
+        monitors: [],
+      },
+      {
+        domains: new Map([
+          [
+            "thenootropics.guide",
+            {
+              apexDomain: "thenootropics.guide",
+              expiresAt,
+              registrar: "Porkbun LLC",
+              checkedAt,
+              lastSuccessAt: checkedAt,
+              lastReferencedAt: checkedAt,
+            },
+          ],
+        ]),
+        certificates: new Map(),
+      },
+      now
+    )
+
+    expect(due.apexDomains).toEqual([])
+  })
+
+  it("treats the expiration check boundary as due", () => {
+    const now = new Date("2026-07-24T12:00:00Z")
+    const expiresAt = new Date("2026-07-24T06:28:05Z")
+    const due = selectDueDomainHealthTargets(
+      {
+        apexDomains: ["thenootropics.guide"],
+        certificates: [],
+        monitors: [],
+      },
+      {
+        domains: new Map([
+          [
+            "thenootropics.guide",
+            {
+              apexDomain: "thenootropics.guide",
+              expiresAt,
+              registrar: "Porkbun LLC",
+              checkedAt: expiresAt,
+              lastSuccessAt: expiresAt,
+              lastReferencedAt: expiresAt,
+            },
+          ],
+        ]),
+        certificates: new Map(),
+      },
+      now
+    )
+
+    expect(due.apexDomains).toEqual(["thenootropics.guide"])
+  })
+
+  it("keeps future domain expirations and certificates inside freshness", () => {
+    const now = new Date("2026-07-24T12:00:00Z")
+    const checkedAt = new Date(now.getTime() - 60_000)
+    const due = selectDueDomainHealthTargets(
+      {
+        apexDomains: ["thenootropics.guide"],
+        certificates: [{ hostname: "app.thenootropics.guide", port: 443 }],
+        monitors: [],
+      },
+      {
+        domains: new Map([
+          [
+            "thenootropics.guide",
+            {
+              apexDomain: "thenootropics.guide",
+              expiresAt: new Date("2027-07-24T06:28:05Z"),
+              registrar: "Porkbun LLC",
+              checkedAt,
+              lastSuccessAt: checkedAt,
+              lastReferencedAt: checkedAt,
+            },
+          ],
+        ]),
+        certificates: new Map([
+          [
+            certificateAssetKey("app.thenootropics.guide", 443),
+            {
+              hostname: "app.thenootropics.guide",
+              port: 443,
+              expiresAt: new Date("2026-07-24T06:28:05Z"),
+              issuer: "Test CA",
+              checkedAt,
+              lastSuccessAt: checkedAt,
+              lastReferencedAt: checkedAt,
+            },
+          ],
+        ]),
+      },
+      now
+    )
+
+    expect(due).toEqual({ apexDomains: [], certificates: [] })
+  })
+
+  it("records a failed elapsed-expiry catch-up so the next run can wait", async () => {
+    const { runs, leases } = stores()
+    const now = new Date("2026-07-24T12:00:00Z")
+    const expiresAt = new Date("2026-07-24T06:28:05Z")
+    const checkedAt = new Date("2026-07-24T06:28:04Z")
+    let reconciliation: DomainHealthReconciliation | undefined
+
+    await runDomainHealthCoordinator({
+      leases,
+      runs,
+      releaseId: "dpl_test",
+      now: () => now,
+      loadMonitors: async () => [
+        { id: "one", url: "http://app.thenootropics.guide" },
+      ],
+      loadAssets: async () => ({
+        domains: new Map([
+          [
+            "thenootropics.guide",
+            {
+              apexDomain: "thenootropics.guide",
+              expiresAt,
+              registrar: "Porkbun LLC",
+              checkedAt,
+              lastSuccessAt: checkedAt,
+              lastReferencedAt: checkedAt,
+            },
+          ],
+        ]),
+        certificates: new Map(),
+      }),
+      probeCert: async () => {
+        throw new Error("HTTP monitor has no certificate target")
+      },
+      fetchDomain: async () => {
+        throw new Error("RDAP unavailable")
+      },
+      reconcile: async (input) => {
+        reconciliation = input
+      },
+    })
+
+    const refresh = reconciliation?.domains[0]
+    expect(refresh).toMatchObject({
+      apexDomain: "thenootropics.guide",
+      expiresAt: null,
+      registrar: null,
+      checkedAt: now,
+    })
+    const nextDue = selectDueDomainHealthTargets(
+      {
+        apexDomains: ["thenootropics.guide"],
+        certificates: [],
+        monitors: [],
+      },
+      {
+        domains: new Map([
+          [
+            "thenootropics.guide",
+            {
+              apexDomain: "thenootropics.guide",
+              expiresAt,
+              registrar: "Porkbun LLC",
+              checkedAt: refresh?.checkedAt ?? checkedAt,
+              lastSuccessAt: checkedAt,
+              lastReferencedAt: now,
+            },
+          ],
+        ]),
+        certificates: new Map(),
+      },
+      new Date(now.getTime() + 10 * 60_000)
+    )
+
+    expect(nextDue.apexDomains).toEqual([])
+  })
+
+  it("reconciles a renewed expiration and leaves it fresh", async () => {
+    const { runs, leases } = stores()
+    const now = new Date("2026-07-24T12:00:00Z")
+    const expiresAt = new Date("2026-07-24T06:28:05Z")
+    const checkedAt = new Date("2026-07-24T06:28:04Z")
+    const renewedAt = new Date("2027-07-24T06:28:05Z")
+    let reconciliation: DomainHealthReconciliation | undefined
+
+    await runDomainHealthCoordinator({
+      leases,
+      runs,
+      releaseId: "dpl_test",
+      now: () => now,
+      loadMonitors: async () => [
+        { id: "one", url: "http://app.thenootropics.guide" },
+      ],
+      loadAssets: async () => ({
+        domains: new Map([
+          [
+            "thenootropics.guide",
+            {
+              apexDomain: "thenootropics.guide",
+              expiresAt,
+              registrar: "Porkbun LLC",
+              checkedAt,
+              lastSuccessAt: checkedAt,
+              lastReferencedAt: checkedAt,
+            },
+          ],
+        ]),
+        certificates: new Map(),
+      }),
+      probeCert: async () => {
+        throw new Error("HTTP monitor has no certificate target")
+      },
+      fetchDomain: async () => ({
+        expiresAt: renewedAt,
+        registrar: "Porkbun LLC",
+        outcome: "resolved" as const,
+      }),
+      reconcile: async (input) => {
+        reconciliation = input
+      },
+    })
+
+    const refresh = reconciliation?.domains[0]
+    expect(refresh).toMatchObject({
+      apexDomain: "thenootropics.guide",
+      expiresAt: renewedAt,
+      checkedAt: now,
+    })
+    const nextDue = selectDueDomainHealthTargets(
+      {
+        apexDomains: ["thenootropics.guide"],
+        certificates: [],
+        monitors: [],
+      },
+      {
+        domains: new Map([
+          [
+            "thenootropics.guide",
+            {
+              apexDomain: "thenootropics.guide",
+              expiresAt: refresh?.expiresAt ?? expiresAt,
+              registrar: "Porkbun LLC",
+              checkedAt: refresh?.checkedAt ?? checkedAt,
+              lastSuccessAt: now,
+              lastReferencedAt: now,
+            },
+          ],
+        ]),
+        certificates: new Map(),
+      },
+      new Date(now.getTime() + 10 * 60_000)
+    )
+
+    expect(nextDue.apexDomains).toEqual([])
+  })
+
   it("dedupes sibling subdomains by apex and exact certificate endpoint", async () => {
     const { runs, leases } = stores()
     const probeCert = vi.fn(async () => certFacts)
