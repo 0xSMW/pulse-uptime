@@ -248,7 +248,7 @@ function MonitorUrlLabel({
         >
           {segments.apex}
         </TooltipTrigger>
-        <TooltipContent className="max-w-[min(32rem,var(--available-width))] px-3 py-2">
+        <TooltipContent className="max-w-[min(var(--container-lg),var(--available-width))] px-3 py-2">
           <div className="space-y-1 text-left">
             <p className="font-medium">{segments.apex}</p>
             {domainHealth.domainExpiresAt ? (
