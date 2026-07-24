@@ -248,11 +248,11 @@ function MonitorUrlLabel({
         >
           {segments.apex}
         </TooltipTrigger>
-        <TooltipContent className="px-3 py-2">
+        <TooltipContent className="max-w-[min(var(--container-lg),var(--available-width))] px-3 py-2">
           <div className="space-y-1 text-left">
             <p className="font-medium">{segments.apex}</p>
             {domainHealth.domainExpiresAt ? (
-              <p className="text-[var(--fg-muted)]">
+              <p className="break-words text-[var(--fg-muted)]">
                 {expiresLine(
                   "Renews",
                   domainHealth.domainExpiresAt,
@@ -263,7 +263,7 @@ function MonitorUrlLabel({
               </p>
             ) : null}
             {domainHealth.certExpiresAt ? (
-              <p className="text-[var(--fg-muted)]">
+              <p className="break-words text-[var(--fg-muted)]">
                 {expiresLine(
                   "Cert expires",
                   domainHealth.certExpiresAt,
