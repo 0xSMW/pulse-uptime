@@ -66,7 +66,20 @@ RESEND_FROM_EMAIL=Pulse <alerts@superposition.app>
 
 The readiness screen treats invalid email configuration as a warning and allows setup without alerts. Production validation still requires an actual test message.
 
-## 5. Set application secrets
+## 5. Configure Porkbun domain monitoring
+
+Set server-only credentials for the Porkbun account that owns the domains to monitor:
+
+```text
+PORKBUN_API_KEY
+PORKBUN_SECRET_KEY
+```
+
+Open **Settings → System → Domain monitoring**, select **Check connection**, then enable the webhook. Pulse registers `POST /api/webhooks/porkbun` on the public HTTPS application URL and stores the signing secret with purpose-derived encryption from `API_TOKEN_HASH_KEY`.
+
+The domain collector runs every ten minutes and reads the Porkbun portfolio for due domains, normally once per 24 hours. It processes signed `domain.renewed` and `domain.expiring` webhooks on its next run. Confirm a successful poll, a webhook test, and a rejected invalid signature. Porkbun supplies registration expiry and auto-renew only. It is never used for SSL, and certificate alerts are out of scope.
+
+## 6. Set application secrets
 
 Generate independent random values of at least 32 bytes for:
 
@@ -75,6 +88,8 @@ CRON_SECRET
 API_TOKEN_HASH_KEY
 DEVICE_AUTH_SECRET
 ```
+
+`API_TOKEN_HASH_KEY` derives separate encryption material for protected provider data, including the Porkbun webhook secret. Do not reuse it for another application.
 
 Also set:
 
@@ -85,16 +100,16 @@ NEXT_PUBLIC_STATUS_PAGE_NAME=Pulse
 
 The complete canonical environment list is in `.env.example`.
 
-## 6. Deploy and verify
+## 7. Deploy and verify
 
 ```sh
 pnpm verify
 vercel deploy --prod --scope <team>
 ```
 
-After deployment, confirm `/api/v1/version`, `/openapi/v1.json`, `/status`, both authenticated cron routes, onboarding readiness, database migrations, Edge Config acceptance, and Resend delivery before declaring the installation ready.
+After deployment, confirm `/api/v1/version`, `/openapi/v1.json`, `/status`, authenticated cron routes including `/api/cron/check-domains`, onboarding readiness, database migrations, Edge Config acceptance, Resend delivery, a successful Porkbun poll, and a verified webhook test before declaring the installation ready.
 
-## 7. Deploy safety: migrate-before-traffic gate
+## 8. Deploy safety: migrate-before-traffic gate
 
 Vercel promotes a production deployment the moment its build finishes, so new code serves before manually applied migrations would run. Code that references a not-yet-added column fails at runtime with SQLSTATE 42703 and takes the crons down. The gate removes the manual step by applying migrations inside the production build, before the artifact that serves traffic is produced.
 
@@ -151,7 +166,7 @@ Schema changes ship in additive steps so no deployment ever reads a column that 
 - Additive migrations (new nullable columns, new tables, new indexes) ship ahead of or together with the code that reads them. The gate applies them before the reader serves traffic.
 - Destructive migrations (dropping or renaming a column, tightening a constraint) ship only after all code that reads the old shape is gone. Deploy the reader change first, let it go live, then ship the drop in a later deployment.
 
-## 8. Deploy safety: release-bound deploy proof
+## 9. Deploy safety: release-bound deploy proof
 
 `.github/workflows/deploy-canary.yml` runs on GitHub `deployment_status` events (Vercel creates GitHub deployments for this repo). When a Production deployment reaches `success`, the workflow captures a promotion boundary timestamp, then polls `GET /api/cron/deploy-proof?after=<boundary>` via `scripts/verify-deploy-proof.mjs` until the live production process reports a completed `monitor-check` cron run whose `release_id` matches the server's own `PULSE_RELEASE_ID` and whose `completedAt` is at or after the boundary.
 

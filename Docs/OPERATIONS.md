@@ -10,6 +10,7 @@ Check these signals together:
 - `job_leases` for leases older than 90 seconds
 - `notification_outbox` for retrying, dead, or stale `sending` rows
 - Accepted versus rejected rows in `monitoring_config_snapshots`
+- Domain monitoring in Settings → System for Porkbun connection, last success, and webhook state
 
 Never infer service health from a successful Vercel deployment alone.
 
@@ -60,6 +61,16 @@ The real cold-start surface is the serverless function itself, not the database.
 Outbox rows are claimed atomically. A five-minute stale claim is retried with the same permanent incident/event/recipient key while the provider idempotency window remains safe. Ambiguous sends older than that window become `dead` to prevent duplicate delivery.
 
 For a dead row, determine whether Resend accepted the message before retrying manually. Never change its idempotency key.
+
+## Domain monitoring
+
+`/api/cron/check-domains` runs every ten minutes. The collector refreshes due registration facts and the independent TLS certificate probe. It reads the Porkbun portfolio only for due domains, normally once per 24 hours. Porkbun is never used for SSL.
+
+In **Settings → System → Domain monitoring**, confirm the connection, covered-domain count, last success, and webhook status. Enable the webhook to receive signed `domain.renewed` and `domain.expiring` deliveries at `POST /api/webhooks/porkbun`. The webhook stores a verified receipt, rejects invalid or stale signatures, accepts duplicate deliveries without duplicating work, and the next domain run refreshes the affected registration fact.
+
+If polling fails, inspect the safe provider error code and connection status, then confirm `PORKBUN_API_KEY` and `PORKBUN_SECRET_KEY` in Vercel. If webhook delivery fails, reconnect or test it from Domain monitoring. Rotate provider credentials through the deployment environment and reconnect the webhook from the System screen. Never log a webhook secret or raw provider payload.
+
+Expiry alerts are off by default. When enabled, Pulse emails default recipients at 30 and 14 days before a Porkbun-backed domain expires. Auto-renew is display context and never suppresses an alert. Certificate expiry remains a dashboard warning from the direct TLS probe. Certificate alerts are out of scope.
 
 ## Publishing a status report during an outage
 
@@ -113,7 +124,7 @@ Run migrations only through `DATABASE_URL_UNPOOLED`. Runtime functions use the p
 - Revoke API tokens from Settings or `/api/v1/tokens/{tokenId}`.
 - Revoke a CLI installation to invalidate every linked CLI session.
 - Password change revokes every human session including the current one and clears the session cookie so the operator must sign in again.
-- Rotate `API_TOKEN_HASH_KEY` or `DEVICE_AUTH_SECRET` only with an explicit credential invalidation plan.
+- Rotate `API_TOKEN_HASH_KEY` or `DEVICE_AUTH_SECRET` only with an explicit credential invalidation plan. Rotating `API_TOKEN_HASH_KEY` also requires rotating the protected Porkbun webhook secret.
 - Rotate `CRON_SECRET`, the Resend key, Neon credentials, and the Vercel API token in both Vercel and the provider.
 
 ## Recovering from admin lockout
@@ -133,4 +144,3 @@ commit;
 ```
 
 Then open the application URL. With no administrator row, onboarding runs again. Account creation (`createOnlyAdmin` in `lib/auth/service.ts`) verifies the setup token before the admin and readiness checks, then requires `hasAdmin()` to return false and the readiness checks (Vercel, database, Edge Config, and email) to pass. The expected token is the `PULSE_BOOTSTRAP_TOKEN` environment variable, and the onboarding form asks for it in the Setup Token field (the API accepts it as the `x-pulse-bootstrap-token` header or the `bootstrapToken` body field). Verification fails closed. If the variable is unset or shorter than 16 characters, every attempt returns 403 `BOOTSTRAP_REQUIRED` and the install cannot be claimed at all, which is why the token must be in place before you delete the account rows. Because the claim requires this operator-held token, an unclaimed install is not open to whoever reaches the URL first, but still run the SQL and create the account promptly rather than leaving the install unclaimed. Create the account with the correct email and a new password. If you set a temporary token for this recovery, remove it from the environment afterward. Monitors, incidents, configuration, and history are untouched. Only the account, its sessions, and onboarding progress are recreated.
-

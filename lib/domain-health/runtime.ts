@@ -1,14 +1,29 @@
 import "server-only"
 
 import { requireAcceptedConfig } from "@/lib/api/config-mutation"
+import { db } from "@/lib/db/client"
 import { queryExecutor } from "@/lib/db/query-executor"
+import { createDomainExpiryOutboxEnqueuer } from "@/lib/notifications/domain-expiry"
+import {
+  readPorkbunIntegration,
+  upsertPorkbunIntegration,
+} from "@/lib/porkbun-webhooks/store"
 import { requirePulseReleaseId } from "@/lib/release/id"
 import { runCronCoordinator } from "@/lib/scheduler/cron-coordinator"
 import { DOMAIN_HEALTH_LEASE, type LeaseStore } from "@/lib/scheduler/lease"
 import type { CronRunStore } from "@/lib/scheduler/run-record"
 import { createSqlCronRunStore, createSqlLeaseStore } from "@/lib/scheduler/sql"
 
+import {
+  buildDomainExpiryAlertRows,
+  type DomainExpiryOutboxEnqueuer,
+} from "./alerts"
 import { type CertificateFacts, probeCertificate } from "./cert"
+import {
+  fetchPorkbunAccountDomains,
+  type PorkbunDomainLookup,
+  type PorkbunDomainRenewalFacts,
+} from "./porkbun"
 import { type DomainFacts, fetchDomainFacts } from "./rdap"
 import {
   type CertificateHealthRefresh,
@@ -47,6 +62,8 @@ export type DomainHealthCronResult =
       certProbes: number
       rdapLookups: number
       skippedLookups: number
+      /** Forced webhook apexes refreshed from Porkbun and durably reconciled. */
+      porkbunRefreshedApexDomains: string[]
     }
   | { status: "failed"; runId: string; error: string }
 
@@ -58,10 +75,28 @@ export interface DomainHealthCronDeps {
   loadAssets: (targets: DomainHealthTargets) => Promise<DomainHealthAssetState>
   probeCert: (hostname: string, port: number) => Promise<CertificateFacts>
   fetchDomain: (apex: string) => Promise<DomainFacts>
+  fetchPorkbunDomains?: () => Promise<PorkbunDomainLookup>
+  recordPorkbunLookup?: (summary: PorkbunLookupSummary) => Promise<void>
   reconcile: (input: DomainHealthReconciliation) => Promise<void>
+  domainExpiryAlerts?: DomainExpiryAlertHooks
+  /** Verified webhook apexes may bypass the normal daily freshness gate. */
+  forcedApexDomains?: ReadonlySet<string>
   now?: () => Date
   nowMs?: () => number
   createId?: () => string
+}
+
+export interface PorkbunLookupSummary {
+  checkedAt: Date
+  success: boolean
+  error: "unconfigured" | "rate-limited" | "failed" | null
+  coveredDomainCount: number
+}
+
+export interface DomainExpiryAlertHooks {
+  enabled: boolean
+  defaultRecipients: readonly string[]
+  persist: DomainExpiryOutboxEnqueuer
 }
 
 export interface DueDomainHealthTargets {
@@ -73,13 +108,15 @@ export interface DueDomainHealthTargets {
 export function selectDueDomainHealthTargets(
   targets: DomainHealthTargets,
   assets: DomainHealthAssetState,
-  now: Date
+  now: Date,
+  forcedApexDomains: ReadonlySet<string> = new Set()
 ): DueDomainHealthTargets {
   const staleBefore = now.getTime() - DOMAIN_HEALTH_FRESHNESS_MS
   return {
     apexDomains: targets.apexDomains.filter((apex) => {
       const asset = assets.domains.get(apex)
       return (
+        forcedApexDomains.has(apex) ||
         !asset?.checkedAt ||
         asset.checkedAt.getTime() <= staleBefore ||
         (asset.expiresAt !== null &&
@@ -159,9 +196,48 @@ export async function runDomainHealthCoordinator(
       const targets = deriveDomainHealthTargets(monitors)
       const assets = await deps.loadAssets(targets)
       const checkedAt = (deps.now ?? (() => new Date()))()
-      const due = selectDueDomainHealthTargets(targets, assets, checkedAt)
+      const due = selectDueDomainHealthTargets(
+        targets,
+        assets,
+        checkedAt,
+        deps.forcedApexDomains
+      )
+      let porkbun: PorkbunDomainLookup = {
+        outcome: "unconfigured",
+        domains: [],
+      }
+      const shouldReadPorkbun = due.apexDomains.length > 0
+      if (shouldReadPorkbun && deps.fetchPorkbunDomains) {
+        try {
+          porkbun = await deps.fetchPorkbunDomains()
+        } catch {
+          porkbun = { outcome: "failed", domains: [], reason: "network" }
+        }
+      }
+      const porkbunDomains = new Map<string, PorkbunDomainRenewalFacts>(
+        porkbun.outcome === "resolved"
+          ? porkbun.domains
+              .filter((domain) => domain.notLocal !== true)
+              .map((domain) => [domain.domain, domain])
+          : []
+      )
+      if (
+        shouldReadPorkbun &&
+        deps.fetchPorkbunDomains &&
+        deps.recordPorkbunLookup
+      ) {
+        await deps.recordPorkbunLookup({
+          checkedAt,
+          success: porkbun.outcome === "resolved",
+          error: porkbun.outcome === "resolved" ? null : porkbun.outcome,
+          coveredDomainCount: targets.apexDomains.filter((apex) =>
+            porkbunDomains.has(apex)
+          ).length,
+        })
+      }
       const domainRefreshes: DomainHealthRefresh[] = []
       const certificateRefreshes: CertificateHealthRefresh[] = []
+      let rdapLookups = 0
       let skippedLookups = 0
       const domainOutcomes = new Map<
         string,
@@ -172,36 +248,90 @@ export async function runDomainHealthCoordinator(
         "success" | "failure" | "skipped" | "unknown"
       >()
 
-      const rdapTasks = due.apexDomains.map((apex) => async () => {
-        if (nowMs() >= admissionDeadlineAtMs) {
-          skippedLookups += 1
-          domainOutcomes.set(apex, "skipped")
-          return
+      // The portfolio decides the source for every apex, while the existing
+      // daily freshness gate still bounds persistence work per asset.
+      const porkbunRefreshes = due.apexDomains.flatMap((apex) => {
+        const facts = porkbunDomains.get(apex)
+        if (!facts) {
+          return []
         }
-        let facts: DomainFacts
-        try {
-          facts = await deps.fetchDomain(apex)
-        } catch {
-          facts = { expiresAt: null, registrar: null, outcome: "failed" }
-        }
-        domainRefreshes.push({
-          apexDomain: apex,
-          expiresAt: facts.expiresAt,
-          registrar: facts.registrar,
-          checkedAt,
-        })
-        // A lookup that answered without facts is unknown, not a failure.
-        // RDAP non-coverage is permanent for some TLDs and must not read as
-        // a probe regression in the run record.
-        domainOutcomes.set(
-          apex,
-          facts.outcome === "failed"
-            ? "failure"
-            : facts.expiresAt !== null || facts.registrar !== null
-              ? "success"
-              : "unknown"
-        )
+        return [
+          {
+            apexDomain: apex,
+            expiresAt: facts.expiresAt,
+            registrar: "Porkbun",
+            registrationSource: "porkbun" as const,
+            autoRenew: facts.autoRenew,
+            registrationStatus: facts.status,
+            checkedAt,
+          },
+        ]
       })
+      domainRefreshes.push(...porkbunRefreshes)
+      for (const refresh of porkbunRefreshes) {
+        domainOutcomes.set(
+          refresh.apexDomain,
+          refresh.expiresAt !== null ||
+            refresh.autoRenew !== null ||
+            refresh.registrationStatus !== null
+            ? "success"
+            : "unknown"
+        )
+      }
+
+      const rdapTasks = due.apexDomains
+        .filter((apex) => {
+          if (porkbun.outcome === "resolved") {
+            return !porkbunDomains.has(apex)
+          }
+          // A provider outage must not replace known Porkbun facts with RDAP.
+          // Missing credentials leave RDAP as the fallback until Porkbun is
+          // configured.
+          return (
+            porkbun.outcome === "unconfigured" ||
+            assets.domains.get(apex)?.registrationSource !== "porkbun"
+          )
+        })
+        .map((apex) => async () => {
+          if (nowMs() >= admissionDeadlineAtMs) {
+            skippedLookups += 1
+            domainOutcomes.set(apex, "skipped")
+            return
+          }
+          let facts: DomainFacts
+          try {
+            rdapLookups += 1
+            facts = await deps.fetchDomain(apex)
+          } catch {
+            facts = { expiresAt: null, registrar: null, outcome: "failed" }
+          }
+          // Failed lookups must not mutate a known registration source or its
+          // facts. An answered RDAP non-coverage result is different: its null
+          // facts are deliberately reconciled so an obsolete Porkbun value does
+          // not read as a current expiry after ownership changes.
+          if (facts.outcome !== "failed") {
+            domainRefreshes.push({
+              apexDomain: apex,
+              expiresAt: facts.expiresAt,
+              registrar: facts.registrar,
+              registrationSource: "rdap",
+              autoRenew: null,
+              registrationStatus: null,
+              checkedAt,
+            })
+          }
+          // A lookup that answered without facts is unknown, not a failure.
+          // RDAP non-coverage is permanent for some TLDs and must not read as
+          // a probe regression in the run record.
+          domainOutcomes.set(
+            apex,
+            facts.outcome === "failed"
+              ? "failure"
+              : facts.expiresAt !== null || facts.registrar !== null
+                ? "success"
+                : "unknown"
+          )
+        })
       const certTasks = due.certificates.map((target) => async () => {
         const key = certificateAssetKey(target.hostname, target.port)
         if (nowMs() >= admissionDeadlineAtMs) {
@@ -279,26 +409,89 @@ export async function runDomainHealthCoordinator(
           checkedAt.getTime() - DOMAIN_HEALTH_PRUNE_GRACE_MS
         ),
       })
+      // Reconciliation is transactional. Reaching this point proves every
+      // listed Porkbun refresh was persisted, so webhook receipt handling can
+      // acknowledge only these exact apexes.
+      const porkbunRefreshedApexDomains = porkbunRefreshes.map(
+        (refresh) => refresh.apexDomain
+      )
+      if (deps.domainExpiryAlerts) {
+        const registrations = new Map(
+          [...assets.domains.values()]
+            .filter((asset) => asset.registrationSource === "porkbun")
+            .map((asset) => [
+              asset.apexDomain,
+              {
+                apexDomain: asset.apexDomain,
+                expiresAt: asset.expiresAt,
+                autoRenew: asset.autoRenew ?? null,
+              },
+            ])
+        )
+        for (const refresh of domainRefreshes) {
+          if (refresh.registrationSource === "porkbun") {
+            registrations.set(refresh.apexDomain, {
+              apexDomain: refresh.apexDomain,
+              expiresAt: refresh.expiresAt,
+              autoRenew: refresh.autoRenew ?? null,
+            })
+          } else {
+            registrations.delete(refresh.apexDomain)
+          }
+        }
+        const rows = buildDomainExpiryAlertRows({
+          settings: { enabled: deps.domainExpiryAlerts.enabled },
+          registrations: [...registrations.values()],
+          defaultRecipients: deps.domainExpiryAlerts.defaultRecipients,
+          now: checkedAt,
+          createId: deps.createId ?? crypto.randomUUID,
+        })
+        if (rows.length > 0) {
+          await deps.domainExpiryAlerts.persist(rows)
+        }
+      }
 
       return {
         counts,
         certProbes: certificateRefreshes.length,
-        rdapLookups: domainRefreshes.length,
+        rdapLookups,
         skippedLookups,
+        porkbunRefreshedApexDomains,
       }
     }
   )) as DomainHealthCronResult
 }
 
-export async function runDomainHealthCron(): Promise<DomainHealthCronResult> {
+export async function runDomainHealthCron(
+  forcedApexDomains?: ReadonlySet<string>
+): Promise<DomainHealthCronResult> {
+  const [acceptedConfig, integration] = await Promise.all([
+    requireAcceptedConfig(),
+    readPorkbunIntegration(),
+  ])
   return runDomainHealthCoordinator({
     leases: createSqlLeaseStore(queryExecutor),
     runs: createSqlCronRunStore(queryExecutor),
     releaseId: requirePulseReleaseId(),
-    loadMonitors: async () => (await requireAcceptedConfig()).config.monitors,
+    loadMonitors: async () => acceptedConfig.config.monitors,
     loadAssets: (targets) => loadDomainHealthAssets(targets),
     probeCert: probeCertificate,
     fetchDomain: fetchDomainFacts,
+    fetchPorkbunDomains: fetchPorkbunAccountDomains,
+    recordPorkbunLookup: async (summary) => {
+      await upsertPorkbunIntegration({
+        coveredDomainCount: summary.coveredDomainCount,
+        providerCheckedAt: summary.checkedAt,
+        providerLastErrorCode: summary.error?.toUpperCase() ?? null,
+        providerLastSuccessAt: summary.success ? summary.checkedAt : undefined,
+      })
+    },
     reconcile: (input) => reconcileDomainHealthAssets(input),
+    domainExpiryAlerts: {
+      enabled: integration?.expiryAlertsEnabled ?? false,
+      defaultRecipients: acceptedConfig.config.settings.defaultRecipients,
+      persist: createDomainExpiryOutboxEnqueuer(db),
+    },
+    forcedApexDomains,
   })
 }

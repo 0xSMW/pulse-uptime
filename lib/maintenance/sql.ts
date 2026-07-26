@@ -91,6 +91,15 @@ deleted as (
   delete from notification_outbox using doomed where notification_outbox.id = doomed.id returning 1
 )
 select count(*)::int as affected from deleted`
+const DELETE_PROCESSED_PORKBUN_WEBHOOK_RECEIPTS_SQL = `with doomed as (
+  select event_id from porkbun_webhook_receipts
+  where processed_at is not null and processed_at < $1
+  order by processed_at, event_id limit $2
+), deleted as (
+  delete from porkbun_webhook_receipts using doomed
+  where porkbun_webhook_receipts.event_id = doomed.event_id returning 1
+)
+select count(*)::int as affected from deleted`
 const DELETE_CRON_SQL = `with doomed as (select id from cron_runs where started_at < $1 order by started_at, id limit $2),
 deleted as (
   delete from cron_runs using doomed where cron_runs.id = doomed.id returning 1
@@ -294,6 +303,16 @@ export function createSqlMaintenanceStore(
           cutoff,
           limit,
         ])
+      )
+    },
+    async deleteProcessedPorkbunWebhookReceipts(cutoff, limit, remainingMs) {
+      return affected(
+        await queryWithBudget<AffectedRow>(
+          db,
+          remainingMs,
+          DELETE_PROCESSED_PORKBUN_WEBHOOK_RECEIPTS_SQL,
+          [cutoff, limit]
+        )
       )
     },
     async expireConfigApprovals(now, consumedCutoff, limit, remainingMs) {

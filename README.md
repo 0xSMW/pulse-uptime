@@ -13,6 +13,7 @@ Pulse delivers dependable uptime monitoring for a single team, with web and comm
 - Add third-party dependencies (OpenAI, Vercel, Stripe, Neon, and more) and see each provider's officially reported status beside your own checks, with incident overlap context.
 - Watch new monitors move through a verified setup phase, then unlock the 24-hour, 7-day, and 30-day ranges as real history accrues, with a live-updating detail page.
 - Send deduplicated outage and recovery email through Resend.
+- Connect Porkbun for domain expiry, auto-renew, webhook updates, and optional 30-day and 14-day alerts while certificates remain direct TLS checks.
 - Review monitor health, response latency, check coverage, incident history, and a public status page.
 - Publish authored status reports with drafts, timeline updates, and affected services, or promote a detected incident into a report.
 - Customize the status page name, logos, links, announcement banner, history window, and time zone from Settings or the CLI.

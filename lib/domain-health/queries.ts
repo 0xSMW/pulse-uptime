@@ -12,6 +12,8 @@ export interface SerializedDomainHealthFacts {
   certIssuer: string | null
   domainExpiresAt: string | null
   domainRegistrar: string | null
+  registrationSource: "rdap" | "porkbun" | null
+  domainAutoRenew: boolean | null
 }
 
 /**
@@ -31,6 +33,8 @@ export async function domainHealthByMonitorId(
             apexDomain: domainHealthAssets.apexDomain,
             expiresAt: domainHealthAssets.expiresAt,
             registrar: domainHealthAssets.registrar,
+            registrationSource: domainHealthAssets.registrationSource,
+            autoRenew: domainHealthAssets.autoRenew,
           })
           .from(domainHealthAssets)
           .where(inArray(domainHealthAssets.apexDomain, targets.apexDomains)),
@@ -71,6 +75,8 @@ export async function domainHealthByMonitorId(
         certIssuer: null,
         domainExpiresAt: null,
         domainRegistrar: null,
+        registrationSource: null,
+        domainAutoRenew: null,
       },
     ])
   )
@@ -92,6 +98,8 @@ export async function domainHealthByMonitorId(
       certIssuer: certificate?.issuer ?? null,
       domainExpiresAt: domain?.expiresAt?.toISOString() ?? null,
       domainRegistrar: domain?.registrar ?? null,
+      registrationSource: domain?.registrationSource ?? null,
+      domainAutoRenew: domain?.autoRenew ?? null,
     })
   }
   return result

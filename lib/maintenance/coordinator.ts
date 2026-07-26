@@ -36,6 +36,11 @@ export interface MaintenanceStore {
     limit: number,
     remainingMs?: number
   ) => Promise<number>
+  deleteProcessedPorkbunWebhookReceipts: (
+    cutoff: Date,
+    limit: number,
+    remainingMs?: number
+  ) => Promise<number>
   expireConfigApprovals: (
     now: Date,
     consumedCutoff: Date,
@@ -297,6 +302,9 @@ export async function performMaintenance(
   })
 
   const rawCutoff = new Date(now.getTime() - 30 * 86_400_000)
+  const processedWebhookReceiptCutoff = new Date(
+    now.getTime() - 45 * 86_400_000
+  )
   const sentCutoff = new Date(now.getTime() - 90 * 86_400_000)
   const shortCutoff = new Date(now.getTime() - 7 * 86_400_000)
   const consumedApprovalCutoff = new Date(now.getTime() - 30 * 86_400_000)
@@ -488,6 +496,16 @@ export async function performMaintenance(
       "delete_sent_notifications",
       (limit, remainingMs) =>
         store.deleteSentNotifications(sentCutoff, limit, remainingMs),
+      budget
+    )) +
+    (await drainBatches(
+      "delete_processed_porkbun_webhook_receipts",
+      (limit, remainingMs) =>
+        store.deleteProcessedPorkbunWebhookReceipts(
+          processedWebhookReceiptCutoff,
+          limit,
+          remainingMs
+        ),
       budget
     )) +
     (await drainBatches(

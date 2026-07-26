@@ -17,6 +17,7 @@ function baseStore(
     reconcileStaleCronRuns: zero,
     deleteRawChecks: zero,
     deleteSentNotifications: zero,
+    deleteProcessedPorkbunWebhookReceipts: zero,
     expireConfigApprovals: zero,
     expireApiIdempotency: zero,
     markDeviceAuthorizationsExpired: zero,
@@ -66,6 +67,7 @@ describe("performMaintenance", () => {
         reconcileStaleCronRuns: record("cron-stale"),
         deleteRawChecks: record("checks"),
         deleteSentNotifications: record("notifications"),
+        deleteProcessedPorkbunWebhookReceipts: record("webhook-receipts"),
         expireConfigApprovals: record("approvals"),
         expireApiIdempotency: record("idempotency"),
         markDeviceAuthorizationsExpired: record("device-mark"),
@@ -95,6 +97,9 @@ describe("performMaintenance", () => {
     )
 
     expect(calls.find(([name]) => name === "checks")?.[2]).toBe(10_000)
+    expect(
+      calls.find(([name]) => name === "webhook-receipts")?.slice(1, 3)
+    ).toEqual([new Date("2026-06-03T03:15:00Z"), 10_000])
     expect(calls.find(([name]) => name === "snapshots")?.slice(2)).toEqual([
       50,
       10_000,
@@ -107,7 +112,7 @@ describe("performMaintenance", () => {
       staleOutbox: 1,
       staleCronRuns: 1,
       rollups: 3,
-      deleted: 12,
+      deleted: 13,
       expired: 5,
       governorMode: "full",
       dependencyCatalog: { checkedSources: 1, disabledPresets: 0 },

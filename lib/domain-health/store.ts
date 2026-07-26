@@ -18,6 +18,9 @@ export interface DomainHealthAsset {
   apexDomain: string
   expiresAt: Date | null
   registrar: string | null
+  registrationSource?: "rdap" | "porkbun"
+  autoRenew?: boolean | null
+  registrationStatus?: string | null
   checkedAt: Date | null
   lastSuccessAt: Date | null
   lastReferencedAt: Date
@@ -42,6 +45,9 @@ export interface DomainHealthRefresh {
   apexDomain: string
   expiresAt: Date | null
   registrar: string | null
+  registrationSource?: "rdap" | "porkbun"
+  autoRenew?: boolean | null
+  registrationStatus?: string | null
   checkedAt: Date
 }
 
@@ -101,9 +107,10 @@ export async function loadDomainHealthAssets(
 }
 
 /**
- * Persists attempted refreshes and prunes assets absent from the accepted
- * configuration in one transaction. Null refresh facts preserve the latest
- * known non-null values while checked_at still records the attempt.
+ * Persists successful domain refreshes and attempted certificate refreshes,
+ * then prunes assets absent from the accepted configuration in one transaction.
+ * Domain failures are omitted by the coordinator, so a stored null is an
+ * authoritative unknown result and clears older facts.
  */
 export async function reconcileDomainHealthAssets(
   input: DomainHealthReconciliation,
@@ -157,6 +164,7 @@ export async function reconcileDomainHealthAssets(
         .values(
           input.domains.map((row) => ({
             ...row,
+            registrationSource: row.registrationSource ?? "rdap",
             lastSuccessAt:
               row.expiresAt !== null || row.registrar !== null
                 ? row.checkedAt
@@ -167,8 +175,17 @@ export async function reconcileDomainHealthAssets(
         .onConflictDoUpdate({
           target: domainHealthAssets.apexDomain,
           set: {
-            expiresAt: sql`coalesce(excluded.expires_at, ${domainHealthAssets.expiresAt})`,
-            registrar: sql`coalesce(excluded.registrar, ${domainHealthAssets.registrar})`,
+            expiresAt: sql`excluded.expires_at`,
+            registrar: sql`excluded.registrar`,
+            registrationSource: sql`excluded.registration_source`,
+            autoRenew: sql`case
+              when excluded.registration_source = 'porkbun' then excluded.auto_renew
+              else null
+            end`,
+            registrationStatus: sql`case
+              when excluded.registration_source = 'porkbun' then excluded.registration_status
+              else null
+            end`,
             checkedAt: sql`excluded.checked_at`,
             lastSuccessAt: sql`coalesce(excluded.last_success_at, ${domainHealthAssets.lastSuccessAt})`,
             lastReferencedAt: sql`excluded.last_referenced_at`,

@@ -52,7 +52,7 @@ function fakeHandle(
 }
 
 describe("reconcileDomainHealthAssets", () => {
-  it("preserves non-null facts while recording the refresh attempt", async () => {
+  it("clears authoritative unknown domain facts while preserving certificate attempts", async () => {
     const { handle, conflictCalls } = fakeHandle()
     const referencedAt = new Date("2026-07-22T00:00:00Z")
     await reconcileDomainHealthAssets(
@@ -82,10 +82,14 @@ describe("reconcileDomainHealthAssets", () => {
 
     const domainRefresh = conflictCalls[2] as { set: Record<string, unknown> }
     const certRefresh = conflictCalls[3] as { set: Record<string, unknown> }
-    expect(renderSql(domainRefresh.set.expiresAt)).toContain(
-      "coalesce(excluded.expires_at"
-    )
+    expect(renderSql(domainRefresh.set.expiresAt)).toBe("excluded.expires_at")
     expect(renderSql(domainRefresh.set.checkedAt)).toBe("excluded.checked_at")
+    expect(renderSql(domainRefresh.set.registrationSource)).toBe(
+      "excluded.registration_source"
+    )
+    expect(renderSql(domainRefresh.set.autoRenew)).toContain(
+      "when excluded.registration_source = 'porkbun'"
+    )
     expect(renderSql(certRefresh.set.issuer)).toContain(
       "coalesce(excluded.issuer"
     )

@@ -50,6 +50,9 @@
     },
     {
       "name": "Dependencies"
+    },
+    {
+      "name": "Domain monitoring"
     }
   ],
   "paths": {
@@ -1579,6 +1582,81 @@
               "DATABASE_HEALTH_UNAVAILABLE"
             ]
           }
+        }
+      }
+    },
+    "/api/v1/domain-monitoring/check": {
+      "post": {
+        "operationId": "checkDomainMonitoringConnection",
+        "tags": ["Domain monitoring"],
+        "summary": "Check Porkbun connection",
+        "description": "Checks the Porkbun portfolio and persists safe connection and webhook health. Provider credentials and webhook secrets are never returned.",
+        "x-required-scopes": ["config:write"],
+        "security": [{"bearerAuth": []}, {"humanSession": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "responses": {
+          "200": {"description": "Current domain monitoring state", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DomainMonitoringEnvelope"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      }
+    },
+    "/api/v1/domain-monitoring/settings": {
+      "patch": {
+        "operationId": "updateDomainMonitoringSettings",
+        "tags": ["Domain monitoring"],
+        "summary": "Update domain monitoring settings",
+        "description": "Updates expiry alert delivery. Enabling alerts requires a successful Porkbun connection.",
+        "x-required-scopes": ["config:write"],
+        "security": [{"bearerAuth": []}, {"humanSession": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DomainMonitoringSettingsRequest"}}}
+        },
+        "responses": {
+          "200": {"description": "Updated domain monitoring state", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DomainMonitoringEnvelope"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "409": {"description": "Porkbun must be connected before alerts can be enabled, or the idempotency key conflicts", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope"}}}, "x-error-codes": ["PORKBUN_NOT_CONFIGURED", "IDEMPOTENCY_KEY_REUSED", "REQUEST_IN_PROGRESS"]},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      }
+    },
+    "/api/v1/domain-monitoring/webhook": {
+      "post": {
+        "operationId": "manageDomainMonitoringWebhook",
+        "tags": ["Domain monitoring"],
+        "summary": "Manage Porkbun webhook",
+        "description": "Enables, disables, or sends a test for the installation webhook. Provider endpoint IDs, URLs, and secrets are never returned.",
+        "x-required-scopes": ["config:write"],
+        "security": [{"bearerAuth": []}, {"humanSession": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/RequestId"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DomainMonitoringWebhookRequest"}}}
+        },
+        "responses": {
+          "200": {"description": "Current domain monitoring state", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DomainMonitoringEnvelope"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/AuthenticationRequired"},
+          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "409": {"description": "Webhook is unavailable for the requested action, Porkbun could not complete the request, or the idempotency key conflicts", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope"}}}, "x-error-codes": ["PORKBUN_NOT_CONFIGURED", "PORKBUN_UNAVAILABLE", "WEBHOOK_NOT_CONFIGURED", "IDEMPOTENCY_KEY_REUSED", "REQUEST_IN_PROGRESS"]},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"description": "A public HTTPS application URL is required for Porkbun webhooks", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope"}}}, "x-error-codes": ["WEBHOOK_URL_INVALID"]}
         }
       }
     },
@@ -3703,11 +3781,20 @@
           "domainExpiresAt": {
             "type": ["string", "null"],
             "format": "date-time",
-            "description": "Domain registration expiry from the daily RDAP lookup. Null means unknown, including TLDs without RDAP coverage."
+            "description": "Domain registration expiry from Porkbun when available, otherwise the daily RDAP fallback. Null means unknown, including TLDs without RDAP coverage."
           },
           "domainRegistrar": {
             "type": ["string", "null"],
-            "description": "Registrar display name from RDAP."
+            "description": "Registrar display name from Porkbun when supplied, otherwise RDAP."
+          },
+          "registrationSource": {
+            "type": ["string", "null"],
+            "enum": ["rdap", "porkbun", null],
+            "description": "Source for domain registration facts. Porkbun is preferred; RDAP is the fallback."
+          },
+          "domainAutoRenew": {
+            "type": ["boolean", "null"],
+            "description": "Porkbun auto-renew setting when supplied. Null when the setting is unavailable or the domain facts came from RDAP. This is not a guaranteed renewal charge date."
           }
         }
       },
@@ -4346,6 +4433,71 @@
             "type": "string",
             "minLength": 1
           }
+        }
+      },
+      "DomainMonitoringSettingsRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expiryAlertsEnabled"],
+        "properties": {
+          "expiryAlertsEnabled": {
+            "type": "boolean",
+            "description": "Send expiry alerts for monitored domains. Enabling requires a successful Porkbun connection."
+          }
+        }
+      },
+      "DomainMonitoringWebhookRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action"],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["enable", "disable", "test"]
+          }
+        }
+      },
+      "DomainMonitoring": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "state",
+          "coveredDomainCount",
+          "lastSuccessAt",
+          "webhookStatus",
+          "expiryAlertsEnabled"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": ["NOT_CONFIGURED", "CONNECTED", "NEEDS_ATTENTION"]
+          },
+          "coveredDomainCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lastSuccessAt": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "webhookStatus": {
+            "type": "string",
+            "enum": ["NOT_CONFIGURED", "ACTIVE", "FAILING"]
+          },
+          "expiryAlertsEnabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "DomainMonitoringEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["apiVersion", "kind", "data", "meta"],
+        "properties": {
+          "apiVersion": {"$ref": "#/components/schemas/ApiVersion"},
+          "kind": {"const": "DomainMonitoring"},
+          "data": {"$ref": "#/components/schemas/DomainMonitoring"},
+          "meta": {"$ref": "#/components/schemas/Meta"}
         }
       },
       "GroupConfig": {
