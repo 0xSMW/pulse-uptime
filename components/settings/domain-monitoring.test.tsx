@@ -67,6 +67,8 @@ describe("DomainMonitoringCard", () => {
     expect(html).toContain("Never")
     expect(html).toContain("Connect Porkbun to enable expiry alerts")
     expect(html).toContain('disabled=""')
+    expect(html).toContain("disabled:cursor-not-allowed")
+    expect(html).toContain("disabled:opacity-50")
   })
 
   it("requires reconnection before enabling alerts but still allows disabling", () => {
