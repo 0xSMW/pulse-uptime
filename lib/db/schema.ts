@@ -206,12 +206,99 @@ export const domainHealthAssets = pgTable(
     apexDomain: text("apex_domain").primaryKey(),
     expiresAt: timestamptz("expires_at"),
     registrar: text("registrar"),
+    registrationSource: text("registration_source", {
+      enum: ["rdap", "porkbun"],
+    })
+      .notNull()
+      .default("rdap"),
+    autoRenew: boolean("auto_renew"),
+    registrationStatus: text("registration_status"),
     checkedAt: timestamptz("checked_at"),
     lastSuccessAt: timestamptz("last_success_at"),
     lastReferencedAt: timestamptz("last_referenced_at").notNull(),
   },
   (table) => [
     index("domain_health_assets_last_referenced").on(table.lastReferencedAt),
+    check(
+      "domain_health_assets_registration_source",
+      sql`${table.registrationSource} in ('rdap', 'porkbun')`
+    ),
+  ]
+)
+
+// Installation-scoped Porkbun state. API credentials remain server-only
+// environment variables. The webhook secret is encrypted before persistence.
+export const porkbunIntegration = pgTable(
+  "porkbun_integration",
+  {
+    id: text("id").primaryKey(),
+    expiryAlertsEnabled: boolean("expiry_alerts_enabled")
+      .notNull()
+      .default(false),
+    coveredDomainCount: integer("covered_domain_count").notNull().default(0),
+    providerCheckedAt: timestamptz("provider_checked_at"),
+    providerLastSuccessAt: timestamptz("provider_last_success_at"),
+    providerLastErrorCode: text("provider_last_error_code"),
+    webhookId: integer("webhook_id"),
+    webhookUrl: text("webhook_url"),
+    webhookSecretEncrypted: text("webhook_secret_encrypted"),
+    webhookStatus: text("webhook_status", {
+      enum: ["ACTIVE", "DISABLED", "FAILING"],
+    }),
+    webhookLastReceivedAt: timestamptz("webhook_last_received_at"),
+    createdAt: timestamptz("created_at").notNull(),
+    updatedAt: timestamptz("updated_at").notNull(),
+  },
+  (table) => [
+    check("porkbun_integration_singleton", sql`${table.id} = 'default'`),
+    check(
+      "porkbun_integration_covered_nonnegative",
+      sql`${table.coveredDomainCount} >= 0`
+    ),
+    check(
+      "porkbun_integration_webhook_pair",
+      sql`(${table.webhookId} is null) = (${table.webhookSecretEncrypted} is null)`
+    ),
+  ]
+)
+
+// Verified Porkbun deliveries are stored before asynchronous domain refresh.
+// The provider event id and payload digest make redelivery replay-safe without
+// retaining the raw webhook payload.
+export const porkbunWebhookReceipts = pgTable(
+  "porkbun_webhook_receipts",
+  {
+    eventId: text("event_id").primaryKey(),
+    eventType: text("event_type", {
+      enum: ["domain.renewed", "domain.expiring", "webhook.test"],
+    }).notNull(),
+    apexDomain: text("apex_domain"),
+    expireDate: text("expire_date"),
+    providerCreatedAt: timestamptz("provider_created_at").notNull(),
+    payloadDigest: text("payload_digest").notNull(),
+    receivedAt: timestamptz("received_at").notNull(),
+    processingStartedAt: timestamptz("processing_started_at"),
+    processedAt: timestamptz("processed_at"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lastErrorCode: text("last_error_code"),
+  },
+  (table) => [
+    index("porkbun_webhook_receipts_pending")
+      .on(table.receivedAt)
+      .where(sql`${table.processedAt} is null`),
+    check(
+      "porkbun_webhook_receipts_event_type",
+      sql`${table.eventType} in ('domain.renewed', 'domain.expiring', 'webhook.test')`
+    ),
+    check(
+      "porkbun_webhook_receipts_domain",
+      sql`(${table.eventType} = 'webhook.test' and ${table.apexDomain} is null)
+      or (${table.eventType} in ('domain.renewed', 'domain.expiring') and ${table.apexDomain} is not null)`
+    ),
+    check(
+      "porkbun_webhook_receipts_attempts_nonnegative",
+      sql`${table.attemptCount} >= 0`
+    ),
   ]
 )
 
@@ -385,12 +472,11 @@ export const notificationOutbox = pgTable(
       "notification_outbox_attempts_nonnegative",
       sql`${table.attemptCount} >= 0`
     ),
-    // Monitor and dependency notifications each name exactly one subject. A
-    // system.alert (the monitoring-loop self-alert) belongs to no monitor or
-    // dependency, so it carries neither id.
+    // Monitor and dependency notifications each name exactly one subject.
+    // Installation and domain alerts carry their subject in the payload.
     check(
       "notification_outbox_subject",
-      sql`(${table.eventType} = 'system.alert' and ${table.monitorId} is null and ${table.dependencyId} is null)
+      sql`(${table.eventType} in ('system.alert', 'domain.expiry') and ${table.monitorId} is null and ${table.dependencyId} is null)
       or ((${table.monitorId} is null) <> (${table.dependencyId} is null))`
     ),
     check(
