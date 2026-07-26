@@ -1,6 +1,8 @@
 import { Text } from "@react-email/components"
 import { EmailLayout, emailMetaStyle, emailTextStyle } from "./layout"
 
+const PORKBUN_DOMAIN_MANAGER_URL = "https://porkbun.com/account/domainsSpeedy"
+
 export interface DomainExpiryEmailProps {
   apexDomain: string
   expiresAt: string
@@ -26,7 +28,14 @@ export function DomainExpiryEmail({
 }: DomainExpiryEmailProps) {
   const heading = `${apexDomain} expires in ${thresholdDays} days`
   return (
-    <EmailLayout heading={heading} preview={heading}>
+    <EmailLayout
+      action={{
+        label: "Manage domain at Porkbun",
+        url: PORKBUN_DOMAIN_MANAGER_URL,
+      }}
+      heading={heading}
+      preview={heading}
+    >
       <Text style={emailTextStyle}>
         Review this domain registration before it expires
       </Text>
