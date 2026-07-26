@@ -77,6 +77,8 @@ beforeEach(() => {
           certIssuer: "Example CA",
           domainExpiresAt: "2027-01-02T03:04:05.000Z",
           domainRegistrar: "Example Registrar",
+          registrationSource: "porkbun",
+          domainAutoRenew: true,
         },
       ],
     ])
@@ -200,6 +202,8 @@ describe("list uptime", () => {
       certIssuer: "Example CA",
       domainExpiresAt: "2027-01-02T03:04:05.000Z",
       domainRegistrar: "Example Registrar",
+      registrationSource: "porkbun",
+      domainAutoRenew: true,
     })
     expect(result.monitors[0]).not.toHaveProperty("apexDomain")
     expect(uptime24hByMonitorId).toHaveBeenCalledWith(["site-home"])
@@ -343,6 +347,8 @@ describe("single monitor runtime state", () => {
       updatedAt: "2026-01-02T03:04:05.000Z",
       certExpiresAt: "2026-11-12T13:14:15.000Z",
       domainExpiresAt: "2027-01-02T03:04:05.000Z",
+      registrationSource: "porkbun",
+      domainAutoRenew: true,
     })
     expect(monitor).not.toHaveProperty("apexDomain")
     expect(domainHealthByMonitorId).toHaveBeenCalledWith(
