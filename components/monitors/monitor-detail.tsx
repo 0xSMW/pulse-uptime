@@ -228,6 +228,18 @@ export function domainExpiryLine(
     .join(" · ")
 }
 
+export function domainVerificationCopy(
+  registrationSource: MonitorDetailData["domainHealth"]["registrationSource"]
+): string {
+  if (registrationSource === "porkbun") {
+    return "Domains via Porkbun, certificates via direct TLS"
+  }
+  if (registrationSource === "rdap") {
+    return "Domains via RDAP, certificates via direct TLS"
+  }
+  return "Certificates via direct TLS"
+}
+
 /**
  * Option B affordance: a dotted underline on the apex segment of the header
  * URL, hover or focus revealing renewal and certificate facts. Absent facts
@@ -1015,7 +1027,9 @@ export function MonitorDetail({
               ) : null}
               <ConfigurationField
                 label="Verified"
-                value="Daily, certificates use direct TLS and domains use Porkbun or RDAP fallback"
+                value={domainVerificationCopy(
+                  monitor.domainHealth.registrationSource
+                )}
               />
             </dl>
           </CardContent>
