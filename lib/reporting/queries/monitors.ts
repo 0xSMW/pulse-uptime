@@ -457,6 +457,8 @@ export async function findMonitorDetail(id: string) {
       certIssuer: null,
       domainExpiresAt: null,
       domainRegistrar: null,
+      registrationSource: null,
+      domainAutoRenew: null,
     },
     latestLatencyMs: monitor.latestLatencyMs,
     lastCheckedAt: monitor.lastCheckedAt?.toISOString() ?? null,
