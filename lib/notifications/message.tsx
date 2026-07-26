@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import { DependencyIncidentEmail } from "@/emails/dependency-incident"
 import { DependencyRecoveryEmail } from "@/emails/dependency-recovery"
+import { DomainExpiryEmail } from "@/emails/domain-expiry"
 import { OutageEmail } from "@/emails/outage"
 import { RecoveryEmail } from "@/emails/recovery"
 import { SystemAlertEmail } from "@/emails/system-alert"
@@ -161,6 +162,24 @@ export function createNotificationMessage(
             detectedAt={payload.detectedAt}
             reason={payload.reason}
             title={payload.title}
+          />
+        ),
+      }
+    }
+    case "domain.expiry": {
+      assertPayloadType(row, "domain.expiry")
+      if (payload.type !== "domain.expiry") {
+        throw new InvalidNotificationPayloadError()
+      }
+      return {
+        to: row.recipient,
+        subject: `${payload.apexDomain} expires in ${payload.thresholdDays} days`,
+        react: (
+          <DomainExpiryEmail
+            apexDomain={payload.apexDomain}
+            autoRenew={payload.autoRenew}
+            expiresAt={payload.expiresAt}
+            thresholdDays={payload.thresholdDays}
           />
         ),
       }
