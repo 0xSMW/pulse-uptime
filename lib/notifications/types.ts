@@ -7,6 +7,7 @@ export type NotificationEventType =
   | "dependency.incident"
   | "dependency.recovery"
   | "system.alert"
+  | "domain.expiry"
 
 /** Ordinary outbox rows claimed by monitor-check and dependency crons. system.alert is owned by the sweep drain only. */
 export const ORDINARY_NOTIFICATION_EVENT_TYPES = [
@@ -15,6 +16,7 @@ export const ORDINARY_NOTIFICATION_EVENT_TYPES = [
   "notification.test",
   "dependency.incident",
   "dependency.recovery",
+  "domain.expiry",
 ] as const satisfies readonly NotificationEventType[]
 
 const nonempty = z.string().trim().min(1)
@@ -84,6 +86,14 @@ const systemAlertPayloadSchema = z.object({
   detectedAt: nonempty,
 })
 
+const domainExpiryPayloadSchema = z.object({
+  type: z.literal("domain.expiry"),
+  apexDomain: nonempty,
+  expiresAt: nonempty,
+  thresholdDays: z.union([z.literal(30), z.literal(14)]),
+  autoRenew: z.boolean().nullable(),
+})
+
 export const notificationPayloadSchema = z.discriminatedUnion("type", [
   incidentOpenedPayloadSchema,
   incidentResolvedPayloadSchema,
@@ -91,6 +101,7 @@ export const notificationPayloadSchema = z.discriminatedUnion("type", [
   dependencyIncidentPayloadSchema,
   dependencyRecoveryPayloadSchema,
   systemAlertPayloadSchema,
+  domainExpiryPayloadSchema,
 ])
 
 type IncidentOpenedPayload = z.infer<typeof incidentOpenedPayloadSchema>
@@ -111,6 +122,8 @@ export type DependencyRecoveryPayload = z.infer<
 
 export type SystemAlertPayload = z.infer<typeof systemAlertPayloadSchema>
 
+export type DomainExpiryPayload = z.infer<typeof domainExpiryPayloadSchema>
+
 export type NotificationPayload =
   | IncidentOpenedPayload
   | IncidentResolvedPayload
@@ -118,6 +131,7 @@ export type NotificationPayload =
   | DependencyIncidentPayload
   | DependencyRecoveryPayload
   | SystemAlertPayload
+  | DomainExpiryPayload
 
 export interface ClaimedNotification {
   id: string
