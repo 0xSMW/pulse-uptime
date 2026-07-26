@@ -230,6 +230,8 @@ describe("notification messages", () => {
     expect(html).toContain("Expires 2026-08-09T12:00:00.000Z")
     expect(html).toContain("Alert threshold 14 days")
     expect(html).toContain("Auto-renew enabled")
+    expect(html).toContain("Manage domain at Porkbun")
+    expect(html).toContain("https://porkbun.com/account/domainsSpeedy")
   })
 
   it("rejects a payload whose type does not match its event", () => {
