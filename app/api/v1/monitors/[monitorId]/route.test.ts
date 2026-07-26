@@ -94,6 +94,8 @@ const monitor = {
   certIssuer: null,
   domainExpiresAt: null,
   domainRegistrar: null,
+  registrationSource: null,
+  domainAutoRenew: null,
 }
 const params = { params: Promise.resolve({ monitorId: "site-home" }) }
 
