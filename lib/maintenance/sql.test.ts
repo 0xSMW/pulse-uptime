@@ -13,6 +13,21 @@ describe("maintenance SQL store", () => {
     expect(query.mock.calls[0]?.[1]).toEqual([cutoff, 10_000])
   })
 
+  it("deletes only processed Porkbun webhook receipts older than retention", async () => {
+    const query = vi.fn().mockResolvedValue([{ affected: 3 }])
+    const cutoff = new Date("2026-06-18T00:00:00Z")
+    const result = await createSqlMaintenanceStore({
+      query,
+    }).deleteProcessedPorkbunWebhookReceipts(cutoff, 10_000)
+    const [sql, values] = query.mock.calls[0]!
+    expect(result).toBe(3)
+    expect(sql).toContain("from porkbun_webhook_receipts")
+    expect(sql).toContain("processed_at is not null and processed_at < $1")
+    expect(sql).toContain("order by processed_at, event_id limit $2")
+    expect(sql).toContain("delete from porkbun_webhook_receipts using doomed")
+    expect(values).toEqual([cutoff, 10_000])
+  })
+
   it("uses shared stale-claim reconciliation with its ambiguity cutoff", async () => {
     const query = vi.fn().mockResolvedValue([])
     await createSqlMaintenanceStore({ query }).reconcileStaleOutbox(
