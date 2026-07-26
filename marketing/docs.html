@@ -171,6 +171,7 @@
             <a class="sub" href="#app-monitors">Monitor detail</a>
             <a class="sub" href="#app-incidents">Incidents</a>
             <a class="sub" href="#app-settings">Settings</a>
+            <a class="sub" href="#app-domain-monitoring">Domain monitoring</a>
             <a class="sub" href="#app-status">Status page</a>
           </div>
           <div class="sidebar-group">
@@ -516,6 +517,21 @@ pnpm db:migrate</code></pre>
 
             <div class="step">
               <span class="step-index">5</span>
+              <h4>Connect Porkbun</h4>
+              <p>
+                Set <code>PORKBUN_API_KEY</code> and
+                <code>PORKBUN_SECRET_KEY</code>
+                as server-only variables. In
+                <strong>Settings → System → Domain monitoring</strong>, check
+                the connection and enable the signed webhook. Pulse polls
+                registration facts and receives <code>domain.renewed</code>
+                and <code>domain.expiring</code> events at
+                <code>/api/webhooks/porkbun</code>. Porkbun never manages SSL.
+              </p>
+            </div>
+
+            <div class="step">
+              <span class="step-index">6</span>
               <h4>Set application secrets</h4>
               <p>
                 Generate three independent random values of at least 32 bytes.
@@ -534,7 +550,7 @@ openssl rand -base64 32   # DEVICE_AUTH_SECRET</code></pre>
             </div>
 
             <div class="step">
-              <span class="step-index">6</span>
+              <span class="step-index">7</span>
               <h4>Deploy and verify</h4>
               <figure class="code-block">
                 <figcaption>
@@ -637,8 +653,21 @@ vercel deploy --prod --scope &lt;team&gt;</code></pre>
                     <td>API_TOKEN_HASH_KEY</td>
                     <td>Yes</td>
                     <td>
-                      Keyed hashing for API token digests. ≥ 32 characters.
+                      Keyed hashing for API token digests and purpose-derived
+                      encryption for protected provider data. ≥ 32 characters.
                     </td>
+                  </tr>
+                  <tr>
+                    <td>PORKBUN_API_KEY</td>
+                    <td>No</td>
+                    <td>
+                      Server-only Porkbun API credential for domain facts.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>PORKBUN_SECRET_KEY</td>
+                    <td>No</td>
+                    <td>Server-only Porkbun secret for domain facts.</td>
                   </tr>
                   <tr>
                     <td>DEVICE_AUTH_SECRET</td>
@@ -1285,7 +1314,8 @@ vercel deploy --prod --scope &lt;team&gt;</code></pre>
               <li>
                 <strong>System</strong>: live storage budget, per-category
                 usage, how long each data category is kept, and the governor's
-                current mode.
+                current mode. Domain monitoring shows Porkbun connection,
+                webhook, polling, and expiry-alert status.
               </li>
             </ul>
 
@@ -1351,6 +1381,20 @@ vercel deploy --prod --scope &lt;team&gt;</code></pre>
                 </div>
               </div>
             </div>
+          </div>
+
+          <div class="docs-sub">
+            <h3 id="app-domain-monitoring">Domain monitoring</h3>
+            <p>
+              Porkbun supplies registration expiry and auto-renew for covered
+              domains. The System card runs every ten minutes and reads the
+              Porkbun portfolio for due domains, normally once per 24 hours. It
+              accepts signed <code>domain.renewed</code> and
+              <code>domain.expiring</code>
+              webhooks. Expiry alerts are off by default and notify default
+              recipients at 30 and 14 days. Certificate checks remain direct TLS
+              probes. Certificate alerts are out of scope.
+            </p>
           </div>
 
           <div class="docs-sub">
