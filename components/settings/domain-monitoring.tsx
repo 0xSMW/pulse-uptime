@@ -257,7 +257,12 @@ export function DomainMonitoringCard({ data }: { data: DomainMonitoringData }) {
         <button
           aria-checked={currentData.expiryAlertsEnabled}
           aria-label="Toggle expiry alerts"
-          className={`relative h-5 w-9 rounded-full border border-[var(--border-strong)] ${currentData.expiryAlertsEnabled ? "bg-[var(--fg)]" : "bg-[var(--chip-bg)]"}`}
+          className={cn(
+            "relative h-5 w-9 rounded-full border border-[var(--border-strong)] disabled:cursor-not-allowed disabled:opacity-50",
+            currentData.expiryAlertsEnabled
+              ? "bg-[var(--fg)]"
+              : "bg-[var(--chip-bg)]"
+          )}
           disabled={toggleDisabled}
           onClick={toggleExpiryAlerts}
           role="switch"
@@ -265,7 +270,12 @@ export function DomainMonitoringCard({ data }: { data: DomainMonitoringData }) {
         >
           <span
             aria-hidden="true"
-            className={`absolute top-[3px] size-3 rounded-full ${currentData.expiryAlertsEnabled ? "left-[19px] bg-[var(--bg)]" : "left-[3px] bg-[var(--fg-muted)]"}`}
+            className={cn(
+              "absolute top-[3px] size-3 rounded-full",
+              currentData.expiryAlertsEnabled
+                ? "left-[19px] bg-[var(--bg)]"
+                : "left-[3px] bg-[var(--fg-muted)]"
+            )}
           />
         </button>
       </SettingsRow>
