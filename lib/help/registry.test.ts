@@ -20,6 +20,7 @@ const plannedConcepts = [
   "concept-report-drafts",
   "concept-api-tokens-and-agents",
   "concept-database-health",
+  "concept-domain-monitoring",
 ]
 
 const plannedGuides = [
@@ -38,6 +39,7 @@ const plannedGuides = [
   "guide-link-pulsectl",
   "guide-connect-agent",
   "guide-database-health",
+  "guide-domain-expiry-alerts",
   "guide-change-password",
   "guide-manage-sessions",
   "guide-override-timezone",
