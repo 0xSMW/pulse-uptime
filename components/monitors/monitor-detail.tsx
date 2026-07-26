@@ -85,6 +85,8 @@ export interface MonitorDetailData {
     certIssuer: string | null
     domainExpiresAt: string | null
     domainRegistrar: string | null
+    registrationSource: "rdap" | "porkbun" | null
+    domainAutoRenew: boolean | null
   }
   latestLatencyMs: number | null
   lastCheckedAt: string | null
@@ -201,6 +203,31 @@ function expiresLine(
   return `${label} ${when} · ${timing}${detail ? ` · ${detail}` : ""}`
 }
 
+export function domainExpiryLine(
+  domainHealth: MonitorDetailData["domainHealth"],
+  timeZone: string,
+  now: Date
+): string | null {
+  if (!domainHealth.domainExpiresAt) {
+    return null
+  }
+  const source =
+    domainHealth.registrationSource === "porkbun"
+      ? "Porkbun"
+      : domainHealth.domainRegistrar
+  const autoRenew =
+    domainHealth.registrationSource === "porkbun" &&
+    domainHealth.domainAutoRenew !== null
+      ? `Auto-renew ${domainHealth.domainAutoRenew ? "on" : "off"}`
+      : null
+  return [
+    expiresLine("Expires", domainHealth.domainExpiresAt, source, timeZone, now),
+    autoRenew,
+  ]
+    .filter((line): line is string => line !== null)
+    .join(" · ")
+}
+
 /**
  * Option B affordance: a dotted underline on the apex segment of the header
  * URL, hover or focus revealing renewal and certificate facts. Absent facts
@@ -216,8 +243,13 @@ function MonitorUrlLabel({
   timeZone: string
 }) {
   const segments = splitUrlAtApex(url, domainHealth.apexDomain)
+  const hasPorkbunAutoRenew =
+    domainHealth.registrationSource === "porkbun" &&
+    domainHealth.domainAutoRenew !== null
   const hasFacts =
-    domainHealth.certExpiresAt !== null || domainHealth.domainExpiresAt !== null
+    domainHealth.certExpiresAt !== null ||
+    domainHealth.domainExpiresAt !== null ||
+    hasPorkbunAutoRenew
   if (!(segments && hasFacts)) {
     return <>{url}</>
   }
@@ -252,18 +284,17 @@ function MonitorUrlLabel({
           <div className="space-y-1 text-left">
             <p className="font-medium">{segments.apex}</p>
             {domainHealth.domainExpiresAt ? (
-              <p className="break-words text-[var(--fg-muted)]">
-                {expiresLine(
-                  "Renews",
-                  domainHealth.domainExpiresAt,
-                  domainHealth.domainRegistrar,
-                  timeZone,
-                  now
-                )}
+              <p className="whitespace-nowrap text-[var(--fg-muted)]">
+                {domainExpiryLine(domainHealth, timeZone, now)}
+              </p>
+            ) : null}
+            {hasPorkbunAutoRenew && !domainHealth.domainExpiresAt ? (
+              <p className="whitespace-nowrap text-[var(--fg-muted)]">
+                Auto-renew {domainHealth.domainAutoRenew ? "on" : "off"}
               </p>
             ) : null}
             {domainHealth.certExpiresAt ? (
-              <p className="break-words text-[var(--fg-muted)]">
+              <p className="whitespace-nowrap text-[var(--fg-muted)]">
                 {expiresLine(
                   "Cert expires",
                   domainHealth.certExpiresAt,
@@ -935,7 +966,9 @@ export function MonitorDetail({
       </div>
 
       {monitor.domainHealth.certExpiresAt ||
-      monitor.domainHealth.domainExpiresAt ? (
+      monitor.domainHealth.domainExpiresAt ||
+      (monitor.domainHealth.registrationSource === "porkbun" &&
+        monitor.domainHealth.domainAutoRenew !== null) ? (
         <Card id="domain-certificate">
           <CardHeader>
             <CardTitle>Domain &amp; Certificate</CardTitle>
@@ -958,19 +991,31 @@ export function MonitorDetail({
               {monitor.domainHealth.domainExpiresAt ? (
                 <ExpiryField
                   expiresAt={monitor.domainHealth.domainExpiresAt}
-                  label="Domain renews"
+                  label="Domain expires"
                   timeZone={resolvedTimeZone}
                 />
               ) : null}
-              {monitor.domainHealth.domainRegistrar ? (
+              {monitor.domainHealth.domainRegistrar ||
+              monitor.domainHealth.registrationSource === "porkbun" ? (
                 <ConfigurationField
                   label="Registrar"
-                  value={monitor.domainHealth.domainRegistrar}
+                  value={
+                    monitor.domainHealth.registrationSource === "porkbun"
+                      ? "Porkbun"
+                      : monitor.domainHealth.domainRegistrar!
+                  }
+                />
+              ) : null}
+              {monitor.domainHealth.registrationSource === "porkbun" &&
+              monitor.domainHealth.domainAutoRenew !== null ? (
+                <ConfigurationField
+                  label="Auto-renew"
+                  value={monitor.domainHealth.domainAutoRenew ? "On" : "Off"}
                 />
               ) : null}
               <ConfigurationField
                 label="Verified"
-                value="Daily, certificate by TLS probe and domain by RDAP"
+                value="Daily, certificates use direct TLS and domains use Porkbun or RDAP fallback"
               />
             </dl>
           </CardContent>
