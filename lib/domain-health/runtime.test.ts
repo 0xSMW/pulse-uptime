@@ -187,7 +187,7 @@ describe("runDomainHealthCoordinator", () => {
     expect(due).toEqual({ apexDomains: [], certificates: [] })
   })
 
-  it("records a failed elapsed-expiry catch-up so the next run can wait", async () => {
+  it("keeps a failed elapsed-expiry catch-up due without overwriting facts", async () => {
     const { runs, leases } = stores()
     const now = new Date("2026-07-24T12:00:00Z")
     const expiresAt = new Date("2026-07-24T06:28:05Z")
@@ -229,13 +229,7 @@ describe("runDomainHealthCoordinator", () => {
       },
     })
 
-    const refresh = reconciliation?.domains[0]
-    expect(refresh).toMatchObject({
-      apexDomain: "thenootropics.guide",
-      expiresAt: null,
-      registrar: null,
-      checkedAt: now,
-    })
+    expect(reconciliation?.domains).toEqual([])
     const nextDue = selectDueDomainHealthTargets(
       {
         apexDomains: ["thenootropics.guide"],
@@ -250,7 +244,7 @@ describe("runDomainHealthCoordinator", () => {
               apexDomain: "thenootropics.guide",
               expiresAt,
               registrar: "Porkbun LLC",
-              checkedAt: refresh?.checkedAt ?? checkedAt,
+              checkedAt,
               lastSuccessAt: checkedAt,
               lastReferencedAt: now,
             },
@@ -261,7 +255,7 @@ describe("runDomainHealthCoordinator", () => {
       new Date(now.getTime() + 10 * 60_000)
     )
 
-    expect(nextDue.apexDomains).toEqual([])
+    expect(nextDue.apexDomains).toEqual(["thenootropics.guide"])
   })
 
   it("reconciles a renewed expiration and leaves it fresh", async () => {
@@ -371,6 +365,389 @@ describe("runDomainHealthCoordinator", () => {
     expect(fetchDomain).toHaveBeenCalledWith("example.com")
     expect(probeCert).toHaveBeenCalledTimes(2)
     expect(reconcile).toHaveBeenCalledOnce()
+  })
+
+  it("uses one Porkbun portfolio for accessible account domains while retaining TLS probes", async () => {
+    const { runs, leases } = stores()
+    const fetchPorkbunDomains = vi.fn(async () => ({
+      outcome: "resolved" as const,
+      domains: [
+        {
+          domain: "example.com",
+          expiresAt: new Date("2027-03-04T05:06:07Z"),
+          autoRenew: true,
+          notLocal: false,
+          status: "ACTIVE",
+          apiAccess: true,
+        },
+      ],
+    }))
+    const fetchDomain = vi.fn(async () => domainFacts)
+    const probeCert = vi.fn(async () => certFacts)
+    const recordPorkbunLookup = vi.fn(async () => undefined)
+    const reconcile = vi.fn(
+      async (_input: DomainHealthReconciliation) => undefined
+    )
+
+    const result = await runDomainHealthCoordinator({
+      leases,
+      runs,
+      releaseId: "dpl_test",
+      loadMonitors: async () => [{ id: "one", url: "https://app.example.com" }],
+      loadAssets: async () => emptyAssets(),
+      fetchPorkbunDomains,
+      fetchDomain,
+      probeCert,
+      recordPorkbunLookup,
+      reconcile,
+    })
+
+    expect(fetchPorkbunDomains).toHaveBeenCalledOnce()
+    expect(recordPorkbunLookup).toHaveBeenCalledWith({
+      checkedAt: expect.any(Date),
+      success: true,
+      error: null,
+      coveredDomainCount: 1,
+    })
+    expect(fetchDomain).not.toHaveBeenCalled()
+    expect(probeCert).toHaveBeenCalledWith("app.example.com", 443)
+    expect(reconcile.mock.calls[0]?.[0].domains).toEqual([
+      expect.objectContaining({
+        apexDomain: "example.com",
+        registrar: "Porkbun",
+        registrationSource: "porkbun",
+        autoRenew: true,
+        registrationStatus: "ACTIVE",
+      }),
+    ])
+    expect(result).toMatchObject({
+      status: "completed",
+      porkbunRefreshedApexDomains: ["example.com"],
+    })
+  })
+
+  it("reconciles successful RDAP noncoverage so a prior Porkbun fact can be cleared", async () => {
+    const { runs, leases } = stores()
+    const reconcile = vi.fn(
+      async (_input: DomainHealthReconciliation) => undefined
+    )
+
+    await runDomainHealthCoordinator({
+      leases,
+      runs,
+      releaseId: "dpl_test",
+      loadMonitors: async () => [{ id: "one", url: "http://app.example.com" }],
+      loadAssets: async () => ({
+        domains: new Map([
+          [
+            "example.com",
+            {
+              apexDomain: "example.com",
+              expiresAt: new Date("2026-01-01T00:00:00Z"),
+              registrar: "Porkbun",
+              registrationSource: "porkbun",
+              checkedAt: null,
+              lastSuccessAt: null,
+              lastReferencedAt: new Date(),
+            },
+          ],
+        ]),
+        certificates: new Map(),
+      }),
+      fetchDomain: async () => ({
+        expiresAt: null,
+        registrar: null,
+        outcome: "uncovered" as const,
+      }),
+      probeCert: async () => {
+        throw new Error("HTTP monitor has no certificate target")
+      },
+      reconcile,
+    })
+
+    expect(reconcile.mock.calls[0]?.[0].domains).toEqual([
+      expect.objectContaining({
+        apexDomain: "example.com",
+        expiresAt: null,
+        registrar: null,
+        registrationSource: "rdap",
+      }),
+    ])
+  })
+
+  it("does not reconcile a failed RDAP lookup over known facts", async () => {
+    const { runs, leases } = stores()
+    const reconcile = vi.fn(
+      async (_input: DomainHealthReconciliation) => undefined
+    )
+
+    await runDomainHealthCoordinator({
+      leases,
+      runs,
+      releaseId: "dpl_test",
+      loadMonitors: async () => [{ id: "one", url: "http://app.example.com" }],
+      loadAssets: async () => ({
+        domains: new Map([
+          [
+            "example.com",
+            {
+              apexDomain: "example.com",
+              expiresAt: new Date("2027-01-01T00:00:00Z"),
+              registrar: "Known registrar",
+              registrationSource: "rdap",
+              checkedAt: null,
+              lastSuccessAt: new Date(),
+              lastReferencedAt: new Date(),
+            },
+          ],
+        ]),
+        certificates: new Map(),
+      }),
+      fetchDomain: async () => ({
+        expiresAt: null,
+        registrar: null,
+        outcome: "failed" as const,
+      }),
+      probeCert: async () => {
+        throw new Error("HTTP monitor has no certificate target")
+      },
+      reconcile,
+    })
+
+    expect(reconcile.mock.calls[0]?.[0].domains).toEqual([])
+  })
+
+  it("preserves known Porkbun assets when its provider fails while refreshing RDAP assets", async () => {
+    const { runs, leases } = stores()
+    const fetchDomain = vi.fn(async () => domainFacts)
+    await runDomainHealthCoordinator({
+      leases,
+      runs,
+      releaseId: "dpl_test",
+      loadMonitors: async () => [
+        { id: "porkbun", url: "http://app.porkbun.example" },
+        { id: "rdap", url: "http://app.rdap.example" },
+      ],
+      loadAssets: async () => ({
+        domains: new Map([
+          [
+            "porkbun.example",
+            {
+              apexDomain: "porkbun.example",
+              expiresAt: null,
+              registrar: "Porkbun",
+              registrationSource: "porkbun",
+              checkedAt: null,
+              lastSuccessAt: null,
+              lastReferencedAt: new Date(),
+            },
+          ],
+          [
+            "rdap.example",
+            {
+              apexDomain: "rdap.example",
+              expiresAt: null,
+              registrar: null,
+              registrationSource: "rdap",
+              checkedAt: null,
+              lastSuccessAt: null,
+              lastReferencedAt: new Date(),
+            },
+          ],
+        ]),
+        certificates: new Map(),
+      }),
+      fetchPorkbunDomains: async () => ({
+        outcome: "failed",
+        domains: [],
+        reason: "network",
+      }),
+      fetchDomain,
+      probeCert: async () => {
+        throw new Error("HTTP monitor has no certificate target")
+      },
+      reconcile: async () => undefined,
+    })
+
+    expect(fetchDomain).toHaveBeenCalledTimes(1)
+    expect(fetchDomain).toHaveBeenCalledWith("rdap.example")
+  })
+
+  it("falls back to RDAP for known Porkbun assets when Porkbun is unconfigured", async () => {
+    const { runs, leases } = stores()
+    const fetchDomain = vi.fn(async () => domainFacts)
+    await runDomainHealthCoordinator({
+      leases,
+      runs,
+      releaseId: "dpl_test",
+      loadMonitors: async () => [{ id: "one", url: "http://app.example.com" }],
+      loadAssets: async () => ({
+        domains: new Map([
+          [
+            "example.com",
+            {
+              apexDomain: "example.com",
+              expiresAt: null,
+              registrar: "Porkbun",
+              registrationSource: "porkbun",
+              checkedAt: null,
+              lastSuccessAt: null,
+              lastReferencedAt: new Date(),
+            },
+          ],
+        ]),
+        certificates: new Map(),
+      }),
+      fetchPorkbunDomains: async () => ({
+        outcome: "unconfigured",
+        domains: [],
+      }),
+      fetchDomain,
+      probeCert: async () => {
+        throw new Error("HTTP monitor has no certificate target")
+      },
+      reconcile: async () => undefined,
+    })
+
+    expect(fetchDomain).toHaveBeenCalledWith("example.com")
+  })
+
+  it("does not poll Porkbun when every apex is still fresh", async () => {
+    const { runs, leases } = stores()
+    const now = new Date("2026-07-24T12:00:00Z")
+    const fetchPorkbunDomains = vi.fn()
+    await runDomainHealthCoordinator({
+      leases,
+      runs,
+      releaseId: "dpl_test",
+      now: () => now,
+      loadMonitors: async () => [{ id: "one", url: "http://app.example.com" }],
+      loadAssets: async () => ({
+        domains: new Map([
+          [
+            "example.com",
+            {
+              apexDomain: "example.com",
+              expiresAt: new Date("2027-01-01T00:00:00Z"),
+              registrar: "Porkbun",
+              registrationSource: "porkbun",
+              checkedAt: now,
+              lastSuccessAt: now,
+              lastReferencedAt: now,
+            },
+          ],
+        ]),
+        certificates: new Map(),
+      }),
+      fetchPorkbunDomains,
+      fetchDomain: async () => domainFacts,
+      probeCert: async () => {
+        throw new Error("HTTP monitor has no certificate target")
+      },
+      reconcile: async () => undefined,
+    })
+
+    expect(fetchPorkbunDomains).not.toHaveBeenCalled()
+  })
+
+  it("alerts from persisted Porkbun facts after reconciliation despite another provider failure", async () => {
+    const { runs, leases } = stores()
+    const now = new Date("2026-07-24T12:00:00Z")
+    const persist = vi.fn(async () => 1)
+    await runDomainHealthCoordinator({
+      leases,
+      runs,
+      releaseId: "dpl_test",
+      now: () => now,
+      loadMonitors: async () => [
+        { id: "porkbun", url: "http://app.porkbun.example" },
+        { id: "rdap", url: "http://app.rdap.example" },
+      ],
+      loadAssets: async () => ({
+        domains: new Map([
+          [
+            "porkbun.example",
+            {
+              apexDomain: "porkbun.example",
+              expiresAt: new Date("2026-08-01T12:00:00Z"),
+              registrar: "Porkbun",
+              registrationSource: "porkbun",
+              autoRenew: true,
+              checkedAt: now,
+              lastSuccessAt: now,
+              lastReferencedAt: now,
+            },
+          ],
+          [
+            "rdap.example",
+            {
+              apexDomain: "rdap.example",
+              expiresAt: null,
+              registrar: null,
+              registrationSource: "rdap",
+              checkedAt: null,
+              lastSuccessAt: null,
+              lastReferencedAt: now,
+            },
+          ],
+        ]),
+        certificates: new Map(),
+      }),
+      fetchPorkbunDomains: async () => ({
+        outcome: "failed",
+        domains: [],
+        reason: "network",
+      }),
+      fetchDomain: async () => domainFacts,
+      probeCert: async () => {
+        throw new Error("HTTP monitor has no certificate target")
+      },
+      reconcile: async () => undefined,
+      domainExpiryAlerts: {
+        enabled: true,
+        defaultRecipients: ["ops@example.com"],
+        persist,
+      },
+      createId: () => "alert-id",
+    })
+
+    expect(persist).toHaveBeenCalledWith([
+      expect.objectContaining({
+        recipient: "ops@example.com",
+        payload: expect.objectContaining({
+          apexDomain: "porkbun.example",
+          autoRenew: true,
+          thresholdDays: 14,
+        }),
+      }),
+    ])
+  })
+
+  it("allows verified webhook apexes to bypass daily domain freshness", () => {
+    const now = new Date("2026-07-24T12:00:00Z")
+    const due = selectDueDomainHealthTargets(
+      { apexDomains: ["example.com"], certificates: [], monitors: [] },
+      {
+        domains: new Map([
+          [
+            "example.com",
+            {
+              apexDomain: "example.com",
+              expiresAt: null,
+              registrar: "Porkbun",
+              checkedAt: now,
+              lastSuccessAt: now,
+              lastReferencedAt: now,
+            },
+          ],
+        ]),
+        certificates: new Map(),
+      },
+      now,
+      new Set(["example.com"])
+    )
+
+    expect(due.apexDomains).toEqual(["example.com"])
   })
 
   it("reuses existing assets inside the freshness window", async () => {
@@ -657,11 +1034,7 @@ describe("runDomainHealthCoordinator", () => {
       expect(result.rdapLookups).toBe(1)
     }
     const input = reconcile.mock.calls[0]?.[0]
-    expect(input?.domains[0]).toMatchObject({
-      apexDomain: "example.com",
-      expiresAt: null,
-      registrar: null,
-    })
+    expect(input?.domains).toEqual([])
     expect(input?.certificates[0]).toMatchObject({
       hostname: "app.example.com",
       port: 443,
