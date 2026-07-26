@@ -160,6 +160,18 @@ const concepts: HelpEntry[] = [
       { label: "Read Database Health", href: "#guide-database-health" },
     ],
   },
+  {
+    kind: "concept",
+    slug: "domain-monitoring",
+    title: "Domain monitoring",
+    summary:
+      "Domain monitoring runs every ten minutes and reads registration expiry and auto-renew from Porkbun for due covered domains. It can receive signed renewal and expiry webhooks. Certificate checks still use direct TLS probes. Porkbun never manages SSL.",
+    demo: "database-health",
+    relatedLinks: [
+      { label: "Domain monitoring in Settings", href: "/settings/system" },
+      { label: "Configure expiry alerts", href: "#guide-domain-expiry-alerts" },
+    ],
+  },
 ]
 
 const guides: HelpEntry[] = [
@@ -442,6 +454,24 @@ const guides: HelpEntry[] = [
     relatedLinks: [
       { label: "Database Health in Settings", href: "/settings/system" },
       { label: "Database Health", href: "#concept-database-health" },
+    ],
+  },
+  {
+    kind: "guide",
+    slug: "domain-expiry-alerts",
+    title: "Configure domain expiry alerts",
+    summary:
+      "Domain expiry alerts are optional. When enabled, Pulse emails default recipients at 30 and 14 days before a Porkbun-backed domain expires. Auto-renew remains context only. Certificate expiry stays a dashboard warning and never sends these alerts.",
+    steps: [
+      "Open Settings → System.",
+      "Check the Porkbun connection.",
+      "Enable the webhook if needed.",
+      "Turn on Expiry alerts.",
+    ],
+    demo: "database-health",
+    relatedLinks: [
+      { label: "Domain monitoring", href: "#concept-domain-monitoring" },
+      { label: "System settings", href: "/settings/system" },
     ],
   },
   {

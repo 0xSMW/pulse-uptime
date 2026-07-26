@@ -1,4 +1,5 @@
-import { runDomainHealthCron } from "@/lib/domain-health/runtime"
+import type { DomainHealthCronResult } from "@/lib/domain-health/runtime"
+import { processPorkbunWebhookReceipts } from "@/lib/porkbun-webhooks/runtime"
 import { getPulseReleaseId } from "@/lib/release/id"
 import {
   CRON_RESPONSE_HEADERS,
@@ -25,7 +26,16 @@ export async function GET(request: Request): Promise<Response> {
       releaseId,
     })
   )
-  const result = await runDomainHealthCron()
+  let result: DomainHealthCronResult
+  try {
+    result = (await processPorkbunWebhookReceipts()).cron
+  } catch {
+    result = {
+      status: "failed",
+      runId: "webhook-receipt-processing",
+      error: "webhook_receipt_processing_failed",
+    }
+  }
   const failed = result.status === "failed"
   console[failed ? "error" : "info"](
     JSON.stringify({

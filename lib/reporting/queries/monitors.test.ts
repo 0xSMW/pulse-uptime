@@ -141,6 +141,8 @@ beforeEach(() => {
           certIssuer: null,
           domainExpiresAt: null,
           domainRegistrar: null,
+          registrationSource: null,
+          domainAutoRenew: null,
         },
       ],
     ])
@@ -218,6 +220,8 @@ describe("findMonitorDetail latency and response chart", () => {
             certIssuer: "Example CA",
             domainExpiresAt: "2027-01-02T03:04:05.000Z",
             domainRegistrar: "Example Registrar",
+            registrationSource: "porkbun",
+            domainAutoRenew: true,
           },
         ],
       ])
@@ -246,6 +250,8 @@ describe("findMonitorDetail latency and response chart", () => {
       certIssuer: "Example CA",
       domainExpiresAt: "2027-01-02T03:04:05.000Z",
       domainRegistrar: "Example Registrar",
+      registrationSource: "porkbun",
+      domainAutoRenew: true,
     })
     expect(domainHealthByMonitorIdMock).toHaveBeenCalledWith([
       { id: "site-home", url: "https://example.test" },

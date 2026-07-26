@@ -15,6 +15,7 @@ import {
   monitorRegistry,
   monitorState,
 } from "@/lib/db/schema"
+import { getDomainMonitoringData } from "@/lib/domain-health/porkbun-settings"
 import { getHealthWarnings } from "@/lib/monitoring/health"
 
 async function getAcceptedConfig(): Promise<MonitoringConfig | null> {
@@ -177,22 +178,25 @@ export async function getStatusPageSettings() {
 }
 
 export async function getSystemSettings() {
-  const [databaseHealthResult, monitoringWarnings] = await Promise.all([
-    getDatabaseHealth()
-      .then((data) => ({ data, error: false }))
-      .catch(() => ({ data: null, error: true })),
-    // The scheduler-loop warnings (stale, failing) are the same signals the
-    // dashboard banner shows. Surfacing them on the system screen means the
-    // monitoring loop being broken is visible the moment an operator opens it.
-    getHealthWarnings()
-      .then((warnings) =>
-        warnings.filter((warning) => warning.code.startsWith("MONITORING_"))
-      )
-      .catch(() => []),
-  ])
+  const [databaseHealthResult, monitoringWarnings, domainMonitoring] =
+    await Promise.all([
+      getDatabaseHealth()
+        .then((data) => ({ data, error: false }))
+        .catch(() => ({ data: null, error: true })),
+      // The scheduler-loop warnings (stale, failing) are the same signals the
+      // dashboard banner shows. Surfacing them on the system screen means the
+      // monitoring loop being broken is visible the moment an operator opens it.
+      getHealthWarnings()
+        .then((warnings) =>
+          warnings.filter((warning) => warning.code.startsWith("MONITORING_"))
+        )
+        .catch(() => []),
+      getDomainMonitoringData(),
+    ])
   return {
     databaseHealth: databaseHealthResult.data,
     databaseHealthError: databaseHealthResult.error,
+    domainMonitoring,
     monitoringWarnings,
   }
 }

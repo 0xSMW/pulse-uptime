@@ -206,6 +206,34 @@ describe("notification messages", () => {
     expect(html).not.toContain("not an independent Pulse check")
   })
 
+  it("renders a domain expiry notification without a monitor or dependency", () => {
+    const message = createNotificationMessage(
+      claimed({
+        eventType: "domain.expiry",
+        incidentId: null,
+        monitorId: null,
+        dependencyId: null,
+        payload: {
+          type: "domain.expiry",
+          apexDomain: "example.com",
+          expiresAt: "2026-08-09T12:00:00.000Z",
+          thresholdDays: 14,
+          autoRenew: true,
+        },
+      }),
+      "https://pulse.example.com"
+    )
+
+    expect(message.subject).toBe("example.com expires in 14 days")
+    const html = renderToStaticMarkup(message.react)
+    expect(html).toContain("Domain example.com")
+    expect(html).toContain("Expires 2026-08-09T12:00:00.000Z")
+    expect(html).toContain("Alert threshold 14 days")
+    expect(html).toContain("Auto-renew enabled")
+    expect(html).toContain("Manage domain at Porkbun")
+    expect(html).toContain("https://porkbun.com/account/domainsSpeedy")
+  })
+
   it("rejects a payload whose type does not match its event", () => {
     expect(() =>
       createNotificationMessage(

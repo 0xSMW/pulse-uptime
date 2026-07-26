@@ -65,6 +65,9 @@ const expectedOperations = [
   "POST /api/v1/cli-auth/installations/revoke-all",
   "GET /api/v1/database-health",
   "POST /api/v1/database-health/refresh",
+  "POST /api/v1/domain-monitoring/check",
+  "PATCH /api/v1/domain-monitoring/settings",
+  "POST /api/v1/domain-monitoring/webhook",
   "GET /api/v1/status-page-config",
   "PUT /api/v1/status-page-config",
   "POST /api/v1/images",
@@ -582,6 +585,107 @@ describe("committed OpenAPI v1 source", () => {
       )
     ).toBe(true)
     expect(refresh.responses["503"]).toBeDefined()
+  })
+
+  it("documents domain monitoring mutations and safe provider errors", () => {
+    const schemas = document.components.schemas
+    const operation = (path: string, method: string) =>
+      document.paths[path]![method] as Operation & {
+        parameters: Array<{ $ref?: string }>
+        requestBody?: {
+          required?: boolean
+          content: Record<string, { schema: { $ref?: string } }>
+        }
+        responses: Record<
+          string,
+          { "x-error-codes"?: string[]; content?: Record<string, unknown> }
+        >
+        "x-required-scopes"?: string[]
+      }
+
+    for (const [path, method] of [
+      ["/api/v1/domain-monitoring/check", "post"],
+      ["/api/v1/domain-monitoring/settings", "patch"],
+      ["/api/v1/domain-monitoring/webhook", "post"],
+    ] as const) {
+      const mutation = operation(path, method)
+      expect(mutation["x-required-scopes"]).toEqual(["config:write"])
+      expect(
+        mutation.parameters.some((parameter) =>
+          parameter.$ref?.endsWith("/IdempotencyKey")
+        )
+      ).toBe(true)
+      expect(mutation.responses["400"]).toBeDefined()
+      expect(mutation.responses["401"]).toBeDefined()
+      expect(mutation.responses["403"]).toBeDefined()
+      expect(mutation.responses["409"]).toBeDefined()
+      expect(mutation.responses["429"]).toBeDefined()
+    }
+
+    const check = operation("/api/v1/domain-monitoring/check", "post")
+    expect(check.responses["200"]).toBeDefined()
+    expect(check.responses["503"]).toBeUndefined()
+
+    const settings = operation("/api/v1/domain-monitoring/settings", "patch")
+    expect(settings.requestBody?.required).toBe(true)
+    expect(settings.requestBody?.content["application/json"]?.schema.$ref).toBe(
+      "#/components/schemas/DomainMonitoringSettingsRequest"
+    )
+    expect(settings.responses["409"]?.["x-error-codes"]).toContain(
+      "PORKBUN_NOT_CONFIGURED"
+    )
+
+    const webhook = operation("/api/v1/domain-monitoring/webhook", "post")
+    expect(webhook.requestBody?.content["application/json"]?.schema.$ref).toBe(
+      "#/components/schemas/DomainMonitoringWebhookRequest"
+    )
+    expect(webhook.responses["503"]?.["x-error-codes"]).toEqual([
+      "WEBHOOK_URL_INVALID",
+    ])
+
+    const data = schemas.DomainMonitoring as {
+      additionalProperties: boolean
+      required: string[]
+      properties: Record<string, { enum?: string[]; type?: unknown }>
+    }
+    expect(data.additionalProperties).toBe(false)
+    expect(data.required).toEqual([
+      "state",
+      "coveredDomainCount",
+      "lastSuccessAt",
+      "webhookStatus",
+      "expiryAlertsEnabled",
+    ])
+    expect(data.properties.state!.enum).toEqual([
+      "NOT_CONFIGURED",
+      "CONNECTED",
+      "NEEDS_ATTENTION",
+    ])
+    expect(data.properties.webhookStatus!.enum).toEqual([
+      "NOT_CONFIGURED",
+      "ACTIVE",
+      "FAILING",
+    ])
+    const envelope = schemas.DomainMonitoringEnvelope as {
+      properties: { kind: { const: string }; data: { $ref: string } }
+    }
+    expect(envelope.properties.kind.const).toBe("DomainMonitoring")
+    expect(envelope.properties.data.$ref).toBe(
+      "#/components/schemas/DomainMonitoring"
+    )
+  })
+
+  it("preserves monitor domain registration metadata", () => {
+    const monitor = document.components.schemas.MonitorItemBase as {
+      properties: Record<string, { enum?: unknown; type?: unknown }>
+    }
+    expect(monitor.properties.registrationSource).toMatchObject({
+      type: ["string", "null"],
+      enum: ["rdap", "porkbun", null],
+    })
+    expect(monitor.properties.domainAutoRenew).toMatchObject({
+      type: ["boolean", "null"],
+    })
   })
 
   it("documents the dependency backfill-failed mark and its retry endpoint", () => {

@@ -352,6 +352,8 @@ interface DomainHealthFacts {
   certIssuer: string | null
   domainExpiresAt: string | null
   domainRegistrar: string | null
+  registrationSource: "rdap" | "porkbun" | null
+  domainAutoRenew: boolean | null
 }
 
 const EMPTY_DOMAIN_HEALTH: DomainHealthFacts = {
@@ -359,6 +361,8 @@ const EMPTY_DOMAIN_HEALTH: DomainHealthFacts = {
   certIssuer: null,
   domainExpiresAt: null,
   domainRegistrar: null,
+  registrationSource: null,
+  domainAutoRenew: null,
 }
 
 function apiDomainHealth(
@@ -372,6 +376,8 @@ function apiDomainHealth(
     certIssuer: facts.certIssuer,
     domainExpiresAt: facts.domainExpiresAt,
     domainRegistrar: facts.domainRegistrar,
+    registrationSource: facts.registrationSource,
+    domainAutoRenew: facts.domainAutoRenew,
   }
 }
 
