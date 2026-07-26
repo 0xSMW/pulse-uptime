@@ -29,6 +29,8 @@ describe("domainHealthByMonitorId", () => {
           apexDomain: "example.com",
           expiresAt: new Date("2027-01-02T03:04:05Z"),
           registrar: "Example Registrar",
+          registrationSource: "porkbun",
+          autoRenew: true,
         },
       ],
       [
@@ -64,6 +66,8 @@ describe("domainHealthByMonitorId", () => {
       certIssuer: "Example CA",
       domainExpiresAt: "2027-01-02T03:04:05.000Z",
       domainRegistrar: "Example Registrar",
+      registrationSource: "porkbun",
+      domainAutoRenew: true,
     })
     expect(facts.get("www-copy")).toEqual(facts.get("www"))
     expect(facts.get("api")).toEqual({
@@ -72,6 +76,8 @@ describe("domainHealthByMonitorId", () => {
       certIssuer: "Private CA",
       domainExpiresAt: "2027-01-02T03:04:05.000Z",
       domainRegistrar: "Example Registrar",
+      registrationSource: "porkbun",
+      domainAutoRenew: true,
     })
     expect(facts.get("http")).toEqual({
       apexDomain: "example.com",
@@ -79,6 +85,8 @@ describe("domainHealthByMonitorId", () => {
       certIssuer: null,
       domainExpiresAt: "2027-01-02T03:04:05.000Z",
       domainRegistrar: "Example Registrar",
+      registrationSource: "porkbun",
+      domainAutoRenew: true,
     })
   })
 
@@ -100,6 +108,8 @@ describe("domainHealthByMonitorId", () => {
       certIssuer: null,
       domainExpiresAt: null,
       domainRegistrar: null,
+      registrationSource: null,
+      domainAutoRenew: null,
     })
     expect(facts.get("malformed")).toEqual({
       apexDomain: null,
@@ -107,6 +117,8 @@ describe("domainHealthByMonitorId", () => {
       certIssuer: null,
       domainExpiresAt: null,
       domainRegistrar: null,
+      registrationSource: null,
+      domainAutoRenew: null,
     })
   })
 
