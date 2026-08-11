@@ -64,7 +64,7 @@
     "swr": "^2.3.8",
     "tailwind-merge": "^3.4.0",
     "tldts": "^7.4.9",
-    "undici": "^7.18.2",
+    "undici": "^7.29.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
