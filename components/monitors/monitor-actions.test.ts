@@ -133,6 +133,25 @@ describe("validateMonitorEdit", () => {
     ).toBe("Maximum must be at least the minimum")
   })
 
+  it("does not compare the maximum when the minimum is invalid", () => {
+    expect(
+      validateMonitorEdit({
+        ...validValues,
+        expectedStatusMin: "700",
+        expectedStatusMax: "200",
+      })
+    ).toMatchObject({
+      expectedStatusMin: "Use a status from 100–599",
+    })
+    expect(
+      validateMonitorEdit({
+        ...validValues,
+        expectedStatusMin: "700",
+        expectedStatusMax: "200",
+      }).expectedStatusMax
+    ).toBeUndefined()
+  })
+
   it("rejects duplicate recipients case-insensitively", () => {
     expect(
       validateMonitorEdit({
