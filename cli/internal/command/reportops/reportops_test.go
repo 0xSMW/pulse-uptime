@@ -135,8 +135,8 @@ func TestListCapsTotalPages(t *testing.T) {
 	if !errors.As(err, &ce) || ce.Code != "PAGINATION_LIMIT" {
 		t.Fatalf("error = %#v, want PAGINATION_LIMIT", err)
 	}
-	if calls > maxListPages+1 {
-		t.Fatalf("made %d requests, expected at most %d", calls, maxListPages+1)
+	if calls > 1001 {
+		t.Fatalf("made %d requests, expected at most 1001", calls)
 	}
 }
 
