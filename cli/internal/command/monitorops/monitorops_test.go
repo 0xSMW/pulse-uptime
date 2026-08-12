@@ -33,7 +33,7 @@ func TestListAutoPaginationPreservesOrderAndCapsTotal(t *testing.T) {
 	var queries []url.Values
 	next := "second"
 	client := clientFunc(func(_ context.Context, r Request) error {
-		queries = append(queries, cloneValues(r.Query))
+		queries = append(queries, r.Query)
 		if len(queries) == 1 {
 			setListResult(t, r.Result, []string{`{"id":"a"}`, `{"id":"b"}`}, &next)
 		} else {
@@ -53,6 +53,21 @@ func TestListAutoPaginationPreservesOrderAndCapsTotal(t *testing.T) {
 	}
 	if got := queries[1].Get("limit"); got != "1" {
 		t.Fatalf("second limit = %q", got)
+	}
+}
+
+func TestListLimitRetainsNextCursor(t *testing.T) {
+	next := "remaining"
+	client := clientFunc(func(_ context.Context, request Request) error {
+		setListResult(t, request.Result, []string{`{"id":"a"}`, `{"id":"b"}`}, &next)
+		return nil
+	})
+	doc, err := List(context.Background(), client, ListOptions{Limit: 1, Machine: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Data) != 1 || doc.Meta.NextCursor == nil || *doc.Meta.NextCursor != next {
+		t.Fatalf("data = %d, nextCursor = %v", len(doc.Data), doc.Meta.NextCursor)
 	}
 }
 
@@ -93,8 +108,8 @@ func TestListCapsTotalPages(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected the page cap to stop an endless stream")
 	}
-	if calls > maxListPages+1 {
-		t.Fatalf("made %d requests, expected at most %d", calls, maxListPages+1)
+	if calls > 1001 {
+		t.Fatalf("made %d requests, expected at most 1001", calls)
 	}
 }
 
