@@ -3,6 +3,18 @@
 import { Activity, Archive, ChevronDown, Pause, Play } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
+import {
+  deriveMonitorName,
+  type EditableMonitor,
+  emptyNumericMonitorValues,
+  hasAdvancedMonitorErrors,
+  isPublicMonitorUrl,
+  monitorMutationBody,
+  type NumericMonitorFormValues,
+  numericMonitorValidation,
+  numericMonitorValues,
+  validateMonitorValues,
+} from "@/components/monitors/monitor-form"
 import { Button } from "@/components/ui/button"
 import {
   Collapsible,
@@ -16,8 +28,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { parseMonitorRecipients } from "@/lib/monitoring/recipients"
-import { isPublicHttpUrl } from "@/lib/net/public-url"
 import { GroupDialog } from "./group-dialog"
 import { MonitorGroupField } from "./monitor-group-field"
 import {
@@ -28,169 +38,36 @@ import {
 } from "./settings-api"
 import { Sheet, SheetIconButton } from "./sheet"
 
-export interface EditableMonitor {
-  id: string
-  name: string
-  url: string
-  enabled: boolean
-  groupId: string | null
-  group: string | null
-  method: string
-  intervalMinutes: number
-  timeoutMs: number
-  expectedStatusMin: number
-  expectedStatusMax: number
-  failureThreshold: number
-  recoveryThreshold: number
-  recipients: string[]
-}
+export type { EditableMonitor } from "@/components/monitors/monitor-form"
 
 // recipientsText is the single source for recipients while editing. The form
 // parses it back to a list only on submit, so the raw EditableMonitor
 // recipients array is not carried in form state.
-export type MonitorFormValues = Omit<
-  EditableMonitor,
-  "id" | "group" | "recipients"
-> & {
-  recipientsText: string
-}
+export type MonitorFormValues = NumericMonitorFormValues
 export type MonitorFormErrors = Partial<Record<keyof MonitorFormValues, string>>
-
-const advancedMonitorFields = [
-  "timeoutMs",
-  "expectedStatusMin",
-  "expectedStatusMax",
-  "failureThreshold",
-  "recoveryThreshold",
-  "recipientsText",
-] as const
 
 export function hasAdvancedMonitorFormErrors(
   errors: MonitorFormErrors
 ): boolean {
-  return advancedMonitorFields.some((field) => Boolean(errors[field]))
+  return hasAdvancedMonitorErrors(errors)
 }
 
 export function monitorSheetActionLabels(enabled: boolean) {
   return ["Run Test", enabled ? "Pause" : "Resume", "Archive"] as const
 }
 
-const emptyValues: MonitorFormValues = {
-  name: "",
-  url: "",
-  groupId: null,
-  method: "GET",
-  intervalMinutes: 1,
-  timeoutMs: 8000,
-  expectedStatusMin: 200,
-  expectedStatusMax: 399,
-  failureThreshold: 2,
-  recoveryThreshold: 2,
-  recipientsText: "",
-  enabled: true,
-}
-
 function valuesFor(monitor: EditableMonitor | null): MonitorFormValues {
-  if (!monitor) {
-    return emptyValues
-  }
-  return {
-    name: monitor.name,
-    url: monitor.url,
-    enabled: monitor.enabled,
-    groupId: monitor.groupId,
-    method: monitor.method,
-    intervalMinutes: monitor.intervalMinutes,
-    timeoutMs: monitor.timeoutMs,
-    expectedStatusMin: monitor.expectedStatusMin,
-    expectedStatusMax: monitor.expectedStatusMax,
-    failureThreshold: monitor.failureThreshold,
-    recoveryThreshold: monitor.recoveryThreshold,
-    recipientsText: monitor.recipients.join("\n"),
-  }
+  return monitor
+    ? numericMonitorValues(monitor)
+    : structuredClone(emptyNumericMonitorValues)
 }
 
-export function isPublicMonitorUrl(value: string): boolean {
-  return isPublicHttpUrl(value)
-}
-
-export function deriveMonitorName(url: string): string {
-  // Bare hostnames like api.acme.dev parse on the second pass with an
-  // assumed scheme, www. is presentation noise and never part of the name.
-  for (const candidate of [url.trim(), `https://${url.trim()}`]) {
-    try {
-      const hostname = new URL(candidate).hostname.replace(/^www\./, "")
-      if (hostname) {
-        return hostname
-      }
-    } catch {
-      // Not parseable as-is, try the next candidate.
-    }
-  }
-  return ""
-}
+export { deriveMonitorName, isPublicMonitorUrl }
 
 export function validateMonitorForm(
   values: MonitorFormValues
 ): MonitorFormErrors {
-  const errors: MonitorFormErrors = {}
-  if (!values.name.trim()) {
-    errors.name = "Enter a monitor name"
-  } else if (values.name.trim().length > 80) {
-    errors.name = "Use 80 characters or fewer"
-  }
-  if (!isPublicMonitorUrl(values.url)) {
-    errors.url = "Enter a public HTTP or HTTPS URL"
-  }
-  if (
-    !Number.isInteger(values.timeoutMs) ||
-    values.timeoutMs < 1000 ||
-    values.timeoutMs > 15_000
-  ) {
-    errors.timeoutMs = "Enter 1000–15000"
-  }
-  if (
-    !Number.isInteger(values.expectedStatusMin) ||
-    values.expectedStatusMin < 100 ||
-    values.expectedStatusMin > 599
-  ) {
-    errors.expectedStatusMin = "Enter 100–599"
-  }
-  if (
-    !Number.isInteger(values.expectedStatusMax) ||
-    values.expectedStatusMax < values.expectedStatusMin ||
-    values.expectedStatusMax > 599
-  ) {
-    errors.expectedStatusMax = "Enter a value from minimum to 599"
-  }
-  if (
-    !Number.isInteger(values.failureThreshold) ||
-    values.failureThreshold < 1 ||
-    values.failureThreshold > 5
-  ) {
-    errors.failureThreshold = "Enter 1–5"
-  }
-  if (
-    !Number.isInteger(values.recoveryThreshold) ||
-    values.recoveryThreshold < 1 ||
-    values.recoveryThreshold > 5
-  ) {
-    errors.recoveryThreshold = "Enter 1–5"
-  }
-  const recipients = parseMonitorRecipients(values.recipientsText)
-  if (recipients.length > 20) {
-    errors.recipientsText = "Use no more than 20 addresses"
-  } else if (
-    recipients.some((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
-  ) {
-    errors.recipientsText = "Enter valid email addresses"
-  } else if (
-    new Set(recipients.map((recipient) => recipient.toLowerCase())).size !==
-    recipients.length
-  ) {
-    errors.recipientsText = "Remove duplicate recipients"
-  }
-  return errors
+  return validateMonitorValues(values, numericMonitorValidation)
 }
 
 function NumberField({
@@ -394,22 +271,7 @@ export function MonitorSheet({
     }
     setBusy("save")
     setStatus("")
-    const body = {
-      name: values.name.trim(),
-      url: values.url.trim(),
-      enabled: values.enabled,
-      groupId: values.groupId,
-      method: values.method,
-      intervalMinutes: values.intervalMinutes,
-      timeoutMs: values.timeoutMs,
-      expectedStatus: {
-        minimum: values.expectedStatusMin,
-        maximum: values.expectedStatusMax,
-      },
-      failureThreshold: values.failureThreshold,
-      recoveryThreshold: values.recoveryThreshold,
-      recipients: parseMonitorRecipients(values.recipientsText),
-    }
+    const body = monitorMutationBody(values, { trimUrl: true })
     try {
       if (monitor) {
         await apiRequest(
@@ -506,7 +368,6 @@ export function MonitorSheet({
   const inputClass =
     "h-10 w-full rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-3 text-[13px]"
   const [testLabel, toggleLabel, archiveLabel] = monitorSheetActionLabels(
-    // biome-ignore lint/suspicious/noUnnecessaryConditions: monitor is null when creating a new monitor
     monitor?.enabled ?? true
   )
   const actionBusyDescription = "Another monitor action is in progress"
