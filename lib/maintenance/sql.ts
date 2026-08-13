@@ -199,11 +199,18 @@ const DELETE_ORPHAN_IMAGES_SQL = `with referenced as (
   union select favicon_image_id from status_page_config where favicon_image_id is not null
   union select avatar_image_id from admin_users where avatar_image_id is not null
 ), unreferenced as (
-  select images.id, images.created_at,
-    row_number() over (order by images.created_at desc, images.id desc) position
+  select images.id, images.created_at, images.uploaded_by_user_id
   from images where not exists (select 1 from referenced where referenced.id = images.id)
+), legacy_ranked as (
+  select id, created_at,
+    row_number() over (order by images.created_at desc, images.id desc) position
+  from unreferenced images where uploaded_by_user_id is null
+), candidates as (
+  select id, created_at from unreferenced where created_at < $1
+  union
+  select id, created_at from legacy_ranked where position > $2
 ), doomed as (
-  select id from unreferenced where created_at < $1 or position > $2
+  select id from candidates
   order by created_at, id limit $3
 )
 delete from images using doomed where images.id = doomed.id returning images.id`

@@ -28,6 +28,23 @@ export async function authenticatedMutation(request: Request) {
   return { session, response: null }
 }
 
+export async function authenticatedAdminMutation(request: Request) {
+  const auth = await authenticatedMutation(request)
+  if (auth.response || !auth.session) {
+    return auth
+  }
+  if (auth.session.role !== "admin") {
+    return {
+      session: null,
+      response: NextResponse.json(
+        { error: "Administrator access required" },
+        { status: 403 }
+      ),
+    }
+  }
+  return auth
+}
+
 export function safeError(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback
 }

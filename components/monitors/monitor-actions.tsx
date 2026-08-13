@@ -19,7 +19,15 @@ import {
   useRef,
   useState,
 } from "react"
-
+import {
+  type EditableMonitor,
+  hasAdvancedMonitorErrors,
+  monitorMutationBody,
+  type StringMonitorFormValues,
+  stringMonitorValidation,
+  stringMonitorValues,
+  validateMonitorValues,
+} from "@/components/monitors/monitor-form"
 import { GroupDialog } from "@/components/settings/group-dialog"
 import { MonitorGroupField } from "@/components/settings/monitor-group-field"
 import type { SettingsGroup } from "@/components/settings/settings-api"
@@ -38,25 +46,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { parseMonitorRecipients } from "@/lib/monitoring/recipients"
-import { isPublicHttpUrl } from "@/lib/net/public-url"
 
-export interface EditableMonitor {
-  id: string
-  name: string
-  url: string
-  groupId: string | null
-  group: string | null
-  method: string
-  enabled: boolean
-  intervalMinutes: number
-  timeoutMs: number
-  expectedStatusMin: number
-  expectedStatusMax: number
-  failureThreshold: number
-  recoveryThreshold: number
-  recipients: string[]
-}
+export type { EditableMonitor } from "@/components/monitors/monitor-form"
 
 type MutationState =
   | { status: "idle" }
@@ -64,151 +55,36 @@ type MutationState =
   | { status: "success"; message: string }
   | { status: "error"; message: string }
 
-export interface MonitorEditValues {
-  name: string
-  url: string
-  groupId: string | null
-  method: "GET" | "HEAD"
-  intervalMinutes: string
-  timeoutMs: string
-  expectedStatusMin: string
-  expectedStatusMax: string
-  failureThreshold: string
-  recoveryThreshold: string
+export type MonitorEditValues = Omit<
+  StringMonitorFormValues,
+  "recipientsText"
+> & {
   recipients: string
-  enabled: boolean
 }
 
 export type MonitorEditErrors = Partial<Record<keyof MonitorEditValues, string>>
 
-const advancedMonitorEditFields = [
-  "timeoutMs",
-  "expectedStatusMin",
-  "expectedStatusMax",
-  "failureThreshold",
-  "recoveryThreshold",
-  "recipients",
-] as const
-
 export function hasAdvancedMonitorEditErrors(
   errors: MonitorEditErrors
 ): boolean {
-  return advancedMonitorEditFields.some((field) => Boolean(errors[field]))
+  const { recipients, ...rest } = errors
+  return hasAdvancedMonitorErrors({ ...rest, recipientsText: recipients })
 }
 
-const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
 function initialValues(monitor: EditableMonitor): MonitorEditValues {
-  return {
-    name: monitor.name,
-    url: monitor.url,
-    groupId: monitor.groupId,
-    method: monitor.method === "HEAD" ? "HEAD" : "GET",
-    intervalMinutes: String(monitor.intervalMinutes),
-    timeoutMs: String(monitor.timeoutMs),
-    expectedStatusMin: String(monitor.expectedStatusMin),
-    expectedStatusMax: String(monitor.expectedStatusMax),
-    failureThreshold: String(monitor.failureThreshold),
-    recoveryThreshold: String(monitor.recoveryThreshold),
-    recipients: monitor.recipients.join("\n"),
-    enabled: monitor.enabled,
-  }
+  const { recipientsText, ...values } = stringMonitorValues(monitor)
+  return { ...values, recipients: recipientsText }
 }
 
 export function validateMonitorEdit(
   values: MonitorEditValues
 ): MonitorEditErrors {
-  const errors: MonitorEditErrors = {}
-  const name = values.name.trim()
-  const recipients = parseMonitorRecipients(values.recipients)
-
-  if (!name) {
-    errors.name = "Enter a monitor name"
-  } else if (name.length > 80) {
-    errors.name = "Use 80 characters or fewer"
-  }
-
-  if (!isPublicHttpUrl(values.url)) {
-    errors.url = "Enter a public HTTP or HTTPS URL"
-  }
-
-  if (!["1", "5", "10", "15"].includes(values.intervalMinutes)) {
-    errors.intervalMinutes = "Choose 1, 5, 10, or 15 minutes"
-  }
-
-  validateInteger(
-    values.timeoutMs,
-    1000,
-    15_000,
-    "Use 1000–15000 ms",
-    "timeoutMs",
-    errors
+  const { recipients, ...common } = values
+  const { recipientsText, ...errors } = validateMonitorValues(
+    { ...common, recipientsText: recipients },
+    stringMonitorValidation
   )
-  validateInteger(
-    values.expectedStatusMin,
-    100,
-    599,
-    "Use a status from 100–599",
-    "expectedStatusMin",
-    errors
-  )
-  validateInteger(
-    values.expectedStatusMax,
-    100,
-    599,
-    "Use a status from 100–599",
-    "expectedStatusMax",
-    errors
-  )
-  if (
-    !(errors.expectedStatusMin || errors.expectedStatusMax) &&
-    Number(values.expectedStatusMax) < Number(values.expectedStatusMin)
-  ) {
-    errors.expectedStatusMax = "Maximum must be at least the minimum"
-  }
-  validateInteger(
-    values.failureThreshold,
-    1,
-    5,
-    "Use a threshold from 1–5",
-    "failureThreshold",
-    errors
-  )
-  validateInteger(
-    values.recoveryThreshold,
-    1,
-    5,
-    "Use a threshold from 1–5",
-    "recoveryThreshold",
-    errors
-  )
-
-  if (recipients.length > 20) {
-    errors.recipients = "Use no more than 20 recipients"
-  } else if (recipients.some((recipient) => !emailPattern.test(recipient))) {
-    errors.recipients = "Enter valid email addresses"
-  } else if (
-    new Set(recipients.map((recipient) => recipient.toLowerCase())).size !==
-    recipients.length
-  ) {
-    errors.recipients = "Remove duplicate recipients"
-  }
-
-  return errors
-}
-
-function validateInteger(
-  value: string,
-  minimum: number,
-  maximum: number,
-  message: string,
-  field: keyof MonitorEditValues,
-  errors: MonitorEditErrors
-) {
-  const number = Number(value)
-  if (!Number.isInteger(number) || number < minimum || number > maximum) {
-    errors[field] = message
-  }
+  return { ...errors, recipients: recipientsText }
 }
 
 async function readError(response: Response): Promise<string> {
@@ -674,29 +550,19 @@ function MonitorEditSheet({
       return
     }
     setState({ status: "loading", message: "Saving…" })
-    const recipients = parseMonitorRecipients(values.recipients)
     try {
+      const { recipients, ...commonValues } = values
       const response = await mutateMonitor(
         `/api/v1/monitors/${encodeURIComponent(monitor.id)}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: values.name.trim(),
-            url: values.url,
-            groupId: values.groupId,
-            method: values.method,
-            intervalMinutes: Number(values.intervalMinutes),
-            timeoutMs: Number(values.timeoutMs),
-            expectedStatus: {
-              minimum: Number(values.expectedStatusMin),
-              maximum: Number(values.expectedStatusMax),
-            },
-            failureThreshold: Number(values.failureThreshold),
-            recoveryThreshold: Number(values.recoveryThreshold),
-            recipients,
-            enabled: values.enabled,
-          }),
+          body: JSON.stringify(
+            monitorMutationBody(
+              { ...commonValues, recipientsText: recipients },
+              { trimUrl: false }
+            )
+          ),
         }
       )
       if (!response.ok) {

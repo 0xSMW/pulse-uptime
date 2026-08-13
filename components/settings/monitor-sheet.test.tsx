@@ -1,5 +1,13 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
@@ -9,15 +17,19 @@ import {
   MonitorSheet,
 } from "./monitor-sheet"
 
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh: vi.fn() }),
-}))
+const router = vi.hoisted(() => ({ refresh: vi.fn() }))
+
+vi.mock("next/navigation", () => ({ useRouter: () => router }))
 
 // jsdom does not implement HTMLDialogElement.showModal()/close() (both are
 // undefined, not even throwing stubs). Polyfill the minimal behavior the
 // Sheet depends on: toggling the `open` attribute/property, which jsdom's
 // generic boolean-attribute reflection already handles once set.
 beforeEach(() => {
+  router.refresh.mockReset()
+  vi.stubGlobal("crypto", {
+    randomUUID: () => "12345678-1234-1234-1234-123456789abc",
+  })
   HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
     this.setAttribute("open", "")
   }
@@ -29,6 +41,8 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
 
@@ -148,5 +162,92 @@ describe("MonitorSheet", () => {
   it("falls back to group creation when no groups exist", () => {
     renderSheet()
     expect(screen.getByRole("button", { name: "Create Group" })).toBeDefined()
+  })
+
+  it("sends the exact create body and waits for propagation", async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 204 }))
+    vi.stubGlobal("fetch", fetchMock)
+    const onClose = vi.fn()
+    renderSheet({ onClose })
+
+    fireEvent.change(urlInput(), {
+      target: { value: "  https://api.example.com/health  " },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Create Monitor" }))
+
+    await act(async () => undefined)
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/monitors")
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit
+    expect(init.method).toBe("POST")
+    expect(JSON.parse(String(init.body))).toEqual({
+      id: "api-example-com-12345678",
+      name: "api.example.com",
+      url: "https://api.example.com/health",
+      enabled: true,
+      groupId: null,
+      method: "GET",
+      intervalMinutes: 1,
+      timeoutMs: 8000,
+      expectedStatus: { minimum: 200, maximum: 399 },
+      failureThreshold: 2,
+      recoveryThreshold: 2,
+      recipients: [],
+    })
+    expect(screen.getByText("Updating configuration…")).toBeDefined()
+    act(() => vi.advanceTimersByTime(9999))
+    expect(router.refresh).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(1))
+    expect(router.refresh).toHaveBeenCalledOnce()
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it("focuses the first invalid field without sending a request", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    renderSheet()
+    const url = urlInput()
+    fireEvent.click(screen.getByRole("button", { name: "Create Monitor" }))
+
+    await waitFor(() => expect(document.activeElement).toBe(url))
+    expect(url.getAttribute("aria-invalid")).toBe("true")
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("archives only after exact confirmation and waits 800 ms", async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 204 }))
+    vi.stubGlobal("fetch", fetchMock)
+    const onClose = vi.fn()
+    const onMonitorGroupChanged = vi.fn()
+    renderSheet({ monitor: existingMonitor, onClose, onMonitorGroupChanged })
+
+    fireEvent.click(screen.getByRole("button", { name: "Archive" }))
+    const dialog = screen.getByRole("dialog", { name: "Archive Monitor" })
+    const confirm = within(dialog).getByRole("button", {
+      name: "Archive Monitor",
+    })
+    expect((confirm as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.change(within(dialog).getByRole("textbox"), {
+      target: { value: existingMonitor.name },
+    })
+    fireEvent.click(confirm)
+
+    await act(async () => undefined)
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/monitors/api-prod")
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "DELETE" })
+    expect(onMonitorGroupChanged).toHaveBeenCalledWith(null, null)
+    act(() => vi.advanceTimersByTime(799))
+    expect(onClose).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(1))
+    expect(router.refresh).toHaveBeenCalledOnce()
+    expect(onClose).toHaveBeenCalledOnce()
   })
 })

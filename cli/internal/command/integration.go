@@ -1,14 +1,12 @@
 package command
 
 import (
-	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,6 +16,7 @@ import (
 
 	"github.com/0xSMW/pulse-uptime/cli/internal/api"
 	"github.com/0xSMW/pulse-uptime/cli/internal/auth"
+	"github.com/0xSMW/pulse-uptime/cli/internal/boundedio"
 	"github.com/0xSMW/pulse-uptime/cli/internal/buildinfo"
 	"github.com/0xSMW/pulse-uptime/cli/internal/command/adminops"
 	"github.com/0xSMW/pulse-uptime/cli/internal/command/configops"
@@ -33,6 +32,17 @@ import (
 	"github.com/0xSMW/pulse-uptime/cli/internal/progress"
 	"github.com/spf13/cobra"
 )
+
+const maxTokenStdinBytes = 8 * 1024
+
+var errTokenStdinTooLarge = errors.New("token from stdin exceeds 8 KB")
+
+func mapCredentialError(err error) error {
+	if errors.Is(err, errTokenStdinTooLarge) {
+		return cliError(ExitInvalidInput, "TOKEN_TOO_LARGE", err.Error())
+	}
+	return cliError(ExitAuthentication, "AUTHENTICATION_REQUIRED", authRequired)
+}
 
 func (a *App) configPath() (string, error) {
 	if a.opts.ConfigPath != "" {
@@ -60,7 +70,7 @@ func (a *App) runMe(ctx context.Context, noBrowser bool) error {
 	if a.tokenStdin {
 		credential, credentialErr := a.resolveCredential(r)
 		if credentialErr != nil {
-			return cliError(ExitAuthentication, "AUTHENTICATION_REQUIRED", authRequired)
+			return mapCredentialError(credentialErr)
 		}
 		return a.fetchAndRenderMe(ctx, r, credential.Token)
 	}
@@ -384,6 +394,9 @@ func (a *App) doctorCommand() *cobra.Command {
 			} else {
 				add("api", "ok", "v1 reachable")
 			}
+			// Doctor is an aggregate diagnostic. Credential failures stay a generic
+			// authentication check result so one failed check does not replace the
+			// complete subsystem report with a command-level error.
 			if credential, credentialErr := a.resolveCredential(r); credentialErr != nil {
 				add("authentication", "failed", "credential unavailable")
 			} else {
@@ -419,7 +432,7 @@ func (t appTransport) Do(ctx context.Context, method, path string, body any, hea
 	if path != "/api/v1/version" && path != "/api/v1/cli-auth/device" && path != "/api/v1/cli-auth/token" {
 		credential, credentialErr := t.app.resolveCredential(r)
 		if credentialErr != nil {
-			return nil, cliError(ExitAuthentication, "AUTHENTICATION_REQUIRED", authRequired)
+			return nil, mapCredentialError(credentialErr)
 		}
 		token = credential.Token
 	}
@@ -517,7 +530,7 @@ func (a *App) authenticatedClient() (config.Resolved, *api.Client, error) {
 	}
 	credential, err := a.resolveCredential(r)
 	if err != nil {
-		return r, nil, cliError(ExitAuthentication, "AUTHENTICATION_REQUIRED", authRequired)
+		return r, nil, mapCredentialError(err)
 	}
 	return r, a.newClient(r, credential.Token), nil
 }
@@ -528,8 +541,11 @@ func (a *App) resolveCredential(r config.Resolved) (auth.ResolvedCredential, err
 	}
 	if a.tokenStdin {
 		if !a.stdinRead {
-			line, err := bufio.NewReader(a.opts.In).ReadString('\n')
-			if err != nil && !errors.Is(err, io.EOF) {
+			line, err := boundedio.ReadLine(a.opts.In, maxTokenStdinBytes)
+			if errors.Is(err, boundedio.ErrTooLarge) {
+				return auth.ResolvedCredential{}, errTokenStdinTooLarge
+			}
+			if err != nil {
 				return auth.ResolvedCredential{}, err
 			}
 			a.stdinToken, a.stdinRead = strings.TrimSpace(line), true
@@ -677,6 +693,9 @@ func (s appSessions) Current(ctx context.Context) (adminops.Session, error) {
 	}
 	credential, err := s.app.resolveCredential(r)
 	if err != nil {
+		if errors.Is(err, errTokenStdinTooLarge) {
+			return adminops.Session{}, mapCredentialError(err)
+		}
 		return adminops.Session{Server: r.Server}, nil
 	}
 	var me meEnvelope

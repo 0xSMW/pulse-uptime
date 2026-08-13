@@ -191,3 +191,33 @@ func TestRemoveRequiresConfirmationWithoutTTY(t *testing.T) {
 		t.Fatalf("unconfirmed removal must not reach the API")
 	}
 }
+
+func TestRemovePromptSanitizesUserID(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+		want string
+	}{
+		{name: "ordinary ID", id: "usr-2", want: "Remove user usr-2 and revoke their sessions and tokens? [y/N] Canceled\n"},
+		{name: "terminal controls", id: "usr\x1b[2J\t\u202e", want: `Remove user usr\x1b[2J\x09\u202e and revoke their sessions and tokens? [y/N] Canceled` + "\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &fakeClient{kind: "TeamUser"}
+			var stderr bytes.Buffer
+			cmd := NewGroup(Dependencies{
+				Client: client, In: strings.NewReader("no\n"), Err: &stderr, StdinTTY: true,
+			})
+			cmd.SetArgs([]string{"remove", tt.id})
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			if got := stderr.String(); got != tt.want {
+				t.Fatalf("prompt = %q, want %q", got, tt.want)
+			}
+			if len(client.requests) != 0 {
+				t.Fatalf("unexpected requests: %#v", client.requests)
+			}
+		})
+	}
+}

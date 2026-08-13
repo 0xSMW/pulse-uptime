@@ -92,6 +92,7 @@ import {
   approveDeviceAuthorization,
   DeviceAuthorizationError,
   pollDeviceAuthorization,
+  requireReplayableCliSession,
   startDeviceAuthorization,
 } from "./device-authorization"
 import { ADMINISTRATOR_SCOPES } from "./scopes"
@@ -117,7 +118,9 @@ describe("approveDeviceAuthorization", () => {
   }
 
   it("returns exactly the fields the caller consumes and passes them through to the installation upsert", async () => {
-    db.selectResults.push([{ email: human.email }])
+    db.selectResults.push([
+      { email: human.email, userId: human.id, credentialEpoch: 7 },
+    ])
     db.updateResults.push([
       {
         id: "auth-1",
@@ -166,6 +169,8 @@ describe("approveDeviceAuthorization", () => {
     expect(db.insertValues[0]).toMatchObject({
       installationKey: "install-key-1",
       userEmail: human.email,
+      userId: human.id,
+      credentialEpoch: 7,
       displayName: "laptop",
       platform: "darwin",
       architecture: "arm64",
@@ -279,6 +284,52 @@ describe("pollDeviceAuthorization", () => {
       pollDeviceAuthorization("raw-device-code", now)
     ).rejects.toBeInstanceOf(DeviceAuthorizationError)
     expect(db.selectColumnsCalls).toHaveLength(1)
+  })
+
+  it("does not mint again when a derived session credential is stale", async () => {
+    db.selectResults.push([])
+    db.selectResults.push([{ id: "stale-session" }])
+
+    await expect(
+      pollDeviceAuthorization("raw-device-code", now, {
+        raw: "pulse_cli_replayed",
+        prefix: "pulse_cli_repl",
+        digest: Buffer.alloc(32, 7),
+      })
+    ).rejects.toMatchObject({ code: "expired_token" })
+
+    expect(db.impl.insert).not.toHaveBeenCalled()
+  })
+})
+
+describe("requireReplayableCliSession", () => {
+  const now = new Date("2026-07-18T12:00:00.000Z")
+  const digest = Buffer.alloc(32, 7)
+
+  it("preserves replay for a current active CLI session", async () => {
+    const active = {
+      expiresAt: new Date("2026-07-19T12:00:00.000Z"),
+      scopes: ["monitors:read"],
+      scopeProfile: "administrator",
+    }
+    db.selectResults.push([active])
+
+    await expect(requireReplayableCliSession(digest, now)).resolves.toEqual(
+      active
+    )
+  })
+
+  it.each([
+    "revoked session",
+    "expired session",
+    "revoked installation",
+    "stale credential epoch",
+  ])("rejects replay for a %s", async () => {
+    db.selectResults.push([])
+
+    await expect(
+      requireReplayableCliSession(digest, now)
+    ).rejects.toMatchObject({ code: "expired_token" })
   })
 })
 

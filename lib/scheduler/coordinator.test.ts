@@ -84,6 +84,63 @@ describe("runMonitoringCoordinator", () => {
     )
   })
 
+  it("reserves monitor dispatch time when the first delivery drain stalls", async () => {
+    let clockMs = 0
+    let deliveryCount = 0
+    const runMonitor = vi.fn(async () => "success" as const)
+    const dueConfig: MonitoringConfig = {
+      ...config,
+      monitors: [
+        {
+          id: "mon-one",
+          name: "One",
+          url: "https://example.com",
+          enabled: true,
+          intervalMinutes: 1,
+          timeoutMs: 5000,
+          failureThreshold: 2,
+          recoveryThreshold: 2,
+          method: "GET",
+          expectedStatus: { minimum: 200, maximum: 299 },
+          groupId: null,
+          recipients: [],
+        },
+      ],
+    }
+
+    const result = await runMonitoringCoordinator({
+      leases: { acquire: async () => true, release: async () => undefined },
+      runs: {
+        start: async () => true,
+        complete: vi.fn(),
+        fail: vi.fn(),
+      },
+      releaseId: "dpl_test",
+      loadConfig: async () => dueConfig,
+      reconcileOutbox: async () => 0,
+      deliverOutbox: async (deadlineAtMs) => {
+        deliveryCount += 1
+        if (deliveryCount === 1) {
+          // Include bounded provider work plus slow failure bookkeeping.
+          clockMs = deadlineAtMs + 2000
+        }
+        return { claimed: 1, sent: 0, failed: 1, dead: 0, lostClaims: 0 }
+      },
+      runMonitor,
+      now: () => new Date("2026-07-18T04:00:20Z"),
+      nowMs: () => clockMs,
+      createId: () => "run-stalled-delivery",
+    })
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: "completed",
+        counts: expect.objectContaining({ successCount: 1 }),
+      })
+    )
+    expect(runMonitor).toHaveBeenCalledOnce()
+  })
+
   it("does no run work for a duplicate scheduled minute", async () => {
     const loadConfig = vi.fn()
     const result = await runMonitoringCoordinator({

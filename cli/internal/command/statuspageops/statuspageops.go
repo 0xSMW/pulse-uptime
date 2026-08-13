@@ -10,11 +10,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/0xSMW/pulse-uptime/cli/internal/atomicexport"
+	"github.com/0xSMW/pulse-uptime/cli/internal/boundedio"
 	"github.com/0xSMW/pulse-uptime/cli/internal/output"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -34,7 +35,6 @@ type Dependencies struct {
 	Err      io.Writer
 	Output   func(defaultFormat string) string
 	ReadFile func(string) ([]byte, error)
-	Create   func(string, bool) (io.WriteCloser, error)
 }
 
 type Error struct {
@@ -55,7 +55,10 @@ const (
 	exitConflict     = 6
 )
 
-const configPath = "/api/v1/status-page-config"
+const (
+	configPath        = "/api/v1/status-page-config"
+	maxApplyFileBytes = 55 * 1024
+)
 
 type envelope struct {
 	APIVersion string          `json:"apiVersion" yaml:"apiVersion"`
@@ -107,17 +110,8 @@ func defaults(d Dependencies) Dependencies {
 		d.Output = func(value string) string { return value }
 	}
 	if d.ReadFile == nil {
-		d.ReadFile = os.ReadFile
-	}
-	if d.Create == nil {
-		d.Create = func(path string, force bool) (io.WriteCloser, error) {
-			flags := os.O_WRONLY | os.O_CREATE
-			if force {
-				flags |= os.O_TRUNC
-			} else {
-				flags |= os.O_EXCL
-			}
-			return os.OpenFile(path, flags, 0o600)
+		d.ReadFile = func(path string) ([]byte, error) {
+			return boundedio.ReadFile(path, maxApplyFileBytes)
 		}
 	}
 	return d
@@ -300,13 +294,13 @@ func exportCommand(d Dependencies) *cobra.Command {
 				_, err = fmt.Fprintln(d.Out, string(encoded))
 				return err
 			}
-			w, err := d.Create(file, force)
-			if err != nil {
+			if err := atomicexport.Write(file, force, func(w io.Writer) error {
+				_, writeErr := fmt.Fprintln(w, string(encoded))
+				return writeErr
+			}); err != nil {
 				return invalid("could not create export file: " + err.Error())
 			}
-			defer w.Close()
-			_, err = fmt.Fprintln(w, string(encoded))
-			return err
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&file, "file", "", "Write the configuration to a file")
@@ -329,9 +323,12 @@ func applyCommand(d Dependencies) *cobra.Command {
 			var data []byte
 			var err error
 			if file == "-" {
-				data, err = io.ReadAll(d.In)
+				data, err = boundedio.ReadAll(d.In, maxApplyFileBytes)
 			} else {
 				data, err = d.ReadFile(file)
+			}
+			if errors.Is(err, boundedio.ErrTooLarge) || len(data) > maxApplyFileBytes {
+				return invalid("configuration file exceeds 55 KB")
 			}
 			if err != nil {
 				return invalid("could not read configuration file: " + err.Error())

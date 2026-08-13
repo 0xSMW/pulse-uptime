@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm"
 import {
+  type AnyPgColumn,
   bigint,
   boolean,
   check,
@@ -279,13 +280,16 @@ export const porkbunWebhookReceipts = pgTable(
     receivedAt: timestamptz("received_at").notNull(),
     processingStartedAt: timestamptz("processing_started_at"),
     processedAt: timestamptz("processed_at"),
+    deadLetteredAt: timestamptz("dead_lettered_at"),
     attemptCount: integer("attempt_count").notNull().default(0),
     lastErrorCode: text("last_error_code"),
   },
   (table) => [
     index("porkbun_webhook_receipts_pending")
       .on(table.receivedAt)
-      .where(sql`${table.processedAt} is null`),
+      .where(
+        sql`${table.processedAt} is null and ${table.deadLetteredAt} is null`
+      ),
     check(
       "porkbun_webhook_receipts_event_type",
       sql`${table.eventType} in ('domain.renewed', 'domain.expiring', 'webhook.test')`
@@ -779,6 +783,10 @@ export const images = pgTable(
   "images",
   {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    uploadedByUserId: uuid("uploaded_by_user_id").references(
+      (): AnyPgColumn => adminUsers.id,
+      { onDelete: "set null" }
+    ),
     kind: text("kind", { enum: imageKinds }).notNull(),
     mimeType: text("mime_type").notNull(),
     bytes: bytea("bytes").notNull(),
@@ -786,9 +794,16 @@ export const images = pgTable(
     createdAt: timestamptz("created_at").notNull(),
   },
   (table) => [
+    index("images_uploaded_by_kind_created_idx")
+      .on(table.uploadedByUserId, table.kind, table.createdAt)
+      .where(sql`${table.uploadedByUserId} is not null`),
     check(
       "images_kind",
       sql`${table.kind} in ('logo-light', 'logo-dark', 'favicon', 'avatar')`
+    ),
+    check(
+      "images_owner_avatar_only",
+      sql`${table.uploadedByUserId} is null or ${table.kind} = 'avatar'`
     ),
     check("images_byte_size_positive", sql`${table.byteSize} > 0`),
   ]
@@ -877,6 +892,7 @@ export const adminUsers = pgTable(
     createdAt: timestamptz("created_at").notNull(),
     updatedAt: timestamptz("updated_at").notNull(),
     passwordChangedAt: timestamptz("password_changed_at").notNull(),
+    credentialEpoch: integer("credential_epoch").notNull().default(0),
     onboardingCompletedAt: timestamptz("onboarding_completed_at"),
   },
   (table) => [
@@ -960,6 +976,11 @@ export const apiTokens = pgTable(
     scopes: text("scopes").array().notNull(),
     createdAt: timestamptz("created_at").notNull(),
     createdByPrincipal: text("created_by_principal").notNull(),
+    credentialOwnerUserId: uuid("credential_owner_user_id").references(
+      () => adminUsers.id,
+      { onDelete: "set null" }
+    ),
+    credentialEpoch: integer("credential_epoch").notNull().default(0),
     expiresAt: timestamptz("expires_at").notNull(),
     lastUsedAt: timestamptz("last_used_at"),
     revokedAt: timestamptz("revoked_at"),
@@ -985,6 +1006,10 @@ export const cliInstallations = pgTable(
     id: uuid("id").primaryKey(),
     installationKey: text("installation_key").notNull().unique(),
     userEmail: text("user_email").notNull(),
+    userId: uuid("user_id").references(() => adminUsers.id, {
+      onDelete: "set null",
+    }),
+    credentialEpoch: integer("credential_epoch").notNull().default(0),
     displayName: text("display_name").notNull(),
     platform: text("platform").notNull(),
     architecture: text("architecture").notNull(),

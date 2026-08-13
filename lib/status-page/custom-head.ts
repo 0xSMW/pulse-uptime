@@ -27,6 +27,40 @@ const HTML_NS = parse5Html.NS.HTML
 const META_ATTRS = new Set(["name", "property", "content", "charset"])
 const LINK_ATTRS = new Set(["rel", "href", "type", "sizes", "media", "color"])
 
+const META_NAMES = new Set([
+  "application-name",
+  "author",
+  "bingbot",
+  "color-scheme",
+  "description",
+  "googlebot",
+  "robots",
+  "theme-color",
+  "twitter:card",
+  "twitter:creator",
+  "twitter:description",
+  "twitter:image",
+  "twitter:image:alt",
+  "twitter:site",
+  "twitter:title",
+])
+
+const META_PROPERTIES = new Set([
+  "og:description",
+  "og:image",
+  "og:image:alt",
+  "og:image:height",
+  "og:image:secure_url",
+  "og:image:type",
+  "og:image:url",
+  "og:image:width",
+  "og:locale",
+  "og:site_name",
+  "og:title",
+  "og:type",
+  "og:url",
+])
+
 const ICON_RELS = new Set([
   "icon",
   "shortcut icon",
@@ -138,6 +172,14 @@ function parseMeta(element: TreeElement): CustomHeadParseResult {
   const charset = attrs.charset
   if (charset !== undefined && charset.trim().toLowerCase() !== "utf-8") {
     return fail("meta charset must be utf-8")
+  }
+  const name = attrs.name?.trim().toLowerCase()
+  if (name !== undefined && !META_NAMES.has(name)) {
+    return fail("meta name is not allowed")
+  }
+  const property = attrs.property?.trim().toLowerCase()
+  if (property !== undefined && !META_PROPERTIES.has(property)) {
+    return fail("meta property is not allowed")
   }
   if (
     !(

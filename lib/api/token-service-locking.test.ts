@@ -13,6 +13,7 @@ const expiresAt = new Date("2026-08-01T00:00:00.000Z")
 
 function lockingHandle(parent: Record<string, unknown> | null) {
   const events: string[] = []
+  const insertValues: Record<string, unknown>[] = []
   let selectCalls = 0
   const inserted = {
     id: "22222222-2222-4222-8222-222222222222",
@@ -52,21 +53,28 @@ function lockingHandle(parent: Record<string, unknown> | null) {
     insert: vi.fn(() => {
       events.push("insert")
       return {
-        values: vi.fn(() => ({
-          returning: vi.fn(async () => [inserted]),
-        })),
+        values: vi.fn((values: Record<string, unknown>) => {
+          insertValues.push(values)
+          return {
+            returning: vi.fn(async () => [inserted]),
+          }
+        }),
       }
     }),
   }
   const handle = {
     transaction: vi.fn(async (work: (value: typeof tx) => unknown) => work(tx)),
   } as unknown as DatabaseHandle
-  return { handle, events, tx }
+  return { handle, events, insertValues, tx }
 }
 
 describe("API token mint serialization", () => {
   it("revalidates the exact human session before inserting", async () => {
-    const { handle, events } = lockingHandle({ role: "admin" })
+    const { handle, events, insertValues } = lockingHandle({
+      role: "admin",
+      userId: "11111111-1111-4111-8111-111111111111",
+      credentialEpoch: 7,
+    })
 
     await createApiToken(
       {
@@ -89,6 +97,10 @@ describe("API token mint serialization", () => {
     )
 
     expect(events).toEqual(["credential-lock", "parent-lock", "insert"])
+    expect(insertValues[0]).toMatchObject({
+      credentialOwnerUserId: "11111111-1111-4111-8111-111111111111",
+      credentialEpoch: 7,
+    })
   })
 
   it("rejects a human token mint after session revocation", async () => {
@@ -119,6 +131,9 @@ describe("API token mint serialization", () => {
     const { handle, events } = lockingHandle({
       scopes: ["tokens:manage", "monitors:read"],
       expiresAt: new Date("2026-09-01T00:00:00.000Z"),
+      userId: "11111111-1111-4111-8111-111111111111",
+      credentialEpoch: 7,
+      currentEpoch: 7,
     })
 
     await createApiToken(

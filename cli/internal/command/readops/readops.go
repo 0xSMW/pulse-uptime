@@ -8,10 +8,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 
 	"github.com/0xSMW/pulse-uptime/cli/internal/output"
+	"github.com/0xSMW/pulse-uptime/cli/internal/paginator"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -127,14 +127,6 @@ func newGet(d Dependencies) *cobra.Command {
 	}}
 }
 
-// Hostile-server pagination bounds mirror the other list commands so a
-// malicious server cannot drive an unbounded request loop or memory growth.
-const (
-	maxListPages   = 1000
-	maxListRecords = 100_000
-	maxListBytes   = 64 << 20
-)
-
 type ListOptions struct {
 	Limit   int
 	Cursor  string
@@ -150,69 +142,20 @@ func List(ctx context.Context, client Client, options ListOptions) (ListEnvelope
 	if options.Cursor != "" {
 		q.Set("cursor", options.Cursor)
 	}
-	remaining := options.Limit
-	result := ListEnvelope{APIVersion: "v1", Kind: "IncidentList", Data: make([]json.RawMessage, 0)}
-	seen := map[string]struct{}{}
-	if options.Cursor != "" {
-		seen[options.Cursor] = struct{}{}
-	}
-	totalBytes := 0
-	for pages := 0; ; pages++ {
-		if pages >= maxListPages {
-			return ListEnvelope{}, pageLimit("server returned more incident pages than the client will follow")
-		}
-		pageSize := 0
-		if remaining > 0 {
-			pageSize = remaining
-			if pageSize > 100 {
-				pageSize = 100
-			}
-		}
-		if pageSize > 0 {
-			q.Set("limit", strconv.Itoa(pageSize))
-		}
+	result, err := paginator.Aggregate(ctx, paginator.Options{
+		Query: q, Limit: options.Limit, Cursor: options.Cursor, Follow: options.All || options.Machine,
+		APIVersion: "v1", Kind: "IncidentList", PageName: "incident", RecordName: "incidents", LimitError: pageLimit,
+	}, func(ctx context.Context, query url.Values) (paginator.Page[Meta], error) {
 		var page ListEnvelope
-		if err := client.Do(ctx, Request{Method: http.MethodGet, Path: "/api/v1/incidents", Query: clone(q), Result: &page}); err != nil {
-			return ListEnvelope{}, err
+		if err := client.Do(ctx, Request{Method: http.MethodGet, Path: "/api/v1/incidents", Query: query, Result: &page}); err != nil {
+			return paginator.Page[Meta]{}, err
 		}
-		accepted := page.Data
-		if remaining > 0 && len(accepted) > remaining {
-			accepted = accepted[:remaining]
-		}
-		for _, raw := range accepted {
-			totalBytes += len(raw)
-		}
-		if totalBytes > maxListBytes {
-			return ListEnvelope{}, pageLimit("server exceeded the maximum aggregate response size")
-		}
-		result.Data = append(result.Data, accepted...)
-		if len(result.Data) > maxListRecords {
-			return ListEnvelope{}, pageLimit("server returned more incidents than the client will aggregate")
-		}
-		result.Meta = page.Meta
-		if page.APIVersion != "" {
-			result.APIVersion = page.APIVersion
-		}
-		if page.Kind != "" {
-			result.Kind = page.Kind
-		}
-		if remaining > 0 {
-			remaining -= len(accepted)
-			if remaining <= 0 {
-				break
-			}
-		}
-		if !(options.All || options.Machine) || page.Meta.NextCursor == nil || *page.Meta.NextCursor == "" {
-			break
-		}
-		next := *page.Meta.NextCursor
-		if _, ok := seen[next]; ok {
-			return ListEnvelope{}, pageLimit("server returned a repeating pagination cursor")
-		}
-		seen[next] = struct{}{}
-		q.Set("cursor", next)
+		return paginator.Page[Meta]{APIVersion: page.APIVersion, Kind: page.Kind, Data: page.Data, Meta: page.Meta, NextCursor: page.Meta.NextCursor}, nil
+	})
+	if err != nil {
+		return ListEnvelope{}, err
 	}
-	return result, nil
+	return ListEnvelope{APIVersion: result.APIVersion, Kind: result.Kind, Data: result.Data, Meta: result.Meta}, nil
 }
 
 func pageLimit(message string) error {
@@ -225,14 +168,6 @@ func machine(f string) bool { return f == "json" || f == "jsonl" || f == "yaml" 
 func invalid(message string) error {
 	return &Error{Exit: 2, Code: "INVALID_ARGUMENT", Message: message}
 }
-func clone(q url.Values) url.Values {
-	out := url.Values{}
-	for k, v := range q {
-		out[k] = append([]string(nil), v...)
-	}
-	return out
-}
-
 func renderEnvelope(d Dependencies, f string, doc Envelope) error {
 	switch f {
 	case "json":

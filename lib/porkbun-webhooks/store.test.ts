@@ -5,6 +5,7 @@ vi.mock("@/lib/db/client", () => ({ db: {} }))
 import {
   decryptPorkbunWebhookSecret,
   encryptPorkbunWebhookSecret,
+  readPorkbunWebhookSigningSecret,
   upsertPorkbunIntegration,
 } from "./store"
 
@@ -51,5 +52,35 @@ describe("Porkbun webhook secret encryption", () => {
     await expect(
       upsertPorkbunIntegration({ webhookId: 123 }, { handle: {} as never })
     ).rejects.toThrow("Porkbun webhook ID and secret must be updated together")
+  })
+
+  it("observes committed rotation independently across warm instances", async () => {
+    vi.stubEnv("API_TOKEN_HASH_KEY", key)
+    let encrypted = encryptPorkbunWebhookSecret("first-secret", key)
+    const handle = () =>
+      ({
+        select: () => ({
+          from: () => ({
+            where: () => ({ limit: async () => [{ encrypted }] }),
+          }),
+        }),
+      }) as never
+    const firstInstance = handle()
+    const secondInstance = handle()
+
+    expect(await readPorkbunWebhookSigningSecret(firstInstance)).toBe(
+      "first-secret"
+    )
+    expect(await readPorkbunWebhookSigningSecret(secondInstance)).toBe(
+      "first-secret"
+    )
+
+    encrypted = encryptPorkbunWebhookSecret("next-secret", key)
+    expect(await readPorkbunWebhookSigningSecret(firstInstance)).toBe(
+      "next-secret"
+    )
+    expect(await readPorkbunWebhookSigningSecret(secondInstance)).toBe(
+      "next-secret"
+    )
   })
 })

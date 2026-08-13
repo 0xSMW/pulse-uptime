@@ -36,7 +36,7 @@ func TestListMachinePaginationPreservesCursorAndOrder(t *testing.T) {
 	var queries []url.Values
 	next := "next"
 	client := clientFunc(func(_ context.Context, r Request) error {
-		queries = append(queries, clone(r.Query))
+		queries = append(queries, r.Query)
 		doc := r.Result.(*ListEnvelope)
 		doc.APIVersion = "v1"
 		doc.Kind = "IncidentList"

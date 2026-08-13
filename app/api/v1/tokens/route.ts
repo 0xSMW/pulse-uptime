@@ -16,6 +16,7 @@ import { routeError } from "@/lib/api/route"
 import {
   createApiToken,
   listApiTokens,
+  requireReplayableApiToken,
   TokenServiceError,
   validateTokenInput,
 } from "@/lib/api/token-service"
@@ -108,9 +109,11 @@ export async function POST(request: Request) {
         }
       },
       persistBody: persistCreatedToken,
-      replayBody: (stored, { operationId }) =>
-        replayCreatedToken(
-          stored as PersistedCreatedTokenData,
+      replayBody: async (stored, { operationId }) => {
+        const persisted = stored as PersistedCreatedTokenData
+        await requireReplayableApiToken(persisted.id)
+        return replayCreatedToken(
+          persisted,
           deriveBearerToken(
             credentialDerivationContext({
               kind: "api-token",
@@ -120,7 +123,8 @@ export async function POST(request: Request) {
               operationId,
             })
           ).raw
-        ),
+        )
+      },
     })
     return apiJson(
       objectEnvelope("CreatedToken", result.body, context.requestId),

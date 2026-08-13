@@ -1,8 +1,19 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { fetchDomainFacts, type RdapFetcher } from "./rdap"
+import { createSecureConnect } from "@/lib/checker/checker"
+import type { SecureLookup } from "@/lib/checker/secure-lookup"
+import type { ManagedDispatcher } from "@/lib/checker/types"
 
-function jsonResponse(document: unknown, status = 200) {
+import {
+  fetchDomainFacts,
+  type RdapFetcher,
+  type RdapTransportDependencies,
+} from "./rdap"
+
+function jsonResponse(
+  document: unknown,
+  status = 200
+): Awaited<ReturnType<RdapFetcher>> {
   return {
     ok: status >= 200 && status < 300,
     status,
@@ -29,6 +40,12 @@ const rdapDocument = {
   ],
 }
 
+function fakeDispatcher() {
+  return {
+    close: vi.fn(async () => undefined),
+  } as unknown as ManagedDispatcher
+}
+
 describe("fetchDomainFacts", () => {
   it("parses the expiration event and registrar name", async () => {
     const fetcher = vi.fn<RdapFetcher>(async () => jsonResponse(rdapDocument))
@@ -40,8 +57,165 @@ describe("fetchDomainFacts", () => {
       "https://rdap.org/domain/klu.ai",
       expect.objectContaining({
         headers: { accept: "application/rdap+json" },
+        redirect: "manual",
       })
     )
+  })
+
+  it("follows a registry redirect with the secure transport and preserves facts", async () => {
+    const dispatchers = [fakeDispatcher(), fakeDispatcher()]
+    const createDispatcher = vi
+      .fn<NonNullable<RdapTransportDependencies["createDispatcher"]>>()
+      .mockReturnValueOnce(dispatchers[0]!)
+      .mockReturnValueOnce(dispatchers[1]!)
+    const request = vi
+      .fn<NonNullable<RdapTransportDependencies["request"]>>()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 302,
+        headers: { location: "https://registry.example/domain/klu.ai" },
+        body: { destroy: vi.fn() },
+        text: async () => "",
+      })
+      .mockResolvedValueOnce(jsonResponse(rdapDocument))
+
+    const facts = await fetchDomainFacts("klu.ai", undefined, {
+      createDispatcher,
+      request,
+      resolveAll: async () => [{ address: "8.8.8.8", family: 4 }],
+    })
+
+    expect(facts.expiresAt?.toISOString()).toBe("2027-01-22T10:44:22.000Z")
+    expect(facts.registrar).toBe("Namecheap, Inc.")
+    expect(facts.outcome).toBe("resolved")
+    expect(request).toHaveBeenCalledTimes(2)
+    expect(request.mock.calls[0]?.[1].maxRedirections).toBe(0)
+    expect(request.mock.calls[1]?.[0].href).toBe(
+      "https://registry.example/domain/klu.ai"
+    )
+    expect(createDispatcher).toHaveBeenCalledTimes(2)
+    expect(dispatchers[0]?.close).toHaveBeenCalledOnce()
+    expect(dispatchers[1]?.close).toHaveBeenCalledOnce()
+  })
+
+  it("rejects a redirect whose destination resolves to a private address", async () => {
+    const dispatcher = fakeDispatcher()
+    const lookups = new Map<string, SecureLookup>()
+    const createDispatcher = vi.fn(
+      (
+        options: Parameters<
+          NonNullable<RdapTransportDependencies["createDispatcher"]>
+        >[0]
+      ) => {
+        lookups.set(options.origin, options.lookup)
+        return dispatcher
+      }
+    )
+    const request = vi.fn(
+      async (url: URL): Promise<Awaited<ReturnType<RdapFetcher>>> => {
+        if (url.hostname === "rdap.org") {
+          return {
+            ok: false,
+            status: 302,
+            headers: { location: "https://internal.example/domain/klu.ai" },
+            text: async () => "",
+          }
+        }
+        const lookup = lookups.get(url.origin)
+        if (!lookup) {
+          throw new Error("lookup was not installed")
+        }
+        await new Promise<void>((resolve, reject) => {
+          lookup(url.hostname, { all: true }, (error) => {
+            if (error) {
+              reject(error)
+            } else {
+              resolve()
+            }
+          })
+        })
+        return jsonResponse(rdapDocument)
+      }
+    )
+
+    expect(
+      await fetchDomainFacts("klu.ai", undefined, {
+        createDispatcher,
+        request,
+        resolveAll: async (hostname) => [
+          {
+            address: hostname === "internal.example" ? "127.0.0.1" : "8.8.8.8",
+            family: 4,
+          },
+        ],
+      })
+    ).toEqual({ expiresAt: null, registrar: null, outcome: "failed" })
+    expect(request).toHaveBeenCalledTimes(2)
+  })
+
+  it("rejects a private connected peer before accepting an RDAP response", async () => {
+    const dispatcher = fakeDispatcher()
+    let connect: ReturnType<typeof createSecureConnect> | undefined
+    const createDispatcher = vi.fn(
+      (
+        options: Parameters<
+          NonNullable<RdapTransportDependencies["createDispatcher"]>
+        >[0]
+      ) => {
+        connect = createSecureConnect({
+          lookup: options.lookup,
+          connectTimeoutMs: options.connectTimeoutMs,
+          onConnectedAddress: options.onConnectedAddress,
+          baseConnect: (_connectorOptions, callback) =>
+            callback(null, {
+              remoteAddress: "127.0.0.1",
+              destroy: vi.fn(),
+            } as never),
+        })
+        return dispatcher
+      }
+    )
+    const request = vi.fn(async (url: URL) => {
+      const activeConnect = connect
+      if (!activeConnect) {
+        throw new Error("secure connector was not installed")
+      }
+      await new Promise<void>((resolve, reject) => {
+        activeConnect(
+          {
+            hostname: url.hostname,
+            protocol: url.protocol,
+            port: "443",
+          },
+          (error, _socket) => (error ? reject(error) : resolve())
+        )
+      })
+      return jsonResponse(rdapDocument)
+    })
+
+    expect(
+      await fetchDomainFacts("klu.ai", undefined, {
+        createDispatcher,
+        request,
+      })
+    ).toEqual({ expiresAt: null, registrar: null, outcome: "failed" })
+    expect(request).toHaveBeenCalledOnce()
+  })
+
+  it("stops after five manually followed redirects", async () => {
+    const fetcher = vi.fn<RdapFetcher>(async () => ({
+      ok: false,
+      status: 302,
+      headers: { location: "https://registry.example/again" },
+      text: async () => "",
+    }))
+
+    expect(await fetchDomainFacts("klu.ai", fetcher)).toEqual({
+      expiresAt: null,
+      registrar: null,
+      outcome: "failed",
+    })
+    expect(fetcher).toHaveBeenCalledTimes(6)
   })
 
   it("returns uncovered null facts for a TLD without RDAP coverage", async () => {

@@ -8,7 +8,8 @@ interface NotificationSendResult {
 export interface NotificationSender {
   send: (
     message: NotificationMessage,
-    idempotencyKey: string
+    idempotencyKey: string,
+    signal?: AbortSignal
   ) => Promise<NotificationSendResult>
 }
 
@@ -17,9 +18,9 @@ export class NotificationProviderError extends Error {
 
   constructor(
     readonly code: string,
-    options: { retryable: boolean }
+    options: { retryable: boolean; cause?: unknown }
   ) {
-    super(code)
+    super(code, { cause: options.cause })
     this.name = "NotificationProviderError"
     this.retryable = options.retryable
   }
@@ -49,11 +50,18 @@ export function createResendSender(options: {
   }
   const resend = new Resend(options.apiKey)
   return {
-    async send(message, idempotencyKey) {
+    async send(message, idempotencyKey, signal) {
+      const requestOptions = { idempotencyKey, signal }
       const response = await resend.emails.send(
         { ...message, from: options.from },
-        { idempotencyKey }
+        requestOptions
       )
+      if (signal?.aborted) {
+        throw new NotificationProviderError("delivery_timeout", {
+          retryable: true,
+          cause: signal.reason,
+        })
+      }
       if (response.error) {
         throw new NotificationProviderError(response.error.name, {
           retryable:

@@ -6,6 +6,10 @@ import { dispatchDueMonitors, type MonitorRunOutcome } from "./dispatch"
 import { type LeaseStore, MONITORING_LEASE } from "./lease"
 import type { CronRunCounts, CronRunStore } from "./run-record"
 
+const FUNCTION_MAX_DURATION_MS = 60_000
+export const MONITOR_DISPATCH_RESERVE_MS = 45_000
+const FINALIZATION_RESERVE_MS = 8000
+
 export interface MonitoringCoordinatorDependencies {
   leases: LeaseStore
   runs: CronRunStore
@@ -13,7 +17,7 @@ export interface MonitoringCoordinatorDependencies {
   releaseId: string
   loadConfig: (now: Date) => Promise<MonitoringConfig>
   reconcileOutbox: (now: Date) => Promise<number>
-  deliverOutbox: () => Promise<DeliverySummary>
+  deliverOutbox: (deadlineAtMs: number) => Promise<DeliverySummary>
   runMonitor: (
     monitor: MonitorConfig,
     scheduledAt: Date,
@@ -61,7 +65,11 @@ export async function runMonitoringCoordinator(
     async ({ runId, startedAt, scheduledMinute, progress }) => {
       const config = await dependencies.loadConfig(startedAt)
       const staleClaims = await dependencies.reconcileOutbox(startedAt)
-      await dependencies.deliverOutbox()
+      await dependencies.deliverOutbox(
+        invocationStartedAtMs +
+          FUNCTION_MAX_DURATION_MS -
+          MONITOR_DISPATCH_RESERVE_MS
+      )
       const counts = await dispatchDueMonitors({
         monitors: config.monitors,
         scheduledAt: scheduledMinute,
@@ -82,7 +90,11 @@ export async function runMonitoringCoordinator(
           now()
         )
       }
-      await dependencies.deliverOutbox()
+      await dependencies.deliverOutbox(
+        invocationStartedAtMs +
+          FUNCTION_MAX_DURATION_MS -
+          FINALIZATION_RESERVE_MS
+      )
       return { counts, staleClaims }
     }
   )

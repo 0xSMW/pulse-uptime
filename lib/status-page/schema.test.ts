@@ -190,6 +190,13 @@ describe("status page config document schema", () => {
     expectRejected({
       customHead: '<meta name="x" content="y" onload="alert(1)">',
     })
+    expectRejected({
+      customHead: '<meta name=" ReFeRrEr " content="unsafe-url">',
+    })
+    expectRejected({ customHead: '<meta name="arbitrary" content="value">' })
+    expectRejected({
+      customHead: '<meta property="example:unknown" content="value">',
+    })
   })
 
   it("bounds minIncidentSeconds to zero through seven days", () => {

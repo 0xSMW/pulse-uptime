@@ -1,6 +1,8 @@
 import "server-only"
 
 import { and, eq, isNull, ne, sql } from "drizzle-orm"
+import { revokeUserMachineCredentials } from "@/lib/api/credential-revocation"
+import { avatarUploadLockKey } from "@/lib/api/images"
 import { lockMachineCredentialChanges } from "@/lib/api/machine-credential-lock"
 import {
   enforceRateLimit,
@@ -152,15 +154,20 @@ export async function findAccountProfile(
 }
 
 export interface ProfileUpdateStore {
-  findAvatarImage: (imageId: string) => Promise<{ kind: string } | null>
+  findAvatarImage: (
+    imageId: string,
+    userId: string
+  ) => Promise<{ kind: string } | null>
   applyProfileUpdate: (input: {
     userId: string
     patch: ProfilePatch
     now: Date
   }) => Promise<
-    (AccountProfile & { previousAvatarImageId: string | null }) | null
+    | (AccountProfile & { previousAvatarImageId: string | null })
+    | "image_not_found"
+    | null
   >
-  deleteAvatarImage: (imageId: string) => Promise<void>
+  deleteAvatarImage: (imageId: string, userId: string) => Promise<void>
 }
 
 export interface ProfileUpdateDependencies {
@@ -180,7 +187,7 @@ export async function updateAccountProfile(
 ): Promise<AccountProfile> {
   const store = dependencies.store ?? databaseProfileUpdateStore
   if (patch.avatarImageId) {
-    const image = await store.findAvatarImage(patch.avatarImageId)
+    const image = await store.findAvatarImage(patch.avatarImageId, userId)
     if (image?.kind !== "avatar") {
       throw new AccountServiceError(
         "IMAGE_NOT_FOUND",
@@ -193,6 +200,12 @@ export async function updateAccountProfile(
     patch,
     now: dependencies.now?.() ?? new Date(),
   })
+  if (result === "image_not_found") {
+    throw new AccountServiceError(
+      "IMAGE_NOT_FOUND",
+      "Upload the avatar image first, then attach it"
+    )
+  }
   if (!result) {
     throw new AccountServiceError(
       "ACCOUNT_NOT_FOUND",
@@ -205,22 +218,48 @@ export async function updateAccountProfile(
     previousAvatarImageId &&
     previousAvatarImageId !== patch.avatarImageId
   ) {
-    await store.deleteAvatarImage(previousAvatarImageId).catch(() => undefined)
+    await store
+      .deleteAvatarImage(previousAvatarImageId, userId)
+      .catch(() => undefined)
   }
   return profile
 }
 
-const databaseProfileUpdateStore: ProfileUpdateStore = {
-  async findAvatarImage(imageId) {
+export const databaseProfileUpdateStore: ProfileUpdateStore = {
+  async findAvatarImage(imageId, userId) {
     const [row] = await db
       .select({ kind: images.kind })
       .from(images)
-      .where(eq(images.id, imageId))
+      .where(and(eq(images.id, imageId), eq(images.uploadedByUserId, userId)))
       .limit(1)
     return row ?? null
   },
   async applyProfileUpdate({ userId, patch, now }) {
     return db.transaction(async (tx) => {
+      if ("avatarImageId" in patch) {
+        // Use the same per-user lock as avatar upload replacement. Ownership
+        // and kind are revalidated after locking to close the attach race.
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${avatarUploadLockKey(userId)}, 0))`
+        )
+        if (patch.avatarImageId) {
+          const [avatar] = await tx
+            .select({ kind: images.kind })
+            .from(images)
+            .where(
+              and(
+                eq(images.id, patch.avatarImageId),
+                eq(images.uploadedByUserId, userId),
+                eq(images.kind, "avatar")
+              )
+            )
+            .limit(1)
+            .for("update")
+          if (!avatar) {
+            return "image_not_found"
+          }
+        }
+      }
       const [current] = await tx
         .select({ avatarImageId: adminUsers.avatarImageId })
         .from(adminUsers)
@@ -239,10 +278,16 @@ const databaseProfileUpdateStore: ProfileUpdateStore = {
         : null
     })
   },
-  async deleteAvatarImage(imageId) {
+  async deleteAvatarImage(imageId, userId) {
     await db
       .delete(images)
-      .where(and(eq(images.id, imageId), eq(images.kind, "avatar")))
+      .where(
+        and(
+          eq(images.id, imageId),
+          eq(images.kind, "avatar"),
+          eq(images.uploadedByUserId, userId)
+        )
+      )
   },
 }
 
@@ -458,8 +503,9 @@ export interface PasswordChangeDependencies {
  * Changes the administrator password. Shares the login rate-limit buckets so
  * current-password guesses count against the same 5-per-15-minutes budget as
  * sign-in attempts, then re-hashes with Argon2id, stamps passwordChangedAt,
- * and revokes every unrevoked human session (including the current one) in the
- * same transaction. The update compare-and-sets against the verified digest so
+ * increments the durable credential epoch, and revokes all human sessions,
+ * directly issued API tokens, and linked CLI installations in the same
+ * transaction. The update compare-and-sets against the verified digest so
  * concurrent rotations have a single winner.
  */
 export async function changeAccountPassword(
@@ -547,16 +593,21 @@ const databasePasswordChangeStore: PasswordChangeStore = {
     now,
   }) {
     return db.transaction(async (tx) => {
+      await lockMachineCredentialChanges(tx)
       const updated = await tx
         .update(adminUsers)
-        .set({ passwordDigest, passwordChangedAt: now, updatedAt: now })
+        .set({
+          passwordDigest,
+          passwordChangedAt: now,
+          updatedAt: now,
+        })
         .where(
           and(
             eq(adminUsers.id, userId),
             eq(adminUsers.passwordDigest, expectedPasswordDigest)
           )
         )
-        .returning({ id: adminUsers.id })
+        .returning({ id: adminUsers.id, email: adminUsers.email })
       if (updated.length === 0) {
         return "conflict"
       }
@@ -566,6 +617,11 @@ const databasePasswordChangeStore: PasswordChangeStore = {
         .where(
           and(eq(humanSessions.userId, userId), isNull(humanSessions.revokedAt))
         )
+      await revokeUserMachineCredentials(tx, {
+        userId,
+        userEmail: updated[0]!.email,
+        now,
+      })
       return "applied"
     })
   },

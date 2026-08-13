@@ -216,7 +216,7 @@ func newRemoveCommand(d Dependencies) *cobra.Command {
 			if !d.StdinTTY {
 				return invalid("noninteractive removal requires --yes")
 			}
-			fmt.Fprintf(d.Err, "Remove user %s and revoke their sessions and tokens? [y/N] ", id)
+			fmt.Fprintf(d.Err, "Remove user %s and revoke their sessions and tokens? [y/N] ", output.SanitizeDisplay(id))
 			line, err := bufio.NewReader(d.In).ReadString('\n')
 			if err != nil && !errors.Is(err, io.EOF) {
 				return err

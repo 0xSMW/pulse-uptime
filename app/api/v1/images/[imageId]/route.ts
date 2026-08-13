@@ -1,5 +1,5 @@
 import { apiError } from "@/lib/api/envelopes"
-import { findImage, imageResponse } from "@/lib/api/images"
+import { findAuthorizedImage, imageResponse } from "@/lib/api/images"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
 
 /**
@@ -24,7 +24,7 @@ export async function GET(
     )
   }
   const { imageId } = await params
-  const image = await findImage(imageId)
+  const image = await findAuthorizedImage(imageId, context.principal.id)
   if (!image) {
     return apiError(
       context.requestId,
@@ -33,5 +33,5 @@ export async function GET(
       "The image was not found"
     )
   }
-  return imageResponse(image, "private, max-age=300")
+  return imageResponse(image, "private, no-store")
 }

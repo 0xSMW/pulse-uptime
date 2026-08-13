@@ -16,20 +16,12 @@ import (
 	"time"
 
 	"github.com/0xSMW/pulse-uptime/cli/internal/output"
+	"github.com/0xSMW/pulse-uptime/cli/internal/paginator"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
 
 var SupportedScopes = []string{"config:read", "config:write", "dependencies:read", "dependencies:write", "incidents:read", "monitors:read", "monitors:write", "notifications:test", "reports:read", "reports:write", "status:read", "tokens:manage", "users:manage"}
-
-// Hostile-server pagination bounds. A malicious server that returns a repeating
-// or non-advancing cursor, or an endless stream of pages, must not drive the
-// CLI into an unbounded request loop or memory growth.
-const (
-	maxListPages   = 1000
-	maxListRecords = 100_000
-	maxListBytes   = 64 << 20
-)
 
 type Transport interface {
 	Do(context.Context, string, string, any, http.Header, any) (http.Header, error)
@@ -77,6 +69,18 @@ type Envelope struct {
 	APIVersion string         `json:"apiVersion" yaml:"apiVersion"`
 	Kind       string         `json:"kind" yaml:"kind"`
 	Data       map[string]any `json:"data" yaml:"data"`
+}
+
+type tokenListMeta struct {
+	NextCursor *string `json:"nextCursor"`
+	RequestID  string  `json:"requestId"`
+}
+
+type tokenListEnvelope struct {
+	APIVersion string            `json:"apiVersion"`
+	Kind       string            `json:"kind"`
+	Data       []json.RawMessage `json:"data"`
+	Meta       tokenListMeta     `json:"meta"`
 }
 
 func NewTokenCommand(d Dependencies) *cobra.Command {
@@ -264,69 +268,26 @@ func tokenList(d Dependencies) *cobra.Command {
 		if d.Client == nil {
 			return unavailable()
 		}
-		var records []json.RawMessage
-		next := cursor
-		seen := map[string]struct{}{}
-		if cursor != "" {
-			seen[cursor] = struct{}{}
-		}
-		totalBytes := 0
-		for pages := 0; ; pages++ {
-			if pages >= maxListPages {
-				return pageLimit("server returned more token pages than the client will follow")
-			}
-			query := url.Values{}
-			if next != "" {
-				query.Set("cursor", next)
-			}
-			if limit > 0 {
-				pageSize := limit - len(records)
-				if pageSize > 100 {
-					pageSize = 100
-				}
-				query.Set("limit", strconv.Itoa(pageSize))
-			}
+		result, err := paginator.Aggregate(cmd.Context(), paginator.Options{
+			Limit: limit, Cursor: cursor, Follow: all || d.Output("table") != "table",
+			APIVersion: "v1", Kind: "TokenList", PageName: "token", RecordName: "tokens", LimitError: pageLimit,
+		}, func(ctx context.Context, query url.Values) (paginator.Page[tokenListMeta], error) {
 			path := "/api/v1/tokens"
 			if encoded := query.Encode(); encoded != "" {
 				path += "?" + encoded
 			}
-			var page struct {
-				APIVersion string            `json:"apiVersion"`
-				Kind       string            `json:"kind"`
-				Data       []json.RawMessage `json:"data"`
-				Meta       struct {
-					NextCursor *string `json:"nextCursor"`
-					RequestID  string  `json:"requestId"`
-				} `json:"meta"`
+			var page tokenListEnvelope
+			if _, err := d.Client.Do(ctx, http.MethodGet, path, nil, nil, &page); err != nil {
+				return paginator.Page[tokenListMeta]{}, err
 			}
-			if _, err := d.Client.Do(cmd.Context(), http.MethodGet, path, nil, nil, &page); err != nil {
-				return err
-			}
-			accepted := page.Data
-			if limit > 0 && len(records)+len(accepted) > limit {
-				accepted = accepted[:limit-len(records)]
-			}
-			for _, raw := range accepted {
-				totalBytes += len(raw)
-			}
-			if totalBytes > maxListBytes {
-				return pageLimit("server exceeded the maximum aggregate response size")
-			}
-			records = append(records, accepted...)
-			if len(records) > maxListRecords {
-				return pageLimit("server returned more tokens than the client will aggregate")
-			}
-			if limit > 0 && len(records) >= limit {
-				break
-			}
-			if page.Meta.NextCursor == nil || *page.Meta.NextCursor == "" || (!all && d.Output("table") == "table") {
-				break
-			}
-			next = *page.Meta.NextCursor
-			if _, ok := seen[next]; ok {
-				return pageLimit("server returned a repeating pagination cursor")
-			}
-			seen[next] = struct{}{}
+			return paginator.Page[tokenListMeta]{APIVersion: page.APIVersion, Kind: page.Kind, Data: page.Data, Meta: page.Meta, NextCursor: page.Meta.NextCursor}, nil
+		})
+		if err != nil {
+			return err
+		}
+		records := result.Data
+		if len(records) == 0 {
+			records = nil
 		}
 		return render(d, map[string]any{"apiVersion": "v1", "kind": "TokenList", "data": records}, "table")
 	}}

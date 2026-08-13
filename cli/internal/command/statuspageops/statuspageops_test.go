@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -379,28 +381,51 @@ func TestExportApplyRoundTripPreservesWeakEtag(t *testing.T) {
 	}
 }
 
-func TestExportToFileUsesCreate(t *testing.T) {
-	var file bytes.Buffer
-	created := ""
-	d := Dependencies{
-		Client: serveConfig(t, `W/"abc"`, nil),
-		Create: func(path string, force bool) (io.WriteCloser, error) {
-			created = path
-			return nopCloser{&file}, nil
-		},
-		Output: func(string) string { return "json" },
-	}
-	if err := run(t, d, "export", "--file", "status-page.json"); err != nil {
+func TestExportToFileWritesPrivateDocument(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "status-page.json")
+	if err := run(t, Dependencies{Client: serveConfig(t, `W/"abc"`, nil)}, "export", "--file", path); err != nil {
 		t.Fatal(err)
 	}
-	if created != "status-page.json" || !strings.Contains(file.String(), `"_etag"`) {
-		t.Fatalf("created=%q content=%q", created, file.String())
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"_etag"`) {
+		t.Fatalf("content = %q", data)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("mode = %04o", got)
 	}
 }
 
-type nopCloser struct{ io.Writer }
+func TestExportForceRejectsSymlinkWithoutChangingTarget(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.json")
+	link := filepath.Join(dir, "status-page.json")
+	if err := os.WriteFile(target, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
 
-func (nopCloser) Close() error { return nil }
+	err := run(t, Dependencies{Client: serveConfig(t, `W/"abc"`, nil)}, "export", "--file", link, "--force")
+	var typed *Error
+	if !errors.As(err, &typed) || !strings.Contains(typed.Message, "symlink") {
+		t.Fatalf("error = %#v", err)
+	}
+	data, readErr := os.ReadFile(target)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(data) != "keep" {
+		t.Fatalf("target content = %q", data)
+	}
+}
 
 func TestApplySendsIfMatchFromFileAndStripsUnderscore(t *testing.T) {
 	var putBody map[string]any
@@ -447,6 +472,14 @@ func TestApplyReadsStdin(t *testing.T) {
 	}
 	if putBody["name"] != "Piped" {
 		t.Fatalf("body=%v", putBody)
+	}
+}
+
+func TestApplyRejectsOversizeInputBeforeRequest(t *testing.T) {
+	client := serveConfig(t, `W/"abc"`, func(any, http.Header) { t.Fatal("PUT sent") })
+	err := run(t, Dependencies{Client: client, In: strings.NewReader(strings.Repeat("x", maxApplyFileBytes+1))}, "apply", "--file", "-")
+	if err == nil || !strings.Contains(err.Error(), "exceeds 55 KB") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

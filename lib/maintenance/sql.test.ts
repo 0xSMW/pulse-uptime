@@ -48,7 +48,7 @@ describe("maintenance SQL store", () => {
     expect(query.mock.calls[0]?.[0]).toContain("latest_point")
   })
 
-  it("sweeps orphan images with an age cutoff and a newest-N hard cap", async () => {
+  it("ages out owner-bound images while capping only legacy orphans", async () => {
     const query = vi.fn().mockResolvedValue([])
     const cutoff = new Date("2026-07-17T12:00:00Z")
     await createSqlMaintenanceStore({ query }).deleteOrphanImages(
@@ -60,7 +60,10 @@ describe("maintenance SQL store", () => {
     expect(text).toContain("logo_light_image_id")
     expect(text).toContain("avatar_image_id from admin_users")
     expect(text).toContain("row_number() over (order by images.created_at desc")
-    expect(text).toContain("created_at < $1 or position > $2")
+    expect(text).toContain("images.uploaded_by_user_id")
+    expect(text).toContain("legacy_ranked")
+    expect(text).toContain("where uploaded_by_user_id is null")
+    expect(text).toContain("from legacy_ranked where position > $2")
     expect(text).toContain("limit $3")
     expect(values).toEqual([cutoff, 20, 10_000])
   })
