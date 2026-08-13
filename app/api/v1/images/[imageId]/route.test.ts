@@ -29,6 +29,7 @@ const humanContext: ApiContext = {
 
 const avatar: StoredImage = {
   id: IMAGE_ID,
+  uploadedByUserId: "user-1",
   kind: "avatar",
   mimeType: "image/png",
   bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
@@ -44,7 +45,7 @@ function imageRequest(id = IMAGE_ID) {
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(authorize).mockResolvedValue(humanContext)
-  vi.spyOn(databaseImageStore, "find").mockResolvedValue(avatar)
+  vi.spyOn(databaseImageStore, "findAuthorized").mockResolvedValue(avatar)
 })
 
 describe("GET /api/v1/images/{imageId}", () => {
@@ -63,19 +64,55 @@ describe("GET /api/v1/images/{imageId}", () => {
     expect(response.status).toBe(403)
     const payload = await response.json()
     expect(payload.error.code).toBe("SESSION_REQUIRED")
-    expect(databaseImageStore.find).not.toHaveBeenCalled()
+    expect(databaseImageStore.findAuthorized).not.toHaveBeenCalled()
   })
 
-  it("serves any stored kind to the dashboard with a short private cache", async () => {
+  it("serves owned avatars without browser storage", async () => {
     const response = await imageRequest()
     expect(response.status).toBe(200)
     expect(response.headers.get("Content-Type")).toBe("image/png")
-    expect(response.headers.get("Cache-Control")).toBe("private, max-age=300")
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store")
     expect(response.headers.get("Content-Disposition")).toBe("inline")
   })
 
+  it("hides another user's avatar", async () => {
+    vi.mocked(databaseImageStore.findAuthorized).mockResolvedValue(null)
+    const response = await imageRequest()
+    expect(response.status).toBe(404)
+    expect((await response.json()).error.code).toBe("IMAGE_NOT_FOUND")
+    expect(databaseImageStore.findAuthorized).toHaveBeenCalledWith(
+      IMAGE_ID,
+      "user-1"
+    )
+  })
+
+  it("preserves authenticated branding preview access", async () => {
+    vi.mocked(databaseImageStore.findAuthorized).mockResolvedValue({
+      ...avatar,
+      kind: "logo-light",
+      uploadedByUserId: "user-2",
+    })
+    const response = await imageRequest()
+    expect(response.status).toBe(200)
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store")
+  })
+
+  it("serves a legacy owner-null avatar authorized by its current attachment", async () => {
+    vi.mocked(databaseImageStore.findAuthorized).mockResolvedValue({
+      ...avatar,
+      uploadedByUserId: null,
+    })
+    const response = await imageRequest()
+    expect(response.status).toBe(200)
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store")
+    expect(databaseImageStore.findAuthorized).toHaveBeenCalledWith(
+      IMAGE_ID,
+      "user-1"
+    )
+  })
+
   it("returns 404 for unknown ids", async () => {
-    vi.mocked(databaseImageStore.find).mockResolvedValue(null)
+    vi.mocked(databaseImageStore.findAuthorized).mockResolvedValue(null)
     const response = await imageRequest()
     expect(response.status).toBe(404)
     const payload = await response.json()
@@ -85,6 +122,6 @@ describe("GET /api/v1/images/{imageId}", () => {
   it("returns 404 for malformed ids without querying", async () => {
     const response = await imageRequest("not-a-uuid")
     expect(response.status).toBe(404)
-    expect(databaseImageStore.find).not.toHaveBeenCalled()
+    expect(databaseImageStore.findAuthorized).not.toHaveBeenCalled()
   })
 })
