@@ -128,6 +128,34 @@ func TestDeletePromptCancellationMakesNoRequest(t *testing.T) {
 	}
 }
 
+func TestDeletePromptSanitizesGroupID(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+		want string
+	}{
+		{name: "ordinary ID", id: "prod", want: "Delete empty group prod? [y/N] Canceled\n"},
+		{name: "terminal controls", id: "prod\x1b[2J\t\u202e", want: `Delete empty group prod\x1b[2J\x09\u202e? [y/N] Canceled` + "\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &fakeClient{}
+			var stderr bytes.Buffer
+			cmd := NewGroup(Dependencies{Client: client, In: strings.NewReader("no\n"), Err: &stderr, StdinTTY: true})
+			cmd.SetArgs([]string{"delete", tt.id})
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			if got := stderr.String(); got != tt.want {
+				t.Fatalf("prompt = %q, want %q", got, tt.want)
+			}
+			if len(client.requests) != 0 {
+				t.Fatalf("unexpected requests: %#v", client.requests)
+			}
+		})
+	}
+}
+
 func TestDeleteConfirmedUsesMappedServerErrors(t *testing.T) {
 	sentinel := errors.New("GROUP_NOT_EMPTY")
 	mapped := errors.New("mapped")
