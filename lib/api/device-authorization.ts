@@ -17,6 +17,7 @@ import {
   deviceAuthorizations,
   humanSessions,
 } from "@/lib/db/schema"
+import { revokeCliTokenSubtrees } from "./credential-revocation"
 import { lockMachineCredentialChanges } from "./machine-credential-lock"
 import type { HumanPrincipal } from "./principal"
 import { ADMINISTRATOR_SCOPES, resolveScopeProfile } from "./scopes"
@@ -129,7 +130,11 @@ export async function approveDeviceAuthorization(
   return db.transaction(async (tx) => {
     await lockMachineCredentialChanges(tx)
     const [activeHuman] = await tx
-      .select({ email: adminUsers.email })
+      .select({
+        email: adminUsers.email,
+        userId: adminUsers.id,
+        credentialEpoch: adminUsers.credentialEpoch,
+      })
       .from(humanSessions)
       .innerJoin(adminUsers, eq(adminUsers.id, humanSessions.userId))
       .where(
@@ -187,6 +192,8 @@ export async function approveDeviceAuthorization(
         id: crypto.randomUUID(),
         installationKey: authorization.installationKey,
         userEmail: activeHuman.email,
+        userId: activeHuman.userId,
+        credentialEpoch: activeHuman.credentialEpoch,
         displayName: authorization.installationName,
         platform: authorization.platform,
         architecture: authorization.architecture,
@@ -198,6 +205,8 @@ export async function approveDeviceAuthorization(
         target: cliInstallations.installationKey,
         set: {
           userEmail: activeHuman.email,
+          userId: activeHuman.userId,
+          credentialEpoch: activeHuman.credentialEpoch,
           displayName: authorization.installationName,
           platform: authorization.platform,
           architecture: authorization.architecture,
@@ -344,16 +353,12 @@ export async function pollDeviceAuthorization(
   const digest = digestDeviceCode(rawDeviceCode)
   const outcome = await handle.transaction(async (tx) => {
     if (sessionCredential) {
-      const [existingSession] = await tx
-        .select({
-          expiresAt: cliSessions.expiresAt,
-          scopes: cliSessions.scopes,
-          scopeProfile: cliSessions.scopeProfile,
-        })
-        .from(cliSessions)
-        .where(eq(cliSessions.tokenDigest, sessionCredential.digest))
-        .limit(1)
-      if (existingSession) {
+      try {
+        const existingSession = await requireReplayableCliSession(
+          sessionCredential.digest,
+          now,
+          tx
+        )
         return {
           session: {
             token: sessionCredential.raw,
@@ -363,6 +368,21 @@ export async function pollDeviceAuthorization(
               resolveScopeProfile(existingSession.scopeProfile) ??
               existingSession.scopes,
           },
+        }
+      } catch (error) {
+        if (
+          !(error instanceof DeviceAuthorizationError) ||
+          error.code !== "expired_token"
+        ) {
+          throw error
+        }
+        const [knownSession] = await tx
+          .select({ id: cliSessions.id })
+          .from(cliSessions)
+          .where(eq(cliSessions.tokenDigest, sessionCredential.digest))
+          .limit(1)
+        if (knownSession) {
+          throw error
         }
       }
     }
@@ -504,6 +524,46 @@ export async function pollDeviceAuthorization(
   return outcome.session
 }
 
+export async function requireReplayableCliSession(
+  tokenDigest: Buffer,
+  now = new Date(),
+  handle: DatabaseHandle = db
+): Promise<{
+  expiresAt: Date
+  scopes: readonly string[]
+  scopeProfile: string | null
+}> {
+  const [session] = await handle
+    .select({
+      expiresAt: cliSessions.expiresAt,
+      scopes: cliSessions.scopes,
+      scopeProfile: cliSessions.scopeProfile,
+    })
+    .from(cliSessions)
+    .innerJoin(
+      cliInstallations,
+      eq(cliInstallations.id, cliSessions.installationId)
+    )
+    .innerJoin(adminUsers, eq(adminUsers.id, cliInstallations.userId))
+    .where(
+      and(
+        eq(cliSessions.tokenDigest, tokenDigest),
+        isNull(cliSessions.revokedAt),
+        gt(cliSessions.expiresAt, now),
+        isNull(cliInstallations.revokedAt),
+        eq(cliInstallations.credentialEpoch, adminUsers.credentialEpoch)
+      )
+    )
+    .limit(1)
+  if (!session) {
+    throw new DeviceAuthorizationError(
+      "expired_token",
+      "CLI session is no longer active"
+    )
+  }
+  return session
+}
+
 export async function revokeCliInstallation(
   principal: { type: string; id: string },
   now = new Date(),
@@ -634,10 +694,15 @@ async function revokeInstallationInTransaction(
         )
         .returning({ id: apiTokens.id })
     : []
+  const revokedDescendantTokens = await revokeCliTokenSubtrees(
+    tx,
+    sessions.map((row) => row.id),
+    now
+  )
   return {
     installations: revokedInstallations.length,
     sessions: revokedSessions.length,
-    tokens: revokedTokens.length,
+    tokens: revokedTokens.length + revokedDescendantTokens,
   }
 }
 
