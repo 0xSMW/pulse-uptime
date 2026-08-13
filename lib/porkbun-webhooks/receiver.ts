@@ -56,9 +56,60 @@ function response(status: number, body?: Record<string, string>): Response {
   })
 }
 
+function invalidRequestResponse(): Response {
+  return response(400, { error: "Invalid webhook request" })
+}
+
 function header(request: Request, name: string): string | null {
   const value = request.headers.get(name)
   return value?.trim() || null
+}
+
+/**
+ * Rejects malformed webhook metadata without requiring the database-backed
+ * signing secret. Signature verification and body parsing remain in the
+ * receiver after this admission check.
+ */
+export function admitPorkbunWebhookRequest(
+  request: Request,
+  now: Date = new Date()
+): Response | null {
+  const timestamp = header(request, "x-porkbun-webhook-timestamp")
+  const signature = header(request, "x-porkbun-signature")
+  const webhookId = header(request, "x-porkbun-webhook-id")
+  const eventHeader = header(request, "x-porkbun-event")
+  if (!(timestamp && signature && webhookId && eventHeader)) {
+    return invalidRequestResponse()
+  }
+  if (
+    !(
+      /^\d{1,16}$/.test(timestamp) && /^sha256=[a-f\d]{64}$/i.test(signature)
+    ) ||
+    webhookId.length > 256 ||
+    !supportedEvents.has(eventHeader)
+  ) {
+    return invalidRequestResponse()
+  }
+
+  const signedAt = Number(timestamp)
+  const nowSeconds = Math.floor(now.getTime() / 1000)
+  if (
+    !Number.isSafeInteger(signedAt) ||
+    Math.abs(nowSeconds - signedAt) > PORKBUN_REPLAY_WINDOW_SECONDS
+  ) {
+    return invalidRequestResponse()
+  }
+
+  const contentLength = request.headers.get("content-length")
+  if (contentLength !== null) {
+    if (!/^\d+$/.test(contentLength)) {
+      return invalidRequestResponse()
+    }
+    if (Number(contentLength) > PORKBUN_MAX_WEBHOOK_BODY_BYTES) {
+      return response(413, { error: "Webhook payload too large" })
+    }
+  }
+  return null
 }
 
 function verifySignature(
@@ -214,25 +265,20 @@ export async function receivePorkbunWebhook(
     return response(503, { error: "Webhook receiver unavailable" })
   }
 
+  const admission = admitPorkbunWebhookRequest(
+    request,
+    dependencies.now?.() ?? new Date()
+  )
+  if (admission) {
+    return admission
+  }
+
   const timestamp = header(request, "x-porkbun-webhook-timestamp")
   const signature = header(request, "x-porkbun-signature")
   const webhookId = header(request, "x-porkbun-webhook-id")
   const eventHeader = header(request, "x-porkbun-event")
   if (!(timestamp && signature && webhookId && eventHeader)) {
-    return response(400, { error: "Invalid webhook request" })
-  }
-
-  if (!/^\d{1,16}$/.test(timestamp)) {
-    return response(400, { error: "Invalid webhook request" })
-  }
-
-  const signedAt = Number(timestamp)
-  const now = Math.floor((dependencies.now?.() ?? new Date()).getTime() / 1000)
-  if (
-    !Number.isSafeInteger(signedAt) ||
-    Math.abs(now - signedAt) > PORKBUN_REPLAY_WINDOW_SECONDS
-  ) {
-    return response(400, { error: "Invalid webhook request" })
+    return invalidRequestResponse()
   }
 
   const rawBody = await readRawBody(request)
@@ -240,7 +286,7 @@ export async function receivePorkbunWebhook(
     return response(rawBody.status, { error: rawBody.message })
   }
   if (!verifySignature(timestamp, rawBody, signature, signingSecret)) {
-    return response(400, { error: "Invalid webhook request" })
+    return invalidRequestResponse()
   }
 
   const envelope = parseEnvelope(rawBody)
@@ -253,7 +299,7 @@ export async function receivePorkbunWebhook(
     envelope.event !== eventHeader ||
     !supportedEvents.has(envelope.event)
   ) {
-    return response(400, { error: "Invalid webhook request" })
+    return invalidRequestResponse()
   }
 
   try {
