@@ -20,7 +20,10 @@ import * as schema from "@/lib/db/schema"
 
 import {
   claimPendingPorkbunWebhookReceipts,
+  deferPorkbunWebhookReceipt,
+  markPorkbunWebhookReceiptDeadLettered,
   markPorkbunWebhookReceiptFailed,
+  markPorkbunWebhookReceiptIgnored,
   markPorkbunWebhookReceiptProcessed,
   PorkbunWebhookReplayMismatchError,
   PorkbunWebhookStore,
@@ -99,6 +102,17 @@ suite("Porkbun webhook PostgreSQL persistence", () => {
     expect(await readPorkbunIntegration(db)).toEqual(state)
     expect(await readPorkbunWebhookSigningSecret(db)).toBe(signingSecret)
 
+    await upsertPorkbunIntegration(
+      {
+        webhookId: 42,
+        webhookSecret: "rotated-postgres-webhook-signing-secret",
+      },
+      { handle: db, now: new Date(receivedAt.getTime() + 1) }
+    )
+    expect(await readPorkbunWebhookSigningSecret(db)).toBe(
+      "rotated-postgres-webhook-signing-secret"
+    )
+
     const [persisted] = await db
       .select({ encrypted: schema.porkbunIntegration.webhookSecretEncrypted })
       .from(schema.porkbunIntegration)
@@ -106,7 +120,7 @@ suite("Porkbun webhook PostgreSQL persistence", () => {
     expect(persisted?.encrypted).toMatch(
       /^v1:[A-Za-z0-9_-]+(?::[A-Za-z0-9_-]+){2}$/
     )
-    expect(persisted?.encrypted).not.toContain(signingSecret)
+    expect(persisted?.encrypted).not.toContain("rotated-postgres-webhook")
   })
 
   it("persists duplicate receipts, rejects mismatched replays, and maps claimed rows", async () => {
@@ -210,5 +224,93 @@ suite("Porkbun webhook PostgreSQL persistence", () => {
       .where(eq(schema.porkbunWebhookReceipts.eventId, "evt-postgres-2"))
     expect(reprocessed).toMatchObject({ attemptCount: 2, lastErrorCode: null })
     expect(reprocessed?.processedAt).toBeInstanceOf(Date)
+  })
+
+  it("keeps ignored and dead-lettered receipts out of later claims", async () => {
+    const store = new PorkbunWebhookStore(db, () => receivedAt)
+    await store.record(record)
+    await store.record({
+      ...record,
+      eventId: "evt-postgres-dead-letter",
+      payloadDigest: "digest-postgres-dead-letter",
+    })
+    const claimed = await claimPendingPorkbunWebhookReceipts(
+      {
+        limit: 2,
+        now: receivedAt,
+        staleBefore: new Date(receivedAt.getTime() - 1),
+      },
+      db
+    )
+
+    expect(
+      await markPorkbunWebhookReceiptIgnored(
+        claimed.find((item) => item.eventId === record.eventId)!,
+        {
+          handle: db,
+          now: receivedAt,
+        }
+      )
+    ).toBe(true)
+    expect(
+      await markPorkbunWebhookReceiptDeadLettered(
+        claimed.find((item) => item.eventId === "evt-postgres-dead-letter")!,
+        "porkbun_refresh_not_confirmed",
+        { handle: db, now: receivedAt }
+      )
+    ).toBe(true)
+
+    expect(
+      await claimPendingPorkbunWebhookReceipts(
+        {
+          limit: 2,
+          now: new Date(receivedAt.getTime() + 1000),
+          staleBefore: receivedAt,
+        },
+        db
+      )
+    ).toEqual([])
+    const rows = await db
+      .select()
+      .from(schema.porkbunWebhookReceipts)
+      .orderBy(schema.porkbunWebhookReceipts.eventId)
+    const byId = new Map(rows.map((row) => [row.eventId, row]))
+    expect(byId.get(record.eventId)).toMatchObject({
+      lastErrorCode: "unmonitored_domain_ignored",
+    })
+    expect(byId.get(record.eventId)?.processedAt).toBeInstanceOf(Date)
+    expect(byId.get("evt-postgres-dead-letter")).toMatchObject({
+      lastErrorCode: "porkbun_refresh_not_confirmed",
+      processedAt: null,
+    })
+    expect(byId.get("evt-postgres-dead-letter")?.deadLetteredAt).toBeInstanceOf(
+      Date
+    )
+  })
+
+  it("releases scheduler contention without consuming an attempt", async () => {
+    const store = new PorkbunWebhookStore(db, () => receivedAt)
+    await store.record(record)
+    const [claimed] = await claimPendingPorkbunWebhookReceipts(
+      {
+        limit: 1,
+        now: receivedAt,
+        staleBefore: new Date(receivedAt.getTime() - 1),
+      },
+      db
+    )
+
+    expect(
+      await deferPorkbunWebhookReceipt(claimed!, "domain_cron_lease_held", db)
+    ).toBe(true)
+    const [deferred] = await db
+      .select()
+      .from(schema.porkbunWebhookReceipts)
+      .where(eq(schema.porkbunWebhookReceipts.eventId, record.eventId))
+    expect(deferred).toMatchObject({
+      attemptCount: 0,
+      lastErrorCode: "domain_cron_lease_held",
+      processingStartedAt: null,
+    })
   })
 })
