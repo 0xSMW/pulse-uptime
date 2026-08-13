@@ -12,6 +12,7 @@ const IMAGE_ID = "66666666-6666-4666-8666-666666666666"
 function stored(overrides: Partial<StoredImage> = {}): StoredImage {
   return {
     id: IMAGE_ID,
+    uploadedByUserId: null,
     kind: "logo-light",
     mimeType: "image/png",
     bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
