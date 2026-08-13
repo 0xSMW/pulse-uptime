@@ -5,8 +5,15 @@ import {
   MAX_IMAGE_BYTES,
 } from "@/lib/api/images"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
+import { enforceRateLimit } from "@/lib/api/rate-limit"
 import { routeError } from "@/lib/api/route"
 import { hasScope } from "@/lib/api/scopes"
+
+export const AVATAR_UPLOAD_LIMIT = {
+  routeKey: "images:avatar:upload",
+  limit: 20,
+  windowSeconds: 300,
+} as const
 
 /**
  * Multipart image upload for status page branding and account avatars.
@@ -40,6 +47,14 @@ export async function POST(request: Request) {
     )
   }
   const selfService = kind === "avatar" && context.principal.type === "human"
+  if (kind === "avatar" && context.principal.type !== "human") {
+    return apiError(
+      context.requestId,
+      403,
+      "SESSION_REQUIRED",
+      "Avatar uploads require a dashboard session"
+    )
+  }
   if (!(selfService || hasScope(context.principal, "config:write"))) {
     return apiError(
       context.requestId,
@@ -48,6 +63,22 @@ export async function POST(request: Request) {
       "The credential lacks the required scope",
       { scope: "config:write" }
     )
+  }
+  if (selfService) {
+    const rate = await enforceRateLimit(
+      context.principalKey,
+      AVATAR_UPLOAD_LIMIT
+    )
+    if (!rate.allowed) {
+      const response = apiError(
+        context.requestId,
+        429,
+        "RATE_LIMITED",
+        "Too many requests"
+      )
+      response.headers.set("Retry-After", String(rate.retryAfterSeconds))
+      return response
+    }
   }
   if (file.size > MAX_IMAGE_BYTES) {
     return apiError(
@@ -62,6 +93,10 @@ export async function POST(request: Request) {
       kind,
       mimeType: file.type,
       bytes: Buffer.from(await file.arrayBuffer()),
+      uploadedByUserId:
+        kind === "avatar" && context.principal.type === "human"
+          ? context.principal.id
+          : null,
     })
     return apiJson(objectEnvelope("Image", { id }, context.requestId), {
       status: 201,
