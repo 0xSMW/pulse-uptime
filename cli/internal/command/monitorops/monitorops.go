@@ -453,7 +453,7 @@ func newArchiveCommand(d Dependencies) *cobra.Command {
 				if !d.StdinTTY {
 					return invalid("noninteractive archival requires --yes")
 				}
-				fmt.Fprintf(d.Err, "Archive monitor %s? [y/N] ", id)
+				fmt.Fprintf(d.Err, "Archive monitor %s? [y/N] ", output.SanitizeDisplay(id))
 				line, err := bufio.NewReader(d.In).ReadString('\n')
 				if err != nil && !errors.Is(err, io.EOF) {
 					return err
