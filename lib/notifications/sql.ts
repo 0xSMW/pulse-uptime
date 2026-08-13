@@ -2,6 +2,45 @@ import type { ClaimedNotification, NotificationEventType } from "./types"
 
 export interface SqlExecutor {
   query: <T>(text: string, values: readonly unknown[]) => Promise<readonly T[]>
+  withStatementTimeout?: <T>(
+    timeoutMs: number,
+    work: (query: SqlExecutor["query"]) => Promise<T>
+  ) => Promise<T>
+}
+
+export function isStatementTimeout(error: unknown): boolean {
+  return (
+    (error instanceof Error && error.message.includes("statement timeout")) ||
+    (typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "57014")
+  )
+}
+
+function deadlineError(): Error & { code: "57014" } {
+  return Object.assign(
+    new Error("canceling statement due to statement timeout"),
+    {
+      code: "57014" as const,
+    }
+  )
+}
+
+async function withDeadline<T>(
+  db: SqlExecutor,
+  deadlineAtMs: number | undefined,
+  nowMs: () => number,
+  work: (query: SqlExecutor["query"]) => Promise<T>
+): Promise<T> {
+  if (deadlineAtMs === undefined || !db.withStatementTimeout) {
+    return work(db.query)
+  }
+  const remainingMs = Math.floor(deadlineAtMs - nowMs())
+  if (remainingMs <= 0) {
+    throw deadlineError()
+  }
+  return db.withStatementTimeout(remainingMs, work)
 }
 
 export const PROVIDER_IDEMPOTENCY_WINDOW_MS = 24 * 60 * 60_000
@@ -26,6 +65,8 @@ export interface ClaimNotificationsOptions {
   claimToken: string
   /** When set, only claim rows whose event_type is in this list. */
   eventTypes?: readonly NotificationEventType[]
+  deadlineAtMs?: number
+  nowMs?: () => number
 }
 
 export interface ReconcileStaleClaimsOptions {
@@ -145,6 +186,19 @@ where id = $1
 returning id
 `
 
+export const RELEASE_NOTIFICATION_CLAIMS_SQL = `
+update notification_outbox
+set status = case when last_error is null then 'pending' else 'failed' end,
+    attempt_count = greatest(attempt_count - 1, 0),
+    claim_token = null,
+    claimed_at = null,
+    updated_at = $3
+where status = 'sending'
+  and claim_token = $1
+  and id = any($2)
+returning id
+`
+
 function mapClaimedRows(rows: readonly ClaimedRow[]): ClaimedNotification[] {
   return rows.map((row) => ({
     id: row.id,
@@ -172,18 +226,24 @@ export async function claimNotifications(
     throw new RangeError("Outbox claim limit must be between 1 and 100")
   }
   const eventTypes = options.eventTypes
-  if (eventTypes && eventTypes.length > 0) {
-    const rows = await db.query<ClaimedRow>(
-      CLAIM_NOTIFICATIONS_BY_EVENT_TYPE_SQL,
-      [options.now, options.limit, options.claimToken, [...eventTypes]]
-    )
-    return mapClaimedRows(rows)
-  }
-  const rows = await db.query<ClaimedRow>(CLAIM_NOTIFICATIONS_SQL, [
-    options.now,
-    options.limit,
-    options.claimToken,
-  ])
+  const rows = await withDeadline(
+    db,
+    options.deadlineAtMs,
+    options.nowMs ?? Date.now,
+    (query) =>
+      eventTypes && eventTypes.length > 0
+        ? query<ClaimedRow>(CLAIM_NOTIFICATIONS_BY_EVENT_TYPE_SQL, [
+            options.now,
+            options.limit,
+            options.claimToken,
+            [...eventTypes],
+          ])
+        : query<ClaimedRow>(CLAIM_NOTIFICATIONS_SQL, [
+            options.now,
+            options.limit,
+            options.claimToken,
+          ])
+  )
   return mapClaimedRows(rows)
 }
 
@@ -217,29 +277,70 @@ export async function markNotificationSent(
   db: SqlExecutor,
   claimed: Pick<ClaimedNotification, "id" | "claimToken">,
   providerMessageId: string,
-  now: Date
+  now: Date,
+  options: { deadlineAtMs?: number; nowMs?: () => number } = {}
 ): Promise<boolean> {
-  const rows = await db.query<{ id: string }>(MARK_NOTIFICATION_SENT_SQL, [
-    claimed.id,
-    claimed.claimToken,
-    providerMessageId,
-    now,
-  ])
+  const rows = await withDeadline(
+    db,
+    options.deadlineAtMs,
+    options.nowMs ?? Date.now,
+    (query) =>
+      query<{ id: string }>(MARK_NOTIFICATION_SENT_SQL, [
+        claimed.id,
+        claimed.claimToken,
+        providerMessageId,
+        now,
+      ])
+  )
   return rows.length === 1
 }
 
 export async function markNotificationFailed(
   db: SqlExecutor,
   claimed: Pick<ClaimedNotification, "id" | "claimToken">,
-  failure: { dead: boolean; nextAttemptAt: Date; errorCode: string; now: Date }
+  failure: { dead: boolean; nextAttemptAt: Date; errorCode: string; now: Date },
+  options: { deadlineAtMs?: number; nowMs?: () => number } = {}
 ): Promise<boolean> {
-  const rows = await db.query<{ id: string }>(MARK_NOTIFICATION_FAILED_SQL, [
-    claimed.id,
-    claimed.claimToken,
-    failure.dead ? "dead" : "failed",
-    failure.nextAttemptAt,
-    failure.errorCode,
-    failure.now,
-  ])
+  const rows = await withDeadline(
+    db,
+    options.deadlineAtMs,
+    options.nowMs ?? Date.now,
+    (query) =>
+      query<{ id: string }>(MARK_NOTIFICATION_FAILED_SQL, [
+        claimed.id,
+        claimed.claimToken,
+        failure.dead ? "dead" : "failed",
+        failure.nextAttemptAt,
+        failure.errorCode,
+        failure.now,
+      ])
+  )
   return rows.length === 1
+}
+
+export async function releaseNotificationClaims(
+  db: SqlExecutor,
+  claimed: readonly Pick<ClaimedNotification, "id" | "claimToken">[],
+  now: Date,
+  options: { deadlineAtMs?: number; nowMs?: () => number } = {}
+): Promise<number> {
+  const first = claimed[0]
+  if (!first) {
+    return 0
+  }
+  if (claimed.some((row) => row.claimToken !== first.claimToken)) {
+    throw new Error("Notification claims must share one token")
+  }
+  const rows = await withDeadline(
+    db,
+    options.deadlineAtMs,
+    options.nowMs ?? Date.now,
+    (query) =>
+      query<{ id: string }>(RELEASE_NOTIFICATION_CLAIMS_SQL, [
+        first.claimToken,
+        claimed.map((row) => row.id),
+        now,
+      ])
+  )
+  return rows.length
 }
