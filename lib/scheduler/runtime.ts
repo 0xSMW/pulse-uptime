@@ -74,7 +74,7 @@ export async function runMonitoringCron() {
       reconcileStaleClaims(queryExecutor, now, undefined, {
         eventTypes: ORDINARY_NOTIFICATION_EVENT_TYPES,
       }),
-    deliverOutbox: () =>
+    deliverOutbox: (deadlineAtMs) =>
       deliverPendingNotifications(
         {
           db: queryExecutor,
@@ -82,7 +82,10 @@ export async function runMonitoringCron() {
           appUrl: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
           log: (event) => console.info(JSON.stringify(event)),
         },
-        { eventTypes: ORDINARY_NOTIFICATION_EVENT_TYPES }
+        {
+          eventTypes: ORDINARY_NOTIFICATION_EVENT_TYPES,
+          deadlineAtMs,
+        }
       ),
     async runMonitor(monitor, _scheduledAt, runId) {
       if (!activeConfig) {
