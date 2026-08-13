@@ -1,6 +1,7 @@
 import {
   DeviceAuthorizationError,
   pollDeviceAuthorization,
+  requireReplayableCliSession,
 } from "@/lib/api/device-authorization"
 import {
   apiError,
@@ -153,23 +154,26 @@ export async function POST(request: Request) {
               scopes: body.scopes,
             }
           : body,
-      replayBody: (stored, { operationId }) => {
+      replayBody: async (stored, { operationId }) => {
         const body = stored as PollResponse
-        return body.outcome === "session"
-          ? {
-              ...body,
-              token: deriveBearerToken(
-                credentialDerivationContext({
-                  kind: "cli-session",
-                  principalKey: deviceKey,
-                  idempotencyKey,
-                  body: { deviceCode },
-                  operationId,
-                }),
-                CLI_SESSION_PREFIX
-              ).raw,
-            }
-          : body
+        if (body.outcome === "session") {
+          const credential = deriveBearerToken(
+            credentialDerivationContext({
+              kind: "cli-session",
+              principalKey: deviceKey,
+              idempotencyKey,
+              body: { deviceCode },
+              operationId,
+            }),
+            CLI_SESSION_PREFIX
+          )
+          await requireReplayableCliSession(credential.digest)
+          return {
+            ...body,
+            token: credential.raw,
+          }
+        }
+        return body
       },
     })
     if (result.body.outcome === "error") {
@@ -194,6 +198,9 @@ export async function POST(request: Request) {
       { status: result.status }
     )
   } catch (error) {
+    if (error instanceof DeviceAuthorizationError) {
+      return apiError(requestId, 400, error.code, error.message)
+    }
     return routeError(error, requestId)
   }
 }
