@@ -10,10 +10,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/0xSMW/pulse-uptime/cli/internal/boundedio"
 	"gopkg.in/yaml.v3"
 )
 
-const DefaultTimeout = 15 * time.Second
+const (
+	DefaultTimeout = 15 * time.Second
+	MaxFileBytes   = 1 << 20
+)
 
 type Context struct {
 	Server  string        `yaml:"server"`
@@ -152,9 +156,12 @@ func Resolve(o Overrides, stdoutTTY bool) (Resolved, error) {
 // Load reads a non-secret pulsectl configuration file. A missing file is an
 // empty version-one configuration.
 func Load(path string) (File, error) {
-	b, err := os.ReadFile(path)
+	b, err := boundedio.ReadFile(path, MaxFileBytes)
 	if errors.Is(err, os.ErrNotExist) {
 		return File{Version: 1, Contexts: map[string]Context{}}, nil
+	}
+	if errors.Is(err, boundedio.ErrTooLarge) {
+		return File{}, errors.New("config exceeds 1 MB")
 	}
 	if err != nil {
 		return File{}, fmt.Errorf("read config: %w", err)
