@@ -33,7 +33,7 @@ func TestListAutoPaginationPreservesOrderAndCapsTotal(t *testing.T) {
 	var queries []url.Values
 	next := "second"
 	client := clientFunc(func(_ context.Context, r Request) error {
-		queries = append(queries, cloneValues(r.Query))
+		queries = append(queries, r.Query)
 		if len(queries) == 1 {
 			setListResult(t, r.Result, []string{`{"id":"a"}`, `{"id":"b"}`}, &next)
 		} else {
@@ -53,6 +53,21 @@ func TestListAutoPaginationPreservesOrderAndCapsTotal(t *testing.T) {
 	}
 	if got := queries[1].Get("limit"); got != "1" {
 		t.Fatalf("second limit = %q", got)
+	}
+}
+
+func TestListLimitRetainsNextCursor(t *testing.T) {
+	next := "remaining"
+	client := clientFunc(func(_ context.Context, request Request) error {
+		setListResult(t, request.Result, []string{`{"id":"a"}`, `{"id":"b"}`}, &next)
+		return nil
+	})
+	doc, err := List(context.Background(), client, ListOptions{Limit: 1, Machine: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Data) != 1 || doc.Meta.NextCursor == nil || *doc.Meta.NextCursor != next {
+		t.Fatalf("data = %d, nextCursor = %v", len(doc.Data), doc.Meta.NextCursor)
 	}
 }
 
@@ -93,8 +108,8 @@ func TestListCapsTotalPages(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected the page cap to stop an endless stream")
 	}
-	if calls > maxListPages+1 {
-		t.Fatalf("made %d requests, expected at most %d", calls, maxListPages+1)
+	if calls > 1001 {
+		t.Fatalf("made %d requests, expected at most 1001", calls)
 	}
 }
 
@@ -315,6 +330,33 @@ func TestArchiveRequiresYesWhenNoninteractive(t *testing.T) {
 	}
 	if called {
 		t.Fatal("API called")
+	}
+}
+
+func TestArchivePromptSanitizesMonitorID(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+		want string
+	}{
+		{name: "ordinary ID", id: "monitor-123", want: "Archive monitor monitor-123? [y/N] Canceled\n"},
+		{name: "terminal controls", id: "monitor\x1b[2J\t\u202e", want: `Archive monitor monitor\x1b[2J\x09\u202e? [y/N] Canceled` + "\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var stderr bytes.Buffer
+			cmd := NewGroup(Dependencies{
+				Client: clientFunc(func(context.Context, Request) error { t.Fatal("API called"); return nil }),
+				In:     strings.NewReader("no\n"), Err: &stderr, StdinTTY: true,
+			})
+			cmd.SetArgs([]string{"archive", tt.id})
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			if got := stderr.String(); got != tt.want {
+				t.Fatalf("prompt = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 

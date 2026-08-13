@@ -833,12 +833,12 @@
         "operationId": "changeAccountPassword",
         "tags": ["Principal"],
         "summary": "Change account password",
-        "description": "Session-only: bearer credentials receive 403. Verifies the current password, re-hashes with Argon2id, stamps passwordChangedAt, and revokes every human session including the current one. Compare-and-swaps against the verified digest (409 ACCOUNT_CHANGED on a lost race). The success body signals reauthenticate: true and the Set-Cookie header clears the session cookie so the browser must sign in again. Failed attempts share the sign-in rate-limit buckets.",
+        "description": "Session-only: bearer credentials receive 403. Verifies the current password, re-hashes with Argon2id, stamps passwordChangedAt, and revokes every human session including the current one. It also revokes the user's API tokens, linked CLI sessions, linked CLI installations, and descendant API tokens in the same transaction. Compare-and-swaps against the verified digest (409 ACCOUNT_CHANGED on a lost race). The success body signals reauthenticate: true and the Set-Cookie header clears the session cookie so every client must authenticate again. Failed attempts share the sign-in rate-limit buckets.",
         "security": [{"humanSession": []}],
         "parameters": [{"$ref": "#/components/parameters/RequestId"}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PasswordChangeRequest"}}}},
         "responses": {
-          "200": {"description": "Password changed; every human session revoked and the client must reauthenticate", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PasswordChangeEnvelope"}}}},
+          "200": {"description": "Password changed; human sessions and machine credentials revoked, and every client must reauthenticate", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PasswordChangeEnvelope"}}}},
           "400": {"$ref": "#/components/responses/BadRequest"},
           "401": {"$ref": "#/components/responses/AuthenticationRequired"},
           "403": {"$ref": "#/components/responses/ScopeDenied"},
@@ -941,7 +941,6 @@
         "tags": ["Images"],
         "summary": "Upload an image",
         "description": "Multipart upload for status page branding and account avatars. PNG, JPEG, SVG, WebP, or ICO; 512 KB cap, 32 KB for kind=favicon. File content is verified against the declared type. Branding kinds require a config:write credential. kind=avatar is self-service and accepts any signed-in dashboard session, viewers included. Public logos are later served from /status/assets/{imageId}; favicons are inlined by the status page; avatars stay dashboard-private.",
-        "x-required-scopes": ["config:write"],
         "security": [{"bearerAuth": []}, {"humanSession": []}],
         "parameters": [{"$ref": "#/components/parameters/RequestId"}],
         "requestBody": {
@@ -964,7 +963,11 @@
           "201": {"description": "Stored image reference", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ImageEnvelope"}}}},
           "400": {"$ref": "#/components/responses/BadRequest"},
           "401": {"$ref": "#/components/responses/AuthenticationRequired"},
-          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "403": {
+            "description": "Avatar uploads require a dashboard session; branding uploads require config:write",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope"}}},
+            "x-error-codes": ["SESSION_REQUIRED", "SCOPE_DENIED"]
+          },
           "429": {"$ref": "#/components/responses/RateLimited"}
         }
       }
@@ -974,16 +977,29 @@
         "operationId": "getImageBytes",
         "tags": ["Images"],
         "summary": "Get image bytes",
-        "description": "Session-only: bearer credentials receive 403. Serves stored image bytes for dashboard rendering (avatars and branding previews) with a short private cache.",
+        "description": "Session-only: bearer credentials receive 403. Avatar image reads are restricted to the uploading user; branding previews are available to signed-in dashboard users. Successful responses use Cache-Control: private, no-store.",
         "security": [{"humanSession": []}],
         "parameters": [
           {"$ref": "#/components/parameters/RequestId"},
           {"name": "imageId", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
         ],
         "responses": {
-          "200": {"description": "Image bytes with the stored content type", "content": {"image/*": {"schema": {"type": "string", "format": "binary"}}}},
+          "200": {
+            "description": "Owner-authorized image bytes with the stored content type",
+            "headers": {
+              "Cache-Control": {
+                "description": "Prevents authenticated image bytes from being reused after logout",
+                "schema": {"type": "string", "const": "private, no-store"}
+              }
+            },
+            "content": {"image/*": {"schema": {"type": "string", "format": "binary"}}}
+          },
           "401": {"$ref": "#/components/responses/AuthenticationRequired"},
-          "403": {"$ref": "#/components/responses/ScopeDenied"},
+          "403": {
+            "description": "Image previews require a dashboard session",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope"}}},
+            "x-error-codes": ["SESSION_REQUIRED"]
+          },
           "404": {"$ref": "#/components/responses/NotFound"},
           "429": {"$ref": "#/components/responses/RateLimited"}
         }
@@ -1440,6 +1456,19 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Incident ID is not a valid UUID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_INCIDENT"
+            ]
           },
           "401": {
             "$ref": "#/components/responses/AuthenticationRequired"
@@ -2033,6 +2062,19 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Configuration operation ID is not a valid UUID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_OPERATION"
+            ]
           },
           "401": {
             "$ref": "#/components/responses/AuthenticationRequired"
@@ -3516,7 +3558,7 @@
           "reauthenticate": {
             "type": "boolean",
             "const": true,
-            "description": "Always true on success: every human session was revoked and the session cookie was cleared. The client must sign in again."
+            "description": "Always true on success: every human session, API token, linked CLI session, linked CLI installation, and descendant API token was revoked, and the session cookie was cleared. Every client must authenticate again."
           }
         }
       },

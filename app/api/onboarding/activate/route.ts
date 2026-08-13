@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server"
 
-import { authenticatedMutation, safeError } from "@/lib/onboarding/http"
+import { authenticatedAdminMutation, safeError } from "@/lib/onboarding/http"
+import { OnboardingProbeAdmissionError } from "@/lib/onboarding/probe-admission"
 import { activateFirstMonitor, OnboardingError } from "@/lib/onboarding/service"
 
 function statusFor(error: unknown): number {
+  if (error instanceof OnboardingProbeAdmissionError) {
+    return 429
+  }
   if (!(error instanceof OnboardingError)) {
     return 400
   }
@@ -17,7 +21,7 @@ function statusFor(error: unknown): number {
 }
 
 export async function POST(request: Request) {
-  const auth = await authenticatedMutation(request)
+  const auth = await authenticatedAdminMutation(request)
   if (auth.response) {
     return auth.response
   }
@@ -31,9 +35,13 @@ export async function POST(request: Request) {
       monitor: result.monitor,
     })
   } catch (error) {
-    return NextResponse.json(
+    const response = NextResponse.json(
       { error: safeError(error, "Could not start monitoring") },
       { status: statusFor(error) }
     )
+    if (error instanceof OnboardingProbeAdmissionError) {
+      response.headers.set("Retry-After", String(error.retryAfterSeconds))
+    }
+    return response
   }
 }

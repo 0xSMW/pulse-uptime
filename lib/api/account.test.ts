@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from "vitest"
 
 vi.mock("server-only", () => ({}))
-vi.mock("@/lib/db/client", () => ({ db: {} }))
+vi.mock("@/lib/db/client", () => ({ db: { transaction: vi.fn() } }))
 
+import { db } from "@/lib/db/client"
 import {
   AccountServiceError,
   changeAccountEmail,
   changeAccountPassword,
+  databaseProfileUpdateStore,
   type EmailChangeStore,
   type PasswordChangeStore,
   type ProfileUpdateStore,
@@ -135,7 +137,7 @@ describe("updateAccountProfile", () => {
       patch: { avatarImageId: NEW_AVATAR_ID },
       now,
     })
-    expect(store.deleteAvatarImage).toHaveBeenCalledWith(OLD_AVATAR_ID)
+    expect(store.deleteAvatarImage).toHaveBeenCalledWith(OLD_AVATAR_ID, "usr_1")
   })
 
   it("keeps the avatar row when the patch does not touch the avatar", async () => {
@@ -165,7 +167,7 @@ describe("updateAccountProfile", () => {
     })
     await updateAccountProfile("usr_1", { avatarImageId: null }, { store })
     expect(store.findAvatarImage).not.toHaveBeenCalled()
-    expect(store.deleteAvatarImage).toHaveBeenCalledWith(OLD_AVATAR_ID)
+    expect(store.deleteAvatarImage).toHaveBeenCalledWith(OLD_AVATAR_ID, "usr_1")
   })
 
   it("reports a missing account", async () => {
@@ -175,6 +177,50 @@ describe("updateAccountProfile", () => {
     await expect(
       updateAccountProfile("usr_1", { name: "Stephen" }, { store })
     ).rejects.toMatchObject({ code: "ACCOUNT_NOT_FOUND" })
+  })
+})
+
+describe("database profile avatar attachment", () => {
+  it("locks the owned candidate through the profile update", async () => {
+    const forUpdate = vi.fn().mockResolvedValue([{ kind: "avatar" }])
+    const avatarLimit = vi.fn().mockReturnValue({ for: forUpdate })
+    const avatarWhere = vi.fn().mockReturnValue({ limit: avatarLimit })
+    const currentLimit = vi.fn().mockResolvedValue([{ avatarImageId: null }])
+    const currentWhere = vi.fn().mockReturnValue({ limit: currentLimit })
+    const select = vi
+      .fn()
+      .mockReturnValueOnce({
+        from: vi.fn().mockReturnValue({ where: avatarWhere }),
+      })
+      .mockReturnValueOnce({
+        from: vi.fn().mockReturnValue({ where: currentWhere }),
+      })
+    const returning = vi.fn().mockResolvedValue([
+      {
+        name: "Stephen",
+        email: "admin@example.com",
+        timezone: null,
+        avatarImageId: NEW_AVATAR_ID,
+      },
+    ])
+    const updateWhere = vi.fn().mockReturnValue({ returning })
+    const set = vi.fn().mockReturnValue({ where: updateWhere })
+    const update = vi.fn().mockReturnValue({ set })
+    const execute = vi.fn().mockResolvedValue(undefined)
+    vi.mocked(db.transaction).mockImplementationOnce(async (callback) =>
+      callback({ execute, select, update } as never)
+    )
+
+    await databaseProfileUpdateStore.applyProfileUpdate({
+      userId: "usr_1",
+      patch: { avatarImageId: NEW_AVATAR_ID },
+      now: new Date("2026-07-18T00:00:00Z"),
+    })
+
+    expect(forUpdate).toHaveBeenCalledWith("update")
+    expect(forUpdate.mock.invocationCallOrder[0]).toBeLessThan(
+      update.mock.invocationCallOrder[0]!
+    )
   })
 })
 
@@ -505,7 +551,7 @@ describe("changeAccountPassword", () => {
     expect(store.applyPasswordChange).not.toHaveBeenCalled()
   })
 
-  it("re-hashes with digest CAS and revokes every human session", async () => {
+  it("re-hashes with digest CAS and revokes credentials atomically", async () => {
     const store = fakePasswordStore()
     const now = new Date("2026-07-18T00:00:00Z")
     await expect(
@@ -527,6 +573,62 @@ describe("changeAccountPassword", () => {
       passwordDigest: "argon2id:a-long-enough-password",
       now,
     })
+  })
+
+  it("invalidates existing human API tokens and linked CLI installations", async () => {
+    const credentials = {
+      apiTokens: [
+        {
+          createdByPrincipal: "human:usr_1",
+          revokedAt: null as Date | null,
+        },
+        {
+          createdByPrincipal: "human:usr_2",
+          revokedAt: null as Date | null,
+        },
+      ],
+      cliInstallations: [
+        { userEmail: "admin@example.com", revokedAt: null as Date | null },
+        { userEmail: "other@example.com", revokedAt: null as Date | null },
+      ],
+    }
+    const now = new Date("2026-07-18T00:00:00Z")
+    const store = fakePasswordStore({
+      applyPasswordChange: vi.fn(async ({ userId, now: changedAt }) => {
+        for (const token of credentials.apiTokens) {
+          if (token.createdByPrincipal === `human:${userId}`) {
+            token.revokedAt = changedAt
+          }
+        }
+        for (const installation of credentials.cliInstallations) {
+          if (installation.userEmail === "admin@example.com") {
+            installation.revokedAt = changedAt
+          }
+        }
+        return "applied" as const
+      }),
+    })
+
+    await changeAccountPassword(
+      { ...base, newPassword: "a-long-enough-password" },
+      {
+        store,
+        verify: async () => true,
+        hash: async () => "argon2id:new",
+        enforceLimit: allowedLimit,
+        digestKey: deterministicDigest,
+        now: () => now,
+      }
+    )
+
+    expect(credentials.apiTokens).toEqual([
+      { createdByPrincipal: "human:usr_1", revokedAt: now },
+      { createdByPrincipal: "human:usr_2", revokedAt: null },
+    ])
+    expect(credentials.cliInstallations).toEqual([
+      { userEmail: "admin@example.com", revokedAt: now },
+      { userEmail: "other@example.com", revokedAt: null },
+    ])
   })
 
   it("surfaces ACCOUNT_CHANGED when the password digest CAS loses", async () => {

@@ -60,6 +60,7 @@ vi.mock("@/lib/api/token-service", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/token-service")>()),
   createApiToken: vi.fn(),
   listApiTokens: vi.fn(),
+  requireReplayableApiToken: vi.fn(),
   validateTokenInput: vi.fn(),
 }))
 vi.mock("@/lib/api/tokens", async (importOriginal) => ({
@@ -78,7 +79,9 @@ import type { ApiScope } from "@/lib/api/scopes"
 import {
   createApiToken,
   listApiTokens,
+  requireReplayableApiToken,
   type TokenRecord,
+  TokenServiceError,
   validateTokenInput,
 } from "@/lib/api/token-service"
 
@@ -172,6 +175,7 @@ beforeEach(() => {
   vi.mocked(authorize).mockReset()
   vi.mocked(createApiToken).mockReset()
   vi.mocked(listApiTokens).mockReset()
+  vi.mocked(requireReplayableApiToken).mockReset().mockResolvedValue(undefined)
   vi.mocked(validateTokenInput).mockReset()
   process.env.API_TOKEN_HASH_KEY = "api-token-key-with-at-least-32-characters"
 })
@@ -315,5 +319,34 @@ describe("POST /api/v1/tokens idempotency contract", () => {
       "pulse_live_derived-secret-value-aaaaaaaaaaa"
     )
     expect(firstBody.data).toEqual(secondBody.data)
+  })
+
+  it("rejects replay after password rotation invalidates the created token", async () => {
+    vi.mocked(authorize).mockResolvedValue(humanContext)
+    vi.mocked(validateTokenInput).mockReturnValue({
+      name: "Deploy",
+      scopes: ["monitors:read"],
+      expiresAt: tokenRecord.expiresAt,
+      clamped: false,
+    })
+    vi.mocked(createApiToken).mockResolvedValue({
+      token: tokenRecord,
+      secret: "pulse_live_derived-secret-value-aaaaaaaaaaa",
+    })
+    const key = crypto.randomUUID()
+    const body = { name: "Deploy", scopes: ["monitors:read"] }
+
+    expect((await POST(request(body, key))).status).toBe(201)
+    vi.mocked(requireReplayableApiToken).mockRejectedValueOnce(
+      new TokenServiceError(
+        "TOKEN_NOT_FOUND",
+        "The token created by this request is no longer active"
+      )
+    )
+    const replay = await POST(request(body, key))
+
+    expect(replay.status).toBe(400)
+    expect((await replay.json()).error.code).toBe("TOKEN_NOT_FOUND")
+    expect(createApiToken).toHaveBeenCalledTimes(1)
   })
 })

@@ -1,6 +1,6 @@
 import "server-only"
 
-import { sql } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
 
 import { db } from "@/lib/db/client"
 import { apiRateLimitBuckets } from "@/lib/db/schema"
@@ -21,14 +21,51 @@ export interface RateLimitResult {
   retryAfterSeconds: number
 }
 
+function rateLimitWindow(policy: RateLimitPolicy, now: Date) {
+  const windowMs = policy.windowSeconds * 1000
+  const windowStartedAt = new Date(
+    Math.floor(now.getTime() / windowMs) * windowMs
+  )
+  return {
+    windowMs,
+    windowStartedAt,
+    retryAfterSeconds: Math.max(
+      1,
+      Math.ceil((windowStartedAt.getTime() + windowMs - now.getTime()) / 1000)
+    ),
+  }
+}
+
+/** Releases one admitted request without allowing the bucket below zero. */
+export async function releaseRateLimit(
+  principalKey: string,
+  policy: RateLimitPolicy,
+  now = new Date()
+): Promise<void> {
+  const { windowStartedAt } = rateLimitWindow(policy, now)
+  await db
+    .update(apiRateLimitBuckets)
+    .set({
+      requestCount: sql`greatest(${apiRateLimitBuckets.requestCount} - 1, 0)`,
+    })
+    .where(
+      and(
+        eq(apiRateLimitBuckets.principalKey, principalKey),
+        eq(apiRateLimitBuckets.routeKey, policy.routeKey),
+        eq(apiRateLimitBuckets.resourceKey, policy.resourceKey ?? ""),
+        eq(apiRateLimitBuckets.windowStartedAt, windowStartedAt)
+      )
+    )
+}
+
 export async function enforceRateLimit(
   principalKey: string,
   policy: RateLimitPolicy,
   now = new Date()
 ): Promise<RateLimitResult> {
-  const windowMs = policy.windowSeconds * 1000
-  const windowStartedAt = new Date(
-    Math.floor(now.getTime() / windowMs) * windowMs
+  const { retryAfterSeconds, windowMs, windowStartedAt } = rateLimitWindow(
+    policy,
+    now
   )
   const expiresAt = new Date(windowStartedAt.getTime() + windowMs * 2)
   const [bucket] = await db
@@ -59,10 +96,7 @@ export async function enforceRateLimit(
   return {
     allowed: count <= policy.limit,
     remaining: Math.max(0, policy.limit - count),
-    retryAfterSeconds: Math.max(
-      1,
-      Math.ceil((windowStartedAt.getTime() + windowMs - now.getTime()) / 1000)
-    ),
+    retryAfterSeconds,
   }
 }
 

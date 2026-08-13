@@ -89,6 +89,19 @@ describe("Settings form helpers", () => {
     })
   })
 
+  it("keeps the numeric editor's maximum comparison when minimum is invalid", () => {
+    expect(
+      validateMonitorForm({
+        ...valid,
+        expectedStatusMin: 700,
+        expectedStatusMax: 200,
+      })
+    ).toMatchObject({
+      expectedStatusMin: "Enter 100–599",
+      expectedStatusMax: "Enter a value from minimum to 599",
+    })
+  })
+
   it("identifies errors hidden inside advanced settings", () => {
     expect(
       hasAdvancedMonitorFormErrors({ timeoutMs: "Enter 1000–15000" })

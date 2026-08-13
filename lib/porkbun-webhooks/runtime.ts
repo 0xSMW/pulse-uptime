@@ -1,5 +1,11 @@
+import { isIP } from "node:net"
+
+import { requireAcceptedConfig } from "@/lib/api/config-mutation"
+import { createLocalAdmissionControl } from "@/lib/api/local-admission"
 import type { DomainHealthCronResult } from "@/lib/domain-health/runtime"
+import { deriveDomainHealthTargets } from "@/lib/domain-health/targets"
 import {
+  admitPorkbunWebhookRequest,
   type PorkbunWebhookPersistence,
   type PorkbunWebhookReceiverDependencies,
   receivePorkbunWebhook,
@@ -7,7 +13,10 @@ import {
 import {
   type ClaimedPorkbunWebhookReceipt,
   claimPendingPorkbunWebhookReceipts,
+  deferPorkbunWebhookReceipt,
+  markPorkbunWebhookReceiptDeadLettered,
   markPorkbunWebhookReceiptFailed,
+  markPorkbunWebhookReceiptIgnored,
   markPorkbunWebhookReceiptProcessed,
   notePorkbunWebhookReceived,
   PorkbunWebhookStore,
@@ -16,6 +25,9 @@ import {
 
 export const PORKBUN_WEBHOOK_RECEIPT_CLAIM_LIMIT = 50
 export const PORKBUN_WEBHOOK_RECEIPT_STALE_MS = 10 * 60 * 1000
+export const PORKBUN_WEBHOOK_RECEIPT_MAX_ATTEMPTS = 5
+export const PORKBUN_WEBHOOK_INGRESS_LIMIT = 120
+export const PORKBUN_WEBHOOK_INGRESS_WINDOW_MS = 60_000
 
 type PorkbunWebhookReceiver = (
   request: Request,
@@ -23,11 +35,33 @@ type PorkbunWebhookReceiver = (
 ) => Promise<Response>
 
 export interface PorkbunWebhookIngressDependencies {
+  admitSource?: (
+    request: Request,
+    nowMs: number
+  ) => { allowed: boolean; retryAfterSeconds: number }
   noteReceived: () => Promise<void>
   persistence: PorkbunWebhookPersistence
   readSigningSecret: () => Promise<string | null>
   receive: PorkbunWebhookReceiver
+  now?: () => Date
 }
+
+export function createPorkbunWebhookSourceAdmission() {
+  const admission = createLocalAdmissionControl({
+    limit: PORKBUN_WEBHOOK_INGRESS_LIMIT,
+    maxEntries: 2048,
+    windowMs: PORKBUN_WEBHOOK_INGRESS_WINDOW_MS,
+  })
+  return (request: Request, nowMs: number) => {
+    const platformIp = request.headers.get("x-real-ip")?.trim()
+    if (!(platformIp && isIP(platformIp))) {
+      return { allowed: true, retryAfterSeconds: 0 }
+    }
+    return admission.check(platformIp, nowMs)
+  }
+}
+
+const admitPorkbunWebhookSource = createPorkbunWebhookSourceAdmission()
 
 export interface PorkbunWebhookReceiptDependencies {
   claim: (input: {
@@ -39,8 +73,18 @@ export interface PorkbunWebhookReceiptDependencies {
     receipt: ClaimedPorkbunWebhookReceipt,
     errorCode: string
   ) => Promise<boolean>
+  defer: (
+    receipt: ClaimedPorkbunWebhookReceipt,
+    errorCode: string
+  ) => Promise<boolean>
+  markDeadLettered: (
+    receipt: ClaimedPorkbunWebhookReceipt,
+    errorCode: string
+  ) => Promise<boolean>
+  markIgnored: (receipt: ClaimedPorkbunWebhookReceipt) => Promise<boolean>
   markProcessed: (receipt: ClaimedPorkbunWebhookReceipt) => Promise<boolean>
   now: () => Date
+  readMonitoredApexDomains: () => Promise<ReadonlySet<string>>
   runDomainHealthCron: (
     forcedApexDomains: ReadonlySet<string>
   ) => Promise<DomainHealthCronResult>
@@ -64,9 +108,18 @@ function runtimeIngressDependencies(): PorkbunWebhookIngressDependencies {
 function runtimeReceiptDependencies(): PorkbunWebhookReceiptDependencies {
   return {
     claim: claimPendingPorkbunWebhookReceipts,
+    defer: deferPorkbunWebhookReceipt,
+    markDeadLettered: markPorkbunWebhookReceiptDeadLettered,
     markFailed: markPorkbunWebhookReceiptFailed,
+    markIgnored: markPorkbunWebhookReceiptIgnored,
     markProcessed: markPorkbunWebhookReceiptProcessed,
     now: () => new Date(),
+    readMonitoredApexDomains: async () => {
+      const acceptedConfig = await requireAcceptedConfig()
+      return new Set(
+        deriveDomainHealthTargets(acceptedConfig.config.monitors).apexDomains
+      )
+    },
     runDomainHealthCron: async (forcedApexDomains) =>
       (await import("@/lib/domain-health/runtime")).runDomainHealthCron(
         forcedApexDomains
@@ -92,6 +145,30 @@ export async function receivePorkbunWebhookRequest(
   request: Request,
   dependencies: PorkbunWebhookIngressDependencies = runtimeIngressDependencies()
 ): Promise<Response> {
+  const admission = admitPorkbunWebhookRequest(
+    request,
+    dependencies.now?.() ?? new Date()
+  )
+  if (admission) {
+    return admission
+  }
+
+  const sourceAdmission = (
+    dependencies.admitSource ?? admitPorkbunWebhookSource
+  )(request, dependencies.now?.().getTime() ?? Date.now())
+  if (!sourceAdmission.allowed) {
+    return new Response(
+      JSON.stringify({ error: "Too many webhook requests" }),
+      {
+        status: 429,
+        headers: {
+          "cache-control": "no-store",
+          "retry-after": String(sourceAdmission.retryAfterSeconds),
+        },
+      }
+    )
+  }
+
   let signingSecret: string | null
   try {
     signingSecret = await dependencies.readSigningSecret()
@@ -103,6 +180,7 @@ export async function receivePorkbunWebhookRequest(
   }
 
   const response = await dependencies.receive(request, {
+    now: dependencies.now,
     persistence: dependencies.persistence,
     signingSecret: signingSecret ?? undefined,
   })
@@ -150,10 +228,32 @@ async function releaseDomainReceipts(
   await Promise.all(
     receipts.map(async (receipt) => {
       try {
-        await dependencies.markFailed(receipt, errorCode)
+        if (receipt.attemptCount >= PORKBUN_WEBHOOK_RECEIPT_MAX_ATTEMPTS) {
+          await dependencies.markDeadLettered(receipt, errorCode)
+        } else {
+          await dependencies.markFailed(receipt, errorCode)
+        }
       } catch {
         console.error("Porkbun webhook receipt release failed", {
           errorCode: "webhook_receipt_release_failed",
+        })
+      }
+    })
+  )
+}
+
+async function deferDomainReceipts(
+  receipts: ClaimedPorkbunWebhookReceipt[],
+  errorCode: string,
+  dependencies: PorkbunWebhookReceiptDependencies
+): Promise<void> {
+  await Promise.all(
+    receipts.map(async (receipt) => {
+      try {
+        await dependencies.defer(receipt, errorCode)
+      } catch {
+        console.error("Porkbun webhook receipt deferral failed", {
+          errorCode: "webhook_receipt_deferral_failed",
         })
       }
     })
@@ -173,11 +273,38 @@ export async function processPorkbunWebhookReceipts(
     now,
     staleBefore: new Date(now.getTime() - PORKBUN_WEBHOOK_RECEIPT_STALE_MS),
   })
+  if (receipts.length === 0) {
+    return {
+      claimedCount: 0,
+      cron: await dependencies.runDomainHealthCron(new Set()),
+      forcedApexDomains: [],
+    }
+  }
+  let monitoredApexDomains: ReadonlySet<string>
+  try {
+    monitoredApexDomains = await dependencies.readMonitoredApexDomains()
+  } catch (error) {
+    await releaseDomainReceipts(
+      receipts,
+      "monitored_domain_config_unavailable",
+      dependencies
+    )
+    throw new Error(
+      "Monitor configuration failed while processing Porkbun receipts",
+      { cause: error }
+    )
+  }
   const testReceipts = receipts.filter(
     (receipt) => receipt.event === "webhook.test"
   )
-  const domainReceipts = receipts.filter(
+  const allDomainReceipts = receipts.filter(
     (receipt) => receipt.event !== "webhook.test" && receipt.domain !== null
+  )
+  const domainReceipts = allDomainReceipts.filter((receipt) =>
+    monitoredApexDomains.has(receipt.domain as string)
+  )
+  const ignoredReceipts = allDomainReceipts.filter(
+    (receipt) => !monitoredApexDomains.has(receipt.domain as string)
   )
   const forcedApexDomains = new Set(
     domainReceipts.map((receipt) => receipt.domain as string)
@@ -190,6 +317,18 @@ export async function processPorkbunWebhookReceipts(
       console.error("Porkbun test receipt processing failed", {
         errorCode: "webhook_test_receipt_processing_failed",
       })
+    }
+  }
+
+  for (const receipt of ignoredReceipts) {
+    try {
+      await dependencies.markIgnored(receipt)
+    } catch {
+      await releaseDomainReceipts(
+        [receipt],
+        "webhook_receipt_ignore_failed",
+        dependencies
+      )
     }
   }
 
@@ -229,6 +368,12 @@ export async function processPorkbunWebhookReceipts(
         )
       }
     }
+  } else if (cron.status === "lease-held" || cron.status === "duplicate") {
+    await deferDomainReceipts(
+      domainReceipts,
+      receiptErrorCode(cron),
+      dependencies
+    )
   } else {
     await releaseDomainReceipts(
       domainReceipts,

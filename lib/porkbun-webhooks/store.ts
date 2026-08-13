@@ -18,7 +18,6 @@ import type {
 const INTEGRATION_ID = "default"
 const CIPHERTEXT_VERSION = "v1"
 const CLAIM_LIMIT_MAX = 100
-
 export interface PorkbunIntegrationState {
   coveredDomainCount: number
   expiryAlertsEnabled: boolean
@@ -147,7 +146,11 @@ export async function readPorkbunIntegration(
   return row ? stateFromRow(row) : null
 }
 
-/** Returns the server-only signing secret, never an integration state object. */
+/**
+ * Returns the durable signing secret without process-local positive caching.
+ * Every warm instance observes a committed rotation before accepting a
+ * signature, so the prior secret cannot remain valid during a cache TTL.
+ */
 export async function readPorkbunWebhookSigningSecret(
   handle: DatabaseHandle = db
 ): Promise<string | null> {
@@ -275,6 +278,7 @@ export async function claimPendingPorkbunWebhookReceipts(
       select event_id
       from porkbun_webhook_receipts
       where processed_at is null
+        and dead_lettered_at is null
         and (
           processing_started_at is null
           or processing_started_at < ${staleBeforeIso}::timestamptz
@@ -351,6 +355,97 @@ export async function markPorkbunWebhookReceiptFailed(
           receipt.processingStartedAt
         ),
         isNull(porkbunWebhookReceipts.processedAt)
+      )
+    )
+    .returning({ eventId: porkbunWebhookReceipts.eventId })
+  return rows.length === 1
+}
+
+export async function deferPorkbunWebhookReceipt(
+  receipt: Pick<
+    ClaimedPorkbunWebhookReceipt,
+    "attemptCount" | "eventId" | "processingStartedAt"
+  >,
+  errorCode: string,
+  handle: DatabaseHandle = db
+): Promise<boolean> {
+  const rows = await handle
+    .update(porkbunWebhookReceipts)
+    .set({
+      attemptCount: sql`${porkbunWebhookReceipts.attemptCount} - 1`,
+      lastErrorCode: errorCode,
+      processingStartedAt: null,
+    })
+    .where(
+      and(
+        eq(porkbunWebhookReceipts.eventId, receipt.eventId),
+        eq(porkbunWebhookReceipts.attemptCount, receipt.attemptCount),
+        eq(
+          porkbunWebhookReceipts.processingStartedAt,
+          receipt.processingStartedAt
+        ),
+        isNull(porkbunWebhookReceipts.processedAt),
+        isNull(porkbunWebhookReceipts.deadLetteredAt)
+      )
+    )
+    .returning({ eventId: porkbunWebhookReceipts.eventId })
+  return rows.length === 1
+}
+
+export async function markPorkbunWebhookReceiptDeadLettered(
+  receipt: Pick<
+    ClaimedPorkbunWebhookReceipt,
+    "attemptCount" | "eventId" | "processingStartedAt"
+  >,
+  errorCode: string,
+  options: { handle?: DatabaseHandle; now?: Date } = {}
+): Promise<boolean> {
+  const rows = await (options.handle ?? db)
+    .update(porkbunWebhookReceipts)
+    .set({
+      deadLetteredAt: options.now ?? new Date(),
+      lastErrorCode: errorCode,
+      processingStartedAt: null,
+    })
+    .where(
+      and(
+        eq(porkbunWebhookReceipts.eventId, receipt.eventId),
+        eq(porkbunWebhookReceipts.attemptCount, receipt.attemptCount),
+        eq(
+          porkbunWebhookReceipts.processingStartedAt,
+          receipt.processingStartedAt
+        ),
+        isNull(porkbunWebhookReceipts.processedAt),
+        isNull(porkbunWebhookReceipts.deadLetteredAt)
+      )
+    )
+    .returning({ eventId: porkbunWebhookReceipts.eventId })
+  return rows.length === 1
+}
+
+export async function markPorkbunWebhookReceiptIgnored(
+  receipt: Pick<
+    ClaimedPorkbunWebhookReceipt,
+    "attemptCount" | "eventId" | "processingStartedAt"
+  >,
+  options: { handle?: DatabaseHandle; now?: Date } = {}
+): Promise<boolean> {
+  const rows = await (options.handle ?? db)
+    .update(porkbunWebhookReceipts)
+    .set({
+      lastErrorCode: "unmonitored_domain_ignored",
+      processedAt: options.now ?? new Date(),
+    })
+    .where(
+      and(
+        eq(porkbunWebhookReceipts.eventId, receipt.eventId),
+        eq(porkbunWebhookReceipts.attemptCount, receipt.attemptCount),
+        eq(
+          porkbunWebhookReceipts.processingStartedAt,
+          receipt.processingStartedAt
+        ),
+        isNull(porkbunWebhookReceipts.processedAt),
+        isNull(porkbunWebhookReceipts.deadLetteredAt)
       )
     )
     .returning({ eventId: porkbunWebhookReceipts.eventId })

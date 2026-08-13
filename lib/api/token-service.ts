@@ -13,6 +13,7 @@ import {
   humanSessions,
 } from "@/lib/db/schema"
 
+import { revokeApiTokenSubtree } from "./credential-revocation"
 import { lockMachineCredentialChanges } from "./machine-credential-lock"
 import {
   type ApiScope,
@@ -189,7 +190,7 @@ export async function createApiToken(
 ): Promise<{ token: TokenRecord; secret: string }> {
   return handle.transaction(async (tx) => {
     await lockMachineCredentialChanges(tx)
-    await lockCreatingPrincipal(tx, input, now)
+    const credentialOwner = await lockCreatingPrincipal(tx, input, now)
 
     const credential = input.credential ?? createBearerToken()
     if (input.credential) {
@@ -214,6 +215,8 @@ export async function createApiToken(
         scopes: input.scopes,
         createdAt: now,
         createdByPrincipal: `${input.principal.type}:${input.principal.id}`,
+        credentialOwnerUserId: credentialOwner.userId,
+        credentialEpoch: credentialOwner.epoch,
         expiresAt: input.expiresAt,
       })
       .returning(tokenSelection)
@@ -230,7 +233,7 @@ async function lockCreatingPrincipal(
     principal: { type: string; id: string; sessionId?: string }
   },
   now: Date
-) {
+): Promise<{ userId: string; epoch: number }> {
   if (input.principal.type === "human") {
     if (!input.principal.sessionId) {
       throw new TokenServiceError(
@@ -239,7 +242,11 @@ async function lockCreatingPrincipal(
       )
     }
     const [parent] = await tx
-      .select({ role: adminUsers.role })
+      .select({
+        role: adminUsers.role,
+        userId: adminUsers.id,
+        credentialEpoch: adminUsers.credentialEpoch,
+      })
       .from(humanSessions)
       .innerJoin(adminUsers, eq(adminUsers.id, humanSessions.userId))
       .where(
@@ -258,24 +265,38 @@ async function lockCreatingPrincipal(
         : undefined,
       input
     )
-    return
+    return {
+      userId: parent!.userId,
+      epoch: parent!.credentialEpoch,
+    }
   }
 
   if (input.principal.type === "api_token") {
     const [parent] = await tx
-      .select({ scopes: apiTokens.scopes, expiresAt: apiTokens.expiresAt })
+      .select({
+        scopes: apiTokens.scopes,
+        expiresAt: apiTokens.expiresAt,
+        userId: apiTokens.credentialOwnerUserId,
+        credentialEpoch: apiTokens.credentialEpoch,
+        currentEpoch: adminUsers.credentialEpoch,
+      })
       .from(apiTokens)
+      .innerJoin(adminUsers, eq(adminUsers.id, apiTokens.credentialOwnerUserId))
       .where(
         and(
           eq(apiTokens.id, input.principal.id),
           isNull(apiTokens.revokedAt),
-          gt(apiTokens.expiresAt, now)
+          gt(apiTokens.expiresAt, now),
+          eq(apiTokens.credentialEpoch, adminUsers.credentialEpoch)
         )
       )
       .for("update")
       .limit(1)
     requireActiveCreatingPrincipal(parent, input)
-    return
+    return {
+      userId: parent!.userId!,
+      epoch: parent!.currentEpoch,
+    }
   }
 
   if (input.principal.type === "cli_session") {
@@ -284,18 +305,23 @@ async function lockCreatingPrincipal(
         scopes: cliSessions.scopes,
         scopeProfile: cliSessions.scopeProfile,
         expiresAt: cliSessions.expiresAt,
+        userId: cliInstallations.userId,
+        credentialEpoch: cliInstallations.credentialEpoch,
+        currentEpoch: adminUsers.credentialEpoch,
       })
       .from(cliSessions)
       .innerJoin(
         cliInstallations,
         eq(cliInstallations.id, cliSessions.installationId)
       )
+      .innerJoin(adminUsers, eq(adminUsers.id, cliInstallations.userId))
       .where(
         and(
           eq(cliSessions.id, input.principal.id),
           isNull(cliSessions.revokedAt),
           gt(cliSessions.expiresAt, now),
-          isNull(cliInstallations.revokedAt)
+          isNull(cliInstallations.revokedAt),
+          eq(cliInstallations.credentialEpoch, adminUsers.credentialEpoch)
         )
       )
       .for("update", { of: cliSessions })
@@ -311,7 +337,10 @@ async function lockCreatingPrincipal(
         : undefined,
       input
     )
-    return
+    return {
+      userId: parent!.userId!,
+      epoch: parent!.currentEpoch,
+    }
   }
 
   throw new TokenServiceError(
@@ -375,6 +404,32 @@ export async function listApiTokens(input: {
   }
 }
 
+export async function requireReplayableApiToken(
+  tokenId: string,
+  now = new Date(),
+  handle: DatabaseHandle = db
+): Promise<void> {
+  const [token] = await handle
+    .select({ id: apiTokens.id })
+    .from(apiTokens)
+    .innerJoin(adminUsers, eq(adminUsers.id, apiTokens.credentialOwnerUserId))
+    .where(
+      and(
+        eq(apiTokens.id, tokenId),
+        isNull(apiTokens.revokedAt),
+        gt(apiTokens.expiresAt, now),
+        eq(apiTokens.credentialEpoch, adminUsers.credentialEpoch)
+      )
+    )
+    .limit(1)
+  if (!token) {
+    throw new TokenServiceError(
+      "TOKEN_NOT_FOUND",
+      "The token created by this request is no longer active"
+    )
+  }
+}
+
 export async function revokeApiToken(
   tokenId: string,
   now = new Date(),
@@ -396,18 +451,7 @@ export async function revokeApiToken(
       .set({ revokedAt: now })
       .where(and(eq(apiTokens.id, tokenId), isNull(apiTokens.revokedAt)))
       .returning(tokenSelection)
-    // Cascade to any tokens this token minted so a revoked parent cannot leave a live
-    // descendant foothold. The delegation policy bounds the tree to one level below a
-    // machine credential, so this single sweep covers the whole subtree.
-    await tx
-      .update(apiTokens)
-      .set({ revokedAt: now })
-      .where(
-        and(
-          eq(apiTokens.createdByPrincipal, `api_token:${tokenId}`),
-          isNull(apiTokens.revokedAt)
-        )
-      )
+    await revokeApiTokenSubtree(tx, tokenId, now)
     if (row) {
       return serializeToken(row)
     }

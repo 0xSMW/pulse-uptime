@@ -339,6 +339,35 @@ describe("committed OpenAPI v1 source", () => {
     expect(response.headers?.ETag).toBeDefined()
   })
 
+  it("documents malformed UUID errors for guarded read routes", () => {
+    const invalidIdResponse = (path: string) =>
+      (
+        document.paths[path]!.get as Operation & {
+          responses: Record<
+            string,
+            {
+              content: Record<string, { schema: { $ref: string } }>
+              "x-error-codes": string[]
+            }
+          >
+        }
+      ).responses["400"]!
+
+    const incident = invalidIdResponse("/api/v1/incidents/{incidentId}")
+    expect(incident["x-error-codes"]).toEqual(["INVALID_INCIDENT"])
+    expect(incident.content["application/json"]!.schema.$ref).toBe(
+      "#/components/schemas/ErrorEnvelope"
+    )
+
+    const operation = invalidIdResponse(
+      "/api/v1/config/operations/{operationId}"
+    )
+    expect(operation["x-error-codes"]).toEqual(["INVALID_OPERATION"])
+    expect(operation.content["application/json"]!.schema.$ref).toBe(
+      "#/components/schemas/ErrorEnvelope"
+    )
+  })
+
   it("documents the status page configuration concurrency contract", () => {
     const get = document.paths["/api/v1/status-page-config"]!
       .get as Operation & {
@@ -386,16 +415,42 @@ describe("committed OpenAPI v1 source", () => {
       requestBody: {
         content: Record<string, { schema: { required: string[] } }>
       }
+      responses: Record<string, { "x-error-codes"?: string[] }>
     }
-    expect(upload["x-required-scopes"]).toEqual(["config:write"])
+    expect(upload["x-required-scopes"]).toBeUndefined()
+    expect(upload.responses["403"]!["x-error-codes"]).toEqual([
+      "SESSION_REQUIRED",
+      "SCOPE_DENIED",
+    ])
     expect(
       upload.requestBody.content["multipart/form-data"]!.schema.required
     ).toEqual(["file", "kind"])
+
+    const image = document.paths["/api/v1/images/{imageId}"]!
+      .get as Operation & {
+      description: string
+      responses: Record<
+        string,
+        {
+          headers?: Record<string, { schema?: { const?: string } }>
+          "x-error-codes"?: string[]
+        }
+      >
+    }
+    expect(image.description).toMatch(/uploading user/i)
+    expect(image.description).toMatch(/private, no-store/i)
+    expect(
+      image.responses["200"]!.headers?.["Cache-Control"]?.schema?.const
+    ).toBe("private, no-store")
+    expect(image.responses["403"]!["x-error-codes"]).toEqual([
+      "SESSION_REQUIRED",
+    ])
   })
 
   it("documents account password reauthentication and CAS conflicts", () => {
     const password = document.paths["/api/v1/me/password"]!
       .post as Operation & {
+      description: string
       responses: Record<
         string,
         {
@@ -410,6 +465,8 @@ describe("committed OpenAPI v1 source", () => {
     }
     expect(password.responses["409"]).toBeDefined()
     expect(email.responses["409"]).toBeDefined()
+    expect(password.description).toMatch(/API tokens/i)
+    expect(password.description).toMatch(/CLI installations/i)
     expect(
       password.responses["200"]!.content!["application/json"]!.schema!.$ref
     ).toBe("#/components/schemas/PasswordChangeEnvelope")

@@ -33,6 +33,7 @@ import {
 } from "@/lib/db/schema"
 import { synchronizeRegistry } from "@/lib/scheduler/registry-sync"
 
+import { runWithOnboardingProbeAdmission } from "./probe-admission"
 import { syncOnboardingReadiness } from "./readiness"
 
 export type OnboardingStep = "monitor" | "verify" | "getting_started"
@@ -339,7 +340,11 @@ export async function verifyDraft(userId: string) {
     throw new OnboardingError("INVALID_DRAFT", "Add your website first")
   }
   const draft = validateDraft(state.draftMonitor as MonitorDraft)
-  const result = await runManualCheck(draft.url)
+  const result = await runWithOnboardingProbeAdmission({
+    userId,
+    target: draft.url,
+    work: () => runManualCheck(draft.url),
+  })
   return {
     result,
     canStartAnyway: !(result.success || isSecurityFailure(result)),
@@ -442,7 +447,11 @@ export async function activateFirstMonitor(
     )
   }
   const draft = validateDraft(preState.draftMonitor as MonitorDraft)
-  const check = await runCheck(draft.url)
+  const check = await runWithOnboardingProbeAdmission({
+    userId,
+    target: draft.url,
+    work: () => runCheck(draft.url),
+  })
   if (isSecurityFailure(check)) {
     throw new OnboardingError(
       "CHECK_BLOCKED",

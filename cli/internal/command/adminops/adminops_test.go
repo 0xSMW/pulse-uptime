@@ -3,7 +3,10 @@ package adminops
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -19,6 +22,18 @@ func (f *fakeClient) Do(_ context.Context, method, path string, body any, _ http
 	if target, ok := out.(*map[string]any); ok {
 		*target = map[string]any{"apiVersion": "v1", "kind": "CreatedToken", "data": map[string]any{"token": "show-once"}}
 	}
+	return nil, nil
+}
+
+type tokenPagingClient struct {
+	pages []tokenListEnvelope
+	paths []string
+}
+
+func (f *tokenPagingClient) Do(_ context.Context, _ string, path string, _ any, _ http.Header, out any) (http.Header, error) {
+	f.paths = append(f.paths, path)
+	page := f.pages[len(f.paths)-1]
+	*out.(*tokenListEnvelope) = page
 	return nil, nil
 }
 
@@ -81,6 +96,78 @@ func TestTokenCreateOmitsExpiryWhenNotRequested(t *testing.T) {
 	}
 	if body["name"] != "agent" {
 		t.Fatalf("name = %v", body["name"])
+	}
+}
+
+func TestTokenListPaginationModesPreserveRequestsAndOutput(t *testing.T) {
+	next := "next token"
+	pages := []tokenListEnvelope{
+		{APIVersion: "v1", Kind: "TokenList", Data: []json.RawMessage{json.RawMessage(`{"id":"one","name":"One"}`)}, Meta: tokenListMeta{NextCursor: &next}},
+		{APIVersion: "v1", Kind: "TokenList", Data: []json.RawMessage{json.RawMessage(`{"id":"two","name":"Two"}`)}},
+	}
+	tests := []struct {
+		name      string
+		format    string
+		args      []string
+		wantPaths []string
+		wantTwo   bool
+	}{
+		{name: "human stops after one page", format: "table", args: []string{"list"}, wantPaths: []string{"/api/v1/tokens"}},
+		{name: "machine follows cursor", format: "json", args: []string{"list"}, wantPaths: []string{"/api/v1/tokens", "/api/v1/tokens?cursor=next+token"}, wantTwo: true},
+		{name: "all follows cursor for human output", format: "table", args: []string{"list", "--all"}, wantPaths: []string{"/api/v1/tokens", "/api/v1/tokens?cursor=next+token"}, wantTwo: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &tokenPagingClient{pages: pages}
+			var out bytes.Buffer
+			cmd := NewTokenCommand(Dependencies{Client: client, Out: &out, Output: func(string) string { return tc.format }})
+			cmd.SetArgs(tc.args)
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(client.paths, tc.wantPaths) {
+				t.Fatalf("paths = %v, want %v", client.paths, tc.wantPaths)
+			}
+			if strings.Contains(out.String(), "Two") != tc.wantTwo {
+				t.Fatalf("output = %q, want second page %v", out.String(), tc.wantTwo)
+			}
+		})
+	}
+}
+
+func TestTokenListLimitSetsPageSizeAndTruncatesServerOverflow(t *testing.T) {
+	client := &tokenPagingClient{pages: []tokenListEnvelope{{
+		APIVersion: "v1",
+		Kind:       "TokenList",
+		Data: []json.RawMessage{
+			json.RawMessage(`{"id":"one","name":"One"}`),
+			json.RawMessage(`{"id":"two","name":"Two"}`),
+		},
+	}}}
+	var out bytes.Buffer
+	cmd := NewTokenCommand(Dependencies{Client: client, Out: &out, Output: func(string) string { return "json" }})
+	cmd.SetArgs([]string{"list", "--limit", "1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(client.paths, []string{"/api/v1/tokens?limit=1"}) {
+		t.Fatalf("paths = %v", client.paths)
+	}
+	if strings.Contains(out.String(), "Two") || !strings.Contains(out.String(), "One") {
+		t.Fatalf("output = %q", out.String())
+	}
+}
+
+func TestTokenListEmptyJSONPreservesNullData(t *testing.T) {
+	client := &tokenPagingClient{pages: []tokenListEnvelope{{APIVersion: "v1", Kind: "TokenList"}}}
+	var out bytes.Buffer
+	cmd := NewTokenCommand(Dependencies{Client: client, Out: &out, Output: func(string) string { return "json" }})
+	cmd.SetArgs([]string{"list"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"data": null`) {
+		t.Fatalf("output = %q", out.String())
 	}
 }
 

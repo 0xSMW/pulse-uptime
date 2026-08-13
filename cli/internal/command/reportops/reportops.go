@@ -12,11 +12,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/0xSMW/pulse-uptime/cli/internal/boundedio"
+	"github.com/0xSMW/pulse-uptime/cli/internal/output"
+	"github.com/0xSMW/pulse-uptime/cli/internal/paginator"
 	"github.com/spf13/cobra"
 )
 
@@ -127,7 +128,10 @@ type ListOptions struct {
 	Machine     bool
 }
 
-const reportsPath = "/api/v1/status-reports"
+const (
+	reportsPath         = "/api/v1/status-reports"
+	maxMessageFileBytes = 64 * 1024
+)
 
 var incidentStatuses = []string{"investigating", "identified", "monitoring", "resolved"}
 var maintenanceStatuses = []string{"scheduled", "in_progress", "completed"}
@@ -185,7 +189,9 @@ func defaults(d Dependencies) Dependencies {
 		d.Format = func() string { return "json" }
 	}
 	if d.ReadFile == nil {
-		d.ReadFile = os.ReadFile
+		d.ReadFile = func(path string) ([]byte, error) {
+			return boundedio.ReadFile(path, maxMessageFileBytes)
+		}
 	}
 	if d.MapError == nil {
 		d.MapError = func(err error) error { return err }
@@ -491,7 +497,7 @@ func newDeleteCommand(d Dependencies) *cobra.Command {
 				if !d.StdinTTY {
 					return invalid("noninteractive deletion requires --yes")
 				}
-				fmt.Fprintf(d.Err, "Delete status report %s? [y/N] ", args[0])
+				fmt.Fprintf(d.Err, "Delete status report %s? [y/N] ", output.SanitizeDisplay(args[0]))
 				line, err := bufio.NewReader(d.In).ReadString('\n')
 				if err != nil && !errors.Is(err, io.EOF) {
 					return err
@@ -575,15 +581,6 @@ func newPublishCommand(d Dependencies) *cobra.Command {
 	}
 }
 
-// Hostile-server pagination bounds. A malicious server that returns a repeating
-// or non-advancing cursor, or an endless stream of pages, must not drive the
-// CLI into an unbounded request loop or memory growth.
-const (
-	maxListPages   = 1000
-	maxListRecords = 100_000
-	maxListBytes   = 64 << 20
-)
-
 // List fetches status reports, following cursors for machine output or --all.
 func List(ctx context.Context, client Client, o ListOptions) (ListEnvelope, error) {
 	if o.Limit < 0 {
@@ -599,69 +596,20 @@ func List(ctx context.Context, client Client, o ListOptions) (ListEnvelope, erro
 	if o.Cursor != "" {
 		query.Set("cursor", o.Cursor)
 	}
-	remaining := o.Limit
-	auto := o.Machine || o.All
-	result := ListEnvelope{APIVersion: "v1", Kind: "StatusReportList", Data: make([]json.RawMessage, 0)}
-	// seen tracks cursors already requested so a repeated or non-advancing
-	// cursor terminates the loop instead of cycling forever.
-	seen := map[string]struct{}{}
-	if o.Cursor != "" {
-		seen[o.Cursor] = struct{}{}
-	}
-	totalBytes := 0
-	for pages := 0; ; pages++ {
-		if pages >= maxListPages {
-			return ListEnvelope{}, pageLimit("server returned more report pages than the client will follow")
-		}
-		if remaining > 0 {
-			pageSize := remaining
-			if pageSize > 100 {
-				pageSize = 100
-			}
-			query.Set("limit", strconv.Itoa(pageSize))
-		}
+	result, err := paginator.Aggregate(ctx, paginator.Options{
+		Query: query, Limit: o.Limit, Cursor: o.Cursor, Follow: o.Machine || o.All,
+		APIVersion: "v1", Kind: "StatusReportList", PageName: "report", RecordName: "reports", LimitError: pageLimit,
+	}, func(ctx context.Context, query url.Values) (paginator.Page[ListMeta], error) {
 		var page ListEnvelope
-		if err := client.Do(ctx, Request{Method: http.MethodGet, Path: reportsPath, Query: cloneValues(query), Result: &page}); err != nil {
-			return ListEnvelope{}, err
+		if err := client.Do(ctx, Request{Method: http.MethodGet, Path: reportsPath, Query: query, Result: &page}); err != nil {
+			return paginator.Page[ListMeta]{}, err
 		}
-		accepted := page.Data
-		if remaining > 0 && len(accepted) > remaining {
-			accepted = accepted[:remaining]
-		}
-		for _, raw := range accepted {
-			totalBytes += len(raw)
-		}
-		if totalBytes > maxListBytes {
-			return ListEnvelope{}, pageLimit("server exceeded the maximum aggregate response size")
-		}
-		result.Data = append(result.Data, accepted...)
-		if len(result.Data) > maxListRecords {
-			return ListEnvelope{}, pageLimit("server returned more reports than the client will aggregate")
-		}
-		result.Meta = page.Meta
-		if page.APIVersion != "" {
-			result.APIVersion = page.APIVersion
-		}
-		if page.Kind != "" {
-			result.Kind = page.Kind
-		}
-		if remaining > 0 {
-			remaining -= len(accepted)
-			if remaining <= 0 {
-				break
-			}
-		}
-		if !auto || page.Meta.NextCursor == nil || *page.Meta.NextCursor == "" {
-			break
-		}
-		next := *page.Meta.NextCursor
-		if _, ok := seen[next]; ok {
-			return ListEnvelope{}, pageLimit("server returned a repeating pagination cursor")
-		}
-		seen[next] = struct{}{}
-		query.Set("cursor", next)
+		return paginator.Page[ListMeta]{APIVersion: page.APIVersion, Kind: page.Kind, Data: page.Data, Meta: page.Meta, NextCursor: page.Meta.NextCursor}, nil
+	})
+	if err != nil {
+		return ListEnvelope{}, err
 	}
-	return result, nil
+	return ListEnvelope{APIVersion: result.APIVersion, Kind: result.Kind, Data: result.Data, Meta: result.Meta}, nil
 }
 
 func pageLimit(message string) error {
@@ -704,9 +652,12 @@ func readRequiredMessage(d Dependencies, cmd *cobra.Command, message, file strin
 		var data []byte
 		var err error
 		if file == "-" {
-			data, err = io.ReadAll(d.In)
+			data, err = boundedio.ReadAll(d.In, maxMessageFileBytes)
 		} else {
 			data, err = d.ReadFile(file)
+		}
+		if errors.Is(err, boundedio.ErrTooLarge) || len(data) > maxMessageFileBytes {
+			return "", invalid("--message-file exceeds 64 KB")
 		}
 		if err != nil {
 			return "", invalid("could not read --message-file: " + err.Error())
@@ -796,14 +747,6 @@ func annotationsStdin(scope string) map[string]string {
 }
 
 func reportPath(id string) string { return reportsPath + "/" + url.PathEscape(id) }
-
-func cloneValues(in url.Values) url.Values {
-	out := url.Values{}
-	for key, values := range in {
-		out[key] = append([]string(nil), values...)
-	}
-	return out
-}
 
 func machine(format string) bool {
 	return format == "json" || format == "jsonl" || format == "yaml" || format == "tsv"

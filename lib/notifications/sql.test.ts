@@ -11,7 +11,9 @@ import {
   PROVIDER_IDEMPOTENCY_WINDOW_MS,
   RECONCILE_STALE_CLAIMS_BY_EVENT_TYPE_SQL,
   RECONCILE_STALE_CLAIMS_SQL,
+  RELEASE_NOTIFICATION_CLAIMS_SQL,
   reconcileStaleClaims,
+  releaseNotificationClaims,
   type SqlExecutor,
 } from "./sql"
 
@@ -192,5 +194,33 @@ describe("outbox SQL", () => {
         }
       )
     ).resolves.toBe(true)
+  })
+
+  it("releases unstarted claims without consuming attempts", async () => {
+    expect(RELEASE_NOTIFICATION_CLAIMS_SQL).toMatch(/claim_token = \$1/i)
+    expect(RELEASE_NOTIFICATION_CLAIMS_SQL).toMatch(
+      /attempt_count = greatest\(attempt_count - 1, 0\)/i
+    )
+    const query = vi.fn(async () => [
+      { id: "notification-1" },
+      { id: "notification-2" },
+    ])
+    const now = new Date("2026-07-18T00:00:00Z")
+
+    await expect(
+      releaseNotificationClaims(
+        { query } as SqlExecutor,
+        [
+          { id: "notification-1", claimToken: "claim-batch" },
+          { id: "notification-2", claimToken: "claim-batch" },
+        ],
+        now
+      )
+    ).resolves.toBe(2)
+    expect(query).toHaveBeenCalledWith(RELEASE_NOTIFICATION_CLAIMS_SQL, [
+      "claim-batch",
+      ["notification-1", "notification-2"],
+      now,
+    ])
   })
 })

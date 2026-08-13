@@ -5,7 +5,11 @@ const { afterMock } = vi.hoisted(() => ({ afterMock: vi.fn() }))
 vi.mock("server-only", () => ({}))
 vi.mock("next/server", () => ({ after: afterMock }))
 
-import { authenticatePrincipal, type PrincipalStore } from "./principal"
+import {
+  authenticatePrincipal,
+  isCurrentCredentialEpoch,
+  type PrincipalStore,
+} from "./principal"
 import { digestBearerToken } from "./tokens"
 
 beforeEach(() => {
@@ -27,6 +31,18 @@ function store(overrides: Partial<PrincipalStore> = {}): PrincipalStore {
 }
 
 describe("principal resolution", () => {
+  it("accepts current API token and CLI credential epochs", () => {
+    expect(isCurrentCredentialEpoch(4, 4)).toBe(true)
+  })
+
+  it("rejects an API token minted before password rotation", () => {
+    expect(isCurrentCredentialEpoch(3, 4)).toBe(false)
+  })
+
+  it("rejects a CLI installation linked before password rotation", () => {
+    expect(isCurrentCredentialEpoch(8, 9)).toBe(false)
+  })
+
   it("grants every administrator scope to a valid human session", async () => {
     const principal = await authenticatePrincipal(
       new Request("https://pulse.test/api/v1/me"),

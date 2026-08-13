@@ -6,6 +6,7 @@ import {
   enforceRateLimit,
   type RateLimitPolicy,
   type RateLimitResult,
+  releaseRateLimit,
 } from "@/lib/api/rate-limit"
 import { isUserRole, type UserRole } from "@/lib/api/scopes"
 import { digestBearerToken } from "@/lib/api/tokens"
@@ -264,6 +265,11 @@ export interface LoginDependencies {
     policy: RateLimitPolicy,
     now: Date
   ) => Promise<RateLimitResult>
+  releaseLimit?: (
+    principalKey: string,
+    policy: RateLimitPolicy,
+    now: Date
+  ) => Promise<void>
   digestKey?: (value: string) => Buffer
   verify?: typeof verifyPassword
   createToken?: typeof createSessionToken
@@ -302,6 +308,7 @@ export async function login(
   const now = dependencies.now?.() ?? new Date()
   const digest = dependencies.digestKey ?? digestBearerToken
   const limiter = dependencies.enforceLimit ?? enforceRateLimit
+  const limitRelease = dependencies.releaseLimit ?? releaseRateLimit
 
   // Enforce the stable source-IP limit first and short-circuit before touching any
   // variable-cardinality bucket: a stream of unique emails can no longer create
@@ -321,6 +328,14 @@ export async function login(
 
   const store = dependencies.store ?? databaseLoginStore
   const user = await store.findUser(email)
+  const emailBucketKey = loginRateLimitKey(
+    "email",
+    user ? email : UNKNOWN_LOGIN_EMAIL_BUCKET,
+    digest
+  )
+  // Reserve account capacity atomically before verification. Successful logins
+  // release their reservation, so only rejected credentials spend the budget.
+  const emailLimit = await limiter(emailBucketKey, LOGIN_RATE_LIMIT_POLICY, now)
   const verify = dependencies.verify ?? verifyPassword
   // Always pay one Argon2 verification so known and unknown addresses have
   // comparable work. Unknown emails verify against a committed dummy digest.
@@ -329,29 +344,19 @@ export async function login(
     input.password
   )
 
-  // A correct password from an IP that is not blocked always recovers: the
-  // account-wide bucket is never a hard pre-verification denial, so a stale email
-  // bucket can no longer lock the administrator out of a fresh sign-in.
-  if (!(user && passwordMatches)) {
-    // One email-bucket operation on every failed attempt. Known accounts use
-    // their real email key; unknown addresses share a fixed synthetic key so
-    // probe cardinality stays bounded.
-    const emailBucket = user ? email : UNKNOWN_LOGIN_EMAIL_BUCKET
-    const emailLimit = await limiter(
-      loginRateLimitKey("email", emailBucket, digest),
-      LOGIN_RATE_LIMIT_POLICY,
-      now
+  if (!emailLimit.allowed) {
+    throw new AuthServiceError(
+      "RATE_LIMITED",
+      "Sign in failed",
+      emailLimit.retryAfterSeconds
     )
-    if (!emailLimit.allowed) {
-      throw new AuthServiceError(
-        "RATE_LIMITED",
-        "Sign in failed",
-        emailLimit.retryAfterSeconds
-      )
-    }
+  }
+
+  if (!(user && passwordMatches)) {
     throw new AuthServiceError("INVALID_LOGIN", "Sign in failed")
   }
 
+  await limitRelease(emailBucketKey, LOGIN_RATE_LIMIT_POLICY, now)
   const token = (dependencies.createToken ?? createSessionToken)()
   const expiresAt = sessionExpiresAt(now)
   await store.insertSession({
