@@ -50,6 +50,24 @@ describe("parseCustomHead", () => {
     })
   })
 
+  it("accepts supported name and property metadata", () => {
+    expect(
+      parseCustomHead(
+        '<meta name="description" content="System status"><meta name="robots" content="noindex"><meta name="twitter:card" content="summary"><meta property="og:title" content="Acme Status"><meta property="og:image:alt" content="Acme">'
+      ).ok
+    ).toBe(true)
+  })
+
+  it("rejects arbitrary and referrer metadata", () => {
+    expect(parseCustomHead('<meta name="x" content="y">').ok).toBe(false)
+    expect(
+      parseCustomHead('<meta name=" ReFeRrEr " content="unsafe-url">').ok
+    ).toBe(false)
+    expect(
+      parseCustomHead('<meta property="example:unknown" content="y">').ok
+    ).toBe(false)
+  })
+
   it("accepts safe icon links (site-relative and HTTPS)", () => {
     const result = parseCustomHead(
       '<link rel="icon" href="/favicon.ico" type="image/x-icon"><link rel="apple-touch-icon" href="https://cdn.example/icon.png" sizes="180x180"><link rel="mask-icon" href="/mask.svg" color="#000">'
