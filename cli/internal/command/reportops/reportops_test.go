@@ -314,6 +314,17 @@ func TestCreateReadsMessageFromStdin(t *testing.T) {
 	}
 }
 
+func TestCreateRejectsOversizeMessageFileBeforeRequest(t *testing.T) {
+	err := run(t, Dependencies{
+		Client: clientFunc(func(context.Context, Request) error { t.Fatal("request sent"); return nil }),
+		In:     strings.NewReader(strings.Repeat("x", maxMessageFileBytes+1)),
+		NewID:  newID,
+	}, "create", "--type", "maintenance", "--title", "Maintenance", "--message-file", "-", "--status", "scheduled")
+	if err == nil || !strings.Contains(err.Error(), "exceeds 64 KB") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestCreateRejectsStatusFromWrongFamily(t *testing.T) {
 	err := run(t, Dependencies{Client: clientFunc(func(context.Context, Request) error { t.Fatal("request sent"); return nil }), NewID: newID},
 		"create", "--type", "incident", "--title", "x", "--status", "in_progress", "--message", "y")
@@ -506,6 +517,40 @@ func TestDeleteNoninteractiveRequiresYes(t *testing.T) {
 	var typed *Error
 	if !errors.As(err, &typed) || typed.Exit != ExitInvalidInput {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestDeletePromptSanitizesReportID(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+		want string
+	}{
+		{name: "ordinary ID", id: "rep_1", want: "Delete status report rep_1? [y/N] Canceled\n"},
+		{
+			name: "terminal controls",
+			id:   "rep\x1b[31m-red\x1b[0m\x1b]8;;https://evil.example\x07link\x1b]8;;\x07\nforged",
+			want: `Delete status report rep\x1b[31m-red\x1b[0m\x1b]8;;https://evil.example\x07link\x1b]8;;\x07\x0aforged? [y/N] Canceled` + "\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var stderr bytes.Buffer
+			client := clientFunc(func(context.Context, Request) error {
+				t.Fatal("request sent")
+				return nil
+			})
+			cmd := NewGroup(Dependencies{
+				Client: client, In: strings.NewReader("no\n"), Err: &stderr, StdinTTY: true,
+			})
+			cmd.SetArgs([]string{"delete", tt.id})
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			if got := stderr.String(); got != tt.want {
+				t.Fatalf("prompt = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
