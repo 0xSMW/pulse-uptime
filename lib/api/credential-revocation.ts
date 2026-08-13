@@ -30,7 +30,7 @@ export async function revokeUserMachineCredentials(
         on child.created_by_principal = 'api_token:' || parent.id::text
     )
     update ${apiTokens}
-    set revoked_at = ${input.now}
+    set revoked_at = ${input.now.toISOString()}::timestamptz
     where id in (select id from token_tree)
       and revoked_at is null
   `)
@@ -85,7 +85,7 @@ export async function revokeApiTokenSubtree(
         on child.created_by_principal = 'api_token:' || parent.id::text
     )
     update ${apiTokens}
-    set revoked_at = ${now}
+    set revoked_at = ${now.toISOString()}::timestamptz
     where id in (select id from token_tree)
       and revoked_at is null
     returning id
@@ -118,7 +118,7 @@ export async function revokeCliTokenSubtrees(
         on child.created_by_principal = 'api_token:' || parent.id::text
     )
     update ${apiTokens}
-    set revoked_at = ${now}
+    set revoked_at = ${now.toISOString()}::timestamptz
     where id in (select id from token_tree)
       and revoked_at is null
     returning id
