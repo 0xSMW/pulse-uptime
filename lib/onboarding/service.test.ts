@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from "vitest"
 
 vi.mock("server-only", () => ({}))
+vi.mock("@/lib/onboarding/probe-admission", () => ({
+  runWithOnboardingProbeAdmission: async <T>({
+    work,
+  }: {
+    work: () => Promise<T>
+  }) => work(),
+}))
 
 import type { CheckResult } from "@/lib/checker"
 import {
