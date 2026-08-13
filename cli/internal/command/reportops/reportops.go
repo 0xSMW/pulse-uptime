@@ -12,10 +12,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
+	"github.com/0xSMW/pulse-uptime/cli/internal/boundedio"
+	"github.com/0xSMW/pulse-uptime/cli/internal/output"
 	"github.com/0xSMW/pulse-uptime/cli/internal/paginator"
 	"github.com/spf13/cobra"
 )
@@ -127,7 +128,10 @@ type ListOptions struct {
 	Machine     bool
 }
 
-const reportsPath = "/api/v1/status-reports"
+const (
+	reportsPath         = "/api/v1/status-reports"
+	maxMessageFileBytes = 64 * 1024
+)
 
 var incidentStatuses = []string{"investigating", "identified", "monitoring", "resolved"}
 var maintenanceStatuses = []string{"scheduled", "in_progress", "completed"}
@@ -185,7 +189,9 @@ func defaults(d Dependencies) Dependencies {
 		d.Format = func() string { return "json" }
 	}
 	if d.ReadFile == nil {
-		d.ReadFile = os.ReadFile
+		d.ReadFile = func(path string) ([]byte, error) {
+			return boundedio.ReadFile(path, maxMessageFileBytes)
+		}
 	}
 	if d.MapError == nil {
 		d.MapError = func(err error) error { return err }
@@ -491,7 +497,7 @@ func newDeleteCommand(d Dependencies) *cobra.Command {
 				if !d.StdinTTY {
 					return invalid("noninteractive deletion requires --yes")
 				}
-				fmt.Fprintf(d.Err, "Delete status report %s? [y/N] ", args[0])
+				fmt.Fprintf(d.Err, "Delete status report %s? [y/N] ", output.SanitizeDisplay(args[0]))
 				line, err := bufio.NewReader(d.In).ReadString('\n')
 				if err != nil && !errors.Is(err, io.EOF) {
 					return err
@@ -646,9 +652,12 @@ func readRequiredMessage(d Dependencies, cmd *cobra.Command, message, file strin
 		var data []byte
 		var err error
 		if file == "-" {
-			data, err = io.ReadAll(d.In)
+			data, err = boundedio.ReadAll(d.In, maxMessageFileBytes)
 		} else {
 			data, err = d.ReadFile(file)
+		}
+		if errors.Is(err, boundedio.ErrTooLarge) || len(data) > maxMessageFileBytes {
+			return "", invalid("--message-file exceeds 64 KB")
 		}
 		if err != nil {
 			return "", invalid("could not read --message-file: " + err.Error())
