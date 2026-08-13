@@ -47,6 +47,7 @@ func writeWithDirectorySync(path string, force bool, write func(io.Writer) error
 	if err != nil {
 		return err
 	}
+	defer original.close()
 	if original.exists && !force {
 		return fmt.Errorf("destination already exists")
 	}
@@ -79,6 +80,10 @@ func writeWithDirectorySync(path string, force bool, write func(io.Writer) error
 		if err := original.verifyUnchanged(path); err != nil {
 			return err
 		}
+		// Retain the original handle through validation so a removed Unix inode
+		// cannot be recycled into a false SameFile match. Close it before rename
+		// because Windows read handles do not share delete access.
+		original.close()
 		if err := os.Rename(tmpPath, path); err != nil {
 			return fmt.Errorf("replace export: %w", err)
 		}
@@ -102,6 +107,7 @@ func writeWithDirectorySync(path string, force bool, write func(io.Writer) error
 type destination struct {
 	exists bool
 	info   os.FileInfo
+	file   *os.File
 }
 
 func inspectDestination(path string) (destination, error) {
@@ -118,7 +124,26 @@ func inspectDestination(path string) (destination, error) {
 	if !info.Mode().IsRegular() {
 		return destination{}, errors.New("export destination is not a regular file")
 	}
-	return destination{exists: true, info: info}, nil
+	file, err := os.Open(path)
+	if err != nil {
+		return destination{}, fmt.Errorf("open export destination for validation: %w", err)
+	}
+	openedInfo, err := file.Stat()
+	if err != nil {
+		file.Close()
+		return destination{}, fmt.Errorf("inspect opened export destination: %w", err)
+	}
+	if !openedInfo.Mode().IsRegular() || !os.SameFile(info, openedInfo) {
+		file.Close()
+		return destination{}, errors.New("export destination changed while validating")
+	}
+	return destination{exists: true, info: openedInfo, file: file}, nil
+}
+
+func (d destination) close() {
+	if d.file != nil {
+		_ = d.file.Close()
+	}
 }
 
 func (d destination) verifyUnchanged(path string) error {
