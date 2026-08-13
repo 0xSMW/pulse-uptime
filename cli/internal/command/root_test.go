@@ -426,6 +426,88 @@ func TestTokenStdinAuthenticatesWithoutKeyring(t *testing.T) {
 	}
 }
 
+func TestTokenStdinRejectsOversizeToken(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	app := New(Options{
+		In:          strings.NewReader(strings.Repeat("x", maxTokenStdinBytes+1) + "\n"),
+		Out:         &stdout,
+		Err:         &stderr,
+		ConfigPath:  t.TempDir() + "/config.yaml",
+		Credentials: &testCredentialStore{},
+	})
+	if code := app.Execute([]string{"me", "--token-stdin", "--server", "https://pulse.example.com"}); code != ExitInvalidInput {
+		t.Fatalf("exit code = %d", code)
+	}
+	if !strings.Contains(stderr.String(), "token from stdin exceeds 8 KB") || !strings.Contains(stderr.String(), "TOKEN_TOO_LARGE") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestAuthCommandsRejectOversizeTokenStdin(t *testing.T) {
+	for _, args := range [][]string{{"auth", "status"}, {"auth", "unlink", "--yes"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			app := New(Options{
+				In:          strings.NewReader(strings.Repeat("x", maxTokenStdinBytes+1) + "\n"),
+				Out:         &stdout,
+				Err:         &stderr,
+				ConfigPath:  t.TempDir() + "/config.yaml",
+				Credentials: &testCredentialStore{},
+			})
+			commandArgs := append(append([]string{}, args...), "--token-stdin", "--server", "https://pulse.example.com")
+			if code := app.Execute(commandArgs); code != ExitInvalidInput {
+				t.Fatalf("exit code = %d", code)
+			}
+			if !strings.Contains(stderr.String(), "TOKEN_TOO_LARGE") || !strings.Contains(stderr.String(), "token from stdin exceeds 8 KB") {
+				t.Fatalf("stderr = %q", stderr.String())
+			}
+		})
+	}
+}
+
+func TestAuthCommandsPreserveMissingCredentialResults(t *testing.T) {
+	t.Setenv("PULSECTL_TOKEN", "")
+	t.Setenv("PULSECTL_OUTPUT", "json")
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{args: []string{"auth", "status"}, want: `"authenticated": false`},
+		{args: []string{"auth", "unlink", "--yes"}, want: `"revoked": false`},
+	} {
+		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			app := New(Options{In: strings.NewReader(""), Out: &stdout, Err: &stderr, ConfigPath: t.TempDir() + "/config.yaml", Credentials: &testCredentialStore{}})
+			if code := app.Execute(append(tc.args, "--server", "https://pulse.example.com")); code != 0 {
+				t.Fatalf("exit code = %d stderr = %q", code, stderr.String())
+			}
+			if !strings.Contains(stdout.String(), tc.want) {
+				t.Fatalf("stdout = %q", stdout.String())
+			}
+		})
+	}
+}
+
+func TestDoctorSummarizesOversizeTokenAsCredentialFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/version" {
+			t.Fatalf("unexpected request: %s", r.URL.Path)
+		}
+		fmt.Fprint(w, `{"apiVersion":"v1","kind":"Version","data":{},"meta":{}}`)
+	}))
+	defer server.Close()
+	t.Setenv("PULSECTL_TOKEN", "")
+	t.Setenv("PULSECTL_OUTPUT", "json")
+	var stdout, stderr bytes.Buffer
+	app := New(Options{In: strings.NewReader(strings.Repeat("x", maxTokenStdinBytes+1) + "\n"), Out: &stdout, Err: &stderr, ConfigPath: t.TempDir() + "/config.yaml", Credentials: &testCredentialStore{}})
+	if code := app.Execute([]string{"doctor", "--token-stdin", "--server", server.URL}); code != 0 {
+		t.Fatalf("exit code = %d stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"authentication"`) || !strings.Contains(stdout.String(), `"credential unavailable"`) || strings.Contains(stdout.String(), "TOKEN_TOO_LARGE") {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
 func TestTokenStdinRejectsStdinPayloadFlags(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		t.Errorf("guarded command reached the server: %s %s", r.Method, r.URL.Path)
