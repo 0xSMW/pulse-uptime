@@ -7,6 +7,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -64,6 +66,30 @@ func (e *errorTransport) Do(context.Context, string, string, any, http.Header, a
 }
 
 func validConfig() string { return "version: 2\nsettings: {}\ngroups: []\nmonitors: []\n" }
+
+func TestExportFileIsCompleteAndPrivate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "monitors.yaml")
+	cmd := NewCommand(Dependencies{Client: &fakeTransport{}, Out: io.Discard})
+	cmd.SetArgs([]string{"export", "--file", path})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "version: 2") || !strings.Contains(string(data), "monitors: []") {
+		t.Fatalf("export = %q", data)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("mode = %04o", got)
+	}
+}
 
 func TestApplyCarriesPlanMetadataAndIfMatch(t *testing.T) {
 	client := &fakeTransport{}
