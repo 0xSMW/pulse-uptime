@@ -1,6 +1,7 @@
 import { configurationService } from "@/lib/api/config-service"
 import { apiError, apiJson, objectEnvelope } from "@/lib/api/envelopes"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
+import { isUuid } from "@/lib/ids/uuid"
 
 export async function GET(
   request: Request,
@@ -10,9 +11,16 @@ export async function GET(
   if (isApiResponse(context)) {
     return context
   }
-  const operation = await configurationService.operation(
-    (await params).operationId
-  )
+  const { operationId } = await params
+  if (!isUuid(operationId)) {
+    return apiError(
+      context.requestId,
+      400,
+      "INVALID_OPERATION",
+      "Configuration operation ID is invalid"
+    )
+  }
+  const operation = await configurationService.operation(operationId)
   return operation
     ? apiJson(
         objectEnvelope("ConfigurationOperation", operation, context.requestId)
