@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/0xSMW/pulse-uptime/cli/internal/atomicexport"
 	"github.com/0xSMW/pulse-uptime/cli/internal/output"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -37,7 +38,6 @@ type Dependencies struct {
 	StdinTTY bool
 	Output   func(defaultFormat string) string
 	OpenFile func(string) (io.ReadCloser, error)
-	Create   func(string, bool) (io.WriteCloser, error)
 	Sleep    func(context.Context, time.Duration) error
 }
 
@@ -124,17 +124,6 @@ func defaults(d Dependencies) Dependencies {
 	if d.OpenFile == nil {
 		d.OpenFile = func(path string) (io.ReadCloser, error) { return os.Open(path) }
 	}
-	if d.Create == nil {
-		d.Create = func(path string, force bool) (io.WriteCloser, error) {
-			flags := os.O_WRONLY | os.O_CREATE
-			if force {
-				flags |= os.O_TRUNC
-			} else {
-				flags |= os.O_EXCL
-			}
-			return os.OpenFile(path, flags, 0o600)
-		}
-	}
 	if d.Sleep == nil {
 		d.Sleep = func(ctx context.Context, wait time.Duration) error {
 			t := time.NewTimer(wait)
@@ -166,12 +155,12 @@ func exportCommand(d Dependencies) *cobra.Command {
 			return invalid("service returned invalid configuration", err.Error())
 		}
 		if file != "" {
-			w, err := d.Create(file, force)
-			if err != nil {
+			if err := atomicexport.Write(file, force, func(w io.Writer) error {
+				return yaml.NewEncoder(w).Encode(document)
+			}); err != nil {
 				return invalid("could not create export file", err.Error())
 			}
-			defer w.Close()
-			return yaml.NewEncoder(w).Encode(document)
+			return nil
 		}
 		return render(d.Out, d.Output("yaml"), result, document)
 	}}
