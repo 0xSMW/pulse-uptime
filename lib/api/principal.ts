@@ -5,7 +5,12 @@ import { after } from "next/server"
 
 import { authenticateCurrentSession } from "@/lib/auth/session"
 import { db } from "@/lib/db/client"
-import { apiTokens, cliInstallations, cliSessions } from "@/lib/db/schema"
+import {
+  adminUsers,
+  apiTokens,
+  cliInstallations,
+  cliSessions,
+} from "@/lib/db/schema"
 
 import {
   type ApiScope,
@@ -63,6 +68,14 @@ export interface PrincipalStore {
     installationId: string,
     now: Date
   ) => Promise<void>
+}
+
+/** Rejects credentials minted before the owner's latest security rotation. */
+export function isCurrentCredentialEpoch(
+  issuedEpoch: number,
+  currentEpoch: number
+): boolean {
+  return issuedEpoch === currentEpoch
 }
 
 type HumanSession = Awaited<ReturnType<typeof authenticateCurrentSession>>
@@ -123,19 +136,30 @@ const databasePrincipalStore: PrincipalStore = {
         name: apiTokens.name,
         scopes: apiTokens.scopes,
         expiresAt: apiTokens.expiresAt,
+        issuedEpoch: apiTokens.credentialEpoch,
+        currentEpoch: adminUsers.credentialEpoch,
       })
       .from(apiTokens)
+      .innerJoin(adminUsers, eq(adminUsers.id, apiTokens.credentialOwnerUserId))
       .where(
         and(
           eq(apiTokens.tokenDigest, digest),
           isNull(apiTokens.revokedAt),
-          gt(apiTokens.expiresAt, now)
+          gt(apiTokens.expiresAt, now),
+          eq(apiTokens.credentialEpoch, adminUsers.credentialEpoch)
         )
       )
       .limit(1)
-    return row
-      ? { type: "api_token", ...row, scopes: normalizeScopes(row.scopes) }
-      : null
+    if (!(row && isCurrentCredentialEpoch(row.issuedEpoch, row.currentEpoch))) {
+      return null
+    }
+    return {
+      type: "api_token",
+      id: row.id,
+      name: row.name,
+      scopes: normalizeScopes(row.scopes),
+      expiresAt: row.expiresAt,
+    }
   },
 
   async findCliSession(digest, now) {
@@ -152,22 +176,26 @@ const databasePrincipalStore: PrincipalStore = {
         architecture: cliInstallations.architecture,
         clientVersion: cliInstallations.clientVersion,
         linkedAt: cliInstallations.linkedAt,
+        issuedEpoch: cliInstallations.credentialEpoch,
+        currentEpoch: adminUsers.credentialEpoch,
       })
       .from(cliSessions)
       .innerJoin(
         cliInstallations,
         eq(cliInstallations.id, cliSessions.installationId)
       )
+      .innerJoin(adminUsers, eq(adminUsers.id, cliInstallations.userId))
       .where(
         and(
           eq(cliSessions.tokenDigest, digest),
           isNull(cliSessions.revokedAt),
           gt(cliSessions.expiresAt, now),
-          isNull(cliInstallations.revokedAt)
+          isNull(cliInstallations.revokedAt),
+          eq(cliInstallations.credentialEpoch, adminUsers.credentialEpoch)
         )
       )
       .limit(1)
-    return row
+    return row && isCurrentCredentialEpoch(row.issuedEpoch, row.currentEpoch)
       ? {
           type: "cli_session",
           id: row.id,
