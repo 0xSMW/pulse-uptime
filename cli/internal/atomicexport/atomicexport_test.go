@@ -143,6 +143,30 @@ func TestWriteRejectsDestinationSwapDuringForce(t *testing.T) {
 	}
 }
 
+func TestRetainedDestinationIdentityDetectsRapidInodeReplacement(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "export")
+	if err := os.WriteFile(path, []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	destination, err := inspectDestination(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer destination.close()
+
+	for attempt := 0; attempt < 100; attempt++ {
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("racer"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := destination.verifyUnchanged(path); err == nil {
+			t.Fatalf("replacement %d reused retained destination identity", attempt)
+		}
+	}
+}
+
 func TestWriteNoForceLosesRaceWithoutClobbering(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "export")
 	err := Write(path, false, func(w io.Writer) error {
