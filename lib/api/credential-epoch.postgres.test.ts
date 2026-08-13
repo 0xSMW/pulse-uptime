@@ -1,7 +1,13 @@
 import { readFile } from "node:fs/promises"
 
+import { drizzle } from "drizzle-orm/postgres-js"
 import postgres from "postgres"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+
+vi.mock("server-only", () => ({}))
+
+import * as schema from "@/lib/db/schema"
+import { revokeUserMachineCredentials } from "./credential-revocation"
 
 const databaseUrl = process.env.TEST_DATABASE_URL
 const suite = databaseUrl ? describe : describe.skip
@@ -199,5 +205,39 @@ suite("credential epoch rolling deployment", () => {
       select revoked_at from api_tokens where id = ${childId}
     `
     expect(child?.revoked_at).toBeInstanceOf(Date)
+  })
+
+  it("executes application revocation timestamps through Postgres.js", async () => {
+    const userId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+    const tokenId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+    const now = new Date("2026-08-13T07:00:00.000Z")
+    await client!`
+      insert into admin_users (id, email, password_digest, password_changed_at)
+      values (${userId}, 'runtime@example.com', 'digest', ${now})
+    `
+    await client!`
+      insert into api_tokens (
+        id,
+        principal_type,
+        principal_id,
+        created_by_principal,
+        credential_owner_user_id,
+        credential_epoch
+      ) values (${tokenId}, 'human', ${userId}, ${`human:${userId}`}, ${userId}, 0)
+    `
+
+    const handle = drizzle(client!, { schema })
+    await handle.transaction((tx) =>
+      revokeUserMachineCredentials(tx, {
+        userId,
+        userEmail: "runtime@example.com",
+        now,
+      })
+    )
+
+    const [token] = await client!`
+      select revoked_at from api_tokens where id = ${tokenId}
+    `
+    expect(new Date(token!.revoked_at as string)).toEqual(now)
   })
 })
