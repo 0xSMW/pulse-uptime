@@ -204,6 +204,27 @@
       "when": 1785033103353,
       "tag": "0028_dark_aaron_stack",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1786590657423,
+      "tag": "0029_porkbun_receipt_dead_letters",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1786590668095,
+      "tag": "0030_image_avatar_ownership",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1786590674047,
+      "tag": "0031_credential_epoch",
+      "breakpoints": true
     }
   ]
 }
