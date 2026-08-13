@@ -7,7 +7,7 @@ import {
 } from "./delivery"
 import { createNotificationMessage, incidentUrl } from "./message"
 import { NotificationProviderError, type NotificationSender } from "./provider"
-import type { SqlExecutor } from "./sql"
+import { reconcileStaleClaims, type SqlExecutor } from "./sql"
 import type { ClaimedNotification, DeliveryLogEntry } from "./types"
 
 function deferred<T = void>() {
@@ -279,7 +279,8 @@ describe("outbox delivery", () => {
     })
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({ to: "ops@example.com" }),
-      "incident/incident-1/opened/hash"
+      "incident/incident-1/opened/hash",
+      expect.any(AbortSignal)
     )
     expect(logs).toEqual([
       expect.objectContaining({
@@ -312,6 +313,385 @@ describe("outbox delivery", () => {
     expect(retryAt(now, 1)).toEqual(new Date("2026-07-18T00:01:00Z"))
     expect(retryAt(now, 4)).toEqual(new Date("2026-07-18T02:00:00Z"))
   })
+
+  it("aborts a stalled send and schedules it for retry", async () => {
+    vi.useFakeTimers()
+    try {
+      const updates: Array<readonly unknown[]> = []
+      const db: SqlExecutor = {
+        async query<T>(
+          text: string,
+          values: readonly unknown[] = []
+        ): Promise<readonly T[]> {
+          if (text.includes("with due as")) {
+            return claimRowsQueryResult([claimed()]) as T[]
+          }
+          updates.push(values)
+          return [{ id: "updated" }] as T[]
+        },
+      }
+      let observedSignal: AbortSignal | undefined
+      const sender: NotificationSender = {
+        send(_message, _idempotencyKey, signal) {
+          observedSignal = signal
+          return new Promise((_resolve, reject) => {
+            signal?.addEventListener("abort", () => reject(signal.reason), {
+              once: true,
+            })
+          })
+        },
+      }
+
+      const delivery = deliverPendingNotifications(
+        {
+          db,
+          sender,
+          appUrl: "https://pulse.example.com",
+          now: () => now,
+        },
+        { perSendTimeoutMs: 100 }
+      )
+      await vi.advanceTimersByTimeAsync(100)
+
+      await expect(delivery).resolves.toEqual({
+        claimed: 1,
+        sent: 0,
+        failed: 1,
+        dead: 0,
+        lostClaims: 0,
+      })
+      expect(observedSignal?.aborted).toBe(true)
+      expect(updates).toContainEqual([
+        "notification-1",
+        "claim-1",
+        "failed",
+        new Date("2026-07-18T00:01:00Z"),
+        "delivery_timeout",
+        now,
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("stops a large drain at its deadline and releases queued claims in one update", async () => {
+    vi.useFakeTimers()
+    try {
+      const rows = Array.from({ length: 100 }, (_, index) =>
+        claimed({ id: `notification-${index + 1}` })
+      )
+      const queries: string[] = []
+      let releasedIds: readonly string[] = []
+      const db: SqlExecutor = {
+        async query<T>(
+          text: string,
+          values: readonly unknown[] = []
+        ): Promise<readonly T[]> {
+          queries.push(text)
+          if (text.includes("with due as")) {
+            return claimRowsQueryResult(rows) as T[]
+          }
+          if (text.includes("attempt_count = greatest")) {
+            releasedIds = values[1] as readonly string[]
+            return releasedIds.map((id) => ({ id })) as T[]
+          }
+          return [{ id: "updated" }] as T[]
+        },
+      }
+      const sender: NotificationSender = {
+        send(_message, _idempotencyKey, signal) {
+          return new Promise((_resolve, reject) => {
+            signal?.addEventListener("abort", () => reject(signal.reason), {
+              once: true,
+            })
+          })
+        },
+      }
+      const send = vi.spyOn(sender, "send")
+      const startedAtMs = Date.now()
+      const delivery = deliverPendingNotifications(
+        {
+          db,
+          sender,
+          appUrl: "https://pulse.example.com",
+          now: () => now,
+        },
+        {
+          concurrency: 1,
+          limit: 100,
+          perSendTimeoutMs: 1000,
+          deadlineAtMs: startedAtMs + 1100,
+        }
+      )
+
+      await vi.advanceTimersByTimeAsync(100)
+
+      await expect(delivery).resolves.toEqual({
+        claimed: 100,
+        sent: 0,
+        failed: 1,
+        dead: 0,
+        lostClaims: 0,
+      })
+      expect(send).toHaveBeenCalledOnce()
+      expect(releasedIds).toHaveLength(99)
+      expect(queries).toHaveLength(3)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("does not claim rows after the overall deadline", async () => {
+    const query = vi.fn()
+
+    await expect(
+      deliverPendingNotifications(
+        {
+          db: { query } as SqlExecutor,
+          sender: {
+            async send() {
+              return { providerMessageId: "unexpected" }
+            },
+          },
+          appUrl: "https://pulse.example.com",
+        },
+        { deadlineAtMs: 100, nowMs: () => 100 }
+      )
+    ).resolves.toEqual({
+      claimed: 0,
+      sent: 0,
+      failed: 0,
+      dead: 0,
+      lostClaims: 0,
+    })
+    expect(query).not.toHaveBeenCalled()
+  })
+
+  it("bounds a stalled claim query and leaves no ambiguous claims", async () => {
+    vi.useFakeTimers()
+    try {
+      const query = vi.fn(
+        async () =>
+          await new Promise<readonly never[]>(() => {
+            // Simulates a database statement that only its timeout can cancel.
+          })
+      )
+      const withStatementTimeout: NonNullable<
+        SqlExecutor["withStatementTimeout"]
+      > = async (timeoutMs, work) => {
+        const timeout = new Promise<never>((_resolve, reject) => {
+          setTimeout(
+            () =>
+              reject(
+                Object.assign(new Error("statement timeout"), {
+                  code: "57014",
+                })
+              ),
+            timeoutMs
+          )
+        })
+        return Promise.race([work(query), timeout])
+      }
+      const db: SqlExecutor = {
+        query,
+        withStatementTimeout,
+      }
+      const startedAtMs = Date.now()
+      const delivery = deliverPendingNotifications(
+        {
+          db,
+          sender: {
+            async send() {
+              return { providerMessageId: "unexpected" }
+            },
+          },
+          appUrl: "https://pulse.example.com",
+        },
+        { deadlineAtMs: startedAtMs + 250 }
+      )
+
+      await vi.advanceTimersByTimeAsync(250)
+
+      await expect(delivery).resolves.toEqual({
+        claimed: 0,
+        sent: 0,
+        failed: 0,
+        dead: 0,
+        lostClaims: 0,
+      })
+      expect(Date.now() - startedAtMs).toBe(250)
+      expect(query).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("bounds a stalled release and leaves skipped claims for stale recovery", async () => {
+    vi.useFakeTimers()
+    try {
+      const rows = Array.from({ length: 100 }, (_, index) =>
+        claimed({ id: `notification-${index + 1}` })
+      )
+      let timedCalls = 0
+      const queryFn: SqlExecutor["query"] = async <T,>(text: string) => {
+        if (text.includes("with due as")) {
+          return claimRowsQueryResult(rows) as T[]
+        }
+        if (text.includes("claimed_at <")) {
+          return rows.slice(1).map((row) => ({
+            id: row.id,
+            status: "failed",
+          })) as T[]
+        }
+        return [{ id: "updated" }] as T[]
+      }
+      const withStatementTimeout: NonNullable<
+        SqlExecutor["withStatementTimeout"]
+      > = async (timeoutMs, work) => {
+        timedCalls += 1
+        if (timedCalls <= 2) {
+          return work(queryFn)
+        }
+        const stalledQuery: SqlExecutor["query"] = async () =>
+          await new Promise<readonly never[]>(() => {
+            // The timeout cancels and rolls back this release transaction.
+          })
+        const timeout = new Promise<never>((_resolve, reject) => {
+          setTimeout(
+            () =>
+              reject(
+                Object.assign(new Error("statement timeout"), {
+                  code: "57014",
+                })
+              ),
+            timeoutMs
+          )
+        })
+        return Promise.race([work(stalledQuery), timeout])
+      }
+      const db: SqlExecutor = {
+        query: queryFn,
+        withStatementTimeout,
+      }
+      const sender: NotificationSender = {
+        send(_message, _idempotencyKey, signal) {
+          return new Promise((_resolve, reject) => {
+            signal?.addEventListener("abort", () => reject(signal.reason), {
+              once: true,
+            })
+          })
+        },
+      }
+      const startedAtMs = Date.now()
+      const delivery = deliverPendingNotifications(
+        { db, sender, appUrl: "https://pulse.example.com", now: () => now },
+        {
+          concurrency: 1,
+          limit: 100,
+          perSendTimeoutMs: 5000,
+          deadlineAtMs: startedAtMs + 1100,
+        }
+      )
+
+      await vi.advanceTimersByTimeAsync(1100)
+
+      await expect(delivery).resolves.toEqual({
+        claimed: 100,
+        sent: 0,
+        failed: 1,
+        dead: 0,
+        lostClaims: 99,
+      })
+      expect(Date.now() - startedAtMs).toBe(1100)
+      await expect(
+        reconcileStaleClaims(db, new Date(now.getTime() + 5 * 60_000 + 1))
+      ).resolves.toBe(99)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it.each([
+    { label: "sent", providerFails: false },
+    { label: "failed", providerFails: true },
+  ])(
+    "bounds stalled $label finalization and preserves monitor reserve",
+    async ({ providerFails }) => {
+      vi.useFakeTimers()
+      try {
+        let timedCalls = 0
+        const queryFn: SqlExecutor["query"] = async <T,>(text: string) => {
+          if (text.includes("with due as")) {
+            return claimRowsQueryResult([claimed()]) as T[]
+          }
+          if (text.includes("claimed_at <")) {
+            return [{ id: "notification-1", status: "failed" }] as T[]
+          }
+          return [{ id: "updated" }] as T[]
+        }
+        const withStatementTimeout: NonNullable<
+          SqlExecutor["withStatementTimeout"]
+        > = async (timeoutMs, work) => {
+          timedCalls += 1
+          if (timedCalls === 1) {
+            return work(queryFn)
+          }
+          const stalledQuery: SqlExecutor["query"] = async () =>
+            await new Promise<readonly never[]>(() => {
+              // The finalizer transaction is cancelled at the outer deadline.
+            })
+          const timeout = new Promise<never>((_resolve, reject) => {
+            setTimeout(
+              () =>
+                reject(
+                  Object.assign(new Error("statement timeout"), {
+                    code: "57014",
+                  })
+                ),
+              timeoutMs
+            )
+          })
+          return Promise.race([work(stalledQuery), timeout])
+        }
+        const db: SqlExecutor = { query: queryFn, withStatementTimeout }
+        const send = vi.fn(async () => {
+          if (providerFails) {
+            throw new NotificationProviderError("rate_limit_exceeded", {
+              retryable: true,
+            })
+          }
+          return { providerMessageId: "email-1" }
+        })
+        const startedAtMs = Date.now()
+        const delivery = deliverPendingNotifications(
+          {
+            db,
+            sender: { send },
+            appUrl: "https://pulse.example.com",
+            now: () => now,
+          },
+          { deadlineAtMs: startedAtMs + 1100 }
+        )
+
+        await vi.advanceTimersByTimeAsync(1100)
+
+        await expect(delivery).resolves.toEqual({
+          claimed: 1,
+          sent: 0,
+          failed: 0,
+          dead: 0,
+          lostClaims: 1,
+        })
+        expect(Date.now() - startedAtMs).toBe(1100)
+        expect(send).toHaveBeenCalledOnce()
+        await expect(
+          reconcileStaleClaims(db, new Date(now.getTime() + 5 * 60_000 + 1))
+        ).resolves.toBe(1)
+      } finally {
+        vi.useRealTimers()
+      }
+    }
+  )
 
   it("marks permanent errors and exhausted retries dead", async () => {
     const permanent: NotificationSender = {
