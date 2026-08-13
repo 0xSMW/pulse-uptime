@@ -1,6 +1,6 @@
 import "server-only"
 
-import { eq } from "drizzle-orm"
+import { and, eq, isNull, ne, or, sql } from "drizzle-orm"
 
 import { db } from "@/lib/db/client"
 import { imageKinds, images } from "@/lib/db/schema"
@@ -34,7 +34,8 @@ export class ImageServiceError extends Error {
       | "INVALID_KIND"
       | "INVALID_MIME_TYPE"
       | "INVALID_IMAGE"
-      | "IMAGE_TOO_LARGE",
+      | "IMAGE_TOO_LARGE"
+      | "OWNER_REQUIRED",
     message: string
   ) {
     super(message)
@@ -136,6 +137,7 @@ export function validateImageUpload(
 
 export interface StoredImage {
   id: string
+  uploadedByUserId: string | null
   kind: ImageKind
   mimeType: string
   bytes: Buffer
@@ -144,6 +146,7 @@ export interface StoredImage {
 
 export interface ImageStore {
   insert: (input: {
+    uploadedByUserId: string | null
     kind: ImageKind
     mimeType: string
     bytes: Buffer
@@ -151,6 +154,7 @@ export interface ImageStore {
     createdAt: Date
   }) => Promise<{ id: string }>
   find: (id: string) => Promise<StoredImage | null>
+  findAuthorized: (id: string, userId: string) => Promise<StoredImage | null>
 }
 
 export interface ImageDependencies {
@@ -158,13 +162,29 @@ export interface ImageDependencies {
   now?: () => Date
 }
 
+export function avatarUploadLockKey(userId: string): string {
+  return `avatar-upload:${userId}`
+}
+
 export async function createImage(
-  input: { kind: string; mimeType: string; bytes: Buffer },
+  input: {
+    kind: string
+    mimeType: string
+    bytes: Buffer
+    uploadedByUserId?: string | null
+  },
   dependencies: ImageDependencies = {}
 ): Promise<{ id: string }> {
   const validated = validateImageUpload(input.kind, input.mimeType, input.bytes)
+  if (validated.kind === "avatar" && !input.uploadedByUserId) {
+    throw new ImageServiceError(
+      "OWNER_REQUIRED",
+      "Avatar images require an owning user"
+    )
+  }
   const store = dependencies.store ?? databaseImageStore
   return store.insert({
+    uploadedByUserId: input.uploadedByUserId ?? null,
     kind: validated.kind,
     mimeType: validated.mimeType,
     bytes: input.bytes,
@@ -182,6 +202,18 @@ export async function findImage(
   }
   const store = dependencies.store ?? databaseImageStore
   return store.find(id)
+}
+
+export async function findAuthorizedImage(
+  id: string,
+  userId: string,
+  dependencies: ImageDependencies = {}
+): Promise<StoredImage | null> {
+  if (!isUuid(id)) {
+    return null
+  }
+  const store = dependencies.store ?? databaseImageStore
+  return store.findAuthorized(id, userId)
 }
 
 const SVG_CONTENT_SECURITY_POLICY =
@@ -207,16 +239,36 @@ export function imageResponse(
 
 export const databaseImageStore: ImageStore = {
   async insert(input) {
-    const [row] = await db
-      .insert(images)
-      .values(input)
-      .returning({ id: images.id })
-    return { id: row!.id }
+    return db.transaction(async (tx) => {
+      if (input.kind === "avatar" && input.uploadedByUserId) {
+        // Serialize each user's uploads. A new pending avatar supersedes prior
+        // unattached uploads so repeated changes cannot accumulate storage.
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${avatarUploadLockKey(input.uploadedByUserId)}, 0))`
+        )
+        await tx.delete(images).where(
+          and(
+            eq(images.kind, "avatar"),
+            eq(images.uploadedByUserId, input.uploadedByUserId),
+            sql`not exists (
+              select 1 from admin_users
+              where admin_users.avatar_image_id = ${images.id}
+            )`
+          )
+        )
+      }
+      const [row] = await tx
+        .insert(images)
+        .values(input)
+        .returning({ id: images.id })
+      return { id: row!.id }
+    })
   },
   async find(id) {
     const [row] = await db
       .select({
         id: images.id,
+        uploadedByUserId: images.uploadedByUserId,
         kind: images.kind,
         mimeType: images.mimeType,
         bytes: images.bytes,
@@ -224,6 +276,37 @@ export const databaseImageStore: ImageStore = {
       })
       .from(images)
       .where(eq(images.id, id))
+      .limit(1)
+    return row ?? null
+  },
+  async findAuthorized(id, userId) {
+    const [row] = await db
+      .select({
+        id: images.id,
+        uploadedByUserId: images.uploadedByUserId,
+        kind: images.kind,
+        mimeType: images.mimeType,
+        bytes: images.bytes,
+        byteSize: images.byteSize,
+      })
+      .from(images)
+      .where(
+        and(
+          eq(images.id, id),
+          or(
+            ne(images.kind, "avatar"),
+            eq(images.uploadedByUserId, userId),
+            and(
+              isNull(images.uploadedByUserId),
+              sql`exists (
+                select 1 from admin_users
+                where admin_users.id = ${userId}
+                  and admin_users.avatar_image_id = ${images.id}
+              )`
+            )
+          )
+        )
+      )
       .limit(1)
     return row ?? null
   },
