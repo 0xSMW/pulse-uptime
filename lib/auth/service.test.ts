@@ -217,17 +217,28 @@ describe("administrator creation service", () => {
 
 function persistentLimiter() {
   const buckets = new Map<string, number>()
-  const seenKeys: string[] = []
+  const consumedKeys: string[] = []
+  const releasedKeys: string[] = []
+  const bucketKey = (
+    key: string,
+    policy: Parameters<NonNullable<LoginDependencies["enforceLimit"]>>[1],
+    now: Date
+  ) => {
+    const windowStart = Math.floor(
+      now.getTime() / (policy.windowSeconds * 1000)
+    )
+    return {
+      key: `${key}:${policy.routeKey}:${windowStart}`,
+      windowStart,
+    }
+  }
   const enforce: NonNullable<LoginDependencies["enforceLimit"]> = async (
     key,
     policy,
     now
   ) => {
-    seenKeys.push(key)
-    const windowStart = Math.floor(
-      now.getTime() / (policy.windowSeconds * 1000)
-    )
-    const bucket = `${key}:${policy.routeKey}:${windowStart}`
+    consumedKeys.push(key)
+    const { key: bucket, windowStart } = bucketKey(key, policy, now)
     const count = (buckets.get(bucket) ?? 0) + 1
     buckets.set(bucket, count)
     return {
@@ -242,7 +253,17 @@ function persistentLimiter() {
       ),
     }
   }
-  return { enforce, seenKeys }
+  const release: NonNullable<LoginDependencies["releaseLimit"]> = async (
+    key,
+    policy,
+    now
+  ) => {
+    releasedKeys.push(key)
+    const { key: bucket } = bucketKey(key, policy, now)
+    const count = buckets.get(bucket) ?? 0
+    buckets.set(bucket, Math.max(0, count - 1))
+  }
+  return { consumedKeys, enforce, release, releasedKeys }
 }
 
 const deterministicDigest = (value: string) =>
@@ -280,6 +301,7 @@ describe("persistent login rate limiting", () => {
     const dependencies = {
       store: fake.store,
       enforceLimit: limiter.enforce,
+      releaseLimit: limiter.release,
       digestKey: deterministicDigest,
       verify,
       now: () => new Date("2026-07-18T00:01:00Z"),
@@ -308,12 +330,12 @@ describe("persistent login rate limiting", () => {
     ).rejects.toMatchObject({ code: "RATE_LIMITED", retryAfterSeconds: 840 })
     // IP is checked first on every attempt. Failed attempts also touch one
     // synthetic email bucket so unknown-address probes stay cardinality-bounded.
-    const unique = new Set(limiter.seenKeys)
+    const unique = new Set(limiter.consumedKeys)
     expect(unique.size).toBe(2)
     expect([...unique].some((key) => key.startsWith("login-ip:"))).toBe(true)
     expect([...unique].some((key) => key.startsWith("login-email:"))).toBe(true)
     // Sixth attempt short-circuits on IP before verify or the email bucket.
-    expect(limiter.seenKeys).toHaveLength(11)
+    expect(limiter.consumedKeys).toHaveLength(11)
     expect(verify).toHaveBeenCalledTimes(5)
   })
 
@@ -329,6 +351,7 @@ describe("persistent login rate limiting", () => {
     const now = () => new Date("2026-07-18T00:01:00Z")
     const base = {
       enforceLimit: limiter.enforce,
+      releaseLimit: limiter.release,
       digestKey: deterministicDigest,
       verify,
       now,
@@ -355,7 +378,7 @@ describe("persistent login rate limiting", () => {
       "wrong"
     )
 
-    const emailKeys = limiter.seenKeys.filter((key) =>
+    const emailKeys = limiter.consumedKeys.filter((key) =>
       key.startsWith("login-email:")
     )
     expect(emailKeys).toHaveLength(2)
@@ -371,29 +394,92 @@ describe("persistent login rate limiting", () => {
     )
   })
 
-  it("lets a correct password recover from an unblocked IP after the account bucket is exhausted", async () => {
+  it("blocks a correct password from a fresh IP after the account bucket is exhausted", async () => {
     const limiter = persistentLimiter()
     const fake = loginStore({
       id: "user-1",
       passwordDigest: "digest",
       onboardingCompletedAt: new Date(),
     })
-    const verify: NonNullable<LoginDependencies["verify"]> = async (
-      _digest,
-      password
-    ) => password === "correct"
+    const verify = vi.fn<NonNullable<LoginDependencies["verify"]>>(
+      async (_digest, password) => password === "correct"
+    )
+    const createToken = vi.fn(() => ({
+      raw: "recovered",
+      digest: Buffer.alloc(32, 9),
+    }))
+    let now = new Date("2026-07-18T00:01:00Z")
     const base = {
       store: fake.store,
       enforceLimit: limiter.enforce,
+      releaseLimit: limiter.release,
       digestKey: deterministicDigest,
       verify,
-      createToken: () => ({ raw: "recovered", digest: Buffer.alloc(32, 9) }),
+      createToken,
+      now: () => now,
+    }
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await expect(
+        login(
+          {
+            email: "admin@example.com",
+            password: "wrong",
+            ip: `198.51.100.${attempt}`,
+          },
+          base
+        )
+      ).rejects.toMatchObject({ code: "INVALID_LOGIN" })
+    }
+    await expect(
+      login(
+        {
+          email: "admin@example.com",
+          password: "correct",
+          ip: "203.0.113.99",
+        },
+        base
+      )
+    ).rejects.toMatchObject({ code: "RATE_LIMITED", retryAfterSeconds: 840 })
+    expect(verify).toHaveBeenCalledTimes(6)
+    expect(createToken).not.toHaveBeenCalled()
+    expect(fake.sessions).toHaveLength(0)
+
+    now = new Date("2026-07-18T00:15:00Z")
+    await expect(
+      login(
+        {
+          email: "admin@example.com",
+          password: "correct",
+          ip: "203.0.113.99",
+        },
+        base
+      )
+    ).resolves.toMatchObject({ token: "recovered" })
+    expect(createToken).toHaveBeenCalledOnce()
+  })
+
+  it("atomically blocks concurrent correct guesses when the final account slot is consumed", async () => {
+    const limiter = persistentLimiter()
+    const fake = loginStore({
+      id: "user-1",
+      passwordDigest: "digest",
+      onboardingCompletedAt: new Date(),
+    })
+    const createToken = vi.fn(() => ({
+      raw: "session-token",
+      digest: Buffer.alloc(32, 8),
+    }))
+    const base = {
+      store: fake.store,
+      enforceLimit: limiter.enforce,
+      releaseLimit: limiter.release,
+      digestKey: deterministicDigest,
+      verify: async (_digest: string, password: string) =>
+        password === "correct",
+      createToken,
       now: () => new Date("2026-07-18T00:01:00Z"),
     }
-    // Six failed attempts, each from a distinct IP so no single IP is blocked; the
-    // known-account email bucket fills and eventually rate-limits further failures.
-    const outcomes: string[] = []
-    for (let attempt = 0; attempt < 6; attempt += 1) {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
       await login(
         {
           email: "admin@example.com",
@@ -401,15 +487,42 @@ describe("persistent login rate limiting", () => {
           ip: `198.51.100.${attempt}`,
         },
         base
-      ).catch((error) => outcomes.push(error.code))
+      ).catch(() => undefined)
     }
-    expect(outcomes).toContain("RATE_LIMITED")
-    // A correct password from a fresh, unblocked IP still succeeds.
-    const result = await login(
-      { email: "admin@example.com", password: "correct", ip: "203.0.113.99" },
-      base
+
+    const attempts = await Promise.allSettled([
+      login(
+        {
+          email: "admin@example.com",
+          password: "wrong",
+          ip: "198.51.100.10",
+        },
+        base
+      ),
+      login(
+        {
+          email: "admin@example.com",
+          password: "correct",
+          ip: "198.51.100.11",
+        },
+        base
+      ),
+      login(
+        {
+          email: "admin@example.com",
+          password: "correct",
+          ip: "198.51.100.12",
+        },
+        base
+      ),
+    ])
+
+    expect(attempts).toHaveLength(3)
+    expect(attempts.every((attempt) => attempt.status === "rejected")).toBe(
+      true
     )
-    expect(result.token).toBe("recovered")
+    expect(createToken).not.toHaveBeenCalled()
+    expect(fake.sessions).toHaveLength(0)
   })
 
   it("starts a fresh distributed bucket after the fixed window", async () => {
@@ -419,6 +532,7 @@ describe("persistent login rate limiting", () => {
     const dependencies = {
       store: fake.store,
       enforceLimit: limiter.enforce,
+      releaseLimit: limiter.release,
       digestKey: deterministicDigest,
       now: () => now,
     }
@@ -454,6 +568,7 @@ describe("persistent login rate limiting", () => {
       {
         store: fake.store,
         enforceLimit: limiter.enforce,
+        releaseLimit: limiter.release,
         digestKey: deterministicDigest,
         verify: async () => true,
         createToken: () => ({ raw: "new-token", digest: Buffer.alloc(32, 7) }),
@@ -462,6 +577,10 @@ describe("persistent login rate limiting", () => {
     )
     expect(result.token).toBe("new-token")
     expect(fake.sessions).toHaveLength(1)
+    expect(limiter.consumedKeys).toHaveLength(2)
+    expect(limiter.consumedKeys[0]).toMatch(/^login-ip:/)
+    expect(limiter.consumedKeys[1]).toMatch(/^login-email:/)
+    expect(limiter.releasedKeys).toEqual([limiter.consumedKeys[1]])
     expect(fake.sessions[0]).toMatchObject({
       userId: "user-1",
       currentSessionId: "old-session",
@@ -485,6 +604,7 @@ describe("persistent login rate limiting", () => {
       {
         store: fake.store,
         enforceLimit: limiter.enforce,
+        releaseLimit: limiter.release,
         digestKey: deterministicDigest,
         verify: async () => true,
       }
@@ -507,6 +627,7 @@ describe("persistent login rate limiting", () => {
       {
         store: fake.store,
         enforceLimit: limiter.enforce,
+        releaseLimit: limiter.release,
         digestKey: deterministicDigest,
         verify: async () => true,
       }
