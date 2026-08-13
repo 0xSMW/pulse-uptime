@@ -1,6 +1,7 @@
 import { apiError, apiJson, objectEnvelope } from "@/lib/api/envelopes"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
 import { operationalService } from "@/lib/api/operational-service"
+import { isUuid } from "@/lib/ids/uuid"
 
 export async function GET(
   request: Request,
@@ -10,9 +11,16 @@ export async function GET(
   if (isApiResponse(context)) {
     return context
   }
-  const incident = await operationalService.findIncident(
-    (await params).incidentId
-  )
+  const { incidentId } = await params
+  if (!isUuid(incidentId)) {
+    return apiError(
+      context.requestId,
+      400,
+      "INVALID_INCIDENT",
+      "Incident ID is invalid"
+    )
+  }
+  const incident = await operationalService.findIncident(incidentId)
   if (!incident) {
     return apiError(
       context.requestId,
