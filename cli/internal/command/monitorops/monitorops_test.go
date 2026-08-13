@@ -333,6 +333,33 @@ func TestArchiveRequiresYesWhenNoninteractive(t *testing.T) {
 	}
 }
 
+func TestArchivePromptSanitizesMonitorID(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+		want string
+	}{
+		{name: "ordinary ID", id: "monitor-123", want: "Archive monitor monitor-123? [y/N] Canceled\n"},
+		{name: "terminal controls", id: "monitor\x1b[2J\t\u202e", want: `Archive monitor monitor\x1b[2J\x09\u202e? [y/N] Canceled` + "\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var stderr bytes.Buffer
+			cmd := NewGroup(Dependencies{
+				Client: clientFunc(func(context.Context, Request) error { t.Fatal("API called"); return nil }),
+				In:     strings.NewReader("no\n"), Err: &stderr, StdinTTY: true,
+			})
+			cmd.SetArgs([]string{"archive", tt.id})
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			if got := stderr.String(); got != tt.want {
+				t.Fatalf("prompt = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 // The rendered archive envelope is the server's MonitorArchival response, never
 // a locally fabricated document.
 func TestArchiveRendersServerEnvelope(t *testing.T) {
