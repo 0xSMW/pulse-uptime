@@ -290,7 +290,7 @@ func newRemoveCommand(d Dependencies) *cobra.Command {
 			if !d.StdinTTY {
 				return invalid("noninteractive removal requires --yes")
 			}
-			fmt.Fprintf(d.Err, "Remove dependency %s? [y/N] ", id)
+			fmt.Fprintf(d.Err, "Remove dependency %s? [y/N] ", output.SanitizeDisplay(id))
 			line, err := bufio.NewReader(d.In).ReadString('\n')
 			if err != nil && !errors.Is(err, io.EOF) {
 				return err
@@ -308,7 +308,7 @@ func newRemoveCommand(d Dependencies) *cobra.Command {
 		if err := d.Client.Do(cmd.Context(), Request{Method: http.MethodDelete, Path: dependencyPath(id), IdempotencyKey: key}); err != nil {
 			return d.MapError(err)
 		}
-		fmt.Fprintf(d.Err, "Removed dependency %s\n", id)
+		fmt.Fprintf(d.Err, "Removed dependency %s\n", output.SanitizeDisplay(id))
 		return nil
 	}}
 	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm removal")
