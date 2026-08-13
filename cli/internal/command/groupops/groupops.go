@@ -177,7 +177,7 @@ func newDeleteCommand(d Dependencies) *cobra.Command {
 			if !d.StdinTTY {
 				return invalid("noninteractive deletion requires --yes")
 			}
-			fmt.Fprintf(d.Err, "Delete empty group %s? [y/N] ", id)
+			fmt.Fprintf(d.Err, "Delete empty group %s? [y/N] ", output.SanitizeDisplay(id))
 			line, err := bufio.NewReader(d.In).ReadString('\n')
 			if err != nil && !errors.Is(err, io.EOF) {
 				return err
