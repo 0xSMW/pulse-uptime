@@ -53,6 +53,10 @@ describe("machine credential tree revocation", () => {
     expect(query).toContain("created_by_principal")
     expect(query).toContain("cli_session:")
     expect(query).toContain("api_token:")
+    expect(query).toContain("::timestamptz")
+    expect(renderedParams(execute.mock.calls[0]![0])).toContain(
+      "2026-08-13T00:00:00.000Z"
+    )
   })
 
   it("revokes an API token subtree at arbitrary depth", async () => {
