@@ -548,6 +548,34 @@ func TestRemovePromptCancellationMakesNoRequest(t *testing.T) {
 	}
 }
 
+func TestRemovePromptSanitizesDependencyID(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+		want string
+	}{
+		{name: "ordinary ID", id: "dep-1", want: "Remove dependency dep-1? [y/N] Canceled\n"},
+		{name: "terminal controls", id: "dep\x1b[2J\t\u202e", want: `Remove dependency dep\x1b[2J\x09\u202e? [y/N] Canceled` + "\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &fakeClient{}
+			var stderr bytes.Buffer
+			cmd := NewGroup(Dependencies{Client: client, In: strings.NewReader("no\n"), Err: &stderr, StdinTTY: true})
+			cmd.SetArgs([]string{"remove", tt.id})
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			if got := stderr.String(); got != tt.want {
+				t.Fatalf("prompt = %q, want %q", got, tt.want)
+			}
+			if len(client.requests) != 0 {
+				t.Fatalf("unexpected requests: %#v", client.requests)
+			}
+		})
+	}
+}
+
 func TestRemoveConfirmedSendsDeleteAndPrintsStderrConfirmation(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	client := &fakeClient{do: func(Request) error { return nil }}
@@ -568,6 +596,26 @@ func TestRemoveConfirmedSendsDeleteAndPrintsStderrConfirmation(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "Removed dependency dep-1") {
 		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestRemoveConfirmationSanitizesDependencyID(t *testing.T) {
+	const id = "dep\x1b[2J\t\u202e"
+	var stderr bytes.Buffer
+	client := &fakeClient{}
+	cmd := NewGroup(Dependencies{
+		Client: client, Err: &stderr,
+		NewID: func() (string, error) { return "idem-remove", nil },
+	})
+	cmd.SetArgs([]string{"remove", id, "--yes"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := stderr.String(), `Removed dependency dep\x1b[2J\x09\u202e`+"\n"; got != want {
+		t.Fatalf("confirmation = %q, want %q", got, want)
+	}
+	if got, want := client.requests[0].Path, dependencyPath(id); got != want {
+		t.Fatalf("path = %q, want %q", got, want)
 	}
 }
 
