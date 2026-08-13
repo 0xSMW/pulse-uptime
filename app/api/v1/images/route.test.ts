@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("server-only", () => ({}))
 vi.mock("@/lib/db/client", () => ({ db: {} }))
@@ -6,12 +6,16 @@ vi.mock("@/lib/api/middleware", () => ({
   authorize: vi.fn(),
   isApiResponse: (value: unknown) => value instanceof Response,
 }))
+vi.mock("@/lib/api/rate-limit", () => ({
+  enforceRateLimit: vi.fn(),
+}))
 
 import { apiError } from "@/lib/api/envelopes"
 import { databaseImageStore, MAX_IMAGE_BYTES } from "@/lib/api/images"
 import { type ApiContext, authorize } from "@/lib/api/middleware"
+import { enforceRateLimit } from "@/lib/api/rate-limit"
 
-import { POST } from "./route"
+import { AVATAR_UPLOAD_LIMIT, POST } from "./route"
 
 const context: ApiContext = {
   principal: {
@@ -52,15 +56,25 @@ function pngFile(bytes: Buffer = PNG, type = "image/png") {
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(authorize).mockResolvedValue(context)
+  vi.mocked(enforceRateLimit).mockResolvedValue({
+    allowed: true,
+    remaining: 19,
+    retryAfterSeconds: 300,
+  })
   vi.spyOn(databaseImageStore, "insert").mockResolvedValue({
     id: "44444444-4444-4444-8444-444444444444",
   })
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
 })
 
 describe("POST /api/v1/images", () => {
   it("lets a read-only human session upload an avatar", async () => {
     vi.mocked(authorize).mockResolvedValue({
       ...context,
+      principalKey: "human:user-2",
       principal: {
         type: "human",
         role: "viewer",
@@ -74,6 +88,41 @@ describe("POST /api/v1/images", () => {
       uploadRequest({ file: pngFile(), kind: "avatar" })
     )
     expect(response.status).toBe(201)
+    expect(enforceRateLimit).toHaveBeenCalledWith(
+      "human:user-2",
+      AVATAR_UPLOAD_LIMIT
+    )
+  })
+
+  it("isolates durable avatar limits by human user", async () => {
+    await POST(uploadRequest({ file: pngFile(), kind: "avatar" }))
+    vi.mocked(authorize).mockResolvedValue({
+      ...context,
+      principal: { ...context.principal, id: "user-2" },
+      principalKey: "human:user-2",
+    })
+    await POST(uploadRequest({ file: pngFile(), kind: "avatar" }))
+    expect(vi.mocked(enforceRateLimit).mock.calls.map(([key]) => key)).toEqual([
+      "human:user-1",
+      "human:user-2",
+    ])
+  })
+
+  it("rejects exhausted avatar uploads before reading bytes or inserting", async () => {
+    vi.mocked(enforceRateLimit).mockResolvedValue({
+      allowed: false,
+      remaining: 0,
+      retryAfterSeconds: 47,
+    })
+    const arrayBuffer = vi.spyOn(File.prototype, "arrayBuffer")
+    const response = await POST(
+      uploadRequest({ file: pngFile(), kind: "avatar" })
+    )
+    expect(response.status).toBe(429)
+    expect(response.headers.get("Retry-After")).toBe("47")
+    expect((await response.json()).error.code).toBe("RATE_LIMITED")
+    expect(arrayBuffer).not.toHaveBeenCalled()
+    expect(databaseImageStore.insert).not.toHaveBeenCalled()
   })
 
   it("requires config:write for branding kinds", async () => {
@@ -113,6 +162,25 @@ describe("POST /api/v1/images", () => {
     expect(response.status).toBe(403)
   })
 
+  it("denies avatar uploads from machine credentials with config:write", async () => {
+    vi.mocked(authorize).mockResolvedValue({
+      ...context,
+      principal: {
+        type: "api_token",
+        id: "tok-1",
+        name: "writer",
+        scopes: ["config:write"],
+        expiresAt: new Date("2026-12-01T00:00:00Z"),
+      },
+    } as unknown as ApiContext)
+    const response = await POST(
+      uploadRequest({ file: pngFile(), kind: "avatar" })
+    )
+    expect(response.status).toBe(403)
+    expect((await response.json()).error.code).toBe("SESSION_REQUIRED")
+    expect(databaseImageStore.insert).not.toHaveBeenCalled()
+  })
+
   it("returns the authorization failure untouched", async () => {
     vi.mocked(authorize).mockResolvedValue(
       apiError("req_denied", 403, "SCOPE_DENIED", "denied")
@@ -134,9 +202,24 @@ describe("POST /api/v1/images", () => {
     expect(payload.data).toEqual({ id: "44444444-4444-4444-8444-444444444444" })
     expect(databaseImageStore.insert).toHaveBeenCalledWith(
       expect.objectContaining({
+        uploadedByUserId: "user-1",
         kind: "avatar",
         mimeType: "image/png",
         byteSize: PNG.length,
+      })
+    )
+  })
+
+  it("keeps branding uploads installation-scoped", async () => {
+    const response = await POST(
+      uploadRequest({ file: pngFile(), kind: "logo-light" })
+    )
+    expect(response.status).toBe(201)
+    expect(enforceRateLimit).not.toHaveBeenCalled()
+    expect(databaseImageStore.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uploadedByUserId: null,
+        kind: "logo-light",
       })
     )
   })
