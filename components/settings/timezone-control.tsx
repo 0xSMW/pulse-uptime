@@ -3,6 +3,7 @@
 import { useState } from "react"
 
 import { useTimezone } from "@/components/dashboard/timezone-provider"
+import { apiRequest } from "@/components/settings/settings-api"
 import {
   type Message,
   StatusMessage,
@@ -58,14 +59,10 @@ export function TimezoneControl() {
     setBusy(true)
     setStatus(null)
     try {
-      const response = await fetch("/api/v1/me", {
+      await apiRequest("/api/v1/me", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ timezone: value === "system" ? null : value }),
       })
-      if (!response.ok) {
-        throw new Error("Request failed")
-      }
       setServerTimezone(value === "system" ? null : value)
       setStatus({ text: "Account time zone saved", tone: "info" })
     } catch {
