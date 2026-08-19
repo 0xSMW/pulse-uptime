@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { useRef, useState } from "react"
 
 import { AppearancePicker } from "@/components/settings/appearance-picker"
+import { apiRequest } from "@/components/settings/settings-api"
 import { useDirtyGuard } from "@/components/settings/settings-dirty"
 import { CardHeading, SettingsRow } from "@/components/settings/settings-row"
 import {
@@ -23,24 +24,6 @@ export interface AccountSettingsData {
   email: string
   timezone: string | null
   avatarImageId: string | null
-}
-
-interface ApiErrorEnvelope {
-  error?: { message?: string }
-}
-
-async function requestJson(path: string, init: RequestInit) {
-  const response = await fetch(path, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...init.headers },
-  })
-  if (!response.ok) {
-    const payload = (await response
-      .json()
-      .catch(() => ({}))) as ApiErrorEnvelope
-    throw new Error(payload.error?.message || "Request failed. Try again.")
-  }
-  return response.json()
 }
 
 // Client mirror of the server caps in lib/api/images.ts (MAX_IMAGE_BYTES).
@@ -99,10 +82,14 @@ export function AccountSettings({ data }: { data: AccountSettingsData }) {
     setNameBusy(true)
     setProfileMessage(null)
     try {
-      await requestJson("/api/v1/me", {
-        method: "PATCH",
-        body: JSON.stringify({ name: nameText.trim() }),
-      })
+      await apiRequest(
+        "/api/v1/me",
+        {
+          method: "PATCH",
+          body: JSON.stringify({ name: nameText.trim() }),
+        },
+        { fallbackMessage: "Request failed. Try again." }
+      )
       setProfileMessage({ text: "Name saved", tone: "info" })
       router.refresh()
     } catch (error) {
@@ -134,14 +121,18 @@ export function AccountSettings({ data }: { data: AccountSettingsData }) {
     }
     setEmailBusy(true)
     try {
-      const payload = (await requestJson("/api/v1/me/email", {
-        method: "POST",
-        body: JSON.stringify({
-          email: newEmail,
-          emailConfirm: confirmEmail,
-          currentPassword,
-        }),
-      })) as { data?: { email?: string } }
+      const payload = await apiRequest<{ data?: { email?: string } }>(
+        "/api/v1/me/email",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            email: newEmail,
+            emailConfirm: confirmEmail,
+            currentPassword,
+          }),
+        },
+        { fallbackMessage: "Request failed. Try again." }
+      )
       const committed = payload.data?.email ?? newEmail.trim().toLowerCase()
       setProfileMessage({
         text: `Email updated. You will now sign in as ${committed}.`,
@@ -174,26 +165,22 @@ export function AccountSettings({ data }: { data: AccountSettingsData }) {
       const form = new FormData()
       form.append("file", file)
       form.append("kind", "avatar")
-      const uploadResponse = await fetch("/api/v1/images", {
-        method: "POST",
-        body: form,
-      })
-      if (!uploadResponse.ok) {
-        const payload = (await uploadResponse
-          .json()
-          .catch(() => ({}))) as ApiErrorEnvelope
-        throw new Error(payload.error?.message || "Upload failed. Try again.")
-      }
-      const uploaded = (await uploadResponse.json()) as {
-        data?: { id?: string }
-      }
+      const uploaded = await apiRequest<{ data?: { id?: string } }>(
+        "/api/v1/images",
+        { method: "POST", body: form },
+        { fallbackMessage: "Upload failed. Try again." }
+      )
       if (!uploaded.data?.id) {
         throw new Error("Upload failed. Try again.")
       }
-      await requestJson("/api/v1/me", {
-        method: "PATCH",
-        body: JSON.stringify({ avatarImageId: uploaded.data.id }),
-      })
+      await apiRequest(
+        "/api/v1/me",
+        {
+          method: "PATCH",
+          body: JSON.stringify({ avatarImageId: uploaded.data.id }),
+        },
+        { fallbackMessage: "Request failed. Try again." }
+      )
       setProfileMessage({ text: "Avatar updated", tone: "info" })
       router.refresh()
     } catch (error) {
