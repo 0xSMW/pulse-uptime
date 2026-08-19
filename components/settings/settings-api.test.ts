@@ -10,6 +10,7 @@ import {
 } from "./monitor-sheet"
 import {
   apiRequest,
+  apiRequestWithResponse,
   expiryFromDays,
   generatedGroupId,
   generatedMonitorId,
@@ -132,6 +133,64 @@ describe("Settings form helpers", () => {
     expect(headers.get("Idempotency-Key")).toBe(
       "12345678-1234-1234-1234-123456789abc"
     )
+  })
+
+  it("supports conditional headers and response metadata", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: { name: "Saved" } }), {
+        headers: { ETag: '"2"' },
+      })
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    const result = await apiRequestWithResponse<{ data: { name: string } }>(
+      "/api/v1/status-page-config",
+      { method: "PUT", body: JSON.stringify({ name: "Saved" }) },
+      { idempotency: "fixed-key", ifMatch: '"1"' }
+    )
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit
+    const headers = new Headers(init.headers)
+    expect(headers.get("Accept")).toBe("application/json")
+    expect(headers.get("Content-Type")).toBe("application/json")
+    expect(headers.get("If-Match")).toBe('"1"')
+    expect(headers.get("Idempotency-Key")).toBe("fixed-key")
+    expect(result.data.data.name).toBe("Saved")
+    expect(result.etag).toBe('"2"')
+    expect(result.response.status).toBe(200)
+  })
+
+  it("leaves multipart content type for fetch to supply", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(Response.json({ data: { id: "image-id" } }))
+    vi.stubGlobal("fetch", fetchMock)
+    const form = new FormData()
+    form.append("kind", "avatar")
+
+    await apiRequest("/api/v1/images", { method: "POST", body: form })
+
+    const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers)
+    expect(headers.get("Content-Type")).toBeNull()
+    expect(headers.get("Idempotency-Key")).toBeNull()
+  })
+
+  it("supports request-specific non-JSON fallbacks", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("gateway", { status: 502 }))
+    )
+
+    await expect(
+      apiRequest(
+        "/api/v1/me",
+        { method: "PATCH", body: JSON.stringify({ name: "Saved" }) },
+        { fallbackMessage: "Request failed. Try again." }
+      )
+    ).rejects.toMatchObject({
+      message: "Request failed. Try again.",
+      status: 502,
+    })
   })
 
   it("preserves structured API error details", async () => {
