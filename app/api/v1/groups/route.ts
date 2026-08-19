@@ -1,7 +1,7 @@
-import { apiJson, listEnvelope, objectEnvelope } from "@/lib/api/envelopes"
+import { runAtomicMutation } from "@/lib/api/atomic-mutation"
+import { apiJson, listEnvelope } from "@/lib/api/envelopes"
 import { groupError, storedGroupError } from "@/lib/api/group-http"
 import { createGroup, GroupApiError, listGroups } from "@/lib/api/groups"
-import { executeIdempotent } from "@/lib/api/idempotency"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
 import { routeError } from "@/lib/api/route"
 
@@ -29,31 +29,22 @@ export async function POST(request: Request) {
   }
   try {
     const body = await request.json()
-    const result = await executeIdempotent({
+    return runAtomicMutation({
       request,
-      principalKey: context.principalKey,
+      context,
       routeKey: "/api/v1/groups",
       body,
-      mode: "atomic",
-      work: async (tx) => {
-        try {
-          return {
-            status: 201,
-            body: objectEnvelope(
-              "Group",
-              await createGroup(body, context.principalKey, tx),
-              context.requestId
-            ),
-          }
-        } catch (error) {
-          if (error instanceof GroupApiError) {
-            return storedGroupError(error, context.requestId)
-          }
-          throw error
-        }
-      },
+      work: async (tx) => ({
+        status: 201,
+        kind: "Group",
+        data: await createGroup(body, context.principalKey, tx),
+      }),
+      storedError: (error, requestId) =>
+        error instanceof GroupApiError
+          ? storedGroupError(error, requestId)
+          : null,
+      mapError: groupError,
     })
-    return apiJson(result.body, { status: result.status })
   } catch (error) {
     return (
       groupError(error, context.requestId) ??
