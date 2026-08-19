@@ -270,6 +270,21 @@ func TestListJSONLIsRecordsOnly(t *testing.T) {
 	}
 }
 
+func TestEnvelopeMalformedPayloadFallsBackToRawBytes(t *testing.T) {
+	doc := Envelope{Data: json.RawMessage(`{"name":`)}
+	for _, format := range []string{"table", "tsv"} {
+		t.Run(format, func(t *testing.T) {
+			var out bytes.Buffer
+			if err := renderEnvelope(Dependencies{Out: &out}, format, doc); err != nil {
+				t.Fatal(err)
+			}
+			if out.String() != "{\"name\":\n" {
+				t.Fatalf("output = %q", out.String())
+			}
+		})
+	}
+}
+
 func TestListRejectsNegativeLimit(t *testing.T) {
 	_, err := List(context.Background(), &fakeClient{}, ListOptions{Limit: -1})
 	var cliErr *Error
