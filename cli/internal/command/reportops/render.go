@@ -7,17 +7,13 @@ import (
 	"strings"
 
 	"github.com/0xSMW/pulse-uptime/cli/internal/output"
-	"gopkg.in/yaml.v3"
 )
 
 func renderEnvelope(d Dependencies, format string, doc Envelope) error {
+	if handled, err := output.RenderStructured(d.Out, format, doc); handled {
+		return err
+	}
 	switch format {
-	case "json":
-		return jsonPretty(d.Out, doc)
-	case "jsonl":
-		return json.NewEncoder(d.Out).Encode(doc)
-	case "yaml":
-		return yamlValue(d.Out, doc)
 	case "tsv":
 		if doc.Kind == "StatusReportDeleted" {
 			_, err := fmt.Fprintf(d.Out, "%s\tdeleted\n", output.EscapeTSVField(deletedID(doc)))
@@ -47,18 +43,10 @@ func renderEnvelope(d Dependencies, format string, doc Envelope) error {
 }
 
 func renderList(d Dependencies, format string, doc ListEnvelope) error {
+	if handled, err := output.RenderStructuredList(d.Out, format, doc, doc.Data); handled {
+		return err
+	}
 	switch format {
-	case "json":
-		return jsonPretty(d.Out, doc)
-	case "jsonl":
-		for _, raw := range doc.Data {
-			if _, err := fmt.Fprintln(d.Out, string(raw)); err != nil {
-				return err
-			}
-		}
-		return nil
-	case "yaml":
-		return yamlValue(d.Out, doc)
 	case "tsv":
 		for _, raw := range doc.Data {
 			var r Report
@@ -84,9 +72,7 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 		if err := output.Table(d.Out, []string{"STATUS", "TITLE", "TYPE", "CURRENT", "UPDATED"}, rows); err != nil {
 			return err
 		}
-		if doc.Meta.NextCursor != nil && *doc.Meta.NextCursor != "" {
-			fmt.Fprintf(d.Err, "More reports available. Continue with --cursor %s\n", output.SanitizeDisplay(*doc.Meta.NextCursor))
-		}
+		output.CursorHint(d.Err, "reports", doc.Meta.NextCursor)
 		return nil
 	}
 }
@@ -187,23 +173,4 @@ func pointer(value *string) string {
 		return "-"
 	}
 	return *value
-}
-
-func jsonPretty(w io.Writer, value any) error {
-	encoder := json.NewEncoder(w)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(value)
-}
-
-func yamlValue(w io.Writer, value any) error {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return err
-	}
-	var decoded any
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	return yaml.NewEncoder(w).Encode(decoded)
 }
