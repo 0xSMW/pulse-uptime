@@ -98,6 +98,14 @@ describe("PATCH /api/v1/groups/{groupId}", () => {
       monitorCount: 0,
     })
     expect(completions).toMatchObject([{ status: 200 }])
+    expect(executeIdempotent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        principalKey: context.principalKey,
+        routeKey: "/api/v1/groups/production",
+        body: { name: "Core" },
+        mode: "atomic",
+      })
+    )
   })
 
   it("stores a GROUP_NOT_FOUND domain error as the operation's own completed 404, the same status a first attempt maps to", async () => {
@@ -190,6 +198,14 @@ describe("DELETE /api/v1/groups/{groupId}", () => {
     expect(payload.kind).toBe("GroupDeletion")
     expect(payload.data).toEqual({ id: "production", deleted: true })
     expect(completions).toMatchObject([{ status: 200 }])
+    expect(executeIdempotent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        principalKey: context.principalKey,
+        routeKey: "/api/v1/groups/production",
+        body: {},
+        mode: "atomic",
+      })
+    )
   })
 
   it("stores a GROUP_NOT_EMPTY domain error as the operation's own completed 409, the same status a first attempt maps to", async () => {
