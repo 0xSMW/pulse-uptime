@@ -113,6 +113,14 @@ describe("POST /api/v1/groups", () => {
       monitorCount: 0,
     })
     expect(completions).toMatchObject([{ status: 201 }])
+    expect(executeIdempotent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        principalKey: context.principalKey,
+        routeKey: "/api/v1/groups",
+        body: { id: "production", name: "Production" },
+        mode: "atomic",
+      })
+    )
   })
 
   it("stores a GROUP_EXISTS domain error as the operation's own completed 409, the same status a first attempt maps to", async () => {
