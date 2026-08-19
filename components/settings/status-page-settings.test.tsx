@@ -8,8 +8,10 @@ import {
 } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+const navigation = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn() }))
+
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+  useRouter: () => ({ refresh: navigation.refresh, push: navigation.push }),
 }))
 
 import type { StatusPageConfigDocument } from "@/lib/status-page/schema"
@@ -27,6 +29,7 @@ import {
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  vi.clearAllMocks()
 })
 
 const IMAGE_ID = "33333333-3333-4333-8333-333333333333"
@@ -207,10 +210,11 @@ describe("StatusPageSettings save model", () => {
     const [url, init] = methodCalls(fetchMock, "PUT")[0]!
     expect(url).toBe("/api/v1/status-page-config")
     expect(init.method).toBe("PUT")
-    expect(init.headers["If-Match"]).toBe('"1"')
+    const headers = new Headers(init.headers)
+    expect(headers.get("If-Match")).toBe('"1"')
     // The config PUT route requires a UUID Idempotency-Key (executeIdempotent).
     // Omitting it makes every Settings -> Status page save fail.
-    expect(init.headers["Idempotency-Key"]).toMatch(
+    expect(headers.get("Idempotency-Key")).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     )
     const payload = JSON.parse(init.body as string) as Record<string, unknown>
@@ -223,6 +227,7 @@ describe("StatusPageSettings save model", () => {
     expect(document.activeElement?.textContent).toBe(
       "Status page settings saved"
     )
+    expect(navigation.refresh).toHaveBeenCalledOnce()
   })
 
   it("recovers from a 412 by merging and preserving local edits", async () => {
@@ -268,7 +273,7 @@ describe("StatusPageSettings save model", () => {
       expect(methodCalls(fetchMock, "PUT")).toHaveLength(2)
     })
     const [, retryInit] = methodCalls(fetchMock, "PUT")[1]!
-    expect(retryInit.headers["If-Match"]).toBe('"7"')
+    expect(new Headers(retryInit.headers).get("If-Match")).toBe('"7"')
   })
 
   it("adopts a fresh server document on mount while pristine, so a stale cached etag never conflicts", async () => {
@@ -301,7 +306,7 @@ describe("StatusPageSettings save model", () => {
       expect(methodCalls(fetchMock, "PUT")).toHaveLength(1)
     })
     const [, init] = methodCalls(fetchMock, "PUT")[0]!
-    expect(init.headers["If-Match"]).toBe('"9"')
+    expect(new Headers(init.headers).get("If-Match")).toBe('"9"')
   })
 })
 
@@ -402,6 +407,7 @@ describe("StatusPageSettings uploads", () => {
     expect(uploadUrl).toBe("/api/v1/images")
     expect(uploadInit.method).toBe("POST")
     expect((uploadInit.body as FormData).get("kind")).toBe("logo-light")
+    expect(new Headers(uploadInit.headers).get("Content-Type")).toBeNull()
 
     // The reference only commits through the page-level PUT.
     expect(screen.getAllByText("Unsaved changes").length).toBeGreaterThan(0)
@@ -420,10 +426,12 @@ describe("StatusPageSettings uploads", () => {
   it("surfaces upload failures inline without dirtying the draft", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValue(
-        jsonResponse(
-          { error: { message: "favicon images must be at most 32 KB" } },
-          { status: 400 }
+      .mockImplementation(() =>
+        Promise.resolve(
+          jsonResponse(
+            { error: { message: "favicon images must be at most 32 KB" } },
+            { status: 400 }
+          )
         )
       )
     vi.stubGlobal("fetch", fetchMock)
