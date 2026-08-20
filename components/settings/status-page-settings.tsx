@@ -2,7 +2,11 @@
 
 import { useRouter } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
-
+import {
+  apiRequest,
+  apiRequestWithResponse,
+  SettingsApiError,
+} from "@/components/settings/settings-api"
 import { useDirtyGuard } from "@/components/settings/settings-dirty"
 import { CardHeading } from "@/components/settings/settings-row"
 import {
@@ -100,15 +104,6 @@ export function mergeStatusPageDrafts(
     }
   }
   return merged as StatusPageConfigDocument
-}
-
-interface ApiErrorEnvelope {
-  error?: { message?: string }
-}
-
-async function errorMessage(response: Response): Promise<string> {
-  const payload = (await response.json().catch(() => ({}))) as ApiErrorEnvelope
-  return payload.error?.message || `Request failed (${response.status})`
 }
 
 const HISTORY_DAY_OPTIONS = [30, 60, 90] as const
@@ -426,14 +421,10 @@ function ImageUploadZone({
       const form = new FormData()
       form.append("file", file)
       form.append("kind", kind)
-      const response = await fetch("/api/v1/images", {
-        method: "POST",
-        body: form,
-      })
-      if (!response.ok) {
-        throw new Error(await errorMessage(response))
-      }
-      const payload = (await response.json()) as { data?: { id?: string } }
+      const payload = await apiRequest<{ data?: { id?: string } }>(
+        "/api/v1/images",
+        { method: "POST", body: form }
+      )
       if (!payload.data?.id) {
         throw new Error("Upload failed. Try again.")
       }
@@ -642,16 +633,9 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
     let cancelled = false
     ;(async () => {
       try {
-        const response = await fetch("/api/v1/status-page-config", {
-          cache: "no-store",
-        })
-        if (!response.ok) {
-          return
-        }
-        const nextEtag = response.headers.get("ETag")
-        const payload = (await response.json()) as {
+        const { data: payload, etag: nextEtag } = await apiRequestWithResponse<{
           data: StatusPageConfigDocument
-        }
+        }>("/api/v1/status-page-config", { cache: "no-store" })
         if (cancelled || !nextEtag || nextEtag === etagRef.current) {
           return
         }
@@ -709,25 +693,20 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
     setMessage(null)
     const document = toDocument({ ...draft, navLinks })
     try {
-      const response = await fetch("/api/v1/status-page-config", {
-        method: "PUT",
-        // The config PUT route requires a UUID Idempotency-Key (executeIdempotent).
-        // Without it every save fails with IDEMPOTENCY_KEY_REQUIRED.
-        headers: {
-          "Content-Type": "application/json",
-          "If-Match": etag,
-          "Idempotency-Key": crypto.randomUUID(),
+      const { etag: nextEtag } = await apiRequestWithResponse(
+        "/api/v1/status-page-config",
+        {
+          method: "PUT",
+          body: JSON.stringify(document),
         },
-        body: JSON.stringify(document),
-      })
-      if (response.status === 412) {
-        await recoverFromConflict()
-        return
-      }
-      if (!response.ok) {
-        throw new Error(await errorMessage(response))
-      }
-      const nextEtag = response.headers.get("ETag")
+        {
+          // The config PUT route requires a UUID Idempotency-Key
+          // (executeIdempotent). Without it every save fails with
+          // IDEMPOTENCY_KEY_REQUIRED.
+          idempotency: true,
+          ifMatch: etag,
+        }
+      )
       setSaved(document)
       setDraft(structuredClone(document))
       if (nextEtag) {
@@ -739,6 +718,10 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
       statusRef.current?.focus()
       router.refresh()
     } catch (error) {
+      if (error instanceof SettingsApiError && error.status === 412) {
+        await recoverFromConflict()
+        return
+      }
       setMessage({
         text:
           error instanceof Error ? error.message : "Request failed. Try again.",
@@ -751,15 +734,10 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
 
   async function recoverFromConflict() {
     try {
-      const response = await fetch("/api/v1/status-page-config")
-      if (!response.ok) {
-        throw new Error(await errorMessage(response))
-      }
-      const payload = (await response.json()) as {
+      const { data: payload, etag: nextEtag } = await apiRequestWithResponse<{
         data: StatusPageConfigDocument
-      }
+      }>("/api/v1/status-page-config")
       const server = toDocument(payload.data)
-      const nextEtag = response.headers.get("ETag")
       setDraft(mergeStatusPageDrafts(saved, draft, server))
       setSaved(server)
       if (nextEtag) {

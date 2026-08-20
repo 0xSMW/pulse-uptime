@@ -19,7 +19,6 @@ import (
 	"github.com/0xSMW/pulse-uptime/cli/internal/output"
 	"github.com/0xSMW/pulse-uptime/cli/internal/paginator"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
 // Request describes one logical API operation. Implementations must reuse
@@ -608,7 +607,7 @@ func set(q url.Values, key, value string) {
 	}
 }
 func machine(format string) bool {
-	return format == "json" || format == "jsonl" || format == "yaml" || format == "tsv"
+	return output.IsMachine(format)
 }
 func invalid(message string) error {
 	return &Error{Exit: ExitInvalidInput, Code: "INVALID_ARGUMENT", Message: message}
@@ -683,13 +682,10 @@ func testSuccessful(raw json.RawMessage) (bool, error) {
 }
 
 func renderEnvelope(d Dependencies, format string, doc Envelope) error {
+	if handled, err := output.RenderStructured(d.Out, format, doc); handled {
+		return err
+	}
 	switch format {
-	case "json":
-		return writeJSON(d.Out, doc)
-	case "jsonl":
-		return json.NewEncoder(d.Out).Encode(doc)
-	case "yaml":
-		return writeYAML(d.Out, doc)
 	case "tsv":
 		var m Monitor
 		if json.Unmarshal(doc.Data, &m) == nil && m.ID != "" {
@@ -733,18 +729,10 @@ func formatUptimePercent(n json.Number) string {
 }
 
 func renderList(d Dependencies, format string, doc ListEnvelope) error {
+	if handled, err := output.RenderStructuredList(d.Out, format, doc, doc.Data); handled {
+		return err
+	}
 	switch format {
-	case "json":
-		return writeJSON(d.Out, doc)
-	case "jsonl":
-		for _, raw := range doc.Data {
-			if _, e := fmt.Fprintln(d.Out, string(raw)); e != nil {
-				return e
-			}
-		}
-		return nil
-	case "yaml":
-		return writeYAML(d.Out, doc)
 	case "tsv":
 		for _, raw := range doc.Data {
 			var m Monitor
@@ -776,9 +764,7 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 		if err := output.Table(d.Out, []string{"ID", "NAME", "STATE", "UPTIME"}, rows); err != nil {
 			return err
 		}
-		if doc.Meta.NextCursor != nil && *doc.Meta.NextCursor != "" {
-			fmt.Fprintf(d.Err, "More monitors available. Continue with --cursor %s\n", output.SanitizeDisplay(*doc.Meta.NextCursor))
-		}
+		output.CursorHint(d.Err, "monitors", doc.Meta.NextCursor)
 		return nil
 	}
 }
@@ -792,21 +778,4 @@ func renderWatch(d Dependencies, format string, event WatchEvent) error {
 	}
 	doc := ListEnvelope{APIVersion: "v1", Kind: "MonitorList", Data: event.Monitors}
 	return renderList(d, "table", doc)
-}
-func writeJSON(w io.Writer, v any) error {
-	enc := json.NewEncoder(w)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	return enc.Encode(v)
-}
-func writeYAML(w io.Writer, v any) error {
-	data, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	var decoded any
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	return yaml.NewEncoder(w).Encode(decoded)
 }
