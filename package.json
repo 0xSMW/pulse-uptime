@@ -70,6 +70,6 @@
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
     "ultracite": "7.9.4",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   }
 }
