@@ -6,11 +6,11 @@ import { DependencyOverlapCard } from "@/components/dependencies/dependency-over
 import { IncidentEventTrail } from "@/components/incidents/incident-event-trail"
 import { IncidentExclusions } from "@/components/incidents/incident-exclusions"
 import { formatIncidentDuration } from "@/components/incidents/incident-format"
+import { IncidentReportAction } from "@/components/incidents/incident-history-table"
 import { IncidentStateBadges } from "@/components/incidents/incident-status"
 import { IncidentTime } from "@/components/incidents/incident-time"
 import { NotificationSummary } from "@/components/incidents/notification-summary"
 import type { IncidentDetail } from "@/components/incidents/types"
-import { WriteReportButton } from "@/components/incidents/write-report-button"
 import { hasScope, roleScopes } from "@/lib/api/scopes"
 import { authenticateCurrentSession } from "@/lib/auth/session"
 import { withExclusionAttribution } from "@/lib/incidents/exclusion-attribution"
@@ -31,6 +31,7 @@ export default async function IncidentDetailPage({
   const session = await authenticateCurrentSession()
   const scopes = { scopes: roleScopes(session?.role ?? "viewer") }
   const canManageMonitors = hasScope(scopes, "monitors:write")
+  const canReadReports = hasScope(scopes, "reports:read")
   const canWriteReports = hasScope(scopes, "reports:write")
   const exclusions = await withExclusionAttribution(
     await listIncidentExclusions(incident.id)
@@ -78,11 +79,14 @@ export default async function IncidentDetailPage({
           exclusionStatus={incident.exclusionStatus}
           ongoing={!incident.resolvedAt}
         />
-        {canWriteReports ? (
-          <span className="ml-auto">
-            <WriteReportButton incidentId={incident.id} />
-          </span>
-        ) : null}
+        <span className="ml-auto empty:hidden">
+          <IncidentReportAction
+            canReadReports={canReadReports}
+            canWriteReports={canWriteReports}
+            incidentId={incident.id}
+            reportId={incident.reportId}
+          />
+        </span>
       </header>
 
       <dl className="mb-6 grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] overflow-hidden rounded-xl border border-[var(--border-strong)] shadow-[var(--card-shadow)]">

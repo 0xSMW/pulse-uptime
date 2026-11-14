@@ -6,13 +6,21 @@ import {
   inArray,
   isNotNull,
   isNull,
+  lt,
+  or,
 } from "drizzle-orm"
+import {
+  decodeTimestampUuidCursor,
+  encodeCursor,
+  type TimestampUuidCursor,
+} from "@/lib/api/pagination"
 import { db } from "@/lib/db/client"
 import {
   incidents,
   monitorRegistry,
   monitorState,
   notificationOutbox,
+  statusReports,
 } from "@/lib/db/schema"
 import { listOverlappingDependencyIncidents } from "@/lib/dependencies/overlap"
 import { loadIncidentExclusionStatuses } from "@/lib/incidents/exclusions"
@@ -79,11 +87,26 @@ export async function findIncidentMonitorName(
   return monitor?.name ?? null
 }
 
-// Status and monitor filters for the incidents list. A null monitor id lists
-// every monitor.
+export const INCIDENT_PAGE_SIZE = 100
+
+// A missing or malformed cursor reads as the first page, so a stale or edited
+// link never errors.
+export function parseIncidentListCursor(
+  value: string | null | undefined
+): TimestampUuidCursor | null {
+  const decoded = decodeTimestampUuidCursor(value ?? null)
+  return decoded.ok ? decoded.cursor : null
+}
+
+// Status, monitor, and cursor filters for the incidents list. A null monitor
+// id lists every monitor. The cursor continues after the last row of the
+// previous page in (opened_at desc, id desc) order. The id tiebreak keeps
+// incidents opened at the same instant in one stable order, so no row repeats
+// or drops between pages.
 export function incidentListCondition(
   filter: IncidentFilter,
-  monitorId: string | null = null
+  monitorId: string | null = null,
+  cursor: TimestampUuidCursor | null = null
 ) {
   const status =
     filter === "ongoing"
@@ -91,18 +114,49 @@ export function incidentListCondition(
       : filter === "resolved"
         ? isNotNull(incidents.resolvedAt)
         : undefined
+  const after = cursor
+    ? or(
+        lt(incidents.openedAt, cursor.sort),
+        and(eq(incidents.openedAt, cursor.sort), lt(incidents.id, cursor.id))
+      )
+    : undefined
   return and(
     status,
-    monitorId === null ? undefined : eq(incidents.monitorId, monitorId)
+    monitorId === null ? undefined : eq(incidents.monitorId, monitorId),
+    after
   )
 }
 
-export async function listIncidents(
-  filter: IncidentFilter = "all",
-  monitorId: string | null = null
-) {
-  const condition = incidentListCondition(filter, monitorId)
-  const rows = await db
+// Splits a limit+1 fetch into the visible page and the cursor for the next
+// one. The cursor is null when nothing older remains.
+export function incidentPage<Row extends { id: string; openedAt: Date }>(
+  rows: Row[],
+  limit: number
+): { page: Row[]; nextCursor: string | null } {
+  const page = rows.slice(0, limit)
+  const last = page.at(-1)
+  return {
+    page,
+    nextCursor:
+      rows.length > limit && last
+        ? encodeCursor({ sort: last.openedAt.toISOString(), id: last.id })
+        : null,
+  }
+}
+
+export async function listIncidents({
+  filter = "all",
+  monitorId = null,
+  cursor = null,
+  limit = INCIDENT_PAGE_SIZE,
+}: {
+  filter?: IncidentFilter
+  monitorId?: string | null
+  cursor?: TimestampUuidCursor | null
+  limit?: number
+} = {}) {
+  const condition = incidentListCondition(filter, monitorId, cursor)
+  const fetched = await db
     .select({
       id: incidents.id,
       monitorId: incidents.monitorId,
@@ -111,13 +165,18 @@ export async function listIncidents(
       resolvedAt: incidents.resolvedAt,
       openingErrorCode: incidents.openingErrorCode,
       openingStatusCode: incidents.openingStatusCode,
+      // At most one report per incident (partial unique index on
+      // origin_incident_id), so the join never duplicates a row.
+      reportId: statusReports.id,
     })
     .from(incidents)
     .innerJoin(monitorRegistry, eq(monitorRegistry.id, incidents.monitorId))
     .innerJoin(monitorState, eq(monitorState.monitorId, incidents.monitorId))
+    .leftJoin(statusReports, eq(statusReports.originIncidentId, incidents.id))
     .where(and(condition, activationGate))
-    .orderBy(desc(incidents.openedAt))
-    .limit(100)
+    .orderBy(desc(incidents.openedAt), desc(incidents.id))
+    .limit(limit + 1)
+  const { page: rows, nextCursor } = incidentPage(fetched, limit)
 
   // Aggregated in SQL: one row per incident, so the result stays bounded
   // regardless of outbox size.
@@ -149,7 +208,7 @@ export async function listIncidents(
   const exclusions = await loadIncidentExclusionStatuses(
     rows.map((row) => row.id)
   )
-  return rows.map((row) => {
+  const data = rows.map((row) => {
     const summary = summaryByIncident.get(row.id)
     return {
       id: row.id,
@@ -160,11 +219,13 @@ export async function listIncidents(
       durationSeconds: durationSeconds(row.openedAt, row.resolvedAt),
       openingFailure: failureLabel(row.openingErrorCode, row.openingStatusCode),
       exclusionStatus: exclusions.get(row.id) ?? null,
+      reportId: row.reportId,
       notificationSummary: summarizeNotificationAggregate(
         summary ?? { sentCount: 0, anyDead: false, anyUnsent: false }
       ),
     }
   })
+  return { data, nextCursor }
 }
 
 export async function findIncidentDetail(id: string) {
@@ -179,10 +240,13 @@ export async function findIncidentDetail(id: string) {
       resolvedAt: incidents.resolvedAt,
       openingErrorCode: incidents.openingErrorCode,
       openingStatusCode: incidents.openingStatusCode,
+      // Same unique report join as the list, so the page can link to it.
+      reportId: statusReports.id,
     })
     .from(incidents)
     .innerJoin(monitorRegistry, eq(monitorRegistry.id, incidents.monitorId))
     .innerJoin(monitorState, eq(monitorState.monitorId, incidents.monitorId))
+    .leftJoin(statusReports, eq(statusReports.originIncidentId, incidents.id))
     .where(and(eq(incidents.id, id), activationGate))
     .limit(1)
   if (!row) {
@@ -251,6 +315,7 @@ export async function findIncidentDetail(id: string) {
     resolvedAt: row.resolvedAt?.toISOString() ?? null,
     durationSeconds: durationSeconds(row.openedAt, row.resolvedAt),
     openingFailure: failureLabel(row.openingErrorCode, row.openingStatusCode),
+    reportId: row.reportId,
     notificationSummary: summarizeNotificationRows(notifications),
     events,
     overlaps,

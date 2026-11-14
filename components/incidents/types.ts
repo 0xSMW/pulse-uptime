@@ -9,6 +9,8 @@ export interface IncidentSummary {
   openedAt: string
   resolvedAt: string | null
   exclusionStatus?: "full" | "partial" | null
+  /** The status report promoted from this incident, when one exists. */
+  reportId?: string | null
   durationSeconds: number
   openingFailure: string
   notificationSummary: {

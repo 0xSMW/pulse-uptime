@@ -19,6 +19,7 @@ suite("incident activation gate", () => {
   let listIncidents: typeof import("./incidents").listIncidents
   let findIncidentDetail: typeof import("./incidents").findIncidentDetail
   let listCommandPaletteIncidents: typeof import("./incidents").listCommandPaletteIncidents
+  let parseIncidentListCursor: typeof import("./incidents").parseIncidentListCursor
   let operationalService: typeof import("@/lib/api/operational-service").operationalService
   let promoteIncident: typeof import("@/lib/api/status-reports").promoteIncident
   let StatusReportError: typeof import("@/lib/api/status-reports").StatusReportError
@@ -36,6 +37,25 @@ suite("incident activation gate", () => {
   // incident during the backfill, so its earliest success postdates the incident.
   const INC_RECOVER = "11111111-1111-4111-8111-000000000006" // ongoing, first successes postdate it
   const RECOVER_OPENED = new Date("2026-07-14T00:00:00.000Z")
+
+  // mon-page incidents, all resolved. Three share one opened_at.
+  const PAGE_TIE = new Date("2026-07-02T00:00:00.000Z")
+  const PAGE_INCIDENTS = [
+    {
+      id: "33333333-3333-4333-8333-000000000001",
+      opened: new Date("2026-07-01T00:00:00.000Z"),
+    },
+    { id: "33333333-3333-4333-8333-000000000002", opened: PAGE_TIE },
+    { id: "33333333-3333-4333-8333-000000000003", opened: PAGE_TIE },
+    { id: "33333333-3333-4333-8333-000000000004", opened: PAGE_TIE },
+    {
+      id: "33333333-3333-4333-8333-000000000005",
+      opened: new Date("2026-07-03T00:00:00.000Z"),
+    },
+  ]
+  const PAGE_IDS = PAGE_INCIDENTS.map((incident) => incident.id)
+  // Newest first, then id descending within the shared opened_at.
+  const PAGE_ORDER = [...PAGE_IDS].reverse()
 
   async function seed(): Promise<void> {
     const now = new Date("2026-07-20T00:00:00.000Z")
@@ -150,6 +170,46 @@ suite("incident activation gate", () => {
         await client.unsafe(statement)
       }
     }
+
+    // mon-page holds resolved history for the pagination checks. It is seeded
+    // after the backfill replay so its activation stays as written. Three
+    // incidents share one opened_at so a page boundary falls inside the tie.
+    const pageActivated = new Date("2026-06-01T00:00:00.000Z")
+    await client`insert into monitor_registry (id, name, url, enabled, config_hash, first_seen_at, last_seen_at)
+      values (${"mon-page"}, ${"Paged"}, ${"https://example.test"}, true, ${"hash"}, ${now}, ${now})`
+    await client`insert into monitor_state (monitor_id, state, activated_at, updated_at)
+      values (${"mon-page"}, ${"UP"}, ${pageActivated}, ${now})`
+    for (const incident of PAGE_INCIDENTS) {
+      const resolved = new Date(incident.opened.getTime() + 60_000)
+      await client`insert into incidents (id, monitor_id, opened_at, first_failure_at, first_success_at, resolved_at, opening_status_code, created_at, updated_at)
+        values (
+          ${incident.id}, ${"mon-page"}, ${incident.opened}, ${incident.opened},
+          ${resolved}, ${resolved}, ${503}, ${now}, ${now}
+        )`
+    }
+  }
+
+  // Follows nextCursor through the page encoding the dashboard links use.
+  async function walkPages(
+    filter: "all" | "ongoing" | "resolved",
+    monitorId: string | null
+  ): Promise<string[]> {
+    const ids: string[] = []
+    let cursor: string | null = null
+    for (let pageIndex = 0; pageIndex < 10; pageIndex += 1) {
+      const page = await listIncidents({
+        filter,
+        monitorId,
+        cursor: parseIncidentListCursor(cursor),
+        limit: 2,
+      })
+      ids.push(...page.data.map((row) => row.id))
+      cursor = page.nextCursor
+      if (cursor === null) {
+        break
+      }
+    }
+    return ids
   }
 
   beforeAll(async () => {
@@ -171,8 +231,12 @@ suite("incident activation gate", () => {
     // time, so the env var must point at the test database before the dynamic
     // imports below evaluate lib/db/client.ts.
     process.env.DATABASE_URL = databaseUrl
-    ;({ listIncidents, findIncidentDetail, listCommandPaletteIncidents } =
-      await import("./incidents"))
+    ;({
+      listIncidents,
+      findIncidentDetail,
+      listCommandPaletteIncidents,
+      parseIncidentListCursor,
+    } = await import("./incidents"))
     ;({ operationalService } = await import("@/lib/api/operational-service"))
     ;({ promoteIncident, StatusReportError } = await import(
       "@/lib/api/status-reports"
@@ -187,8 +251,9 @@ suite("incident activation gate", () => {
   })
 
   it("keeps post-activation and ongoing incidents in the dashboard list while dropping pre-activation and setup noise", async () => {
-    const rows = await listIncidents("all")
-    const ids = rows.map((row) => row.id)
+    const ids = (await listIncidents({ filter: "all" })).data.map(
+      (row) => row.id
+    )
     expect(ids).toContain(INC_POST)
     expect(ids).toContain(INC_LIVE)
     expect(ids).not.toContain(INC_PRE)
@@ -197,8 +262,29 @@ suite("incident activation gate", () => {
   })
 
   it("drops pre-activation resolved incidents from the resolved filter", async () => {
-    const ids = (await listIncidents("resolved")).map((row) => row.id)
+    const ids = (await listIncidents({ filter: "resolved" })).data
+      .filter((row) => row.monitorId !== "mon-page")
+      .map((row) => row.id)
     expect(ids).toEqual([INC_POST])
+  })
+
+  it("pages one monitor's resolved history to the end with no repeats or gaps across a tie", async () => {
+    expect(await walkPages("resolved", "mon-page")).toEqual(PAGE_ORDER)
+    expect(await walkPages("all", "mon-page")).toEqual(PAGE_ORDER)
+  })
+
+  it("keeps the status filter on every page", async () => {
+    expect(await walkPages("ongoing", "mon-page")).toEqual([])
+    const ongoing = await walkPages("ongoing", null)
+    expect(ongoing).toContain(INC_LIVE)
+    for (const resolvedId of [...PAGE_IDS, INC_POST]) {
+      expect(ongoing).not.toContain(resolvedId)
+    }
+  })
+
+  it("pages resolved history across monitors in one stable order", async () => {
+    // INC_POST (Jul 12) is newer than every mon-page incident.
+    expect(await walkPages("resolved", null)).toEqual([INC_POST, ...PAGE_ORDER])
   })
 
   it("keeps only genuine ongoing incidents in the command palette", async () => {
@@ -253,7 +339,9 @@ suite("incident activation gate", () => {
       RECOVER_OPENED.getTime()
     )
 
-    const listIds = (await listIncidents("all")).map((row) => row.id)
+    const listIds = (await listIncidents({ filter: "all" })).data.map(
+      (row) => row.id
+    )
     expect(listIds).toContain(INC_RECOVER)
     const paletteIds = (await listCommandPaletteIncidents()).map(
       (row) => row.id
@@ -277,5 +365,21 @@ suite("incident activation gate", () => {
     expect(state!.activatedAt.getTime()).toBe(
       new Date("2026-05-02T00:00:00.000Z").getTime()
     )
+  })
+
+  it("lists the report id of a promoted incident and null for the rest", async () => {
+    const promoted = await promoteIncident(INC_POST)
+    const rows = (await listIncidents({ filter: "resolved" })).data
+    expect(rows.find((row) => row.id === INC_POST)?.reportId).toBe(
+      promoted.report.id
+    )
+    expect(rows.find((row) => row.id === PAGE_IDS[0])?.reportId).toBeNull()
+    // The report join never duplicates an incident row.
+    expect(new Set(rows.map((row) => row.id)).size).toBe(rows.length)
+    // The incident page reads the same report through the same join.
+    expect((await findIncidentDetail(INC_POST))?.reportId).toBe(
+      promoted.report.id
+    )
+    expect((await findIncidentDetail(PAGE_IDS[0]!))?.reportId).toBeNull()
   })
 })

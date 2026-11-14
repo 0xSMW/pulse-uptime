@@ -1,7 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 
-import { IncidentFilters, incidentListHref } from "./incident-filters"
+import {
+  IncidentFilters,
+  IncidentListPagination,
+  incidentListHref,
+} from "./incident-filters"
 
 describe("incidentListHref", () => {
   it("links the unfiltered list without a query", () => {
@@ -45,5 +49,70 @@ describe("IncidentFilters", () => {
     expect(html).toContain('href="/incidents"')
     expect(html).toContain('href="/incidents?filter=ongoing"')
     expect(html).not.toContain("monitor=")
+  })
+})
+
+describe("IncidentListPagination", () => {
+  it("renders nothing when everything fits on one page", () => {
+    expect(
+      renderToStaticMarkup(
+        <IncidentListPagination
+          cursor={null}
+          filter="all"
+          monitorId={null}
+          nextCursor={null}
+        />
+      )
+    ).toBe("")
+  })
+
+  it("links older incidents with the status and monitor filters kept", () => {
+    const html = renderToStaticMarkup(
+      <IncidentListPagination
+        cursor={null}
+        filter="resolved"
+        monitorId="public-api"
+        nextCursor="abc"
+      />
+    )
+    expect(html).toContain(
+      'href="/incidents?filter=resolved&amp;monitor=public-api&amp;cursor=abc"'
+    )
+    expect(html).toContain("Older incidents")
+    expect(html).not.toContain("Latest incidents")
+  })
+
+  it("returns to the first page, labeled Latest, with filters kept from a later page", () => {
+    const html = renderToStaticMarkup(
+      <IncidentListPagination
+        cursor="abc"
+        filter="resolved"
+        monitorId="public-api"
+        nextCursor={null}
+      />
+    )
+    expect(html).toMatch(
+      /href="\/incidents\?filter=resolved&amp;monitor=public-api"[^>]*>← Latest incidents/
+    )
+    expect(html).not.toContain("cursor=")
+    expect(html).not.toContain("Newer incidents")
+    expect(html).not.toContain("Older incidents")
+  })
+
+  it("keeps both links on a middle page, with the back link dropping the cursor", () => {
+    const html = renderToStaticMarkup(
+      <IncidentListPagination
+        cursor="abc"
+        filter="ongoing"
+        monitorId={null}
+        nextCursor="def"
+      />
+    )
+    expect(html).toMatch(
+      /href="\/incidents\?filter=ongoing"[^>]*>← Latest incidents/
+    )
+    expect(html).toMatch(
+      /href="\/incidents\?filter=ongoing&amp;cursor=def"[^>]*>Older incidents/
+    )
   })
 })
