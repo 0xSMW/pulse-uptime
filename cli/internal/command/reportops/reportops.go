@@ -749,7 +749,7 @@ func annotationsStdin(scope string) map[string]string {
 func reportPath(id string) string { return reportsPath + "/" + url.PathEscape(id) }
 
 func machine(format string) bool {
-	return format == "json" || format == "jsonl" || format == "yaml" || format == "tsv"
+	return output.IsMachine(format)
 }
 
 func formatOr(d Dependencies, asJSON bool) string {

@@ -45,6 +45,7 @@ vi.mock("@/lib/api/monitors", async (importOriginal) => ({
   listMonitors: vi.fn(),
 }))
 
+import { executeIdempotent } from "@/lib/api/idempotency"
 import { type ApiContext, authorize } from "@/lib/api/middleware"
 import { createMonitor, MonitorApiError } from "@/lib/api/monitors"
 
@@ -110,6 +111,18 @@ describe("POST /api/v1/monitors", () => {
     const payload = await response.json()
     expect(payload.kind).toBe("Monitor")
     expect(payload.data.id).toBe("site-home")
+    expect(executeIdempotent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        principalKey: context.principalKey,
+        routeKey: "/api/v1/monitors",
+        body: {
+          id: "site-home",
+          name: "Site",
+          url: "https://example.com",
+        },
+        mode: "atomic",
+      })
+    )
   })
 
   it("stores a deterministic MONITOR_EXISTS error as the operation's own completed response", async () => {

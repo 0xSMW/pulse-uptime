@@ -1,7 +1,6 @@
-import { apiJson, objectEnvelope } from "@/lib/api/envelopes"
+import { runAtomicMutation } from "@/lib/api/atomic-mutation"
 import { groupError, storedGroupError } from "@/lib/api/group-http"
 import { deleteGroup, GroupApiError, updateGroup } from "@/lib/api/groups"
-import { executeIdempotent } from "@/lib/api/idempotency"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
 import { routeError } from "@/lib/api/route"
 
@@ -16,31 +15,22 @@ export async function PATCH(request: Request, { params }: Params) {
   const id = (await params).groupId
   try {
     const body = await request.json()
-    const result = await executeIdempotent({
+    return runAtomicMutation({
       request,
-      principalKey: context.principalKey,
+      context,
       routeKey: `/api/v1/groups/${id}`,
       body,
-      mode: "atomic",
-      work: async (tx) => {
-        try {
-          return {
-            status: 200,
-            body: objectEnvelope(
-              "Group",
-              await updateGroup(id, body, context.principalKey, tx),
-              context.requestId
-            ),
-          }
-        } catch (error) {
-          if (error instanceof GroupApiError) {
-            return storedGroupError(error, context.requestId)
-          }
-          throw error
-        }
-      },
+      work: async (tx) => ({
+        status: 200,
+        kind: "Group",
+        data: await updateGroup(id, body, context.principalKey, tx),
+      }),
+      storedError: (error, requestId) =>
+        error instanceof GroupApiError
+          ? storedGroupError(error, requestId)
+          : null,
+      mapError: groupError,
     })
-    return apiJson(result.body, { status: result.status })
   } catch (error) {
     return (
       groupError(error, context.requestId) ??
@@ -55,31 +45,22 @@ export async function DELETE(request: Request, { params }: Params) {
   }
   const id = (await params).groupId
   try {
-    const result = await executeIdempotent({
+    return runAtomicMutation({
       request,
-      principalKey: context.principalKey,
+      context,
       routeKey: `/api/v1/groups/${id}`,
       body: {},
-      mode: "atomic",
-      work: async (tx) => {
-        try {
-          return {
-            status: 200,
-            body: objectEnvelope(
-              "GroupDeletion",
-              await deleteGroup(id, context.principalKey, tx),
-              context.requestId
-            ),
-          }
-        } catch (error) {
-          if (error instanceof GroupApiError) {
-            return storedGroupError(error, context.requestId)
-          }
-          throw error
-        }
-      },
+      work: async (tx) => ({
+        status: 200,
+        kind: "GroupDeletion",
+        data: await deleteGroup(id, context.principalKey, tx),
+      }),
+      storedError: (error, requestId) =>
+        error instanceof GroupApiError
+          ? storedGroupError(error, requestId)
+          : null,
+      mapError: groupError,
     })
-    return apiJson(result.body, { status: result.status })
   } catch (error) {
     return (
       groupError(error, context.requestId) ??

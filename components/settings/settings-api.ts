@@ -13,6 +13,20 @@ interface ErrorEnvelope {
   error?: { code?: string; message?: string; details?: Record<string, unknown> }
 }
 
+export interface SettingsApiResponse<T> {
+  data: T
+  etag: string | null
+  response: Response
+}
+
+export interface SettingsApiRequestOptions {
+  /** @deprecated Use idempotency instead. */
+  mutation?: boolean
+  idempotency?: boolean | string
+  ifMatch?: string
+  fallbackMessage?: string
+}
+
 export class SettingsApiError extends Error {
   constructor(
     message: string,
@@ -27,15 +41,31 @@ export class SettingsApiError extends Error {
 export async function apiRequest<T>(
   url: string,
   init: RequestInit = {},
-  options: { mutation?: boolean } = {}
+  options: SettingsApiRequestOptions = {}
 ): Promise<T> {
+  const result = await apiRequestWithResponse<T>(url, init, options)
+  return result.data
+}
+
+export async function apiRequestWithResponse<T>(
+  url: string,
+  init: RequestInit = {},
+  options: SettingsApiRequestOptions = {}
+): Promise<SettingsApiResponse<T>> {
   const headers = new Headers(init.headers)
   headers.set("Accept", "application/json")
-  if (init.body) {
+  if (typeof init.body === "string" && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json")
   }
-  if (options.mutation) {
-    headers.set("Idempotency-Key", crypto.randomUUID())
+  if (options.ifMatch !== undefined) {
+    headers.set("If-Match", options.ifMatch)
+  }
+  const idempotency = options.idempotency ?? options.mutation
+  if (idempotency) {
+    headers.set(
+      "Idempotency-Key",
+      typeof idempotency === "string" ? idempotency : crypto.randomUUID()
+    )
   }
 
   const response = await fetch(url, { ...init, headers })
@@ -47,17 +77,18 @@ export async function apiRequest<T>(
       // Preserve the status-based fallback when a proxy returns a non-JSON body.
     }
     throw new SettingsApiError(
-      envelope.error?.message || `Request failed (${response.status})`,
+      envelope.error?.message ||
+        options.fallbackMessage ||
+        `Request failed (${response.status})`,
       response.status,
       envelope.error?.code,
       envelope.error?.details
     )
   }
 
-  if (response.status === 204) {
-    return undefined as T
-  }
-  return (await response.json()) as T
+  const data =
+    response.status === 204 ? (undefined as T) : ((await response.json()) as T)
+  return { data, etag: response.headers.get("ETag"), response }
 }
 
 export function messageForError(error: unknown): string {

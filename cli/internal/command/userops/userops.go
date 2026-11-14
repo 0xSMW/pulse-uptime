@@ -15,7 +15,6 @@ import (
 
 	"github.com/0xSMW/pulse-uptime/cli/internal/output"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
 // Request describes one logical API operation. Implementations must reuse
@@ -342,7 +341,7 @@ func annotations() map[string]string {
 }
 
 func machine(format string) bool {
-	return format == "json" || format == "jsonl" || format == "yaml" || format == "tsv"
+	return output.IsMachine(format)
 }
 
 func userPath(id string) string   { return "/api/v1/users/" + url.PathEscape(id) }
@@ -367,34 +366,9 @@ func invalid(message string) error {
 }
 
 func renderEnvelope(d Dependencies, format string, doc Envelope) error {
-	switch format {
-	case "json":
-		return jsonPretty(d.Out, doc)
-	case "jsonl":
-		return json.NewEncoder(d.Out).Encode(doc)
-	case "yaml":
-		return yamlValue(d.Out, doc)
-	default:
-		_, err := fmt.Fprintln(d.Out, string(doc.Data))
+	if handled, err := output.RenderStructured(d.Out, format, doc); handled {
 		return err
 	}
-}
-
-func jsonPretty(w io.Writer, value any) error {
-	encoder := json.NewEncoder(w)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(value)
-}
-
-func yamlValue(w io.Writer, value any) error {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return err
-	}
-	var decoded any
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	return yaml.NewEncoder(w).Encode(decoded)
+	_, err := fmt.Fprintln(d.Out, string(doc.Data))
+	return err
 }
