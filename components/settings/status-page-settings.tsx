@@ -958,7 +958,7 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
                     ))}
                 </div>
                 <p className="mt-3 border-[var(--border)] border-t pt-2 text-[var(--fg-faint)] text-xs">
-                  Markdown appears on the published page
+                  Plain-text preview, formatted when published
                 </p>
               </div>
             ) : null}

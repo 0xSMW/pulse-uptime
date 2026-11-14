@@ -4,6 +4,7 @@ import {
   formatIncidentRange,
   formatIncidentTime,
   formatIncidentTimeOfDay,
+  formatIncidentTimeParts,
 } from "./incident-format"
 
 describe("incident time formats", () => {
@@ -13,6 +14,36 @@ describe("incident time formats", () => {
     const timeOnly = formatIncidentTimeOfDay(value, "Asia/Bangkok")
     expect(timeOnly).toContain("15:43")
     expect(timeOnly).not.toContain("2026")
+  })
+
+  it("splits the full timestamp into date and time with zone", () => {
+    const value = "2026-11-13T19:00:00Z"
+    const zone = "America/Los_Angeles"
+    const parts = formatIncidentTimeParts(value, zone)
+    expect(parts).toEqual({
+      date: "Nov 13, 2026",
+      separator: ", ",
+      time: "11:00 PST",
+    })
+    expect(`${parts.date}${parts.separator}${parts.time}`).toBe(
+      formatIncidentTime(value, zone)
+    )
+  })
+
+  it("keeps the daylight zone with its time", () => {
+    expect(
+      formatIncidentTimeParts("2026-07-18T08:43:00Z", "America/Los_Angeles")
+    ).toEqual({ date: "Jul 18, 2026", separator: ", ", time: "01:43 PDT" })
+  })
+
+  it("keeps an offset zone and the local calendar year", () => {
+    const value = "2026-12-31T20:30:00Z"
+    const parts = formatIncidentTimeParts(value, "Asia/Bangkok")
+    expect(parts.date).toBe("Jan 1, 2027")
+    expect(parts.time).toBe("03:30 GMT+7")
+    expect(`${parts.date}${parts.separator}${parts.time}`).toBe(
+      formatIncidentTime(value, "Asia/Bangkok")
+    )
   })
 })
 

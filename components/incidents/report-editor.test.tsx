@@ -1060,15 +1060,37 @@ describe("ReportEditor publish with pending edits", () => {
     const reason = document.getElementById(
       button.getAttribute("aria-describedby") ?? ""
     )
-    expect(reason?.textContent).toBe("Save or post changes first")
+    expect(reason?.textContent).toBe("Save, post, or clear pending changes")
+    expect(reason?.getAttribute("role")).toBe("status")
+    expect(reason?.classList.contains("sr-only")).toBe(false)
   }
 
   function expectOpen(name: string) {
     const button = headerButton(name)
     expect(button.disabled).toBe(false)
     expect(button.getAttribute("aria-describedby")).toBeNull()
-    expect(screen.queryByText("Save or post changes first")).toBeNull()
+    // The live region stays mounted and empty, ready to announce a block
+    const region = document.getElementById("publish-blocked")
+    expect(region?.getAttribute("role")).toBe("status")
+    expect(region?.textContent).toBe("")
+    expect(region?.classList.contains("sr-only")).toBe(true)
   }
+
+  it("keeps the same live region mounted as the block comes and goes", () => {
+    renderEditor(report)
+    const region = document.getElementById("publish-blocked")
+    expect(region).not.toBeNull()
+    fireEvent.change(screen.getByLabelText("New update"), {
+      target: { value: "Draft in progress" },
+    })
+    expect(document.getElementById("publish-blocked")).toBe(region)
+    expect(region?.textContent).toBe("Save, post, or clear pending changes")
+    fireEvent.change(screen.getByLabelText("New update"), {
+      target: { value: "" },
+    })
+    expect(document.getElementById("publish-blocked")).toBe(region)
+    expect(region?.textContent).toBe("")
+  })
 
   it("blocks Publish while basics are unsaved", () => {
     renderEditor(report)
@@ -1158,5 +1180,207 @@ describe("ReportEditor publish with pending edits", () => {
       expect(navigation.refresh).toHaveBeenCalled()
     })
     expectOpen("Publish")
+  })
+})
+
+describe("ReportEditor pending edit on an older update", () => {
+  const pagedReport: ReportData = {
+    ...report,
+    updatesCount: 4,
+    updatesNextCursor: "cursor-1",
+  }
+
+  const olderPage = [
+    {
+      id: "u0b",
+      status: "identified" as const,
+      markdown: "Rolling back deploy.",
+      publishedAt: "2026-07-18T09:45:00.000Z",
+      createdAt: "2026-07-18T09:45:00.000Z",
+    },
+    {
+      id: "u0",
+      status: "investigating" as const,
+      markdown: "Looking into errors.",
+      publishedAt: "2026-07-18T09:30:00.000Z",
+      createdAt: "2026-07-18T09:30:00.000Z",
+    },
+  ]
+
+  function routeFetch() {
+    return vi.fn((url: string) => {
+      if (url.includes("/updates?cursor=")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              apiVersion: "v1",
+              kind: "StatusReportUpdate",
+              data: olderPage,
+              meta: { nextCursor: null },
+            }),
+            { status: 200 }
+          )
+        )
+      }
+      return Promise.resolve(okEnvelope(pagedReport))
+    })
+  }
+
+  function editor(target: ReportData) {
+    return (
+      <TimezoneProvider defaultTimezone="UTC">
+        <ReportEditor monitors={monitors} report={target} />
+      </TimezoneProvider>
+    )
+  }
+
+  function publishButton() {
+    const header = screen
+      .getByRole("heading", { name: "Edit status report" })
+      .closest("header")!
+    return within(header).getByRole("button", {
+      name: "Publish",
+    }) as HTMLButtonElement
+  }
+
+  function olderMarkdown() {
+    return screen.queryByLabelText("Update", {
+      selector: "#edit-markdown-u0",
+    }) as HTMLTextAreaElement | null
+  }
+
+  function olderRow() {
+    return olderMarkdown()!.closest("li")!
+  }
+
+  async function loadOlder() {
+    fireEvent.click(screen.getByRole("button", { name: "Load older" }))
+    await screen.findByText("Looking into errors.")
+  }
+
+  async function editOlderUpdate(value: string) {
+    await loadOlder()
+    const row = screen.getByText("Looking into errors.").closest("li")!
+    fireEvent.click(within(row).getByRole("button", { name: "Edit" }))
+    if (value !== "Looking into errors.") {
+      fireEvent.change(olderMarkdown()!, { target: { value } })
+    }
+  }
+
+  function expectPendingOlderEdit() {
+    expect(olderMarkdown()?.value).toBe("Pending older fix.")
+    const row = olderRow()
+    expect(
+      within(row).getByRole("button", { name: "Save Update" })
+    ).toBeDefined()
+    expect(within(row).getByRole("button", { name: "Cancel" })).toBeDefined()
+    expect(publishButton().disabled).toBe(true)
+    // Ordered after the first page, oldest last
+    const newer = screen.getByText("Watching recovery.").closest("li")!
+    expect(
+      newer.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  }
+
+  it("keeps a dirty older edit visible after Save Changes and a fresh first page", async () => {
+    const fetchMock = routeFetch()
+    vi.stubGlobal("fetch", fetchMock)
+    const { rerender } = render(editor(pagedReport))
+    await editOlderUpdate("Pending older fix.")
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: "Retitled report" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }))
+    await waitFor(() => {
+      expect(navigation.refresh).toHaveBeenCalled()
+    })
+    rerender(editor({ ...pagedReport, title: "Retitled report" }))
+
+    expectPendingOlderEdit()
+    // The rest of the older page is gone and the cursor is back to page one
+    expect(screen.queryByText("Rolling back deploy.")).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Load older" }))
+    await screen.findByText("Rolling back deploy.")
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/v1/status-reports/rep-1/updates?cursor=cursor-1&limit=50",
+      expect.anything()
+    )
+    // Reloaded data holds the row once, still in order and still pending
+    expect(document.querySelectorAll("#edit-markdown-u0")).toHaveLength(1)
+    const sibling = screen.getByText("Rolling back deploy.").closest("li")!
+    expect(
+      sibling.compareDocumentPosition(olderRow()) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(olderMarkdown()?.value).toBe("Pending older fix.")
+
+    fireEvent.click(
+      within(olderRow()).getByRole("button", { name: "Save Update" })
+    )
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/status-reports/rep-1/updates/u0",
+        expect.objectContaining({ method: "PATCH" })
+      )
+    })
+    const patch = fetchMock.mock.calls.find(
+      ([url]) => url === "/api/v1/status-reports/rep-1/updates/u0"
+    ) as unknown as [string, RequestInit]
+    expect(JSON.parse(String(patch[1].body))).toEqual({
+      markdown: "Pending older fix.",
+    })
+    await waitFor(() => {
+      expect(olderMarkdown()).toBeNull()
+    })
+    expect(publishButton().disabled).toBe(false)
+  })
+
+  it("keeps a dirty older edit visible after Post Update and clears on Cancel", async () => {
+    vi.stubGlobal("fetch", routeFetch())
+    const { rerender } = render(editor(pagedReport))
+    await editOlderUpdate("Pending older fix.")
+    fireEvent.change(screen.getByLabelText("New update"), {
+      target: { value: "Postmortem coming." },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Post Update" }))
+    await screen.findByText("Update posted")
+    rerender(
+      editor({
+        ...pagedReport,
+        updates: [
+          {
+            id: "u3",
+            status: "resolved",
+            markdown: "Postmortem coming.",
+            publishedAt: "2026-07-18T13:00:00.000Z",
+            createdAt: "2026-07-18T13:00:00.000Z",
+          },
+          ...pagedReport.updates,
+        ],
+      })
+    )
+
+    expectPendingOlderEdit()
+    fireEvent.click(within(olderRow()).getByRole("button", { name: "Cancel" }))
+    expect(olderMarkdown()).toBeNull()
+    expect(screen.queryByText("Looking into errors.")).toBeNull()
+    expect(publishButton().disabled).toBe(false)
+  })
+
+  it("closes a clean older edit when the timeline resets", async () => {
+    vi.stubGlobal("fetch", routeFetch())
+    render(editor(pagedReport))
+    await editOlderUpdate("Looking into errors.")
+    expect(olderMarkdown()).not.toBeNull()
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: "Retitled report" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }))
+    await waitFor(() => {
+      expect(navigation.refresh).toHaveBeenCalled()
+    })
+    expect(olderMarkdown()).toBeNull()
+    expect(screen.queryByText("Looking into errors.")).toBeNull()
+    expect(publishButton().disabled).toBe(false)
   })
 })

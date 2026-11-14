@@ -73,6 +73,60 @@ interface EditingUpdate {
   warning: StateFlipDirection | null
   error: string
   timeError: string
+  /**
+   * The update as loaded when editing began. It is the baseline for dirty
+   * checks and PATCH fields, and keeps an older-page row on screen after a
+   * timeline reset drops its page.
+   */
+  original: ReportUpdateData
+}
+
+/** Whether a pending update edit differs from the update it started from. */
+function editChanged(edit: EditingUpdate, timeZone: string): boolean {
+  return (
+    edit.status !== edit.original.status ||
+    edit.markdown !== edit.original.markdown ||
+    edit.publishedAt !== toDatetimeLocal(edit.original.publishedAt, timeZone)
+  )
+}
+
+/**
+ * Newest-first test in the server's total order (publishedAt, createdAt, id).
+ * Without createdAt on both sides, ties keep the loaded order.
+ */
+function sortsBefore(left: ReportUpdateData, right: ReportUpdateData): boolean {
+  const leftPublished = Date.parse(left.publishedAt)
+  const rightPublished = Date.parse(right.publishedAt)
+  if (leftPublished !== rightPublished) {
+    return leftPublished > rightPublished
+  }
+  if (!(left.createdAt && right.createdAt)) {
+    return false
+  }
+  const leftCreated = Date.parse(left.createdAt)
+  const rightCreated = Date.parse(right.createdAt)
+  if (leftCreated !== rightCreated) {
+    return leftCreated > rightCreated
+  }
+  return left.id > right.id
+}
+
+/**
+ * Adds the update under edit at its ordered position when the loaded timeline
+ * no longer holds it, so a pending edit never goes off screen.
+ */
+function withEditedUpdate(
+  updates: ReportUpdateData[],
+  edited: ReportUpdateData | null
+): ReportUpdateData[] {
+  if (!edited || updates.some((update) => update.id === edited.id)) {
+    return updates
+  }
+  const index = updates.findIndex((update) => sortsBefore(edited, update))
+  if (index === -1) {
+    return [...updates, edited]
+  }
+  return [...updates.slice(0, index), edited, ...updates.slice(index)]
 }
 
 /**
@@ -245,28 +299,39 @@ function ReportEditorForm({
   const [olderCursor, setOlderCursor] = useState<string | null>(null)
   const [loadedPastFirstPage, setLoadedPastFirstPage] = useState(false)
 
+  // Same object across keystrokes, so typing does not rebuild the timeline
+  const editedUpdate = editing?.original ?? null
+
   const timelineUpdates = useMemo(() => {
     if (!report) {
       return []
     }
     if (!loadedPastFirstPage || olderUpdates.length === 0) {
-      return report.updates
+      return withEditedUpdate(report.updates, editedUpdate)
     }
     const seen = new Set(report.updates.map((update) => update.id))
-    return [
-      ...report.updates,
-      ...olderUpdates.filter((update) => !seen.has(update.id)),
-    ]
-  }, [report, olderUpdates, loadedPastFirstPage])
+    return withEditedUpdate(
+      [
+        ...report.updates,
+        ...olderUpdates.filter((update) => !seen.has(update.id)),
+      ],
+      editedUpdate
+    )
+  }, [report, olderUpdates, loadedPastFirstPage, editedUpdate])
 
   const timelineNextCursor = loadedPastFirstPage
     ? olderCursor
     : (report?.updatesNextCursor ?? null)
 
+  // Back to the first page. An unsaved update edit stays open with its
+  // baseline, and a clean one closes.
   function resetOlderTimeline() {
     setOlderUpdates([])
     setOlderCursor(null)
     setLoadedPastFirstPage(false)
+    setEditing((current) =>
+      current && editChanged(current, timeZone) ? current : null
+    )
   }
 
   // Trimmed, since saves store the trimmed title. Otherwise trailing spaces
@@ -278,16 +343,9 @@ function ReportEditorForm({
   const affectedDirty =
     impactSignature(impacts) !== impactSignature(baseline.impacts)
   const composerDirty = composerMarkdown.trim() !== ""
-  const editingOriginal =
-    editing && timelineUpdates.find((update) => update.id === editing.id)
-  const editingDirty = editing
-    ? !editingOriginal ||
-      editing.status !== editingOriginal.status ||
-      editing.markdown !== editingOriginal.markdown ||
-      editing.publishedAt !==
-        toDatetimeLocal(editingOriginal.publishedAt, timeZone)
-    : false
+  const editingDirty = editing ? editChanged(editing, timeZone) : false
   const dirty = basicsDirty || affectedDirty || composerDirty || editingDirty
+  const publishBlocked = report?.publishedAt === null && dirty
 
   // Unsaved-changes protection: the editor lives outside the settings shell,
   // so it mounts its own navigation guard (beforeunload, Back/Forward, and
@@ -575,6 +633,7 @@ function ReportEditorForm({
       warning: null,
       error: "",
       timeError: "",
+      original: update,
     })
   }
 
@@ -599,9 +658,8 @@ function ReportEditorForm({
     // datetime-local drops seconds, so round-tripping an untouched value would
     // silently rewrite publishedAt at minute precision. Only send it (and only
     // apply it to the flip check) when the input actually changed.
-    const original = timelineUpdates.find((update) => update.id === editing.id)
+    const { original } = editing
     const publishedAtChanged =
-      !original ||
       editing.publishedAt !== toDatetimeLocal(original.publishedAt, timeZone)
     const publishedAt = publishedAtChanged
       ? fromDatetimeLocal(editing.publishedAt, timeZone)
@@ -617,8 +675,8 @@ function ReportEditorForm({
     // status/markdown on a publishedAt-only edit would clobber a concurrent
     // change to either field. Only send each when it actually changed from
     // the loaded update.
-    const statusChanged = !original || editing.status !== original.status
-    const markdownChanged = !original || editing.markdown !== original.markdown
+    const statusChanged = editing.status !== original.status
+    const markdownChanged = editing.markdown !== original.markdown
     // An edited timestamp or status that flips the report between Ongoing
     // and Resolved needs an explicit second confirmation.
     const flip = stateFlipDirection(timelineUpdates, {
@@ -764,14 +822,18 @@ function ReportEditorForm({
         {report?.type === "maintenance" ? <ReportTypeChip /> : null}
         {report ? (
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            {report.publishedAt === null && dirty ? (
-              <span
-                className="min-w-0 break-words text-[var(--fg-muted)] text-xs"
-                id="publish-blocked"
-              >
-                Save or post changes first
-              </span>
-            ) : null}
+            {/* Always mounted so screen readers announce the reason when it appears */}
+            <span
+              className={
+                publishBlocked
+                  ? "min-w-0 break-words text-[var(--fg-muted)] text-xs"
+                  : "sr-only"
+              }
+              id="publish-blocked"
+              role="status"
+            >
+              {publishBlocked ? "Save, post, or clear pending changes" : ""}
+            </span>
             {report.publishedAt === null ? (
               confirmPublish ? (
                 <span className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
@@ -780,9 +842,11 @@ function ReportEditorForm({
                     page.
                   </span>
                   <Button
-                    aria-describedby={dirty ? "publish-blocked" : undefined}
+                    aria-describedby={
+                      publishBlocked ? "publish-blocked" : undefined
+                    }
                     className="px-2.5"
-                    disabled={anyBusy || dirty}
+                    disabled={anyBusy || publishBlocked}
                     onClick={() => void publish()}
                     size="sm"
                   >
@@ -800,9 +864,11 @@ function ReportEditorForm({
                 </span>
               ) : (
                 <Button
-                  aria-describedby={dirty ? "publish-blocked" : undefined}
+                  aria-describedby={
+                    publishBlocked ? "publish-blocked" : undefined
+                  }
                   className="px-2.5"
-                  disabled={anyBusy || dirty}
+                  disabled={anyBusy || publishBlocked}
                   onClick={() => setConfirmPublish(true)}
                   size="sm"
                 >

@@ -83,6 +83,42 @@ function valuesFor(monitor: EditableMonitor | null): MonitorFormValues {
     : structuredClone(emptyNumericMonitorValues)
 }
 
+// The saved config with only this editor's own edits applied, which is what
+// a save would leave on the server.
+function withLocalEdits(
+  values: MonitorFormValues,
+  baseline: MonitorFormValues,
+  saved: MonitorFormValues
+): MonitorFormValues {
+  const merged = { ...saved }
+  for (const key of Object.keys(saved) as (keyof MonitorFormValues)[]) {
+    if (values[key] !== baseline[key]) {
+      Object.assign(merged, { [key]: values[key] })
+    }
+  }
+  return merged
+}
+
+const SAVE_BEFORE_TEST = "Save changes before testing"
+const REOPEN_BEFORE_TEST = "Reopen to load saved settings"
+
+// The test probes the saved config, so it waits while the form shows a
+// different URL, method, timeout, or expected status. Edits this editor made
+// need a save. Saved settings that changed elsewhere since the sheet opened
+// need a reopen, even when the form also holds unrelated local edits.
+function testBlockedReason(
+  values: MonitorFormValues,
+  baseline: MonitorFormValues,
+  saved: MonitorFormValues
+): string | null {
+  if (!hasProbeChanges(values, saved)) {
+    return null
+  }
+  return hasProbeChanges(withLocalEdits(values, baseline, saved), saved)
+    ? SAVE_BEFORE_TEST
+    : REOPEN_BEFORE_TEST
+}
+
 export { deriveMonitorName, isPublicMonitorUrl }
 
 export function validateMonitorForm(
@@ -273,12 +309,11 @@ export function MonitorSheet({
     value: MonitorFormValues[K]
   ) => setValues((current) => ({ ...current, [key]: value }))
 
-  // The test probes the saved config, so it waits for a save once the form
-  // shows a different URL, method, timeout, or expected status. Name and
-  // other edits leave the probe unchanged and keep the test available.
-  const probeChanged = monitor
-    ? hasProbeChanges(values, valuesFor(monitor))
-    : false
+  // Name and other non-probe edits keep the test available.
+  const testBlocked = monitor
+    ? testBlockedReason(values, baseline, valuesFor(monitor))
+    : null
+  const probeChanged = testBlocked !== null
 
   const lastDerivedName = useRef("")
 
@@ -441,7 +476,7 @@ export function MonitorSheet({
               <SheetIconButton
                 disabled={Boolean(busy) || probeChanged}
                 disabledDescription={
-                  busy ? actionBusyDescription : "Save changes before testing"
+                  busy ? actionBusyDescription : (testBlocked ?? undefined)
                 }
                 label={testLabel}
                 onClick={() => void runTest()}
@@ -641,6 +676,18 @@ export function MonitorSheet({
               type="checkbox"
             />
           </label>
+          {/* Touch users cannot hover the disabled test icon, so its reason
+              also shows here. Hidden while busy, the icon then names the
+              running action instead. */}
+          {testBlocked && !busy ? (
+            <p
+              aria-live="polite"
+              className="text-[13px] text-[var(--fg-muted)]"
+              role="status"
+            >
+              {testBlocked}
+            </p>
+          ) : null}
           <p aria-live="polite" className="sr-only" role="status">
             {status?.quiet ? status.message : null}
           </p>

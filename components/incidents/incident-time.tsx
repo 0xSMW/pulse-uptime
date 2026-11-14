@@ -3,14 +3,17 @@
 import { useTimezone } from "@/components/dashboard/timezone-provider"
 import {
   formatIncidentRange,
-  formatIncidentTime,
   formatIncidentTimeOfDay,
+  formatIncidentTimeParts,
 } from "@/components/incidents/incident-format"
 import { sameDayInZone } from "@/lib/reporting/format"
 
 // When `sameDayOf` is provided and both instants fall on the same calendar
 // day in the display timezone, the date is dropped and only the time shows.
 // A resolved-at next to its started-at should not repeat the date.
+//
+// The date and the time with zone each stay on one line. A narrow cell wraps
+// only between them, so the zone never sits alone on a line.
 export function IncidentTime({
   value,
   sameDayOf,
@@ -20,9 +23,23 @@ export function IncidentTime({
 }) {
   const { resolvedTimeZone } = useTimezone()
   if (sameDayOf && sameDayInZone(value, sameDayOf, resolvedTimeZone)) {
-    return <>{formatIncidentTimeOfDay(value, resolvedTimeZone)}</>
+    return (
+      <time className="whitespace-nowrap" dateTime={value}>
+        {formatIncidentTimeOfDay(value, resolvedTimeZone)}
+      </time>
+    )
   }
-  return <>{formatIncidentTime(value, resolvedTimeZone)}</>
+  const { date, separator, time } = formatIncidentTimeParts(
+    value,
+    resolvedTimeZone
+  )
+  return (
+    <time dateTime={value}>
+      <span className="whitespace-nowrap">{date}</span>
+      {separator}
+      <span className="whitespace-nowrap">{time}</span>
+    </time>
+  )
 }
 
 export function IncidentTimeRange({

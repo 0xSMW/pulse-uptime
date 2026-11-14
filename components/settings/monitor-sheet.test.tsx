@@ -87,6 +87,52 @@ function nameInput(): HTMLInputElement {
   return screen.getByLabelText("Name") as HTMLInputElement
 }
 
+const SAVE_REASON = "Save changes before testing"
+const REOPEN_REASON = "Reopen to load saved settings"
+
+function testButton(): HTMLButtonElement {
+  return screen.getByRole("button", { name: "Run Test" }) as HTMLButtonElement
+}
+
+// The disabled test explains itself in visible form text, in the icon's
+// accessible label, and in its accessible description, all with one reason.
+function expectTestBlocked(reason: string) {
+  const test = testButton()
+  expect(test.disabled).toBe(true)
+  const visible = screen.getByText(reason, { selector: "form p" })
+  expect(visible.getAttribute("role")).toBe("status")
+  expect(visible.classList.contains("sr-only")).toBe(false)
+  expect(test.parentElement?.getAttribute("aria-label")).toBe(
+    `Run Test. ${reason}`
+  )
+  const description = document.getElementById(
+    test.getAttribute("aria-describedby") ?? ""
+  )
+  expect(description?.textContent).toBe(reason)
+}
+
+function expectTestAvailable() {
+  expect(testButton().disabled).toBe(false)
+  expect(screen.queryByText(SAVE_REASON)).toBeNull()
+  expect(screen.queryByText(REOPEN_REASON)).toBeNull()
+}
+
+// Renders an editor whose monitor prop a later refresh can replace, the way
+// router.refresh delivers another editor's saved change.
+function renderRefreshableSheet() {
+  const props = {
+    groups: [],
+    onClose: vi.fn(),
+    onGroupCreated: vi.fn(),
+    open: true,
+  }
+  const view = render(<MonitorSheet {...props} monitor={existingMonitor} />)
+  return {
+    refresh: (monitor: EditableMonitor) =>
+      view.rerender(<MonitorSheet {...props} monitor={monitor} />),
+  }
+}
+
 describe("deriveMonitorName", () => {
   it("derives a cleaned hostname from the endpoint", () => {
     expect(deriveMonitorName("https://api.acme.dev/health")).toBe(
@@ -398,18 +444,19 @@ describe("MonitorSheet", () => {
     fireEvent.change(nameInput(), { target: { value: "Renamed" } })
     expect(test.disabled).toBe(false)
 
+    expect(screen.queryByText(SAVE_REASON)).toBeNull()
+
     fireEvent.change(urlInput(), {
       target: { value: "https://changed.example.com/health" },
     })
     expect(test.disabled).toBe(true)
-    expect(test.parentElement?.getAttribute("aria-label")).toBe(
-      "Run Test. Save changes before testing"
-    )
+    expectTestBlocked(SAVE_REASON)
     fireEvent.click(test)
     expect(fetchMock).not.toHaveBeenCalled()
 
     fireEvent.change(urlInput(), { target: { value: existingMonitor.url } })
     expect(test.disabled).toBe(false)
+    expect(screen.queryByText(SAVE_REASON)).toBeNull()
 
     fireEvent.click(screen.getByRole("button", { name: "Advanced" }))
     fireEvent.change(screen.getByLabelText("Expected Status Max"), {
@@ -450,6 +497,113 @@ describe("MonitorSheet", () => {
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit
     expect(init.method).toBe("PATCH")
     expect(JSON.parse(String(init.body))).toEqual({ name: "Renamed" })
+  })
+
+  it.each([
+    ["URL", { url: "https://moved.example.com/health" }],
+    ["method", { method: "HEAD" }],
+  ])("asks a clean sheet to reopen after a saved %s change", (_, change) => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    const { refresh } = renderRefreshableSheet()
+    expectTestAvailable()
+
+    refresh({ ...existingMonitor, ...change })
+
+    expectTestBlocked(REOPEN_REASON)
+    expect(screen.queryByText(SAVE_REASON)).toBeNull()
+    fireEvent.click(testButton())
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["URL", { url: "https://moved.example.com/health" }],
+    ["method", { method: "HEAD" }],
+  ])(
+    "keeps the reopen reason when only the name is edited and the saved %s changes",
+    (_, change) => {
+      const fetchMock = vi.fn()
+      vi.stubGlobal("fetch", fetchMock)
+      const { refresh } = renderRefreshableSheet()
+      fireEvent.change(nameInput(), { target: { value: "Renamed" } })
+      expectTestAvailable()
+
+      refresh({ ...existingMonitor, ...change })
+
+      expectTestBlocked(REOPEN_REASON)
+      fireEvent.click(testButton())
+      expect(fetchMock).not.toHaveBeenCalled()
+    }
+  )
+
+  it("asks for a save when this editor's probe edit differs from the saved value", () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    const { refresh } = renderRefreshableSheet()
+    fireEvent.change(urlInput(), {
+      target: { value: "https://mine.example.com/health" },
+    })
+    expectTestBlocked(SAVE_REASON)
+
+    refresh({ ...existingMonitor, url: "https://theirs.example.com/health" })
+
+    expectTestBlocked(SAVE_REASON)
+    expect(screen.queryByText(REOPEN_REASON)).toBeNull()
+    fireEvent.click(testButton())
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("unblocks the test once the form matches newly saved probe settings", () => {
+    const { refresh } = renderRefreshableSheet()
+    const moved = "https://moved.example.com/health"
+    refresh({ ...existingMonitor, url: moved })
+    expectTestBlocked(REOPEN_REASON)
+
+    fireEvent.change(urlInput(), { target: { value: moved } })
+
+    expectTestAvailable()
+  })
+
+  it("unblocks a local probe edit when the same value is saved elsewhere", () => {
+    const { refresh } = renderRefreshableSheet()
+    const moved = "https://moved.example.com/health"
+    fireEvent.change(urlInput(), { target: { value: moved } })
+    expectTestBlocked(SAVE_REASON)
+
+    refresh({ ...existingMonitor, url: moved })
+
+    expectTestAvailable()
+  })
+
+  it("asks for a reopen when a local probe edit matches but another saved probe field changed", () => {
+    const { refresh } = renderRefreshableSheet()
+    const moved = "https://moved.example.com/health"
+    fireEvent.change(urlInput(), { target: { value: moved } })
+
+    refresh({ ...existingMonitor, url: moved, method: "HEAD" })
+
+    expectTestBlocked(REOPEN_REASON)
+  })
+
+  it("runs the test after a refresh that changes only non-probe settings", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        Response.json(
+          { data: { successful: true, statusCode: 200, errorCode: null } },
+          { status: 200 }
+        )
+      )
+    vi.stubGlobal("fetch", fetchMock)
+    const { refresh } = renderRefreshableSheet()
+    fireEvent.change(nameInput(), { target: { value: "Renamed" } })
+
+    refresh({ ...existingMonitor, name: "Theirs", enabled: false })
+
+    expectTestAvailable()
+    fireEvent.click(testButton())
+    await screen.findByText("Monitor check passed")
+    expect(fetchMock).toHaveBeenCalledOnce()
   })
 
   it("sends the whole expected status range when one bound changes", async () => {

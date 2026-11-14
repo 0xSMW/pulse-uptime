@@ -1,6 +1,6 @@
 import { formatDuration, sameDayInZone } from "@/lib/reporting/format"
 
-export function formatIncidentTime(value: string, timeZone = "UTC"): string {
+function incidentTimeFormat(timeZone: string) {
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
@@ -10,7 +10,46 @@ export function formatIncidentTime(value: string, timeZone = "UTC"): string {
     hour12: false,
     timeZone,
     timeZoneName: "short",
-  }).format(new Date(value))
+  })
+}
+
+export function formatIncidentTime(value: string, timeZone = "UTC"): string {
+  return incidentTimeFormat(timeZone).format(new Date(value))
+}
+
+const TIME_PART_TYPES = new Set<Intl.DateTimeFormatPartTypes>([
+  "hour",
+  "minute",
+  "dayPeriod",
+  "timeZoneName",
+])
+
+// Split the full timestamp into its date and its time with zone, so a
+// wrapping layout can keep the time and zone on one line. The three pieces
+// join back into exactly what formatIncidentTime returns.
+export function formatIncidentTimeParts(
+  value: string,
+  timeZone = "UTC"
+): { date: string; separator: string; time: string } {
+  const parts = incidentTimeFormat(timeZone).formatToParts(new Date(value))
+  let timeStart = parts.findIndex((part) => TIME_PART_TYPES.has(part.type))
+  if (timeStart === -1) {
+    timeStart = parts.length
+  }
+  let dateEnd = timeStart
+  while (dateEnd > 0 && parts[dateEnd - 1]?.type === "literal") {
+    dateEnd -= 1
+  }
+  const join = (from: number, to: number) =>
+    parts
+      .slice(from, to)
+      .map((part) => part.value)
+      .join("")
+  return {
+    date: join(0, dateEnd),
+    separator: join(dateEnd, timeStart),
+    time: join(timeStart, parts.length),
+  }
 }
 
 export function formatIncidentTimeOfDay(
