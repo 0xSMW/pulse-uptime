@@ -5,10 +5,7 @@ import { useRouter } from "next/navigation"
 import { useEffect, useRef } from "react"
 
 import { formatIncidentDuration } from "@/components/incidents/incident-format"
-import {
-  IncidentExclusionBadge,
-  IncidentStatus,
-} from "@/components/incidents/incident-status"
+import { IncidentStateBadges } from "@/components/incidents/incident-status"
 import { IncidentTime } from "@/components/incidents/incident-time"
 import { NotificationSummary } from "@/components/incidents/notification-summary"
 import type { IncidentSummary } from "@/components/incidents/types"
@@ -77,9 +74,7 @@ export function IncidentHistoryTable({
               {/* Opening Failure already carries the HTTP status code
                   (failureLabel renders "HTTP <code>"), so there is no
                   separate Status column. */}
-              <th className="incident-hide-failure px-4 font-medium">
-                Opening Failure
-              </th>
+              <th className="px-4 font-medium">Opening Failure</th>
               <th className="incident-hide-notifications px-4 font-medium">
                 Notifications
               </th>
@@ -122,8 +117,10 @@ export function IncidentHistoryTable({
                 </td>
                 <td className="px-4">
                   <div className="flex flex-wrap items-center gap-2">
-                    <IncidentStatus ongoing={!incident.resolvedAt} />
-                    <IncidentExclusionBadge status={incident.exclusionStatus} />
+                    <IncidentStateBadges
+                      exclusionStatus={incident.exclusionStatus}
+                      ongoing={!incident.resolvedAt}
+                    />
                   </div>
                 </td>
                 <td className="whitespace-nowrap px-4 font-data">
@@ -142,7 +139,7 @@ export function IncidentHistoryTable({
                 <td className="whitespace-nowrap px-4 font-data">
                   {formatIncidentDuration(incident.durationSeconds)}
                 </td>
-                <td className="incident-hide-failure wrap-anywhere max-w-52 px-4 py-2 font-data">
+                <td className="wrap-anywhere max-w-52 px-4 py-2 font-data">
                   {incident.openingFailure}
                 </td>
                 <td className="incident-hide-notifications px-4">
@@ -160,7 +157,7 @@ export function IncidentHistoryTable({
       </div>
       <style>{`
         @media (max-width: 960px) { .incident-hide-notifications { display: none; } }
-        @media (max-width: 720px) { .incident-hide-resolved, .incident-hide-failure { display: none; } }
+        @media (max-width: 720px) { .incident-hide-resolved { display: none; } }
       `}</style>
     </section>
   )

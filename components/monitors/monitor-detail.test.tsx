@@ -76,6 +76,14 @@ describe("RecentIncidentsTable", () => {
     expect(failure.parentElement?.className).toContain("flex-wrap")
     expect(failure.closest("td")?.className).not.toContain("truncate")
   })
+
+  it("renders the False alarm badge in the up green with a dot", () => {
+    renderRecentIncidents()
+    const badge = screen.getByText("False alarm")
+    expect(badge.className).toContain("bg-[var(--up-bg)]")
+    expect(badge.className).toContain("text-[var(--up-text)]")
+    expect(badge.querySelector(".bg-\\[var\\(--up\\)\\]")).toBeTruthy()
+  })
 })
 
 const expiry = "2027-01-02T03:04:05.000Z"

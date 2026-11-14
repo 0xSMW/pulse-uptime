@@ -6,10 +6,7 @@ import { DependencyOverlapCard } from "@/components/dependencies/dependency-over
 import { IncidentEventTrail } from "@/components/incidents/incident-event-trail"
 import { IncidentExclusions } from "@/components/incidents/incident-exclusions"
 import { formatIncidentDuration } from "@/components/incidents/incident-format"
-import {
-  IncidentExclusionBadge,
-  IncidentStatus,
-} from "@/components/incidents/incident-status"
+import { IncidentStateBadges } from "@/components/incidents/incident-status"
 import { IncidentTime } from "@/components/incidents/incident-time"
 import { NotificationSummary } from "@/components/incidents/notification-summary"
 import type { IncidentDetail } from "@/components/incidents/types"
@@ -77,8 +74,10 @@ export default async function IncidentDetailPage({
             {incident.monitorName}
           </Link>
         </h1>
-        <IncidentStatus ongoing={!incident.resolvedAt} />
-        <IncidentExclusionBadge status={incident.exclusionStatus} />
+        <IncidentStateBadges
+          exclusionStatus={incident.exclusionStatus}
+          ongoing={!incident.resolvedAt}
+        />
         {canWriteReports ? (
           <span className="ml-auto">
             <WriteReportButton incidentId={incident.id} />

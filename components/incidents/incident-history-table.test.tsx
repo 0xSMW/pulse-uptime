@@ -63,18 +63,45 @@ describe("IncidentHistoryTable", () => {
     expect(screen.getByRole("link", { name: "API Production" })).toBeTruthy()
   })
 
-  it("shows exclusion metadata alongside observed recovery", () => {
+  function renderState(overrides: Partial<IncidentSummary>) {
     render(
       <TimezoneProvider>
         <IncidentHistoryTable
           canWriteReports
-          incidents={[{ ...incident, exclusionStatus: "full" }]}
+          incidents={[{ ...incident, ...overrides }]}
         />
       </TimezoneProvider>
     )
-    expect(screen.getByText("False alarm")).toBeTruthy()
-    expect(screen.getByText("Resolved", { selector: "span" })).toBeTruthy()
+    return screen.getByRole("link", { name: "API Production" }).closest("tr")!
+      .cells[1]!
+  }
+
+  it("shows one green False alarm badge and no Resolved badge for a fully excluded resolved incident", () => {
+    const cell = renderState({ exclusionStatus: "full" })
+    const badge = screen.getByText("False alarm")
+    expect(cell.textContent).toBe("False alarm")
+    expect(screen.queryByText("Resolved", { selector: "span" })).toBeNull()
+    expect(badge.className).toContain("bg-[var(--up-bg)]")
+    expect(badge.className).toContain("text-[var(--up-text)]")
+    expect(badge.querySelector(".bg-\\[var\\(--up\\)\\]")).toBeTruthy()
     expect(screen.getByText("HTTP 503")).toBeTruthy()
+  })
+
+  it("keeps the Resolved badge alone for a normal resolved incident", () => {
+    const cell = renderState({})
+    expect(cell.textContent).toBe("Resolved")
+    expect(screen.queryByText("False alarm")).toBeNull()
+  })
+
+  it("keeps Resolved with the partial annotation for a partially excluded incident", () => {
+    const cell = renderState({ exclusionStatus: "partial" })
+    expect(cell.textContent).toBe("ResolvedPartially excluded")
+  })
+
+  it("keeps an ongoing incident visibly Ongoing even when fully excluded", () => {
+    const cell = renderState({ resolvedAt: null, exclusionStatus: "full" })
+    expect(screen.getByText("Ongoing", { selector: "span" })).toBeTruthy()
+    expect(cell.textContent).toBe("OngoingFalse alarm")
   })
 
   it("does not render a Status column (finding: it duplicated the HTTP code already shown by Opening Failure)", () => {
