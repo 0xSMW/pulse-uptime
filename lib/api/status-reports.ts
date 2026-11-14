@@ -1296,7 +1296,7 @@ export async function deleteReportUpdate(
   if (outcome === "last_update") {
     throw new StatusReportError(
       "LAST_UPDATE",
-      "A report must keep at least one update; delete the report instead"
+      "Keep at least one update or delete the report"
     )
   }
   return persistResolutionAndSerialize(store, report, now)

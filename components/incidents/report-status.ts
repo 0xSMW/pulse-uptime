@@ -221,10 +221,8 @@ export function stateFlipAfterRemoval(
 }
 
 export const STATE_FLIP_COPY: Record<StateFlipDirection, string> = {
-  to_ongoing:
-    "This moves the report back to Ongoing — it will reappear at the top of your status page.",
-  to_resolved:
-    "This marks the report as Resolved — it will move into your status page history.",
+  to_ongoing: "Reopens this report on your status page",
+  to_resolved: "Moves this report to your status page history",
 }
 
 export function formatUpdateCount(count: number): string {

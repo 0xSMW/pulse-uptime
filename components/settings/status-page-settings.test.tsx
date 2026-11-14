@@ -407,7 +407,7 @@ describe("StatusPageSettings uploads", () => {
     })
 
     await waitFor(() => {
-      expect(screen.getByText("Ready — save to apply")).toBeDefined()
+      expect(screen.getByText("Save to apply")).toBeDefined()
     })
     const [uploadUrl, uploadInit] = methodCalls(fetchMock, "POST")[0]!
     expect(uploadUrl).toBe("/api/v1/images")
@@ -486,14 +486,14 @@ describe("StatusPageSettings uploads", () => {
       logoLightImageId: IMAGE_ID,
       faviconImageId: faviconId,
     })
-    expect(screen.getByText("Current logo — saved")).toBeDefined()
-    expect(screen.getByText("Current favicon — saved")).toBeDefined()
+    expect(screen.getByText("Saved logo")).toBeDefined()
+    expect(screen.getByText("Saved favicon")).toBeDefined()
     const sources = Array.from(container.querySelectorAll("img")).map((img) =>
       img.getAttribute("src")
     )
     expect(sources).toContain(`/api/v1/images/${faviconId}`)
     // Nothing is pending on a fresh load.
-    expect(screen.queryByText("Ready — save to apply")).toBeNull()
+    expect(screen.queryByText("Save to apply")).toBeNull()
     expect(screen.queryByText("Unsaved changes")).toBeNull()
   })
 })

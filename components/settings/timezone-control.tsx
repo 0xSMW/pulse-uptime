@@ -101,7 +101,7 @@ export function TimezoneControl() {
           <>
             Overridden on this device ·{" "}
             <span className="font-data">{deviceOverride}</span>
-            {" — "}
+            {" · "}
             <button
               className="text-[var(--fg-muted)] underline underline-offset-2 hover:text-[var(--fg)]"
               onClick={() => {
@@ -150,7 +150,7 @@ export function TimezoneControl() {
             </SelectContent>
           </Select>
           <p className="mt-1 text-[var(--fg-faint)] text-xs">
-            Only this browser is affected; the account value stays unchanged.
+            Applies only to this browser
           </p>
         </div>
       ) : (

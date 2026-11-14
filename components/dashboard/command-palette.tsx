@@ -166,7 +166,7 @@ export function buildPaletteGroups(
         const cause = incident?.cause || "Availability check failed"
         return {
           id: `incident-${incident?.id ?? monitor.id}`,
-          text: `${monitor.name} — ${cause}`,
+          text: `${monitor.name} · ${cause}`,
           searchText: `${monitor.name} ${cause}`,
           hint: `ongoing · ${formatDuration(elapsedSeconds)}`,
           href: "/incidents",

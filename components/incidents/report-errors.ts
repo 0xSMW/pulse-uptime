@@ -4,7 +4,7 @@ import { SettingsApiError } from "@/components/settings/settings-api"
 export function messageForReportError(error: unknown): string {
   if (error instanceof SettingsApiError) {
     if (error.code === "LAST_UPDATE") {
-      return "A report must keep at least one update — delete the report instead."
+      return "Keep at least one update or delete the report"
     }
     if (error.code === "ALREADY_PUBLISHED") {
       return "This report is already published."

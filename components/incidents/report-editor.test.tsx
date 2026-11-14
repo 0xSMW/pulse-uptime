@@ -481,9 +481,7 @@ describe("ReportEditor edit mode", () => {
     )
     fireEvent.click(screen.getByRole("button", { name: "Save Update" }))
     expect(
-      screen.getByText(
-        "This moves the report back to Ongoing — it will reappear at the top of your status page."
-      )
+      screen.getByText("Reopens this report on your status page")
     ).toBeDefined()
     expect(fetchMock).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole("button", { name: "Save Anyway" }))
@@ -546,9 +544,7 @@ describe("ReportEditor edit mode", () => {
     fireEvent.click(within(row).getByRole("button", { name: "Confirm" }))
     await waitFor(() => {
       expect(
-        within(row).getByText(
-          "A report must keep at least one update — delete the report instead."
-        )
+        within(row).getByText("Keep at least one update or delete the report")
       ).toBeDefined()
     })
     const alert = within(row).getByRole("alert")
@@ -813,9 +809,7 @@ describe("ReportEditor edit mode", () => {
     fireEvent.click(within(row).getByRole("button", { name: "Delete" }))
     expect(within(row).getByText("Delete update?")).toBeDefined()
     expect(
-      within(row).getByText(
-        "This moves the report back to Ongoing — it will reappear at the top of your status page."
-      )
+      within(row).getByText("Reopens this report on your status page")
     ).toBeDefined()
   })
 

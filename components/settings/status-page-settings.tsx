@@ -472,8 +472,8 @@ function ImageUploadZone({
     ? "Uploading…"
     : imageId
       ? freshUpload
-        ? "Ready — save to apply"
-        : `Current ${noun} — saved`
+        ? "Save to apply"
+        : `Saved ${noun}`
       : hint
 
   return (
@@ -845,7 +845,7 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
               </Select>
             </div>
             <ImageUploadZone
-              hint="Drop an image or browse — PNG, JPEG, SVG, or WebP up to 512 KB"
+              hint="Drop or browse for a PNG, JPEG, SVG, or WebP up to 512 KB"
               imageId={draft.logoLightImageId}
               kind="logo-light"
               label="Logo (light theme)"
@@ -853,7 +853,7 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
               savedImageId={saved.logoLightImageId}
             />
             <ImageUploadZone
-              hint="Drop an image or browse — PNG, JPEG, SVG, or WebP up to 512 KB"
+              hint="Drop or browse for a PNG, JPEG, SVG, or WebP up to 512 KB"
               imageId={draft.logoDarkImageId}
               kind="logo-dark"
               label="Logo (dark theme)"
@@ -958,8 +958,7 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
                     ))}
                 </div>
                 <p className="mt-3 border-[var(--border)] border-t pt-2 text-[var(--fg-faint)] text-xs">
-                  Plain-text preview — markdown formatting is applied on the
-                  published page.
+                  Markdown appears on the published page
                 </p>
               </div>
             ) : null}
@@ -972,7 +971,7 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
         <CardContent className="pt-0">
           <div className="max-w-[640px] space-y-5">
             <ImageUploadZone
-              hint="Drop an image or browse — PNG, ICO, or SVG up to 32 KB"
+              hint="Drop or browse for a PNG, ICO, or SVG up to 32 KB"
               imageId={draft.faviconImageId}
               kind="favicon"
               label="Favicon"
