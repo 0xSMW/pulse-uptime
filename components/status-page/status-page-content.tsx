@@ -486,7 +486,14 @@ function StatusCard({
               </Link>
             )}
           </div>
-          <div>
+          {/* Rows share one grid on wider screens, so the uptime column sizes to
+              its widest cell and stays aligned across rows. The period heading
+              sits once above it, so rows carry no repeated explanation. Edge
+              track minimums include the 24px row padding. */}
+          <div className="sm:grid sm:grid-cols-[minmax(154px,0.8fr)_minmax(210px,1.4fr)_minmax(96px,auto)] sm:gap-x-3">
+            <p className="px-6 pb-2 text-right text-[var(--fg-muted)] text-xs sm:col-span-2 sm:col-start-2 sm:pl-0">
+              {data.config.historyDays}-day uptime
+            </p>
             {group.monitors.map((monitor) => {
               const annotation = annotations.get(monitor.id)
               // A down report annotation already names the state, so the
@@ -498,7 +505,7 @@ function StatusCard({
                   : stateLabels[monitor.state]
               return (
                 <div
-                  className="grid gap-3 border-[var(--border)] border-t px-6 py-4 sm:grid-cols-[minmax(130px,0.8fr)_minmax(210px,1.4fr)_72px] sm:items-center"
+                  className="grid gap-3 border-[var(--border)] border-t px-6 py-4 sm:col-span-3 sm:grid-cols-subgrid sm:items-center"
                   key={monitor.id}
                 >
                   <div className="flex min-w-0 items-start gap-2">
@@ -548,8 +555,10 @@ function StatusCard({
                       data.config.uptimeDecimals
                     )}
                     {monitor.excludedChecks ? (
-                      <span className="block text-[var(--fg-muted)] text-xs">
-                        {monitor.excludedChecks} excluded
+                      <span className="block whitespace-nowrap text-[var(--fg-muted)] text-xs">
+                        {monitor.excludedChecks}{" "}
+                        {monitor.excludedChecks === 1 ? "check" : "checks"}{" "}
+                        excluded
                       </span>
                     ) : null}
                   </span>

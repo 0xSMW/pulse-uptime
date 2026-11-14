@@ -4,13 +4,18 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
+  type DotItemDotProps,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts"
 
-import { latencyChartLabels } from "@/components/charts/latency-chart-data"
+import {
+  latencyChartLabels,
+  type PlottedLatencyPoint,
+  plotLatencyPoints,
+} from "@/components/charts/latency-chart-data"
 import { useTimezone } from "@/components/dashboard/timezone-provider"
 import { formatLatency } from "@/lib/reporting/format"
 
@@ -20,17 +25,36 @@ export interface LatencyPoint {
   successful: boolean
 }
 
+export interface LatencyChartProps {
+  data: LatencyPoint[]
+  // The selected range in epoch milliseconds. The x axis spans it exactly, so
+  // unobserved time at either edge reads as empty space.
+  startMs: number
+  endMs: number
+}
+
 // Human labels for the series a tooltip can carry. The raw data key is never
 // shown. An unmapped key falls back to itself so a new series stays legible.
 const seriesLabels: Record<string, string> = {
   latencyMs: "Latency",
 }
 
-// The chart draws every point in the selected range. Ranges top out near 720
-// rollup buckets, which Recharts renders without downsampling.
-export function LatencyChart({ data }: { data: LatencyPoint[] }) {
+// A lone sample between gaps draws no line, so it gets a dot. Every other
+// sample stays on the line alone.
+function isolatedDot({ cx, cy, payload }: DotItemDotProps) {
+  const point = payload as PlottedLatencyPoint | undefined
+  if (!point?.isolated || cx == null || cy == null) {
+    return null
+  }
+  return <circle cx={cx} cy={cy} fill="var(--fg)" r={2} />
+}
+
+// The chart draws every point in the selected range on a time axis. Ranges top
+// out near 720 rollup buckets, which Recharts renders without downsampling.
+export function LatencyChart({ data, startMs, endMs }: LatencyChartProps) {
   const { resolvedTimeZone } = useTimezone()
-  const labels = latencyChartLabels(data, resolvedTimeZone)
+  const labels = latencyChartLabels(startMs, endMs, resolvedTimeZone)
+  const plotted = plotLatencyPoints(data)
 
   return (
     <div
@@ -40,13 +64,8 @@ export function LatencyChart({ data }: { data: LatencyPoint[] }) {
     >
       <ResponsiveContainer height="100%" width="100%">
         <AreaChart
-          data={data}
-          margin={{
-            top: 8,
-            right: labels.spansDays ? 72 : 24,
-            bottom: 0,
-            left: 4,
-          }}
+          data={plotted}
+          margin={{ top: 8, right: 24, bottom: 0, left: 4 }}
         >
           <defs>
             <linearGradient id="latency-fill" x1="0" x2="0" y1="0" y2="1">
@@ -57,15 +76,18 @@ export function LatencyChart({ data }: { data: LatencyPoint[] }) {
           <CartesianGrid stroke="var(--border)" vertical={false} />
           <XAxis
             axisLine={false}
-            dataKey="timestamp"
-            minTickGap={48}
+            dataKey="time"
+            domain={[startMs, endMs]}
+            minTickGap={16}
             tick={{
               fill: "var(--fg-muted)",
               fontFamily: "var(--font-geist-mono)",
               fontSize: 11,
             }}
-            tickFormatter={(value: string) => labels.tick(value)}
+            tickFormatter={(value: number) => labels.tick(value)}
             tickLine={false}
+            ticks={labels.ticks}
+            type="number"
           />
           <YAxis
             axisLine={false}
@@ -87,18 +109,20 @@ export function LatencyChart({ data }: { data: LatencyPoint[] }) {
               fontFamily: "var(--font-geist-mono)",
               fontSize: 11,
             }}
+            filterNull={false}
             formatter={(value, name) => [
-              formatLatency(typeof value === "number" ? value : null),
+              typeof value === "number" ? formatLatency(value) : "No data",
               seriesLabels[name as string] ?? name,
             ]}
             labelFormatter={(label) =>
-              typeof label === "string" ? labels.tooltip(label) : label
+              typeof label === "number" ? labels.tooltip(label) : label
             }
             separator="  "
           />
           <Area
             connectNulls={false}
             dataKey="latencyMs"
+            dot={isolatedDot}
             fill="url(#latency-fill)"
             isAnimationActive={false}
             stroke="var(--fg)"

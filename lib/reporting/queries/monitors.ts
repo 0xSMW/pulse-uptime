@@ -66,6 +66,60 @@ function completedRangeEnd(
   return end
 }
 
+export interface ResponseSeriesPoint {
+  timestamp: string
+  latencyMs: number | null
+  successful: boolean
+}
+
+export interface ResponseSeries {
+  start: string
+  end: string
+  points: ResponseSeriesPoint[]
+}
+
+// One point per bucket in [end - durationMs, end), so the chart spans the
+// selected range and a bucket with no latency sample reads as a gap. A failed
+// check that still timed a response keeps its latency. Missing rollups and
+// zero-sample buckets carry null, never an invented value.
+export function buildResponseSeries(
+  rows: ReadonlyArray<{
+    bucketStart: Date
+    expectedChecks: number
+    completedChecks: number
+    failedChecks: number
+    latencyCount: number
+    latencySumMs: bigint | number
+  }>,
+  end: Date,
+  durationMs: number,
+  stepMs: number
+): ResponseSeries {
+  const endMs = end.getTime()
+  const startMs = endMs - durationMs
+  const byStart = new Map(rows.map((row) => [row.bucketStart.getTime(), row]))
+  const points: ResponseSeriesPoint[] = []
+  for (let bucketMs = startMs; bucketMs < endMs; bucketMs += stepMs) {
+    const row = byStart.get(bucketMs)
+    points.push({
+      timestamp: new Date(bucketMs).toISOString(),
+      latencyMs:
+        row && row.latencyCount > 0
+          ? Number(row.latencySumMs) / row.latencyCount
+          : null,
+      successful:
+        row !== undefined &&
+        row.failedChecks === 0 &&
+        row.completedChecks === row.expectedChecks,
+    })
+  }
+  return {
+    start: new Date(startMs).toISOString(),
+    end: end.toISOString(),
+    points,
+  }
+}
+
 // Selects rows in [cutoffMs, endMs) from a wider window.
 export function selectRecentRollupWindow<T extends { bucketStart: Date }>(
   supersetRows: T[],
@@ -416,16 +470,6 @@ export async function findMonitorDetail(id: string) {
     ? (acceptedConfig?.groups.find((group) => group.id === config.groupId)
         ?.name ?? monitor.group)
     : null
-  const responsePoints = (rows: typeof rollups24h) =>
-    rows
-      .filter((row) => row.latencyCount > 0)
-      .map((row) => ({
-        timestamp: row.bucketStart.toISOString(),
-        latencyMs: Number(row.latencySumMs) / row.latencyCount,
-        successful:
-          row.failedChecks === 0 && row.completedChecks === row.expectedChecks,
-      }))
-
   // Neutral timing context only, for the active or recently resolved
   // incident: never a causal claim. See Docs/Specs/DEPENDENCY-MONITORING.md
   // "Incident correlation".
@@ -584,11 +628,27 @@ export async function findMonitorDetail(id: string) {
     },
     // The response chart draws from activation-filtered rollups in every window
     // so setup-phase latency points never trail into the series the rest of the
-    // first-run UI has hidden.
+    // first-run UI has hidden. Each series spans its full completed range, so
+    // pre-activation time and unobserved buckets read as gaps.
     responseTime: {
-      h24: responsePoints(rollupsSinceActivation(rollups24h, activatedAt)),
-      d7: responsePoints(rollupsSinceActivation(rollups7d, activatedAt)),
-      d30: responsePoints(rollupsSinceActivation(rollups30d, activatedAt)),
+      h24: buildResponseSeries(
+        rollupsSinceActivation(rollups24h, activatedAt),
+        end15m,
+        86_400_000,
+        900_000
+      ),
+      d7: buildResponseSeries(
+        rollupsSinceActivation(rollups7d, activatedAt),
+        end15m,
+        7 * 86_400_000,
+        900_000
+      ),
+      d30: buildResponseSeries(
+        rollupsSinceActivation(rollups30d, activatedAt),
+        endHour,
+        30 * 86_400_000,
+        3_600_000
+      ),
     },
     latestIncident: latestIncidentWithOverlaps,
     recentIncidents: buildRecentIncidents(labeledIncidents, now),

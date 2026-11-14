@@ -329,6 +329,80 @@ describe("StatusPageContent", () => {
     expect(html.match(/see report/g)).toHaveLength(2)
   })
 
+  it("shows the configured uptime period once per group, not per row", () => {
+    const html = renderToStaticMarkup(
+      <StatusPageContent
+        data={{
+          ...operationalData,
+          config: { ...baseConfig, historyDays: 30 },
+          groups: [
+            {
+              name: "Web",
+              slug: "web",
+              monitors: [
+                {
+                  id: "a",
+                  name: "API",
+                  state: "UP",
+                  uptime: 100,
+                  timeline: [],
+                },
+                { id: "b", name: "App", state: "UP", uptime: 99, timeline: [] },
+              ],
+            },
+            {
+              name: "Jobs",
+              slug: "jobs",
+              monitors: [
+                {
+                  id: "c",
+                  name: "Cron",
+                  state: "UP",
+                  uptime: 98,
+                  timeline: [],
+                },
+              ],
+            },
+          ],
+        }}
+      />
+    )
+    expect(html.match(/30-day uptime/g)).toHaveLength(2)
+    expect(html).not.toContain("90-day uptime")
+    expect(html).toContain('aria-label="API, 30-day availability')
+  })
+
+  it("names the unit on excluded checks without a fixed narrow column", () => {
+    const html = renderToStaticMarkup(
+      <StatusPageContent
+        data={monitorRowData([
+          {
+            id: "a",
+            name: "API",
+            state: "UP",
+            uptime: 100,
+            excludedChecks: 1,
+            timeline: [],
+          },
+          {
+            id: "b",
+            name: "Web",
+            state: "UP",
+            uptime: 99.5,
+            excludedChecks: 12,
+            timeline: [],
+          },
+          { id: "c", name: "Docs", state: "UP", uptime: 99, timeline: [] },
+        ])}
+      />
+    )
+    expect(html).toContain("1 check excluded")
+    expect(html).toContain("12 checks excluded")
+    expect(html.match(/excluded</g)).toHaveLength(2)
+    expect(html).not.toContain("_72px]")
+    expect(html).toContain("sm:grid-cols-subgrid")
+  })
+
   it("wraps long public names instead of truncating", () => {
     const name = "Customer-Facing-Authentication-Gateway-Primary-Region"
     const html = renderToStaticMarkup(

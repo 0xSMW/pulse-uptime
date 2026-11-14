@@ -119,7 +119,10 @@ export interface MonitorDetailData {
     AvailabilityRange,
     { start: string; buckets: TimelineBucket[] }
   >
-  responseTime: Record<ResponseRange, LatencyPoint[]>
+  responseTime: Record<
+    ResponseRange,
+    { start: string; end: string; points: LatencyPoint[] }
+  >
   latestIncident: {
     id: string
     state: "ONGOING" | "RESOLVED"
@@ -439,10 +442,25 @@ function RelativeTimestamp({
   timeZone: string
   value: string
 }) {
-  if (!mounted) {
-    return <>{formatTimestamp(value, timeZone)}</>
-  }
-  return <>{formatRelativeDay(new Date(value), new Date(), timeZone)}</>
+  const exact = new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone,
+    timeZoneName: "short",
+  }).format(new Date(value))
+  const display = mounted
+    ? formatRelativeDay(new Date(value), new Date(), timeZone)
+    : exact
+  return (
+    <time dateTime={value} title={exact}>
+      <span aria-hidden="true">{display}</span>
+      <span className="sr-only">{exact}</span>
+    </time>
+  )
 }
 
 function EmptyCardContent({ children }: { children: React.ReactNode }) {
@@ -953,8 +971,12 @@ export function MonitorDetail({
           />
         </CardHeader>
         <CardContent>
-          {responseTime.length ? (
-            <LazyLatencyChart data={responseTime} />
+          {responseTime.points.some((point) => point.latencyMs !== null) ? (
+            <LazyLatencyChart
+              data={responseTime.points}
+              endMs={Date.parse(responseTime.end)}
+              startMs={Date.parse(responseTime.start)}
+            />
           ) : (
             <EmptyCardContent>No response data yet</EmptyCardContent>
           )}

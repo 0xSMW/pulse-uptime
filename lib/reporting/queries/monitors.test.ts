@@ -253,11 +253,18 @@ describe("findMonitorDetail latency and response chart", () => {
     const detail = await findMonitorDetail("site-home")
 
     expect(detail!.p95LatencyMs).toBe(100)
-    // The response chart keeps only the post-activation point.
-    expect(detail!.responseTime.h24).toHaveLength(1)
-    expect(detail!.responseTime.h24[0]!.timestamp).toBe(
-      POST_BUCKET.toISOString()
+    // The response chart keeps only the post-activation sample. The setup
+    // bucket reads as a gap, not its slow latency.
+    const sampled = detail!.responseTime.h24.points.filter(
+      (point) => point.latencyMs !== null
     )
+    expect(sampled).toEqual([
+      { timestamp: POST_BUCKET.toISOString(), latencyMs: 90, successful: true },
+    ])
+    const setup = detail!.responseTime.h24.points.find(
+      (point) => point.timestamp === PRE_BUCKET.toISOString()
+    )
+    expect(setup?.latencyMs).toBeNull()
     expect(detail!.domainHealth).toEqual({
       apexDomain: "example.test",
       certExpiresAt: "2026-11-12T13:14:15.000Z",
@@ -269,6 +276,78 @@ describe("findMonitorDetail latency and response chart", () => {
     })
     expect(domainHealthByMonitorIdMock).toHaveBeenCalledWith([
       { id: "site-home", url: "https://example.test" },
+    ])
+  })
+
+  it("spans each response range with null buckets for unobserved time", async () => {
+    const at = (iso: string) => new Date(`2026-07-19T${iso}:00.000Z`)
+    dbMock.select
+      .mockReturnValueOnce(selectChain([identity({})])) // identity
+      .mockReturnValueOnce(
+        selectChain([
+          rollup({ bucketStart: at("08:00") }),
+          // 08:15 has no rollup at all.
+          // 08:30 ran but timed no response.
+          rollup({
+            bucketStart: at("08:30"),
+            completedChecks: 0,
+            successfulChecks: 0,
+            unknownChecks: 10,
+            latencyCount: 0,
+            latencySumMs: 0,
+            latencyMaxMs: null,
+          }),
+          // 08:45 failed with a timed 500 response, which stays on the chart.
+          rollup({
+            bucketStart: at("08:45"),
+            successfulChecks: 9,
+            failedChecks: 1,
+            latencySumMs: 5000,
+          }),
+        ])
+      ) // rollups 15m
+      .mockReturnValueOnce(
+        selectChain([
+          rollup({ bucketStart: at("07:00"), latencySumMs: 1200 }),
+          rollup({ bucketStart: at("10:00"), latencySumMs: 3000 }),
+        ])
+      ) // rollups hour
+      .mockReturnValueOnce(selectChain([])) // rollups day
+      .mockReturnValueOnce(selectChain([])) // incidents
+      .mockReturnValueOnce(selectChain([])) // accepted config
+
+    const detail = await findMonitorDetail("site-home")
+    const { h24, d7, d30 } = detail!.responseTime
+
+    // The range is the completed window, not the first and last sample.
+    expect(h24.start).toBe("2026-07-18T12:00:00.000Z")
+    expect(h24.end).toBe("2026-07-19T12:00:00.000Z")
+    expect(h24.points).toHaveLength(96)
+    expect(h24.points[0]!.timestamp).toBe("2026-07-18T12:00:00.000Z")
+    expect(h24.points.at(-1)!.timestamp).toBe("2026-07-19T11:45:00.000Z")
+    const byTime = new Map(h24.points.map((point) => [point.timestamp, point]))
+    expect(byTime.get(at("08:00").toISOString())?.latencyMs).toBe(90)
+    expect(byTime.get(at("08:15").toISOString())?.latencyMs).toBeNull()
+    expect(byTime.get(at("08:30").toISOString())?.latencyMs).toBeNull()
+    expect(byTime.get(at("08:45").toISOString())).toEqual({
+      timestamp: at("08:45").toISOString(),
+      latencyMs: 500,
+      successful: false,
+    })
+    expect(byTime.get(at("09:00").toISOString())?.latencyMs).toBeNull()
+
+    expect(d7.start).toBe("2026-07-12T12:00:00.000Z")
+    expect(d7.points).toHaveLength(672)
+    expect(d30.start).toBe("2026-06-19T12:00:00.000Z")
+    expect(d30.end).toBe("2026-07-19T12:00:00.000Z")
+    expect(d30.points).toHaveLength(720)
+    expect(
+      d30.points
+        .filter((point) => point.latencyMs !== null)
+        .map((point) => [point.timestamp, point.latencyMs])
+    ).toEqual([
+      [at("07:00").toISOString(), 120],
+      [at("10:00").toISOString(), 300],
     ])
   })
 

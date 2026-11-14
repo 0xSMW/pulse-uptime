@@ -16,6 +16,7 @@
   --code-bg: #ffffff12;
   --code-border: #ffffff17;
   --focus: #47a8ff;
+  --focus-ring: var(--focus);
   --down-border: #e2162a;
 
   --up: #00ac3a;

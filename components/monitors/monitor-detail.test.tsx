@@ -179,6 +179,11 @@ describe("domainExpiryLine", () => {
 
 const emptyRanges = { h24: null, d7: null, d30: null, d90: null }
 const emptyAvailability = { start: "2026-11-13T00:00:00.000Z", buckets: [] }
+const emptyResponse = {
+  start: "2026-11-12T09:00:00.000Z",
+  end: "2026-11-13T09:00:00.000Z",
+  points: [],
+}
 
 function detailMonitor(
   overrides: Partial<MonitorDetailData> = {}
@@ -232,7 +237,11 @@ function detailMonitor(
       d30: emptyAvailability,
       d90: emptyAvailability,
     },
-    responseTime: { h24: [], d7: [], d30: [] },
+    responseTime: {
+      h24: emptyResponse,
+      d7: emptyResponse,
+      d30: emptyResponse,
+    },
     latestIncident: null,
     recentIncidents: [],
     recentChecks: [],
