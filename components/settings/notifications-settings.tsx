@@ -269,15 +269,22 @@ export function NotificationsSettings({
                 </Button>
               </div>
             </div>
-            {notificationStatus ? (
-              <p
-                aria-live="polite"
-                className={`text-[13px] ${notificationStatus.includes("changed elsewhere") || notificationStatus.includes("unavailable") || notificationStatus.includes("failed") ? "text-[var(--down-text)]" : "text-[var(--fg-muted)]"}`}
-              >
-                {notificationStatus}
-              </p>
-            ) : null}
           </div>
+          {/* Outside the spaced stack so a hidden status leaves no gap */}
+          {notificationStatus ? (
+            <p
+              aria-live="polite"
+              className={
+                // The saved list already shows in the field, so this
+                // confirmation is announced to screen readers only
+                notificationStatus === "Recipients saved"
+                  ? "sr-only"
+                  : `mt-4 max-w-[640px] text-[13px] ${notificationStatus.includes("changed elsewhere") || notificationStatus.includes("unavailable") || notificationStatus.includes("failed") ? "text-[var(--down-text)]" : "text-[var(--fg-muted)]"}`
+              }
+            >
+              {notificationStatus}
+            </p>
+          ) : null}
         </CardContent>
       </Card>
     </div>

@@ -436,7 +436,23 @@ describe("ReportEditor edit mode", () => {
       resolvedAt: null,
     })
     expect(screen.getByLabelText(/^Ends at/)).toBeDefined()
-    expect(screen.getByText("Type is locked after creation")).toBeDefined()
+    const optional = screen.getByText("Optional")
+    expect(optional.classList.contains("sr-only")).toBe(false)
+    expect(screen.queryByText(/leave empty if open-ended/)).toBeNull()
+    const locked = screen.getByText("Type is locked after creation")
+    expect(locked.classList.contains("sr-only")).toBe(true)
+    const typeTrigger = screen.getByRole("combobox", { name: "Type" })
+    expect((typeTrigger as HTMLButtonElement).disabled).toBe(true)
+    expect(typeTrigger.getAttribute("aria-describedby")).toBe(locked.id)
+  })
+
+  it("drops the timeline descriptions that repeat the publish flow", () => {
+    renderEditor(report)
+    expect(screen.getByText("Update Timeline")).toBeDefined()
+    expect(screen.queryByText(/updates render on your status page/)).toBeNull()
+    expect(
+      screen.queryByText("The first update publishes with the report")
+    ).toBeNull()
   })
 
   it("renders the timeline newest-first with a draft badge and group sections", () => {
@@ -535,6 +551,24 @@ describe("ReportEditor edit mode", () => {
         )
       ).toBeDefined()
     })
+    const alert = within(row).getByRole("alert")
+    expect(alert.classList.contains("sr-only")).toBe(false)
+  })
+
+  it("announces a deleted update without a visible list item", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+    )
+    renderEditor(report)
+    const row = screen.getByText("All clear.").closest("li")!
+    fireEvent.click(within(row).getByRole("button", { name: "Delete" }))
+    fireEvent.click(within(row).getByRole("button", { name: "Confirm" }))
+    const status = await screen.findByText("Update deleted")
+    expect(status.getAttribute("role")).toBe("status")
+    expect(status.classList.contains("sr-only")).toBe(true)
+    const item = status.closest("li")!
+    expect(item.classList.contains("sr-only")).toBe(true)
   })
 
   it("requires confirmation, stating public visibility, before publishing", async () => {
@@ -560,6 +594,10 @@ describe("ReportEditor edit mode", () => {
       )
       expect(screen.getByText("Report published")).toBeDefined()
     })
+    const published = screen.getByText("Report published")
+    expect(published.getAttribute("role")).toBe("status")
+    // Only the sr-only class, so no full-width row is left in the header
+    expect(published.className).toBe("sr-only")
   })
 
   it("deletes the report after a two-step confirm and returns to the list", async () => {
@@ -599,6 +637,9 @@ describe("ReportEditor edit mode", () => {
       )
       expect(screen.getByText("Update posted")).toBeDefined()
     })
+    const posted = screen.getByText("Update posted")
+    expect(posted.getAttribute("role")).toBe("status")
+    expect(posted.classList.contains("sr-only")).toBe(true)
   })
 
   it("omits publishedAt from the PATCH when only the markdown changed", async () => {
@@ -671,6 +712,8 @@ describe("ReportEditor edit mode", () => {
     const body = JSON.parse(String(init.body)) as Record<string, unknown>
     expect(body.title).toBe("Retitled report")
     expect("affected" in body).toBe(false)
+    const saved = await screen.findByText("Report saved")
+    expect(saved.classList.contains("sr-only")).toBe(false)
   })
 
   it("omits startsAt/endsAt from the PATCH when only the title changed (finding: an untouched datetime-local value silently truncates seconds)", async () => {

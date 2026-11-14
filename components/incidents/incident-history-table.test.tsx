@@ -39,6 +39,14 @@ function renderTable(canWriteReports = true) {
 }
 
 describe("IncidentHistoryTable", () => {
+  it("names the section History for screen readers without a visible heading", () => {
+    renderTable()
+    const heading = screen.getByRole("heading", { name: "History" })
+    expect(heading.classList.contains("sr-only")).toBe(true)
+    expect(heading.className).not.toContain("mb-3")
+    expect(screen.getByRole("region", { name: "History" })).toBeDefined()
+  })
+
   it("navigates the whole row to the incident on a plain left click", () => {
     renderTable()
     const link = screen.getByRole("link", { name: "API Production" })

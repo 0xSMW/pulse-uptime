@@ -63,15 +63,10 @@ export default async function IncidentsPage({
             <h1 className="font-semibold text-xl tracking-[-0.02em]">
               Incidents
             </h1>
-            {monitorId === null ? (
-              <p className="mt-1 text-[13px] text-[var(--fg-muted)]">
-                Endpoint outage history
-              </p>
-            ) : (
+            {monitorId === null ? null : (
               <p className="mt-1 break-words text-[13px] text-[var(--fg-muted)]">
-                Outage history for{" "}
                 {monitorName === null ? (
-                  "an unknown monitor"
+                  "Unknown monitor"
                 ) : (
                   <Link
                     className="font-medium text-[var(--fg)] transition-opacity duration-150 hover:opacity-70"
@@ -140,10 +135,7 @@ async function IncidentList({
     <div className="space-y-8">
       {ongoing.length > 0 ? (
         <section aria-labelledby="ongoing-incidents-title">
-          <h2
-            className="mb-3 font-semibold text-sm tracking-[-0.28px]"
-            id="ongoing-incidents-title"
-          >
+          <h2 className="sr-only" id="ongoing-incidents-title">
             Ongoing
           </h2>
           <div className="space-y-4">

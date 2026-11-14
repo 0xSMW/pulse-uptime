@@ -64,6 +64,9 @@ export function monitorSheetActionLabels() {
 interface SheetStatus {
   message: string
   error: boolean
+  // Routine progress and success that the buttons already show. Announced to
+  // screen readers only.
+  quiet?: boolean
 }
 
 function isDirty(values: MonitorFormValues, baseline: MonitorFormValues) {
@@ -314,7 +317,11 @@ export function MonitorSheet({
         )
       }
       onMonitorGroupChanged?.(monitor?.groupId ?? null, values.groupId)
-      setStatus({ message: "Updating configuration…", error: false })
+      setStatus({
+        message: "Updating configuration…",
+        error: false,
+        quiet: true,
+      })
       setBusy("propagation")
       propagationTimer.current = window.setTimeout(() => {
         router.refresh()
@@ -332,11 +339,12 @@ export function MonitorSheet({
       return
     }
     setBusy("test")
-    setStatus({ message: "Testing…", error: false })
+    setStatus({ message: "Testing…", error: false, quiet: true })
     const outcome = await runMonitorTest(monitor.id)
     setStatus({
       message: outcome.message,
       error: outcome.status === "error",
+      quiet: outcome.status !== "error",
     })
     setBusy(null)
     if (outcome.status === "success") {
@@ -602,7 +610,10 @@ export function MonitorSheet({
               type="checkbox"
             />
           </label>
-          {status ? (
+          <p aria-live="polite" className="sr-only" role="status">
+            {status?.quiet ? status.message : null}
+          </p>
+          {status && !status.quiet ? (
             <p
               aria-live="polite"
               className={`text-[13px] ${status.error ? "text-[var(--down-text)]" : "text-[var(--fg-muted)]"}`}

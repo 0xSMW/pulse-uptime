@@ -204,12 +204,13 @@ export function DatabaseHealthCard({
         { mutation: true }
       )
       setData(response.data)
+      // A fresh measurement needs no message, the Updated time changes
       setStatus(
         response.data.refresh.status === "STALE_FALLBACK"
           ? "Refresh failed, showing the last measurement"
           : response.data.refresh.cached
             ? "Showing a recent measurement"
-            : "Database metrics refreshed"
+            : ""
       )
     } catch (error) {
       setStatus(messageForError(error))

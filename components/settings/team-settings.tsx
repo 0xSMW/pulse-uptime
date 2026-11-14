@@ -372,7 +372,15 @@ export function TeamSettings({ data }: { data: TeamSettingsData }) {
       </Card>
 
       {status ? (
-        <p aria-live="polite" className="text-[13px] text-[var(--fg-muted)]">
+        <p
+          aria-live="polite"
+          className={
+            // The revoked row disappears, so this is announced only
+            status === "Invite revoked"
+              ? "sr-only"
+              : "text-[13px] text-[var(--fg-muted)]"
+          }
+        >
           {status}
         </p>
       ) : null}

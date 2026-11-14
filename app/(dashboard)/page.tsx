@@ -28,12 +28,7 @@ export default async function OverviewPage() {
         <HealthBannerIsland canOpenSystem={canOpenSystem} />
       </Suspense>
       <div className="mb-6 flex items-center justify-between gap-4">
-        <div>
-          <h1 className="font-semibold text-xl tracking-[-0.02em]">Monitors</h1>
-          <p className="mt-1 text-[13px] text-[var(--fg-muted)]">
-            Public endpoint availability
-          </p>
-        </div>
+        <h1 className="font-semibold text-xl tracking-[-0.02em]">Monitors</h1>
         <NewMonitorAction canManageMonitors={canManageMonitors} />
       </div>
       <Suspense fallback={<MonitorTableSkeleton />}>

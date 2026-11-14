@@ -135,7 +135,9 @@ describe("incident exclusions", () => {
     fireEvent.click(screen.getByRole("button", { name: "Mark false alarm" }))
     await screen.findByText("10 failed checks excluded")
     expect(screen.getByText(/99.305% → 100%/)).toBeTruthy()
-    expect(screen.getByText(/^Window:/)).toBeTruthy()
+    expect(screen.queryByText(/^Window:/)).toBeNull()
+    expect(screen.getByText("Excluded interval")).toBeTruthy()
+    expect(screen.getByText("Reason, private")).toBeTruthy()
     expect(screen.queryByText(/Completed window/)).toBeNull()
     expect(
       screen.queryByText(/older than 24 hours|Outside the last/)

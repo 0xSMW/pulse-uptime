@@ -107,6 +107,15 @@ function ActionMessage({
   if (!message) {
     return null
   }
+  // Routine success already shows in the timeline, badge, or buttons, so it is
+  // announced to screen readers only. The footer keeps Report saved visible.
+  if (message.tone === "info") {
+    return (
+      <p className="sr-only" role="status">
+        {message.text}
+      </p>
+    )
+  }
   return (
     <p
       className={`min-w-0 break-words text-[13px] ${messageClass(message.tone)} ${className ?? ""}`}
@@ -734,6 +743,7 @@ function ReportEditorForm({
   const anyBusy = busy !== null
   const messageAt = (at: MessageAt) => (message?.at === at ? message : null)
   const footerMessage = messageAt("footer")
+  const timelineMessage = messageAt("timeline")
 
   return (
     <div>
@@ -857,7 +867,10 @@ function ReportEditorForm({
                   onValueChange={(value) => changeType(value as ReportType)}
                   value={type}
                 >
-                  <SelectTrigger aria-labelledby="report-type-label">
+                  <SelectTrigger
+                    aria-describedby={report ? "report-type-locked" : undefined}
+                    aria-labelledby="report-type-label"
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -866,7 +879,7 @@ function ReportEditorForm({
                   </SelectContent>
                 </Select>
                 {report ? (
-                  <p className="text-[var(--fg-muted)] text-xs leading-4">
+                  <p className="sr-only" id="report-type-locked">
                     Type is locked after creation
                   </p>
                 ) : null}
@@ -886,7 +899,7 @@ function ReportEditorForm({
               </Field>
               {type === "maintenance" ? (
                 <Field
-                  description="End of the maintenance window — leave empty if open-ended"
+                  description="Optional"
                   error={errors.endsAt}
                   htmlFor="report-ends"
                   label={<ZonedLabel text="Ends at" timeZone={timeZone} />}
@@ -906,11 +919,6 @@ function ReportEditorForm({
           <Card>
             <CardHeader>
               <CardTitle>Update Timeline</CardTitle>
-              <CardDescription>
-                {report
-                  ? "Newest first — updates render on your status page"
-                  : "The first update publishes with the report"}
-              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="space-y-4">
@@ -1006,9 +1014,14 @@ function ReportEditorForm({
 
               {report ? (
                 <ul className="space-y-4 border-[var(--border)] border-t pt-5">
-                  {messageAt("timeline") ? (
-                    <li>
-                      <ActionMessage message={messageAt("timeline")} />
+                  {timelineMessage ? (
+                    // A hidden success keeps the list item out of the layout
+                    <li
+                      className={
+                        timelineMessage.tone === "error" ? undefined : "sr-only"
+                      }
+                    >
+                      <ActionMessage message={timelineMessage} />
                     </li>
                   ) : null}
                   {timelineUpdates.map((update) => {

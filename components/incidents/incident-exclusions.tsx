@@ -305,13 +305,6 @@ function ExclusionDialog({
                 {uptime(preview.after.uptime)}
               </p>
               {older ? <p>{older}</p> : null}
-              <p className="text-[var(--fg-muted)]">
-                Window:{" "}
-                <IncidentTimeRange
-                  endAt={preview.windowEnd}
-                  startAt={preview.windowStart}
-                />
-              </p>
             </>
           ) : null}
         </div>

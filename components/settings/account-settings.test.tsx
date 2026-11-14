@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 
 vi.mock("next/navigation", () => ({
@@ -139,6 +139,52 @@ describe("AccountSettings", () => {
       target: { value: "Someone Else" },
     })
     expect(screen.getByTestId("dirty").textContent).toBe("true")
+  })
+
+  it("announces a saved name to screen readers only", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({})))
+    renderAccount()
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Someone Else" },
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save Name" }))
+    })
+    const saved = screen.getByText("Name saved")
+    expect(saved.classList.contains("sr-only")).toBe(true)
+    expect(saved.parentElement?.getAttribute("aria-live")).toBe("polite")
+    vi.unstubAllGlobals()
+  })
+
+  it("keeps the new sign-in email visible after an email change", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          Response.json({ data: { email: "new@example.com" } })
+        )
+    )
+    renderAccount()
+    fireEvent.click(screen.getByRole("button", { name: "Change Email" }))
+    fireEvent.change(screen.getByLabelText("New email"), {
+      target: { value: "new@example.com" },
+    })
+    fireEvent.change(screen.getByLabelText("Confirm new email"), {
+      target: { value: "new@example.com" },
+    })
+    fireEvent.change(screen.getByLabelText("Current password"), {
+      target: { value: "correct horse" },
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Change Email" }))
+    })
+    const message = screen.getByText(
+      "Email updated. You will now sign in as new@example.com."
+    )
+    expect(message.classList.contains("sr-only")).toBe(false)
+    expect(message.querySelector(".sr-only")).toBeNull()
+    vi.unstubAllGlobals()
   })
 
   it("marks the settings shell dirty while the email form has input", () => {

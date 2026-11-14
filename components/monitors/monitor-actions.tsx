@@ -80,6 +80,25 @@ function DetailMonitorSheet({
   )
 }
 
+// The header keeps routine progress and success for screen readers only, since
+// the badge and icons already show the result. Errors stay visible.
+function QuietMutationMessage({ state }: { state: MutationState }) {
+  return (
+    <>
+      <p aria-live="polite" className="sr-only" role="status">
+        {state.status === "loading" || state.status === "success"
+          ? state.message
+          : null}
+      </p>
+      {state.status === "error" ? (
+        <p className="text-[var(--down-text)] text-xs" role="alert">
+          {state.message}
+        </p>
+      ) : null}
+    </>
+  )
+}
+
 function MutationMessage({ state }: { state: MutationState }) {
   if (state.status === "idle") {
     return null
@@ -245,7 +264,7 @@ export function MonitorActions({
         </HeaderIconAction>
         {/* Absolutely positioned so the status text never shifts the buttons above it */}
         <div className="absolute top-full left-0 pt-2">
-          <MutationMessage state={action} />
+          <QuietMutationMessage state={action} />
         </div>
       </div>
       {editOpen ? (

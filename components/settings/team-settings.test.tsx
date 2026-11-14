@@ -1,5 +1,7 @@
+// @vitest-environment jsdom
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { TimezoneProvider } from "@/components/dashboard/timezone-provider"
 import { TeamSettings, type TeamSettingsData } from "./team-settings"
@@ -86,5 +88,45 @@ describe("TeamSettings", () => {
     const html = markup({ invites: [] })
     expect(html).not.toContain("Pending Invite")
     expect(html).toContain("Create Link")
+  })
+})
+
+describe("TeamSettings revoke feedback", () => {
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+  })
+
+  async function revokeWith(response: Response) {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response))
+    vi.stubGlobal("crypto", {
+      randomUUID: () => "12345678-1234-1234-1234-123456789abc",
+    })
+    render(
+      <TimezoneProvider>
+        <TeamSettings data={data} />
+      </TimezoneProvider>
+    )
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Revoke" }))
+    })
+  }
+
+  it("announces a revoked invite to screen readers only", async () => {
+    await revokeWith(new Response(null, { status: 204 }))
+    const status = screen.getByText("Invite revoked")
+    expect(status.getAttribute("aria-live")).toBe("polite")
+    expect(status.classList.contains("sr-only")).toBe(true)
+  })
+
+  it("keeps a failed revoke visible", async () => {
+    await revokeWith(
+      Response.json(
+        { error: { message: "Invite already used" } },
+        { status: 409 }
+      )
+    )
+    const status = screen.getByText(/Invite already used/)
+    expect(status.classList.contains("sr-only")).toBe(false)
   })
 })

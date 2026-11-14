@@ -12,17 +12,12 @@ export function MonitoringLoopCard({
   if (warnings.length === 0) {
     return (
       <Card>
-        <CardHeader className="flex-row items-center justify-between gap-4">
+        <CardHeader className="flex-row items-center justify-between gap-4 pb-6">
           <CardTitle>Monitoring Loop</CardTitle>
           <span className="shrink-0 rounded-full bg-[var(--up-bg)] px-2 py-1 font-medium text-[var(--up-text)] text-xs">
             Running
           </span>
         </CardHeader>
-        <CardContent>
-          <p className="text-[13px] text-[var(--fg-muted)]">
-            Scheduled checks are running on time.
-          </p>
-        </CardContent>
       </Card>
     )
   }

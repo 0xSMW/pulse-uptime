@@ -240,18 +240,6 @@ export function domainExpiryLine(
     .join(" · ")
 }
 
-export function domainVerificationCopy(
-  registrationSource: MonitorDetailData["domainHealth"]["registrationSource"]
-): string {
-  if (registrationSource === "porkbun") {
-    return "Domains via Porkbun, certificates via direct TLS"
-  }
-  if (registrationSource === "rdap") {
-    return "Domains via RDAP, certificates via direct TLS"
-  }
-  return "Certificates via direct TLS"
-}
-
 /**
  * Option B affordance: a dotted underline on the apex segment of the header
  * URL, hover or focus revealing renewal and certificate facts. Absent facts
@@ -826,18 +814,10 @@ export function MonitorDetail({
           : null}
       </section>
 
-      {phase === "setup" ? (
+      {phase === "setup" && monitor.firstRun.setupError ? (
         <Card className="p-4 text-[13px]">
-          <span className="flex items-center gap-2">
-            <StatusDot state="PENDING" />
-            <span className="font-medium">Verifying setup</span>
-          </span>
-          <p className="mt-1.5 text-[var(--fg-muted)] [overflow-wrap:anywhere]">
-            {monitor.firstRun.setupError
-              ? canManageMonitors
-                ? `The last check failed with ${monitor.firstRun.setupError}. Setup failures are warnings, not incidents. Fix the endpoint or edit the configuration, then run a test to confirm it is reachable. Monitoring begins at the next scheduled check that succeeds.`
-                : `The last check failed with ${monitor.firstRun.setupError}. Setup failures are warnings, not incidents. Monitoring begins at the next scheduled check that succeeds.`
-              : "Monitoring officially begins after the first successful check. No incidents or downtime are recorded during setup."}
+          <p className="text-[var(--fg-muted)] [overflow-wrap:anywhere]">
+            Last check failed with {monitor.firstRun.setupError}
           </p>
           <MonitorSetupActions
             canManageMonitors={canManageMonitors}
@@ -858,24 +838,36 @@ export function MonitorDetail({
             )}
             href={`/incidents/${encodeURIComponent(monitor.latestIncident.id)}`}
           >
-            <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-              <StatusDot
-                state={
-                  monitor.latestIncident.state === "ONGOING" ? "DOWN" : "UP"
-                }
-              />
-              <span className="font-medium">
-                {monitor.latestIncident.state === "ONGOING"
-                  ? "Ongoing incident"
-                  : "Recently resolved"}
+            {monitor.latestIncident.state === "RESOLVED" &&
+            monitor.latestIncident.exclusionStatus === "full" ? (
+              // A resolved false alarm shows one green badge in place of the
+              // dot and Recently resolved label
+              <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                <IncidentExclusionBadge status="full" />
+                <span className="min-w-0 font-data text-[var(--fg-muted)] [overflow-wrap:anywhere]">
+                  {monitor.latestIncident.openingFailure}
+                </span>
               </span>
-              <span className="min-w-0 font-data text-[var(--fg-muted)] [overflow-wrap:anywhere]">
-                {monitor.latestIncident.openingFailure}
+            ) : (
+              <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                <StatusDot
+                  state={
+                    monitor.latestIncident.state === "ONGOING" ? "DOWN" : "UP"
+                  }
+                />
+                <span className="font-medium">
+                  {monitor.latestIncident.state === "ONGOING"
+                    ? "Ongoing incident"
+                    : "Recently resolved"}
+                </span>
+                <span className="min-w-0 font-data text-[var(--fg-muted)] [overflow-wrap:anywhere]">
+                  {monitor.latestIncident.openingFailure}
+                </span>
+                <IncidentExclusionBadge
+                  status={monitor.latestIncident.exclusionStatus}
+                />
               </span>
-              <IncidentExclusionBadge
-                status={monitor.latestIncident.exclusionStatus}
-              />
-            </span>
+            )}
             <span className="shrink-0 font-data text-[var(--fg-muted)]">
               {formatTimestamp(
                 monitor.latestIncident.openedAt,
@@ -1117,12 +1109,6 @@ export function MonitorDetail({
                   value={monitor.domainHealth.domainAutoRenew ? "On" : "Off"}
                 />
               ) : null}
-              <ConfigurationField
-                label="Verified"
-                value={domainVerificationCopy(
-                  monitor.domainHealth.registrationSource
-                )}
-              />
             </dl>
           </CardContent>
         </Card>

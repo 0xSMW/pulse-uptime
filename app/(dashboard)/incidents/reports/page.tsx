@@ -76,14 +76,9 @@ export default async function ReportsPage({
     <>
       <header className="mb-6">
         <div className="flex items-center justify-between gap-4">
-          <div>
-            <h1 className="font-semibold text-xl tracking-[-0.02em]">
-              Incidents
-            </h1>
-            <p className="mt-1 text-[13px] text-[var(--fg-muted)]">
-              Status reports published to your status page
-            </p>
-          </div>
+          <h1 className="font-semibold text-xl tracking-[-0.02em]">
+            Incidents
+          </h1>
           {canWriteReports ? (
             <Link
               className={cn(

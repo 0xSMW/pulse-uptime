@@ -54,10 +54,7 @@ export function IncidentHistoryTable({
 
   return (
     <section aria-labelledby="incident-history-title">
-      <h2
-        className="mb-3 font-semibold text-sm tracking-[-0.28px]"
-        id="incident-history-title"
-      >
+      <h2 className="sr-only" id="incident-history-title">
         History
       </h2>
       <div className="hide-scrollbar overflow-x-auto rounded-xl border border-[var(--border-strong)] shadow-[var(--card-shadow)]">

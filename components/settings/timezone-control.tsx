@@ -67,7 +67,7 @@ export function TimezoneControl() {
         throw new Error("Request failed")
       }
       setServerTimezone(value === "system" ? null : value)
-      setStatus({ text: "Account time zone saved", tone: "info" })
+      setStatus({ text: "Account time zone saved", tone: "info", quiet: true })
     } catch {
       setStatus({
         text: "Could not save the account time zone. Try again.",

@@ -198,7 +198,13 @@ describe("MonitorSheet", () => {
       recoveryThreshold: 2,
       recipients: [],
     })
-    expect(screen.getByText("Updating configuration…")).toBeDefined()
+    const updating = screen.getByText("Updating configuration…")
+    expect(updating.getAttribute("role")).toBe("status")
+    expect(updating.classList.contains("sr-only")).toBe(true)
+    const submit = screen.getByRole("button", {
+      name: "Updating…",
+    }) as HTMLButtonElement
+    expect(submit.disabled).toBe(true)
     act(() => vi.advanceTimersByTime(9999))
     expect(router.refresh).not.toHaveBeenCalled()
     expect(onClose).not.toHaveBeenCalled()
@@ -303,27 +309,42 @@ describe("MonitorSheet", () => {
 
     const alert = await screen.findByRole("alert")
     expect(alert.textContent).toBe(`Monitor check failed with ${detail}`)
+    expect(alert.classList.contains("sr-only")).toBe(false)
     expect(router.refresh).not.toHaveBeenCalled()
   })
 
-  it("reports a passing manual test and refreshes", async () => {
+  it("announces a passing manual test to screen readers only", async () => {
+    let respond: (response: Response) => void = () => undefined
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValue(
-          Response.json(
-            { data: { successful: true, statusCode: 200, errorCode: null } },
-            { status: 200 }
-          )
-        )
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            respond = resolve
+          })
+      )
     )
     renderSheet({ monitor: existingMonitor })
 
     fireEvent.click(screen.getByRole("button", { name: "Run Test" }))
 
+    const testing = await screen.findByText("Testing…")
+    expect(testing.getAttribute("role")).toBe("status")
+    expect(testing.classList.contains("sr-only")).toBe(true)
+
+    await act(async () => {
+      respond(
+        Response.json(
+          { data: { successful: true, statusCode: 200, errorCode: null } },
+          { status: 200 }
+        )
+      )
+    })
+
     const status = await screen.findByText("Monitor check passed")
-    expect(status.getAttribute("role")).toBe("status")
+    expect(status).toBe(testing)
+    expect(status.classList.contains("sr-only")).toBe(true)
+    expect(screen.queryByRole("alert")).toBeNull()
     expect(router.refresh).toHaveBeenCalledOnce()
   })
 
