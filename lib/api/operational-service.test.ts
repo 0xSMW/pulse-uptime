@@ -7,6 +7,14 @@ vi.mock("@/lib/config/accepted-config", () => ({
   findAcceptedSnapshot: (...args: unknown[]) => findAcceptedSnapshot(...args),
 }))
 
+const exclusionStatuses = vi.fn(
+  async (..._args: unknown[]) => new Map<string, "full" | "partial">()
+)
+vi.mock("@/lib/incidents/exclusions", () => ({
+  loadIncidentExclusionStatuses: (...args: unknown[]) =>
+    exclusionStatuses(...args),
+}))
+
 import {
   createOperationalService,
   OperationalInputError,
@@ -130,5 +138,41 @@ describe("operational service seams", () => {
     await expect(
       service.enqueueTestNotification({ testId: "t3" })
     ).resolves.toEqual({ id: "outbox-1", state: "accepted" })
+  })
+})
+
+describe("incident correction metadata", () => {
+  it("projects correction status for list and detail using the injected database", async () => {
+    const row = {
+      id: "incident-1",
+      monitorId: "monitor-1",
+      monitorName: "API",
+      openedAt: new Date("2026-11-13T10:00:00Z"),
+      resolvedAt: new Date("2026-11-13T10:10:00Z"),
+      openingErrorCode: null,
+      openingStatusCode: 503,
+    }
+    const results = [[row], [], [row], []]
+    const query = {
+      from: () => query,
+      innerJoin: () => query,
+      where: () => query,
+      orderBy: () => query,
+      limit: async () => results.shift() ?? [],
+    }
+    const database = { select: () => query } as never
+    exclusionStatuses.mockResolvedValue(new Map([[row.id, "full"]]))
+    const service = createOperationalService({
+      database,
+      getStatus: async () => ({}),
+    })
+    const list = await service.listIncidents({ cursor: null, limit: 10 })
+    const detail = await service.findIncident(row.id)
+    expect(list.data[0]?.exclusionStatus).toBe("full")
+    expect(detail?.exclusionStatus).toBe("full")
+    expect(detail?.resolvedAt).toBe(row.resolvedAt.toISOString())
+    expect(detail?.openingFailure).toBe("HTTP 503")
+    expect(detail).not.toHaveProperty("reason")
+    expect(exclusionStatuses).toHaveBeenCalledWith([row.id], database)
   })
 })

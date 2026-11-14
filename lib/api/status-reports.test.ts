@@ -1,13 +1,26 @@
 import { describe, expect, it, vi } from "vitest"
 
+const exclusionMocks = vi.hoisted(() => ({
+  loadIncidentExclusionStatuses: vi.fn(
+    async (): Promise<Map<string, "full" | "partial">> => new Map()
+  ),
+}))
+
 vi.mock("server-only", () => ({}))
 vi.mock("@/lib/db/client", () => ({ db: {} }))
+vi.mock("@/lib/incidents/exclusions", () => exclusionMocks)
 
+import {
+  deriveOverallState,
+  monitorReportAnnotations,
+  promotedIncidentIds,
+} from "@/lib/status-page/reports-display"
 import { encodeCursor } from "./pagination"
 import {
   addReportUpdate,
   classifyPublicReport,
   compareReportUpdates,
+  createDatabaseStatusReportsStore,
   createStatusReport,
   DETAIL_UPDATES_PAGE_SIZE,
   databaseStatusReportsStore,
@@ -22,6 +35,7 @@ import {
   listStatusReports,
   listStatusReportUpdates,
   MAX_AFFECTED_PER_REPORT,
+  type PromotableIncident,
   parseStatusReportListQuery,
   promoteIncident,
   publicIncidentCause,
@@ -41,17 +55,7 @@ type MemoryStore = StatusReportsStore & {
   reports: Map<string, StatusReportRow>
   updates: Map<string, StatusReportUpdateRow>
   affected: StatusReportAffectedRow[]
-  incidents: Map<
-    string,
-    {
-      id: string
-      monitorId: string
-      monitorName: string
-      groupName: string | null
-      openedAt: Date
-      openingStatusCode: number | null
-    }
-  >
+  incidents: Map<string, PromotableIncident>
 }
 
 function memoryStore(
@@ -63,17 +67,7 @@ function memoryStore(
   const reports = new Map<string, StatusReportRow>()
   const updates = new Map<string, StatusReportUpdateRow>()
   let affected: StatusReportAffectedRow[] = []
-  const incidents = new Map<
-    string,
-    {
-      id: string
-      monitorId: string
-      monitorName: string
-      groupName: string | null
-      openedAt: Date
-      openingStatusCode: number | null
-    }
-  >()
+  const incidents = new Map<string, PromotableIncident>()
 
   // Per-report async lock mirroring the DB's `SELECT ... FOR UPDATE`
   // transaction in recomputeResolution: calls for the SAME reportId are
@@ -1459,7 +1453,12 @@ describe("deleteStatusReport", () => {
 describe("promoteIncident", () => {
   const openedAt = new Date("2026-07-18T09:30:00.000Z")
 
-  function storeWithIncident(openingStatusCode: number | null = 503) {
+  const resolvedAt = new Date("2026-07-18T10:05:00.000Z")
+
+  function storeWithIncident(
+    openingStatusCode: number | null = 503,
+    overrides: Partial<PromotableIncident> = {}
+  ) {
     const store = memoryStore()
     store.incidents.set("inc-1", {
       id: "inc-1",
@@ -1467,7 +1466,10 @@ describe("promoteIncident", () => {
       monitorName: "API (production)",
       groupName: "Core",
       openedAt,
+      resolvedAt: null,
       openingStatusCode,
+      exclusionStatus: null,
+      ...overrides,
     })
     return store
   }
@@ -1535,6 +1537,194 @@ describe("promoteIncident", () => {
     expect(
       [...store.updates.values()].some((row) => row.reportId === "op-pinned")
     ).toBe(true)
+  })
+
+  it("keeps an ongoing incident investigating with down impact, even when partially excluded", async () => {
+    const store = storeWithIncident(503, { exclusionStatus: "partial" })
+    const { report } = await promoteIncident("inc-1", dependencies(store))
+    expect(report.currentStatus).toBe("investigating")
+    expect(report.resolvedAt).toBeNull()
+    expect(report.endsAt).toBeNull()
+    expect(report.title).toBe("API (production) outage")
+    expect(report.affected.map((row) => row.impact)).toEqual(["down"])
+    expect(store.reports.get(report.id)!.resolvedAt).toBeNull()
+  })
+
+  it("promotes a resolved incident as a resolved report at the true resolution instant", async () => {
+    const store = storeWithIncident(503, { resolvedAt })
+    const { report } = await promoteIncident("inc-1", dependencies(store))
+    expect(report.currentStatus).toBe("resolved")
+    expect(report.resolvedAt).toBe(resolvedAt.toISOString())
+    expect(report.startsAt).toBe(openedAt.toISOString())
+    expect(report.endsAt).toBeNull()
+    expect(report.updates).toHaveLength(1)
+    expect(report.updates[0]!.publishedAt).toBe(resolvedAt.toISOString())
+    expect(report.updates[0]!.markdown).toContain("recovered")
+    expect(report.updates[0]!.markdown).toContain("HTTP 503")
+    expect(report.updates[0]!.markdown).not.toContain("investigating")
+    // The outage did happen, so the historical impact stays down.
+    expect(report.affected.map((row) => row.impact)).toEqual(["down"])
+    // Persisted resolution agrees with the response.
+    expect(store.reports.get(report.id)!.resolvedAt?.getTime()).toBe(
+      resolvedAt.getTime()
+    )
+  })
+
+  it("treats a resolved, partially excluded incident as a genuine resolved outage", async () => {
+    const store = storeWithIncident(503, {
+      resolvedAt,
+      exclusionStatus: "partial",
+    })
+    const { report } = await promoteIncident("inc-1", dependencies(store))
+    expect(report.title).toBe("API (production) outage")
+    expect(report.currentStatus).toBe("resolved")
+    expect(report.affected.map((row) => row.impact)).toEqual(["down"])
+  })
+
+  it("promotes a fully excluded false alarm as a resolved correction with no outage claim", async () => {
+    const store = storeWithIncident(503, {
+      resolvedAt,
+      exclusionStatus: "full",
+    })
+    const { report } = await promoteIncident("inc-1", dependencies(store))
+    expect(report.title).toBe("API (production) false alarm")
+    expect(report.currentStatus).toBe("resolved")
+    expect(report.resolvedAt).toBe(resolvedAt.toISOString())
+    expect(report.updates).toHaveLength(1)
+    const markdown = report.updates[0]!.markdown
+    expect(markdown).toContain("False alarm")
+    expect(markdown).not.toMatch(/outage|investigating|down/i)
+    // The monitor was never down, so no impact is asserted.
+    expect(report.affected).toEqual([])
+    expect(store.affected).toEqual([])
+  })
+
+  it("keeps an existing promoted draft untouched when the incident later resolves (idempotent)", async () => {
+    const store = storeWithIncident()
+    const deps = dependencies(store)
+    const first = await promoteIncident("inc-1", deps)
+    store.incidents.set("inc-1", {
+      ...store.incidents.get("inc-1")!,
+      resolvedAt,
+      exclusionStatus: "full",
+    })
+    const second = await promoteIncident("inc-1", deps)
+    expect(second.created).toBe(false)
+    expect(second.report.id).toBe(first.report.id)
+    expect(second.report.currentStatus).toBe("investigating")
+    expect(store.reports.size).toBe(1)
+    expect(store.updates.size).toBe(1)
+  })
+
+  describe("published promotions on the public page", () => {
+    async function publishPromotion(overrides: Partial<PromotableIncident>) {
+      const store = storeWithIncident(503, overrides)
+      const deps = dependencies(store)
+      const { report } = await promoteIncident("inc-1", deps)
+      await publishStatusReport(report.id, deps)
+      const publicReports = await getPublicReports(deps)
+      return { report, publicReports }
+    }
+
+    it("never turns a healthy monitor into a current outage for a resolved incident", async () => {
+      const { report, publicReports } = await publishPromotion({ resolvedAt })
+      expect(publicReports.ongoing).toEqual([])
+      expect(publicReports.resolved.map((row) => row.id)).toEqual([report.id])
+      expect(publicReports.resolved[0]!.originIncidentId).toBe("inc-1")
+      expect(deriveOverallState(["UP"], publicReports.ongoing)).toBe(
+        "operational"
+      )
+      expect(monitorReportAnnotations(publicReports.ongoing).size).toBe(0)
+    })
+
+    it("never turns a healthy monitor into a current outage for a false alarm", async () => {
+      const { report, publicReports } = await publishPromotion({
+        resolvedAt,
+        exclusionStatus: "full",
+      })
+      expect(publicReports.ongoing).toEqual([])
+      expect(publicReports.resolved.map((row) => row.id)).toEqual([report.id])
+      expect(publicReports.resolved[0]!.affected).toEqual([])
+      expect(publicReports.resolved[0]!.currentStatus).toBe("resolved")
+      // The raw incident still folds into its report in history.
+      expect(promotedIncidentIds(publicReports.resolved)).toEqual(
+        new Set(["inc-1"])
+      )
+      expect(deriveOverallState(["UP"], publicReports.ongoing)).toBe(
+        "operational"
+      )
+      expect(monitorReportAnnotations(publicReports.ongoing).size).toBe(0)
+    })
+
+    it("still shows a genuine ongoing incident as a current outage", async () => {
+      const { report, publicReports } = await publishPromotion({
+        exclusionStatus: "partial",
+      })
+      expect(publicReports.resolved).toEqual([])
+      expect(publicReports.ongoing.map((row) => row.id)).toEqual([report.id])
+      expect(deriveOverallState(["UP"], publicReports.ongoing)).toBe("outage")
+      expect(
+        monitorReportAnnotations(publicReports.ongoing).get("api-prod")?.impact
+      ).toBe("down")
+    })
+  })
+})
+
+describe("database store findIncident", () => {
+  // A minimal query-builder double: every builder call returns the chain and
+  // awaiting it yields the canned rows.
+  function fakeHandle(rows: unknown[]) {
+    const chain: Record<string, unknown> = {}
+    for (const method of ["select", "from", "innerJoin", "where", "limit"]) {
+      chain[method] = () => chain
+    }
+    // biome-ignore lint/suspicious/noThenProperty: thenable mock emulates the drizzle query builder which is itself a PromiseLike
+    chain.then = (resolve: (value: unknown[]) => unknown) => resolve(rows)
+    return chain as unknown as Parameters<
+      typeof createDatabaseStatusReportsStore
+    >[0]
+  }
+  const row = {
+    id: "11111111-1111-4111-8111-111111111111",
+    monitorId: "api-prod",
+    monitorName: "API (production)",
+    groupName: "Core",
+    openedAt: new Date("2026-07-18T09:30:00.000Z"),
+    resolvedAt: new Date("2026-07-18T10:05:00.000Z"),
+    openingStatusCode: 503,
+  }
+
+  it("reads the true resolution instant and the shared exclusion status", async () => {
+    const handle = fakeHandle([row])
+    exclusionMocks.loadIncidentExclusionStatuses.mockResolvedValueOnce(
+      new Map([[row.id, "full"]])
+    )
+    const incident = await createDatabaseStatusReportsStore(
+      handle
+    ).findIncident(row.id)
+    expect(incident).toEqual({ ...row, exclusionStatus: "full" })
+    expect(
+      exclusionMocks.loadIncidentExclusionStatuses
+    ).toHaveBeenLastCalledWith([row.id], handle)
+  })
+
+  it("reports no exclusion status when the incident has none", async () => {
+    exclusionMocks.loadIncidentExclusionStatuses.mockResolvedValueOnce(
+      new Map()
+    )
+    const incident = await createDatabaseStatusReportsStore(
+      fakeHandle([{ ...row, resolvedAt: null }])
+    ).findIncident(row.id)
+    expect(incident).toMatchObject({ resolvedAt: null, exclusionStatus: null })
+  })
+
+  it("returns null without an exclusion read when the gate hides the incident", async () => {
+    exclusionMocks.loadIncidentExclusionStatuses.mockClear()
+    const incident = await createDatabaseStatusReportsStore(
+      fakeHandle([])
+    ).findIncident(row.id)
+    expect(incident).toBeNull()
+    expect(exclusionMocks.loadIncidentExclusionStatuses).not.toHaveBeenCalled()
   })
 })
 

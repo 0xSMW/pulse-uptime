@@ -242,4 +242,188 @@ describe("StatusPageContent", () => {
     expect(html).toContain("Planned failover drill")
     expect(html).toContain("Upcoming report")
   })
+
+  const monitorRowData = (
+    monitors: PublicStatusData["groups"][number]["monitors"],
+    affected: PublicStatusData["reports"]["ongoing"][number]["affected"] = []
+  ): PublicStatusData => ({
+    ...operationalData,
+    reports: {
+      ...operationalData.reports,
+      ongoing:
+        affected.length > 0
+          ? [
+              {
+                id: "rep-down",
+                type: "incident",
+                title: "API outage",
+                startsAt: "2026-07-18T11:00:00.000Z",
+                endsAt: null,
+                publishedAt: "2026-07-18T11:00:00.000Z",
+                resolvedAt: null,
+                originIncidentId: null,
+                currentStatus: "investigating",
+                phase: "ongoing",
+                latestUpdate: null,
+                affected,
+              },
+            ]
+          : [],
+    },
+    groups: [{ name: "Web", slug: "web", monitors }],
+  })
+
+  it("shows a visible status word for every non-UP monitor", () => {
+    const html = renderToStaticMarkup(
+      <StatusPageContent
+        data={monitorRowData([
+          { id: "a", name: "API", state: "UP", uptime: 100, timeline: [] },
+          { id: "b", name: "Web", state: "DOWN", uptime: 90, timeline: [] },
+          {
+            id: "c",
+            name: "Jobs",
+            state: "VERIFYING_DOWN",
+            uptime: 99,
+            timeline: [],
+          },
+          {
+            id: "d",
+            name: "Docs",
+            state: "PAUSED",
+            uptime: null,
+            timeline: [],
+          },
+          {
+            id: "e",
+            name: "Edge",
+            state: "PENDING",
+            uptime: null,
+            timeline: [],
+          },
+        ])}
+      />
+    )
+    for (const word of ["Down", "Verifying", "Paused", "Pending"]) {
+      expect(html).toMatch(new RegExp(`aria-hidden="true"[^>]*>${word}<`))
+    }
+    expect(html).not.toMatch(/aria-hidden="true"[^>]*>Up</)
+  })
+
+  it("does not repeat Down beside a down report annotation", () => {
+    const html = renderToStaticMarkup(
+      <StatusPageContent
+        data={monitorRowData(
+          [{ id: "b", name: "Web", state: "DOWN", uptime: 90, timeline: [] }],
+          [
+            {
+              monitorId: "b",
+              monitorName: "Web",
+              groupName: "Web",
+              impact: "down",
+            },
+          ]
+        )}
+      />
+    )
+    expect(html).not.toMatch(/aria-hidden="true"[^>]*>Down</)
+    expect(html.match(/see report/g)).toHaveLength(2)
+  })
+
+  it("shows the configured uptime period once per group, not per row", () => {
+    const html = renderToStaticMarkup(
+      <StatusPageContent
+        data={{
+          ...operationalData,
+          config: { ...baseConfig, historyDays: 30 },
+          groups: [
+            {
+              name: "Web",
+              slug: "web",
+              monitors: [
+                {
+                  id: "a",
+                  name: "API",
+                  state: "UP",
+                  uptime: 100,
+                  timeline: [],
+                },
+                { id: "b", name: "App", state: "UP", uptime: 99, timeline: [] },
+              ],
+            },
+            {
+              name: "Jobs",
+              slug: "jobs",
+              monitors: [
+                {
+                  id: "c",
+                  name: "Cron",
+                  state: "UP",
+                  uptime: 98,
+                  timeline: [],
+                },
+              ],
+            },
+          ],
+        }}
+      />
+    )
+    expect(html.match(/30-day uptime/g)).toHaveLength(2)
+    expect(html).not.toContain("90-day uptime")
+    expect(html).toContain('aria-label="API, 30-day availability')
+  })
+
+  it("names the unit on excluded checks without a fixed narrow column", () => {
+    const html = renderToStaticMarkup(
+      <StatusPageContent
+        data={monitorRowData([
+          {
+            id: "a",
+            name: "API",
+            state: "UP",
+            uptime: 100,
+            excludedChecks: 1,
+            timeline: [],
+          },
+          {
+            id: "b",
+            name: "Web",
+            state: "UP",
+            uptime: 99.5,
+            excludedChecks: 12,
+            timeline: [],
+          },
+          { id: "c", name: "Docs", state: "UP", uptime: 99, timeline: [] },
+        ])}
+      />
+    )
+    expect(html).toContain("1 check excluded")
+    expect(html).toContain("12 checks excluded")
+    expect(html.match(/excluded</g)).toHaveLength(2)
+    expect(html).not.toContain("_72px]")
+    expect(html).toContain("sm:grid-cols-subgrid")
+  })
+
+  it("wraps long public names instead of truncating", () => {
+    const name = "Customer-Facing-Authentication-Gateway-Primary-Region"
+    const html = renderToStaticMarkup(
+      <StatusPageContent
+        data={{
+          ...monitorRowData([
+            { id: "a", name, state: "UP", uptime: 100, timeline: [] },
+          ]),
+          recentIncidents: [
+            {
+              id: "inc-1",
+              monitorName: name,
+              openedAt: "2026-07-17T10:00:00.000Z",
+              resolvedAt: "2026-07-17T10:05:00.000Z",
+              durationSeconds: 300,
+            },
+          ],
+        }}
+      />
+    )
+    expect(html).not.toContain("truncate")
+    expect(html).toContain("wrap-anywhere")
+  })
 })

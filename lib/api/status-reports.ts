@@ -32,6 +32,7 @@ import {
   statusReportUpdates,
 } from "@/lib/db/schema"
 import { isUuid } from "@/lib/ids/uuid"
+import { loadIncidentExclusionStatuses } from "@/lib/incidents/exclusions"
 import {
   IMPACT_BY_TYPE,
   INCIDENT_UPDATE_STATUSES,
@@ -196,6 +197,23 @@ export class StatusReportError extends Error {
   }
 }
 
+/**
+ * The incident facts promotion reads. resolvedAt is the incident's true
+ * resolution instant and exclusionStatus comes from
+ * loadIncidentExclusionStatuses, so "full" (a false alarm) only ever applies
+ * to a resolved incident.
+ */
+export interface PromotableIncident {
+  id: string
+  monitorId: string
+  monitorName: string
+  groupName: string | null
+  openedAt: Date
+  resolvedAt: Date | null
+  openingStatusCode: number | null
+  exclusionStatus: "full" | "partial" | null
+}
+
 export interface StatusReportsStore {
   findMonitors: (
     ids: readonly string[]
@@ -321,14 +339,7 @@ export interface StatusReportsStore {
     id: string
     now: Date
   }) => Promise<"published" | "already_published" | "missing">
-  findIncident: (incidentId: string) => Promise<{
-    id: string
-    monitorId: string
-    monitorName: string
-    groupName: string | null
-    openedAt: Date
-    openingStatusCode: number | null
-  } | null>
+  findIncident: (incidentId: string) => Promise<PromotableIncident | null>
   /** Query 1 of getPublicReports: published ongoing/upcoming + recent resolved. */
   getPublicReportRows: (input: {
     resolvedLimit: number
@@ -1285,7 +1296,7 @@ export async function deleteReportUpdate(
   if (outcome === "last_update") {
     throw new StatusReportError(
       "LAST_UPDATE",
-      "A report must keep at least one update; delete the report instead"
+      "Keep at least one update or delete the report"
     )
   }
   return persistResolutionAndSerialize(store, report, now)
@@ -1321,6 +1332,50 @@ export function publicIncidentCause(openingStatusCode: number | null): string {
 }
 
 /**
+ * The draft's opening state, matched to the incident's lifecycle:
+ * - Ongoing (partial exclusions included): investigating, down impact.
+ * - Resolved: one resolved update at the true resolution instant, down
+ *   impact kept as history. A resolved report never reads as ongoing.
+ * - Resolved and fully excluded (false alarm): a resolved correction with no
+ *   affected impact, since the monitor was never down.
+ */
+function promotionPrefill(incident: PromotableIncident): {
+  title: string
+  status: StatusReportUpdateStatus
+  markdown: string
+  publishedAt: Date
+  impact: StatusReportImpact | null
+} {
+  const name = incident.monitorName
+  const cause = publicIncidentCause(incident.openingStatusCode)
+  if (!incident.resolvedAt) {
+    return {
+      title: `${name} outage`,
+      status: "investigating",
+      markdown: `We are investigating an outage affecting ${name}. Initial signal: ${cause}.`,
+      publishedAt: incident.openedAt,
+      impact: "down",
+    }
+  }
+  if (incident.exclusionStatus === "full") {
+    return {
+      title: `${name} false alarm`,
+      status: "resolved",
+      markdown: `False alarm. ${name} stayed up, and its failed checks are excluded from uptime.`,
+      publishedAt: incident.resolvedAt,
+      impact: null,
+    }
+  }
+  return {
+    title: `${name} outage`,
+    status: "resolved",
+    markdown: `${name} recovered from an outage. Initial signal: ${cause}.`,
+    publishedAt: incident.resolvedAt,
+    impact: "down",
+  }
+}
+
+/**
  * Prefills a DRAFT report from an auto-incident. Idempotent via the partial
  * unique index on originIncidentId: promoting the same incident twice returns
  * the existing report, whichever caller won the insert race.
@@ -1338,37 +1393,41 @@ export async function promoteIncident(
   }
 
   const reportId = dependencies.reportId ?? newId()
-  const cause = publicIncidentCause(incident.openingStatusCode)
+  const prefill = promotionPrefill(incident)
   const update: StatusReportUpdateRow = {
     id: newId(),
     reportId,
-    status: "investigating",
-    markdown: `We are investigating an outage affecting ${incident.monitorName}. Initial signal: ${cause}.`,
-    publishedAt: incident.openedAt,
+    status: prefill.status,
+    markdown: prefill.markdown,
+    publishedAt: prefill.publishedAt,
     createdAt: now,
     updatedAt: now,
   }
   const report: StatusReportRow = {
     id: reportId,
     type: "incident",
-    title: `${incident.monitorName} outage`.slice(0, 160),
+    title: prefill.title.slice(0, 160),
     startsAt: incident.openedAt,
     endsAt: null,
     publishedAt: null,
-    resolvedAt: null,
+    // Same rule every other write path uses, so the persisted resolution
+    // always agrees with the latest update.
+    resolvedAt: deriveResolvedAt([update]),
     originIncidentId: incident.id,
     createdAt: now,
     updatedAt: now,
   }
-  const affected: StatusReportAffectedRow[] = [
-    {
-      reportId,
-      monitorId: incident.monitorId,
-      monitorName: incident.monitorName,
-      groupName: incident.groupName,
-      impact: "down",
-    },
-  ]
+  const affected: StatusReportAffectedRow[] = prefill.impact
+    ? [
+        {
+          reportId,
+          monitorId: incident.monitorId,
+          monitorName: incident.monitorName,
+          groupName: incident.groupName,
+          impact: prefill.impact,
+        },
+      ]
+    : []
   const outcome = await store.insertPromotedReport({ report, update, affected })
   if (outcome.created) {
     return {
@@ -2041,6 +2100,7 @@ export function createDatabaseStatusReportsStore(
           monitorName: monitorRegistry.name,
           groupName: monitorRegistry.groupName,
           openedAt: incidents.openedAt,
+          resolvedAt: incidents.resolvedAt,
           openingStatusCode: incidents.openingStatusCode,
         })
         .from(incidents)
@@ -2063,7 +2123,13 @@ export function createDatabaseStatusReportsStore(
           )
         )
         .limit(1)
-      return row ?? null
+      if (!row) {
+        return null
+      }
+      // The shared exclusion rule decides false alarms, so promotion agrees
+      // with the dashboard and status page badges.
+      const exclusions = await loadIncidentExclusionStatuses([row.id], handle)
+      return { ...row, exclusionStatus: exclusions.get(row.id) ?? null }
     },
 
     async getAffectedGroupNames() {

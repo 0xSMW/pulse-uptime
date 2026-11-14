@@ -103,12 +103,12 @@ describe("SettingsSidebar", () => {
       </SettingsDirtyProvider>
     )
     expect(
-      screen.queryByText("Unsaved changes — save or discard before leaving")
+      screen.queryByText("Save or discard changes before leaving")
     ).toBeNull()
     fireEvent.keyDown(window, { key: "Escape" })
     expect(push).not.toHaveBeenCalled()
     expect(
-      screen.getByText("Unsaved changes — save or discard before leaving")
+      screen.getByText("Save or discard changes before leaving")
     ).toBeDefined()
   })
 

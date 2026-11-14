@@ -64,7 +64,7 @@ export function TimezoneControl() {
         body: JSON.stringify({ timezone: value === "system" ? null : value }),
       })
       setServerTimezone(value === "system" ? null : value)
-      setStatus({ text: "Account time zone saved", tone: "info" })
+      setStatus({ text: "Account time zone saved", tone: "info", quiet: true })
     } catch {
       setStatus({
         text: "Could not save the account time zone. Try again.",
@@ -98,7 +98,7 @@ export function TimezoneControl() {
           <>
             Overridden on this device ·{" "}
             <span className="font-data">{deviceOverride}</span>
-            {" — "}
+            {" · "}
             <button
               className="text-[var(--fg-muted)] underline underline-offset-2 hover:text-[var(--fg)]"
               onClick={() => {
@@ -147,7 +147,7 @@ export function TimezoneControl() {
             </SelectContent>
           </Select>
           <p className="mt-1 text-[var(--fg-faint)] text-xs">
-            Only this browser is affected; the account value stays unchanged.
+            Applies only to this browser
           </p>
         </div>
       ) : (

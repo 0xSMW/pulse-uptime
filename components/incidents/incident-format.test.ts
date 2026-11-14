@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest"
 
-import { formatIncidentTime, formatIncidentTimeOfDay } from "./incident-format"
+import {
+  formatIncidentRange,
+  formatIncidentRangeParts,
+  formatIncidentTime,
+  formatIncidentTimeOfDay,
+  formatIncidentTimeParts,
+} from "./incident-format"
 
 describe("incident time formats", () => {
   it("renders the full date-time and the time-only variant in the same zone", () => {
@@ -9,5 +15,129 @@ describe("incident time formats", () => {
     const timeOnly = formatIncidentTimeOfDay(value, "Asia/Bangkok")
     expect(timeOnly).toContain("15:43")
     expect(timeOnly).not.toContain("2026")
+  })
+
+  it("splits the full timestamp into date and time with zone", () => {
+    const value = "2026-11-13T19:00:00Z"
+    const zone = "America/Los_Angeles"
+    const parts = formatIncidentTimeParts(value, zone)
+    expect(parts).toEqual({
+      date: "Nov 13, 2026",
+      separator: ", ",
+      time: "11:00 PST",
+    })
+    expect(`${parts.date}${parts.separator}${parts.time}`).toBe(
+      formatIncidentTime(value, zone)
+    )
+  })
+
+  it("keeps the daylight zone with its time", () => {
+    expect(
+      formatIncidentTimeParts("2026-07-18T08:43:00Z", "America/Los_Angeles")
+    ).toEqual({ date: "Jul 18, 2026", separator: ", ", time: "01:43 PDT" })
+  })
+
+  it("keeps an offset zone and the local calendar year", () => {
+    const value = "2026-12-31T20:30:00Z"
+    const parts = formatIncidentTimeParts(value, "Asia/Bangkok")
+    expect(parts.date).toBe("Jan 1, 2027")
+    expect(parts.time).toBe("03:30 GMT+7")
+    expect(`${parts.date}${parts.separator}${parts.time}`).toBe(
+      formatIncidentTime(value, "Asia/Bangkok")
+    )
+  })
+})
+
+describe("incident interval formats", () => {
+  it("shares the local date even when the interval crosses UTC midnight", () => {
+    expect(
+      formatIncidentRange(
+        "2026-11-13T19:00:00Z",
+        "2026-11-14T06:16:00Z",
+        "America/Los_Angeles"
+      )
+    ).toBe("Nov 13, 11:00–22:16 PST")
+  })
+
+  it("retains both dates when the interval crosses local midnight", () => {
+    expect(
+      formatIncidentRange("2026-11-13T23:00:00Z", "2026-11-14T00:16:00Z")
+    ).toBe("Nov 13, 23:00–Nov 14, 00:16 UTC")
+  })
+
+  it("retains both years at a year boundary", () => {
+    expect(
+      formatIncidentRange("2026-12-31T23:00:00Z", "2027-01-01T01:00:00Z")
+    ).toBe("Dec 31, 2026, 23:00–Jan 1, 2027, 01:00 UTC")
+  })
+
+  it("distinguishes repeated times when daylight saving ends", () => {
+    expect(
+      formatIncidentRange(
+        "2026-11-01T08:30:00Z",
+        "2026-11-01T09:30:00Z",
+        "America/Los_Angeles"
+      )
+    ).toBe("Nov 1, 01:30 PDT–01:30 PST")
+  })
+})
+
+describe("incident interval parts", () => {
+  const cases: [string, string, string | undefined][] = [
+    ["2026-11-13T19:00:00Z", "2026-11-14T06:16:00Z", "America/Los_Angeles"],
+    ["2026-11-13T23:00:00Z", "2026-11-14T00:16:00Z", undefined],
+    ["2026-12-31T23:00:00Z", "2027-01-01T01:00:00Z", undefined],
+    ["2026-11-01T08:30:00Z", "2026-11-01T09:30:00Z", "America/Los_Angeles"],
+  ]
+
+  it("joins back into the exact range string", () => {
+    for (const [startAt, endAt, zone] of cases) {
+      const { startDate, startTime, endDate, endTime } =
+        formatIncidentRangeParts(startAt, endAt, zone)
+      expect(
+        `${startDate}, ${startTime}–${endDate === null ? "" : `${endDate}, `}${endTime}`
+      ).toBe(formatIncidentRange(startAt, endAt, zone))
+    }
+  })
+
+  it("drops the end date on a shared local day", () => {
+    expect(
+      formatIncidentRangeParts(
+        "2026-11-13T19:00:00Z",
+        "2026-11-14T06:16:00Z",
+        "America/Los_Angeles"
+      )
+    ).toEqual({
+      startDate: "Nov 13",
+      startTime: "11:00",
+      endDate: null,
+      endTime: "22:16 PST",
+    })
+  })
+
+  it("keeps both dates across local midnight", () => {
+    expect(
+      formatIncidentRangeParts("2026-11-13T23:00:00Z", "2026-11-14T00:16:00Z")
+    ).toEqual({
+      startDate: "Nov 13",
+      startTime: "23:00",
+      endDate: "Nov 14",
+      endTime: "00:16 UTC",
+    })
+  })
+
+  it("keeps each zone with its own time across a DST change", () => {
+    expect(
+      formatIncidentRangeParts(
+        "2026-11-01T08:30:00Z",
+        "2026-11-01T09:30:00Z",
+        "America/Los_Angeles"
+      )
+    ).toEqual({
+      startDate: "Nov 1",
+      startTime: "01:30 PDT",
+      endDate: null,
+      endTime: "01:30 PST",
+    })
   })
 })

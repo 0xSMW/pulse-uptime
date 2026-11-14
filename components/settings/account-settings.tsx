@@ -90,7 +90,8 @@ export function AccountSettings({ data }: { data: AccountSettingsData }) {
         },
         { fallbackMessage: "Request failed. Try again." }
       )
-      setProfileMessage({ text: "Name saved", tone: "info" })
+      setProfileMessage({ text: "Name saved", tone: "info", quiet: true })
+
       router.refresh()
     } catch (error) {
       setProfileMessage({
@@ -181,7 +182,8 @@ export function AccountSettings({ data }: { data: AccountSettingsData }) {
         },
         { fallbackMessage: "Request failed. Try again." }
       )
-      setProfileMessage({ text: "Avatar updated", tone: "info" })
+      setProfileMessage({ text: "Avatar updated", tone: "info", quiet: true })
+
       router.refresh()
     } catch (error) {
       setProfileMessage({

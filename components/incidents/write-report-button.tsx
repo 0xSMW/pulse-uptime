@@ -37,7 +37,7 @@ export function WriteReportButton({ incidentId }: { incidentId: string }) {
   }
 
   return (
-    <span className="relative inline-flex items-center gap-2">
+    <span className="relative inline-flex items-center">
       <Button
         className="px-2.5"
         disabled={busy}
@@ -48,7 +48,10 @@ export function WriteReportButton({ incidentId }: { incidentId: string }) {
         {busy ? "Opening…" : "Write Report"}
       </Button>
       {/* Always-mounted error region so assistive tech hears late failures. */}
-      <span className="text-[var(--down-text)] text-xs" role="alert">
+      <span
+        className="ml-2 text-[var(--down-text)] text-xs empty:ml-0"
+        role="alert"
+      >
         {error}
       </span>
     </span>

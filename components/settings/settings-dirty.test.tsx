@@ -183,13 +183,15 @@ describe("SettingsDirtyProvider beforeunload", () => {
 })
 
 describe("DISCARD_PROMPT copy", () => {
-  it("is used as the dialog description", () => {
+  it("names the dialog once without a duplicate description", () => {
     render(
       <SettingsDirtyProvider>
         <DirtyProbe />
       </SettingsDirtyProvider>
     )
     fireEvent(window, new PopStateEvent("popstate"))
-    expect(screen.getByText(DISCARD_PROMPT, { selector: "p" })).toBeDefined()
+    const dialog = screen.getByRole("dialog", { name: DISCARD_PROMPT })
+    expect(dialog.hasAttribute("aria-describedby")).toBe(false)
+    expect(screen.getAllByText(DISCARD_PROMPT)).toHaveLength(1)
   })
 })

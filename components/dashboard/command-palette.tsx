@@ -166,7 +166,7 @@ export function buildPaletteGroups(
         const cause = incident?.cause || "Availability check failed"
         return {
           id: `incident-${incident?.id ?? monitor.id}`,
-          text: `${monitor.name} — ${cause}`,
+          text: `${monitor.name} · ${cause}`,
           searchText: `${monitor.name} ${cause}`,
           hint: `ongoing · ${formatDuration(elapsedSeconds)}`,
           href: "/incidents",
@@ -478,7 +478,7 @@ function PaletteDialog({
                   <button
                     aria-selected={active}
                     className={cn(
-                      "flex h-10 w-full items-center gap-2 rounded-[6px] px-3 text-left text-[13px]",
+                      "flex min-h-10 w-full items-center gap-2 rounded-[6px] px-3 py-2 text-left text-[13px]",
                       active && "bg-[var(--hover)]"
                     )}
                     id={`palette-option-${item.id}`}
@@ -498,7 +498,9 @@ function PaletteDialog({
                     ) : item.state ? (
                       <StatusDot aria-hidden state={item.state} />
                     ) : null}
-                    <span className="min-w-0 flex-1 truncate">{item.text}</span>
+                    <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+                      {item.text}
+                    </span>
                     <span
                       className={cn(
                         "flex shrink-0 items-center gap-1 font-data text-[var(--fg-muted)] text-xs",

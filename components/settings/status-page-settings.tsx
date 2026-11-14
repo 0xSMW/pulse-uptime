@@ -463,8 +463,8 @@ function ImageUploadZone({
     ? "Uploading…"
     : imageId
       ? freshUpload
-        ? "Ready — save to apply"
-        : `Current ${noun} — saved`
+        ? "Save to apply"
+        : `Saved ${noun}`
       : hint
 
   return (
@@ -712,7 +712,11 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
       if (nextEtag) {
         setEtag(nextEtag)
       }
-      setMessage({ text: "Status page settings saved", tone: "info" })
+      setMessage({
+        text: "Status page settings saved",
+        tone: "info",
+        quiet: true,
+      })
       // The sticky bar (and the focused Save button) unmounts on success.
       // Hand focus to the always-mounted status region instead of <body>.
       statusRef.current?.focus()
@@ -744,7 +748,7 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
         setEtag(nextEtag)
       }
       setMessage({
-        text: "Settings changed elsewhere — your edits are preserved, review and save again",
+        text: "Settings changed elsewhere. Your edits are preserved. Review and save again",
         tone: "error",
       })
     } catch (error) {
@@ -761,7 +765,7 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
   function discard() {
     setDraft(structuredClone(saved))
     setNavLinksError("")
-    setMessage({ text: "Changes discarded", tone: "info" })
+    setMessage({ text: "Changes discarded", tone: "info", quiet: true })
     // The sticky bar unmounts. Keep focus on something real.
     statusRef.current?.focus()
   }
@@ -819,7 +823,7 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
               </Select>
             </div>
             <ImageUploadZone
-              hint="Drop an image or browse — PNG, JPEG, SVG, or WebP up to 512 KB"
+              hint="Drop or browse for a PNG, JPEG, SVG, or WebP up to 512 KB"
               imageId={draft.logoLightImageId}
               kind="logo-light"
               label="Logo (light theme)"
@@ -827,7 +831,7 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
               savedImageId={saved.logoLightImageId}
             />
             <ImageUploadZone
-              hint="Drop an image or browse — PNG, JPEG, SVG, or WebP up to 512 KB"
+              hint="Drop or browse for a PNG, JPEG, SVG, or WebP up to 512 KB"
               imageId={draft.logoDarkImageId}
               kind="logo-dark"
               label="Logo (dark theme)"
@@ -932,8 +936,7 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
                     ))}
                 </div>
                 <p className="mt-3 border-[var(--border)] border-t pt-2 text-[var(--fg-faint)] text-xs">
-                  Plain-text preview — markdown formatting is applied on the
-                  published page.
+                  Plain-text preview, formatted when published
                 </p>
               </div>
             ) : null}
@@ -946,7 +949,7 @@ export function StatusPageSettings({ data }: { data: StatusPageSettingsData }) {
         <CardContent className="pt-0">
           <div className="max-w-[640px] space-y-5">
             <ImageUploadZone
-              hint="Drop an image or browse — PNG, ICO, or SVG up to 32 KB"
+              hint="Drop or browse for a PNG, ICO, or SVG up to 32 KB"
               imageId={draft.faviconImageId}
               kind="favicon"
               label="Favicon"

@@ -182,8 +182,13 @@ describe("StatusPageSettings save model", () => {
       "System Status"
     )
     expect(screen.getByTestId("dirty").textContent).toBe("false")
-    // The bar unmounted. Focus lands on the always-mounted status region.
+    // The bar unmounted. Focus lands on the always-mounted status region,
+    // which announces the routine message without showing it.
     expect(document.activeElement?.textContent).toBe("Changes discarded")
+    expect(document.activeElement?.getAttribute("aria-live")).toBe("polite")
+    expect(
+      screen.getByText("Changes discarded").classList.contains("sr-only")
+    ).toBe(true)
   })
 
   it("saves the whole document in a single PUT with If-Match", async () => {
@@ -227,6 +232,11 @@ describe("StatusPageSettings save model", () => {
     expect(document.activeElement?.textContent).toBe(
       "Status page settings saved"
     )
+    expect(
+      screen
+        .getByText("Status page settings saved")
+        .classList.contains("sr-only")
+    ).toBe(true)
     expect(navigation.refresh).toHaveBeenCalledOnce()
   })
 
@@ -252,7 +262,7 @@ describe("StatusPageSettings save model", () => {
     await waitFor(() => {
       expect(
         screen.getByText(
-          "Settings changed elsewhere — your edits are preserved, review and save again"
+          "Settings changed elsewhere. Your edits are preserved. Review and save again"
         )
       ).toBeDefined()
     })
@@ -266,6 +276,7 @@ describe("StatusPageSettings save model", () => {
     expect(screen.getAllByText("Unsaved changes").length).toBeGreaterThan(0)
     // The conflict notice reads as an alert, not muted success text.
     expect(screen.getByRole("alert").textContent).toContain("changed elsewhere")
+    expect(screen.getByRole("alert").querySelector(".sr-only")).toBeNull()
 
     // The retry carries the refreshed ETag.
     fireEvent.click(screen.getByRole("button", { name: "Save" }))
@@ -401,7 +412,7 @@ describe("StatusPageSettings uploads", () => {
     })
 
     await waitFor(() => {
-      expect(screen.getByText("Ready — save to apply")).toBeDefined()
+      expect(screen.getByText("Save to apply")).toBeDefined()
     })
     const [uploadUrl, uploadInit] = methodCalls(fetchMock, "POST")[0]!
     expect(uploadUrl).toBe("/api/v1/images")
@@ -483,14 +494,14 @@ describe("StatusPageSettings uploads", () => {
       logoLightImageId: IMAGE_ID,
       faviconImageId: faviconId,
     })
-    expect(screen.getByText("Current logo — saved")).toBeDefined()
-    expect(screen.getByText("Current favicon — saved")).toBeDefined()
+    expect(screen.getByText("Saved logo")).toBeDefined()
+    expect(screen.getByText("Saved favicon")).toBeDefined()
     const sources = Array.from(container.querySelectorAll("img")).map((img) =>
       img.getAttribute("src")
     )
     expect(sources).toContain(`/api/v1/images/${faviconId}`)
     // Nothing is pending on a fresh load.
-    expect(screen.queryByText("Ready — save to apply")).toBeNull()
+    expect(screen.queryByText("Save to apply")).toBeNull()
     expect(screen.queryByText("Unsaved changes")).toBeNull()
   })
 })

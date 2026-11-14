@@ -4,7 +4,10 @@ import Link from "next/link"
 import { useEffect, useState } from "react"
 
 import { formatIncidentDuration } from "@/components/incidents/incident-format"
-import { IncidentStatus } from "@/components/incidents/incident-status"
+import {
+  IncidentExclusionBadge,
+  IncidentStatus,
+} from "@/components/incidents/incident-status"
 import { IncidentTime } from "@/components/incidents/incident-time"
 import type { IncidentSummary } from "@/components/incidents/types"
 
@@ -40,13 +43,16 @@ export function OngoingIncidentCard({
             className="status-dot-pulse relative size-2.5 shrink-0 rounded-full bg-[var(--down)] text-[var(--down)]"
           />
           <Link
-            className="truncate font-semibold text-sm tracking-[-0.28px] transition-opacity duration-150 hover:opacity-70"
+            className="wrap-anywhere min-w-0 font-semibold text-sm tracking-[-0.28px] transition-opacity duration-150 hover:opacity-70"
             href={`/incidents/${encodeURIComponent(incident.id)}`}
           >
             {incident.monitorName}
           </Link>
         </div>
-        <IncidentStatus ongoing />
+        <div className="flex flex-wrap items-center gap-2">
+          <IncidentStatus ongoing />
+          <IncidentExclusionBadge status={incident.exclusionStatus} />
+        </div>
       </div>
       <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 font-data text-[var(--fg-muted)] text-xs">
         <span>
@@ -59,7 +65,7 @@ export function OngoingIncidentCard({
           {formatIncidentDuration(elapsed)} elapsed
         </span>
       </div>
-      <p className="mt-3 font-data text-[13px] text-[var(--down-text)]">
+      <p className="wrap-anywhere mt-3 font-data text-[13px] text-[var(--down-text)]">
         {incident.openingFailure}
       </p>
     </article>

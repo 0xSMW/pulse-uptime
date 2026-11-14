@@ -8,7 +8,7 @@ import {
   useSyncExternalStore,
 } from "react"
 
-import type { LatencyPoint } from "@/components/charts/latency-chart"
+import type { LatencyChartProps } from "@/components/charts/latency-chart"
 
 // Load Recharts outside the route bundle when the chart enters the viewport.
 const LatencyChart = dynamic(
@@ -72,13 +72,13 @@ function useIsIntersecting(containerRef: RefObject<HTMLDivElement | null>) {
   )
 }
 
-export function LazyLatencyChart({ data }: { data: LatencyPoint[] }) {
+export function LazyLatencyChart(props: LatencyChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const visible = useIsIntersecting(containerRef)
 
   return (
     <div className="h-[220px] w-full" ref={containerRef}>
-      {visible ? <LatencyChart data={data} /> : <ChartPlaceholder />}
+      {visible ? <LatencyChart {...props} /> : <ChartPlaceholder />}
     </div>
   )
 }

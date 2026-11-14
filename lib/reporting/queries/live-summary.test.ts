@@ -166,9 +166,24 @@ describe("buildRecentChecks", () => {
     const healthy = buildRecentChecks([rollup({})])[0]!
     expect(healthy).toMatchObject({
       successful: true,
-      resultLabel: "Healthy rollup",
+      resultLabel: "Passed",
       latencyMs: 100,
     })
+  })
+
+  it("states the excluded count once", () => {
+    const excludedOnly = buildRecentChecks([
+      rollup({ failedChecks: 2, excludedChecks: 2 }),
+    ])[0]!
+    expect(excludedOnly).toMatchObject({
+      excluded: true,
+      resultLabel: "2 excluded",
+    })
+    expect(excludedOnly.resultLabel).not.toContain("Excluded checks")
+    const mixed = buildRecentChecks([
+      rollup({ failedChecks: 3, excludedChecks: 1 }),
+    ])[0]!
+    expect(mixed.resultLabel).toBe("Failed checks · 1 excluded")
   })
 
   it("reports null latency when no samples were recorded", () => {

@@ -35,18 +35,24 @@ export function TopNav({
 
   return (
     <header className="sticky top-0 z-40 bg-[color:var(--bg)]/95 backdrop-blur">
+      {/* Below sm the links wrap onto a second row so every label fits at
+          320px. Brand and account share the first row. From sm up it is the
+          original single 56px row. */}
       <nav
         aria-label="Primary navigation"
-        className="mx-auto flex h-14 max-w-[1200px] items-center gap-6 px-6 lg:px-8"
+        className="mx-auto flex max-w-[1200px] flex-wrap items-center gap-x-6 px-6 sm:h-14 sm:flex-nowrap lg:px-8"
       >
-        <Link className="mr-2 flex items-center gap-2 font-semibold" href="/">
+        <Link
+          className="mr-2 flex h-12 items-center gap-2 font-semibold sm:h-auto"
+          href="/"
+        >
           <span
             aria-hidden="true"
             className="size-2 rounded-full bg-[var(--fg)]"
           />
           Pulse
         </Link>
-        <div className="flex h-full min-w-0 items-center gap-5 overflow-x-auto">
+        <div className="hide-scrollbar order-last flex h-12 min-w-0 basis-full items-center gap-5 overflow-x-auto sm:order-none sm:h-full sm:basis-auto">
           {links.map((link) => {
             const active = link.match(pathname)
             return (

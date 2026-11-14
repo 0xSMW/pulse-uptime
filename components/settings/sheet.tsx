@@ -23,15 +23,12 @@ export function SheetIconButton({
   children: ReactNode
 }) {
   const tooltipId = useId()
+  const disabledReason = disabled ? disabledDescription : undefined
 
   return (
     // biome-ignore lint/a11y/useAriaPropsSupportedByRole: focusable wrapper surfaces the disabled reason when the inner button cannot take focus
     <span
-      aria-label={
-        disabled && disabledDescription
-          ? `${label}. ${disabledDescription}`
-          : undefined
-      }
+      aria-label={disabledReason ? `${label}. ${disabledReason}` : undefined}
       className="group relative inline-flex"
       tabIndex={disabled ? 0 : undefined}
     >
@@ -51,15 +48,16 @@ export function SheetIconButton({
       >
         {children}
       </Button>
-      {/* Right aligned so the nowrap tooltip stays inside the sheet, the
-          buttons sit at the sheet's right edge and a centered tooltip would
-          extend past it and widen the dialog's scrollable overflow. */}
+      {/* Right aligned so the tooltip stays inside the sheet, the buttons sit
+          at the sheet's right edge and a centered tooltip would extend past
+          it and widen the dialog's scrollable overflow. Long disabled reasons
+          wrap within a width capped below the viewport. */}
       <span
-        className="pointer-events-none absolute top-[calc(100%+8px)] right-0 z-20 whitespace-nowrap rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-2 py-1 font-medium text-[var(--fg)] text-xs opacity-0 shadow-[var(--popover-shadow)] transition-opacity duration-150 group-focus-within:opacity-100 group-hover:opacity-100 motion-reduce:transition-none"
+        className="pointer-events-none absolute top-[calc(100%+8px)] right-0 z-20 w-max max-w-[min(16rem,calc(100vw-3rem))] whitespace-normal break-words rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-2 py-1 font-medium text-[var(--fg)] text-xs opacity-0 shadow-[var(--popover-shadow)] transition-opacity duration-150 group-focus-within:opacity-100 group-hover:opacity-100 motion-reduce:transition-none"
         id={tooltipId}
         role="tooltip"
       >
-        {label}
+        {disabledReason || label}
       </span>
     </span>
   )

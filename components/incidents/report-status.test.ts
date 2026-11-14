@@ -132,8 +132,9 @@ describe("stateFlipDirection", () => {
         publishedAt: "2026-07-18T09:00:00.000Z",
       })
     ).toBe("to_ongoing")
-    expect(STATE_FLIP_COPY.to_ongoing).toContain("back to Ongoing")
-    expect(STATE_FLIP_COPY.to_ongoing).toContain("top of your status page")
+    expect(STATE_FLIP_COPY.to_ongoing).toBe(
+      "Reopens this report on your status page"
+    )
   })
 
   it("detects a status edit that resolves the report", () => {

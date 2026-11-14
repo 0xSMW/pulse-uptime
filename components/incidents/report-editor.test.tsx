@@ -48,7 +48,10 @@ function isDialogOpen(): boolean {
   return document.querySelector("dialog")?.open ?? false
 }
 
-import { TimezoneProvider } from "@/components/dashboard/timezone-provider"
+import {
+  TIMEZONE_STORAGE_KEY,
+  TimezoneProvider,
+} from "@/components/dashboard/timezone-provider"
 import {
   ReportEditor,
   type ReportEditorMonitor,
@@ -114,9 +117,10 @@ function okEnvelope(data: unknown) {
   )
 }
 
+// A fixed display zone keeps typed wall times independent of the machine.
 function renderEditor(target: ReportData | null) {
   return render(
-    <TimezoneProvider>
+    <TimezoneProvider defaultTimezone="UTC">
       <ReportEditor monitors={monitors} report={target} />
     </TimezoneProvider>
   )
@@ -127,9 +131,7 @@ describe("ReportEditor create mode", () => {
     const fetchMock = vi.fn()
     vi.stubGlobal("fetch", fetchMock)
     renderEditor(null)
-    fireEvent.click(
-      screen.getByRole("button", { name: "Create Status Report" })
-    )
+    fireEvent.click(screen.getByRole("button", { name: "Publish Report" }))
     expect(screen.getByText("Enter a title")).toBeDefined()
     expect(screen.getByText("Write the first update")).toBeDefined()
     expect(fetchMock).not.toHaveBeenCalled()
@@ -137,8 +139,8 @@ describe("ReportEditor create mode", () => {
 
   it("hides the maintenance end field for incident reports", () => {
     renderEditor(null)
-    expect(screen.getByLabelText("Starts at")).toBeDefined()
-    expect(screen.queryByLabelText("Ends at")).toBeNull()
+    expect(screen.getByLabelText(/^Starts at/)).toBeDefined()
+    expect(screen.queryByLabelText(/^Ends at/)).toBeNull()
     expect(screen.getByText("You can use markdown.")).toBeDefined()
     expect(screen.getByLabelText("Save as draft")).toBeDefined()
   })
@@ -157,9 +159,7 @@ describe("ReportEditor create mode", () => {
     fireEvent.change(screen.getByLabelText("Initial update"), {
       target: { value: "We are investigating." },
     })
-    fireEvent.click(
-      screen.getByRole("button", { name: "Create Status Report" })
-    )
+    fireEvent.click(screen.getByRole("button", { name: "Publish Report" }))
     await waitFor(() => {
       expect(navigation.push).toHaveBeenCalledWith("/incidents/reports/rep-9")
     })
@@ -174,6 +174,248 @@ describe("ReportEditor create mode", () => {
     expect(body.draft).toBeUndefined()
     expect(body.update.markdown).toBe("We are investigating.")
     expect(new Headers(init.headers).get("Idempotency-Key")).toBeTruthy()
+  })
+
+  it("names the create button by outcome and sends draft when saving a draft", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ data: { id: "rep-3" } }), { status: 201 })
+      )
+    vi.stubGlobal("fetch", fetchMock)
+    renderEditor(null)
+    expect(screen.getByRole("button", { name: "Publish Report" })).toBeDefined()
+    fireEvent.click(screen.getByLabelText("Save as draft"))
+    expect(screen.queryByRole("button", { name: "Publish Report" })).toBeNull()
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: "API outage" },
+    })
+    fireEvent.change(screen.getByLabelText("Initial update"), {
+      target: { value: "We are investigating." },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save Draft" }))
+    await waitFor(() => {
+      expect(navigation.push).toHaveBeenCalledWith("/incidents/reports/rep-3")
+    })
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const body = JSON.parse(String(init.body)) as { draft?: boolean }
+    expect(body.draft).toBe(true)
+  })
+
+  it("shows a publish failure in the header beside the publish action", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: { code: "ALREADY_PUBLISHED", message: "Already" },
+          }),
+          { status: 409 }
+        )
+      )
+    )
+    renderEditor(report)
+    const header = screen
+      .getByRole("heading", { name: "Edit status report" })
+      .closest("header")!
+    fireEvent.click(within(header).getByRole("button", { name: "Publish" }))
+    fireEvent.click(within(header).getByRole("button", { name: "Confirm" }))
+    await waitFor(() => {
+      expect(
+        within(header).getByText("This report is already published.")
+      ).toBeDefined()
+    })
+  })
+
+  it("shows a post failure beside Post Update", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: { code: "REPORT_NOT_FOUND", message: "Gone" },
+          }),
+          { status: 404 }
+        )
+      )
+    )
+    renderEditor(report)
+    fireEvent.change(screen.getByLabelText("New update"), {
+      target: { value: "Postmortem coming." },
+    })
+    const button = screen.getByRole("button", { name: "Post Update" })
+    fireEvent.click(button)
+    await waitFor(() => {
+      expect(
+        within(button.parentElement!).getByText("This report no longer exists.")
+      ).toBeDefined()
+    })
+  })
+})
+
+describe("ReportEditor display time zone", () => {
+  function setBangkokOverride() {
+    window.localStorage.setItem(TIMEZONE_STORAGE_KEY, "Asia/Bangkok")
+  }
+
+  it("labels datetime fields with the zone and shows times in it", async () => {
+    setBangkokOverride()
+    renderEditor(report)
+    await waitFor(() => {
+      expect(screen.getByLabelText("Starts at (Asia/Bangkok)")).toBeDefined()
+    })
+    expect(
+      (screen.getByLabelText(/^Starts at/) as HTMLInputElement).value
+    ).toBe("2026-07-18T16:00")
+    expect(screen.getByLabelText("Published at (Asia/Bangkok)")).toBeDefined()
+    const row = screen.getByText("Watching recovery.").closest("li")!
+    fireEvent.click(within(row).getByRole("button", { name: "Edit" }))
+    expect(
+      (
+        screen.getByLabelText(/^Published at/, {
+          selector: "#edit-published-u1",
+        }) as HTMLInputElement
+      ).value
+    ).toBe("2026-07-18T17:00")
+  })
+
+  it("reads typed times in the display zone when saving", async () => {
+    setBangkokOverride()
+    const fetchMock = vi.fn().mockResolvedValue(okEnvelope(report))
+    vi.stubGlobal("fetch", fetchMock)
+    renderEditor(report)
+    await waitFor(() => {
+      expect(screen.getByLabelText("Starts at (Asia/Bangkok)")).toBeDefined()
+    })
+    fireEvent.change(screen.getByLabelText(/^Starts at/), {
+      target: { value: "2026-07-10T08:00" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }))
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled()
+    })
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const body = JSON.parse(String(init.body)) as { startsAt?: string }
+    expect(body.startsAt).toBe("2026-07-10T01:00:00.000Z")
+  })
+
+  it("keeps an untouched update time out of the PATCH in a non-local zone", async () => {
+    setBangkokOverride()
+    const fetchMock = vi.fn().mockResolvedValue(okEnvelope(report))
+    vi.stubGlobal("fetch", fetchMock)
+    renderEditor(report)
+    await waitFor(() => {
+      expect(screen.getByLabelText("Starts at (Asia/Bangkok)")).toBeDefined()
+    })
+    const row = screen.getByText("Watching recovery.").closest("li")!
+    fireEvent.click(within(row).getByRole("button", { name: "Edit" }))
+    fireEvent.change(
+      screen.getByLabelText("Update", { selector: "#edit-markdown-u1" }),
+      { target: { value: "Recovery confirmed." } }
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Save Update" }))
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled()
+    })
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>
+    expect("publishedAt" in body).toBe(false)
+  })
+
+  // 06:30Z is 01:30 EST, the second pass of the repeated fall-back hour.
+  const fallBackReport: ReportData = {
+    ...report,
+    startsAt: "2026-11-01T06:30:00.000Z",
+    updates: [
+      {
+        id: "u1",
+        status: "monitoring",
+        markdown: "Watching recovery.",
+        publishedAt: "2026-11-01T06:45:00.000Z",
+        createdAt: "2026-11-01T06:45:00.000Z",
+      },
+    ],
+  }
+
+  async function renderNewYork(target: ReportData) {
+    window.localStorage.setItem(TIMEZONE_STORAGE_KEY, "America/New_York")
+    renderEditor(target)
+    await waitFor(() => {
+      expect(
+        screen.getByLabelText("Starts at (America/New_York)")
+      ).toBeDefined()
+    })
+  }
+
+  it("saves around an untouched repeated start time", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(okEnvelope(fallBackReport))
+    vi.stubGlobal("fetch", fetchMock)
+    await renderNewYork(fallBackReport)
+    expect(
+      (screen.getByLabelText(/^Starts at/) as HTMLInputElement).value
+    ).toBe("2026-11-01T01:30")
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: "Retitled report" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }))
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled()
+    })
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(JSON.parse(String(init.body))).toEqual({ title: "Retitled report" })
+  })
+
+  it("rejects a newly typed repeated start time", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    await renderNewYork(report)
+    fireEvent.change(screen.getByLabelText(/^Starts at/), {
+      target: { value: "2026-11-01T01:15" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }))
+    expect(screen.getByText("Time repeats at clock change")).toBeDefined()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("flags a newly typed skipped update time on its field", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    await renderNewYork(fallBackReport)
+    const row = screen.getByText("Watching recovery.").closest("li")!
+    fireEvent.click(within(row).getByRole("button", { name: "Edit" }))
+    const input = screen.getByLabelText(/^Published at/, {
+      selector: "#edit-published-u1",
+    })
+    fireEvent.change(input, { target: { value: "2026-03-08T02:30" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save Update" }))
+    expect(within(row).getByText("Time skipped at clock change")).toBeDefined()
+    expect(input.getAttribute("aria-invalid")).toBe("true")
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("keeps an untouched repeated update time out of the PATCH", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(okEnvelope(fallBackReport))
+    vi.stubGlobal("fetch", fetchMock)
+    await renderNewYork(fallBackReport)
+    const row = screen.getByText("Watching recovery.").closest("li")!
+    fireEvent.click(within(row).getByRole("button", { name: "Edit" }))
+    expect(
+      within(row).queryByText(
+        "This update is dated before the report's start time"
+      )
+    ).toBeNull()
+    fireEvent.change(
+      screen.getByLabelText("Update", { selector: "#edit-markdown-u1" }),
+      { target: { value: "Recovery confirmed." } }
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Save Update" }))
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled()
+    })
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(JSON.parse(String(init.body))).toEqual({
+      markdown: "Recovery confirmed.",
+    })
   })
 })
 
@@ -193,8 +435,24 @@ describe("ReportEditor edit mode", () => {
       ],
       resolvedAt: null,
     })
-    expect(screen.getByLabelText("Ends at")).toBeDefined()
-    expect(screen.getByText("Type is locked after creation")).toBeDefined()
+    expect(screen.getByLabelText(/^Ends at/)).toBeDefined()
+    const optional = screen.getByText("Optional")
+    expect(optional.classList.contains("sr-only")).toBe(false)
+    expect(screen.queryByText(/leave empty if open-ended/)).toBeNull()
+    const locked = screen.getByText("Type is locked after creation")
+    expect(locked.classList.contains("sr-only")).toBe(true)
+    const typeTrigger = screen.getByRole("combobox", { name: "Type" })
+    expect((typeTrigger as HTMLButtonElement).disabled).toBe(true)
+    expect(typeTrigger.getAttribute("aria-describedby")).toBe(locked.id)
+  })
+
+  it("drops the timeline descriptions that repeat the publish flow", () => {
+    renderEditor(report)
+    expect(screen.getByText("Update Timeline")).toBeDefined()
+    expect(screen.queryByText(/updates render on your status page/)).toBeNull()
+    expect(
+      screen.queryByText("The first update publishes with the report")
+    ).toBeNull()
   })
 
   it("renders the timeline newest-first with a draft badge and group sections", () => {
@@ -214,16 +472,16 @@ describe("ReportEditor edit mode", () => {
     const row = screen.getByText("All clear.").closest("li")!
     fireEvent.click(within(row).getByRole("button", { name: "Edit" }))
     fireEvent.change(
-      screen.getByLabelText("Published at", { selector: "#edit-published-u2" }),
+      screen.getByLabelText(/^Published at/, {
+        selector: "#edit-published-u2",
+      }),
       {
         target: { value: "2026-07-17T09:00" },
       }
     )
     fireEvent.click(screen.getByRole("button", { name: "Save Update" }))
     expect(
-      screen.getByText(
-        "This moves the report back to Ongoing — it will reappear at the top of your status page."
-      )
+      screen.getByText("Reopens this report on your status page")
     ).toBeDefined()
     expect(fetchMock).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole("button", { name: "Save Anyway" }))
@@ -286,11 +544,27 @@ describe("ReportEditor edit mode", () => {
     fireEvent.click(within(row).getByRole("button", { name: "Confirm" }))
     await waitFor(() => {
       expect(
-        screen.getByText(
-          "A report must keep at least one update — delete the report instead."
-        )
+        within(row).getByText("Keep at least one update or delete the report")
       ).toBeDefined()
     })
+    const alert = within(row).getByRole("alert")
+    expect(alert.classList.contains("sr-only")).toBe(false)
+  })
+
+  it("announces a deleted update without a visible list item", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+    )
+    renderEditor(report)
+    const row = screen.getByText("All clear.").closest("li")!
+    fireEvent.click(within(row).getByRole("button", { name: "Delete" }))
+    fireEvent.click(within(row).getByRole("button", { name: "Confirm" }))
+    const status = await screen.findByText("Update deleted")
+    expect(status.getAttribute("role")).toBe("status")
+    expect(status.classList.contains("sr-only")).toBe(true)
+    const item = status.closest("li")!
+    expect(item.classList.contains("sr-only")).toBe(true)
   })
 
   it("requires confirmation, stating public visibility, before publishing", async () => {
@@ -302,11 +576,13 @@ describe("ReportEditor edit mode", () => {
     vi.stubGlobal("fetch", fetchMock)
     renderEditor(report)
     fireEvent.click(screen.getByRole("button", { name: "Publish" }))
-    expect(
-      screen.getByText(
-        "Publishing makes this report publicly visible on your status page."
-      )
-    ).toBeDefined()
+    const explanation = screen.getByText(
+      "Publishing makes this report publicly visible on your status page."
+    )
+    // The explanation and buttons wrap on narrow phones instead of overflowing
+    expect(explanation.className).toContain("break-words")
+    expect(explanation.parentElement!.className).toContain("flex-wrap")
+    expect(explanation.parentElement!.className).toContain("max-w-full")
     expect(fetchMock).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole("button", { name: "Confirm" }))
     await waitFor(() => {
@@ -316,6 +592,10 @@ describe("ReportEditor edit mode", () => {
       )
       expect(screen.getByText("Report published")).toBeDefined()
     })
+    const published = screen.getByText("Report published")
+    expect(published.getAttribute("role")).toBe("status")
+    // Only the sr-only class, so no full-width row is left in the header
+    expect(published.className).toBe("sr-only")
   })
 
   it("deletes the report after a two-step confirm and returns to the list", async () => {
@@ -355,6 +635,9 @@ describe("ReportEditor edit mode", () => {
       )
       expect(screen.getByText("Update posted")).toBeDefined()
     })
+    const posted = screen.getByText("Update posted")
+    expect(posted.getAttribute("role")).toBe("status")
+    expect(posted.classList.contains("sr-only")).toBe(true)
   })
 
   it("omits publishedAt from the PATCH when only the markdown changed", async () => {
@@ -388,7 +671,9 @@ describe("ReportEditor edit mode", () => {
     // Moves publishedAt later but still well before u2 (resolved), so no
     // state flip and no confirmation gate to click through first.
     fireEvent.change(
-      screen.getByLabelText("Published at", { selector: "#edit-published-u1" }),
+      screen.getByLabelText(/^Published at/, {
+        selector: "#edit-published-u1",
+      }),
       {
         target: { value: "2026-07-18T11:00" },
       }
@@ -425,6 +710,8 @@ describe("ReportEditor edit mode", () => {
     const body = JSON.parse(String(init.body)) as Record<string, unknown>
     expect(body.title).toBe("Retitled report")
     expect("affected" in body).toBe(false)
+    const saved = await screen.findByText("Report saved")
+    expect(saved.classList.contains("sr-only")).toBe(false)
   })
 
   it("omits startsAt/endsAt from the PATCH when only the title changed (finding: an untouched datetime-local value silently truncates seconds)", async () => {
@@ -456,7 +743,7 @@ describe("ReportEditor edit mode", () => {
     const fetchMock = vi.fn().mockResolvedValue(okEnvelope(report))
     vi.stubGlobal("fetch", fetchMock)
     renderEditor(report)
-    fireEvent.change(screen.getByLabelText("Starts at"), {
+    fireEvent.change(screen.getByLabelText(/^Starts at/), {
       target: { value: "2026-07-10T08:00" },
     })
     fireEvent.click(screen.getByRole("button", { name: "Save Changes" }))
@@ -522,21 +809,19 @@ describe("ReportEditor edit mode", () => {
     fireEvent.click(within(row).getByRole("button", { name: "Delete" }))
     expect(within(row).getByText("Delete update?")).toBeDefined()
     expect(
-      within(row).getByText(
-        "This moves the report back to Ongoing — it will reappear at the top of your status page."
-      )
+      within(row).getByText("Reopens this report on your status page")
     ).toBeDefined()
   })
 
   it("warns when the composer update is dated before the report start", () => {
     renderEditor(report)
-    fireEvent.change(screen.getByLabelText("Published at"), {
+    fireEvent.change(screen.getByLabelText(/^Published at/), {
       target: { value: "2026-07-01T08:00" },
     })
     expect(
       screen.getByText("This update is dated before the report's start time")
     ).toBeDefined()
-    fireEvent.change(screen.getByLabelText("Published at"), {
+    fireEvent.change(screen.getByLabelText(/^Published at/), {
       target: { value: "2026-07-19T08:00" },
     })
     expect(
@@ -549,7 +834,9 @@ describe("ReportEditor edit mode", () => {
     const row = screen.getByText("Watching recovery.").closest("li")!
     fireEvent.click(within(row).getByRole("button", { name: "Edit" }))
     fireEvent.change(
-      screen.getByLabelText("Published at", { selector: "#edit-published-u1" }),
+      screen.getByLabelText(/^Published at/, {
+        selector: "#edit-published-u1",
+      }),
       {
         target: { value: "2026-07-01T08:00" },
       }
@@ -597,7 +884,7 @@ describe("ReportEditor unsaved-changes protection", () => {
   it("guards navigation once the start time changes", () => {
     renderEditor(report)
     const addSpy = vi.spyOn(window, "addEventListener")
-    fireEvent.change(screen.getByLabelText("Starts at"), {
+    fireEvent.change(screen.getByLabelText(/^Starts at/), {
       target: { value: "2026-07-10T08:00" },
     })
     expect(addSpy).toHaveBeenCalledWith("beforeunload", expect.any(Function))
@@ -753,5 +1040,456 @@ describe("ReportEditor unsaved-changes protection", () => {
 
     expect(goSpy).toHaveBeenCalledWith(-2)
     expect(isDialogOpen()).toBe(false)
+  })
+})
+
+describe("ReportEditor publish with pending edits", () => {
+  function header() {
+    return screen
+      .getByRole("heading", { name: "Edit status report" })
+      .closest("header")!
+  }
+
+  function headerButton(name: string) {
+    return within(header()).getByRole("button", { name }) as HTMLButtonElement
+  }
+
+  function expectBlocked(name: string) {
+    const button = headerButton(name)
+    expect(button.disabled).toBe(true)
+    const reason = document.getElementById(
+      button.getAttribute("aria-describedby") ?? ""
+    )
+    expect(reason?.textContent).toBe("Save, post, or clear pending changes")
+    expect(reason?.getAttribute("role")).toBe("status")
+    expect(reason?.classList.contains("sr-only")).toBe(false)
+  }
+
+  function expectOpen(name: string) {
+    const button = headerButton(name)
+    expect(button.disabled).toBe(false)
+    expect(button.getAttribute("aria-describedby")).toBeNull()
+    // The live region stays mounted and empty, ready to announce a block
+    const region = document.getElementById("publish-blocked")
+    expect(region?.getAttribute("role")).toBe("status")
+    expect(region?.textContent).toBe("")
+    expect(region?.classList.contains("sr-only")).toBe(true)
+  }
+
+  it("keeps the same live region mounted as the block comes and goes", () => {
+    renderEditor(report)
+    const region = document.getElementById("publish-blocked")
+    expect(region).not.toBeNull()
+    fireEvent.change(screen.getByLabelText("New update"), {
+      target: { value: "Draft in progress" },
+    })
+    expect(document.getElementById("publish-blocked")).toBe(region)
+    expect(region?.textContent).toBe("Save, post, or clear pending changes")
+    fireEvent.change(screen.getByLabelText("New update"), {
+      target: { value: "" },
+    })
+    expect(document.getElementById("publish-blocked")).toBe(region)
+    expect(region?.textContent).toBe("")
+  })
+
+  it("blocks Publish while basics are unsaved", () => {
+    renderEditor(report)
+    expectOpen("Publish")
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: "Retitled report" },
+    })
+    expectBlocked("Publish")
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: report.title },
+    })
+    expectOpen("Publish")
+    fireEvent.change(screen.getByLabelText(/^Starts at/), {
+      target: { value: "2026-07-18T08:00" },
+    })
+    expectBlocked("Publish")
+  })
+
+  it("blocks Publish while the composer holds unposted text", () => {
+    renderEditor(report)
+    fireEvent.change(screen.getByLabelText("New update"), {
+      target: { value: "Draft in progress" },
+    })
+    expectBlocked("Publish")
+    fireEvent.change(screen.getByLabelText("New update"), {
+      target: { value: "  " },
+    })
+    expectOpen("Publish")
+  })
+
+  it("blocks Publish while an update edit is unsaved", () => {
+    renderEditor(report)
+    const row = screen.getByText("Watching recovery.").closest("li")!
+    fireEvent.click(within(row).getByRole("button", { name: "Edit" }))
+    // Opening the editor without changes leaves publishing available
+    expectOpen("Publish")
+    fireEvent.change(
+      screen.getByLabelText("Update", { selector: "#edit-markdown-u1" }),
+      { target: { value: "Changed body." } }
+    )
+    expectBlocked("Publish")
+  })
+
+  it("blocks Confirm after a new edit and publishes once clean", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        okEnvelope({ ...report, publishedAt: "2026-07-18T13:00:00.000Z" })
+      )
+    vi.stubGlobal("fetch", fetchMock)
+    renderEditor(report)
+    fireEvent.click(headerButton("Publish"))
+    fireEvent.change(screen.getByLabelText("New update"), {
+      target: { value: "Unposted note" },
+    })
+    expectBlocked("Confirm")
+    fireEvent.click(headerButton("Confirm"))
+    expect(fetchMock).not.toHaveBeenCalled()
+    // The pending text stays on screen, never discarded
+    expect(
+      (screen.getByLabelText("New update") as HTMLTextAreaElement).value
+    ).toBe("Unposted note")
+
+    fireEvent.change(screen.getByLabelText("New update"), {
+      target: { value: "" },
+    })
+    expectOpen("Confirm")
+    fireEvent.click(headerButton("Confirm"))
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/status-reports/rep-1/publish",
+        expect.objectContaining({ method: "POST" })
+      )
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("allows Publish after saving a title with trailing spaces", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(okEnvelope(report)))
+    renderEditor(report)
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: "Retitled report  " },
+    })
+    expectBlocked("Publish")
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }))
+    await waitFor(() => {
+      expect(navigation.refresh).toHaveBeenCalled()
+    })
+    expectOpen("Publish")
+  })
+})
+
+describe("ReportEditor switching the open update edit", () => {
+  const SWITCH_REASON = "Save or cancel to edit another"
+
+  function openEdit(text: string) {
+    const row = screen.getByText(text).closest("li")!
+    fireEvent.click(within(row).getByRole("button", { name: "Edit" }))
+  }
+
+  function u1Markdown() {
+    return screen.getByLabelText("Update", {
+      selector: "#edit-markdown-u1",
+    }) as HTMLTextAreaElement
+  }
+
+  function u2Edit() {
+    const row = screen.getByText("All clear.").closest("li")!
+    return within(row).getByRole("button", {
+      name: "Edit",
+    }) as HTMLButtonElement
+  }
+
+  function reasonRegion() {
+    return document.getElementById("edit-switch-blocked")
+  }
+
+  it("keeps typed text when another row's Edit is tried, then frees it on Cancel", () => {
+    renderEditor(report)
+    openEdit("Watching recovery.")
+    fireEvent.change(u1Markdown(), { target: { value: "Typed but unsaved." } })
+
+    const blocked = u2Edit()
+    expect(blocked.disabled).toBe(true)
+    expect(blocked.getAttribute("aria-describedby")).toBe("edit-switch-blocked")
+    expect(reasonRegion()?.textContent).toBe(SWITCH_REASON)
+    expect(reasonRegion()?.getAttribute("role")).toBe("status")
+    expect(reasonRegion()?.classList.contains("sr-only")).toBe(false)
+
+    fireEvent.click(blocked)
+    expect(u1Markdown().value).toBe("Typed but unsaved.")
+    expect(document.getElementById("edit-markdown-u2")).toBeNull()
+    // Save and Cancel stay available while the switch waits
+    expect(
+      (screen.getByRole("button", { name: "Save Update" }) as HTMLButtonElement)
+        .disabled
+    ).toBe(false)
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(document.getElementById("edit-markdown-u1")).toBeNull()
+    expect(u2Edit().disabled).toBe(false)
+    expect(u2Edit().getAttribute("aria-describedby")).toBeNull()
+    fireEvent.click(u2Edit())
+    expect(
+      (
+        screen.getByLabelText("Update", {
+          selector: "#edit-markdown-u2",
+        }) as HTMLTextAreaElement
+      ).value
+    ).toBe("All clear.")
+  })
+
+  it("frees other rows once the typed edit is saved", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(okEnvelope(report))
+    vi.stubGlobal("fetch", fetchMock)
+    renderEditor(report)
+    openEdit("Watching recovery.")
+    fireEvent.change(u1Markdown(), { target: { value: "Recovery confirmed." } })
+    expect(u2Edit().disabled).toBe(true)
+
+    fireEvent.click(screen.getByRole("button", { name: "Save Update" }))
+    await waitFor(() => {
+      expect(document.getElementById("edit-markdown-u1")).toBeNull()
+    })
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe("/api/v1/status-reports/rep-1/updates/u1")
+    expect(JSON.parse(String(init.body))).toEqual({
+      markdown: "Recovery confirmed.",
+    })
+    expect(u2Edit().disabled).toBe(false)
+  })
+
+  it("switches freely from an unchanged edit without showing the reason", () => {
+    renderEditor(report)
+    openEdit("Watching recovery.")
+    expect(u2Edit().disabled).toBe(false)
+    expect(reasonRegion()?.textContent).toBe("")
+    expect(reasonRegion()?.classList.contains("sr-only")).toBe(true)
+
+    fireEvent.click(u2Edit())
+    expect(document.getElementById("edit-markdown-u1")).toBeNull()
+    expect(
+      (
+        screen.getByLabelText("Update", {
+          selector: "#edit-markdown-u2",
+        }) as HTMLTextAreaElement
+      ).value
+    ).toBe("All clear.")
+  })
+
+  it("frees other rows when typed text returns to the original", () => {
+    renderEditor(report)
+    openEdit("Watching recovery.")
+    fireEvent.change(u1Markdown(), { target: { value: "Changed." } })
+    expect(u2Edit().disabled).toBe(true)
+    fireEvent.change(u1Markdown(), { target: { value: "Watching recovery." } })
+    expect(u2Edit().disabled).toBe(false)
+    expect(reasonRegion()?.textContent).toBe("")
+  })
+})
+
+describe("ReportEditor pending edit on an older update", () => {
+  const pagedReport: ReportData = {
+    ...report,
+    updatesCount: 4,
+    updatesNextCursor: "cursor-1",
+  }
+
+  const olderPage = [
+    {
+      id: "u0b",
+      status: "identified" as const,
+      markdown: "Rolling back deploy.",
+      publishedAt: "2026-07-18T09:45:00.000Z",
+      createdAt: "2026-07-18T09:45:00.000Z",
+    },
+    {
+      id: "u0",
+      status: "investigating" as const,
+      markdown: "Looking into errors.",
+      publishedAt: "2026-07-18T09:30:00.000Z",
+      createdAt: "2026-07-18T09:30:00.000Z",
+    },
+  ]
+
+  function routeFetch() {
+    return vi.fn((url: string) => {
+      if (url.includes("/updates?cursor=")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              apiVersion: "v1",
+              kind: "StatusReportUpdate",
+              data: olderPage,
+              meta: { nextCursor: null },
+            }),
+            { status: 200 }
+          )
+        )
+      }
+      return Promise.resolve(okEnvelope(pagedReport))
+    })
+  }
+
+  function editor(target: ReportData) {
+    return (
+      <TimezoneProvider defaultTimezone="UTC">
+        <ReportEditor monitors={monitors} report={target} />
+      </TimezoneProvider>
+    )
+  }
+
+  function publishButton() {
+    const header = screen
+      .getByRole("heading", { name: "Edit status report" })
+      .closest("header")!
+    return within(header).getByRole("button", {
+      name: "Publish",
+    }) as HTMLButtonElement
+  }
+
+  function olderMarkdown() {
+    return screen.queryByLabelText("Update", {
+      selector: "#edit-markdown-u0",
+    }) as HTMLTextAreaElement | null
+  }
+
+  function olderRow() {
+    return olderMarkdown()!.closest("li")!
+  }
+
+  async function loadOlder() {
+    fireEvent.click(screen.getByRole("button", { name: "Load older" }))
+    await screen.findByText("Looking into errors.")
+  }
+
+  async function editOlderUpdate(value: string) {
+    await loadOlder()
+    const row = screen.getByText("Looking into errors.").closest("li")!
+    fireEvent.click(within(row).getByRole("button", { name: "Edit" }))
+    if (value !== "Looking into errors.") {
+      fireEvent.change(olderMarkdown()!, { target: { value } })
+    }
+  }
+
+  function expectPendingOlderEdit() {
+    expect(olderMarkdown()?.value).toBe("Pending older fix.")
+    const row = olderRow()
+    expect(
+      within(row).getByRole("button", { name: "Save Update" })
+    ).toBeDefined()
+    expect(within(row).getByRole("button", { name: "Cancel" })).toBeDefined()
+    expect(publishButton().disabled).toBe(true)
+    // Ordered after the first page, oldest last
+    const newer = screen.getByText("Watching recovery.").closest("li")!
+    expect(
+      newer.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  }
+
+  it("keeps a dirty older edit visible after Save Changes and a fresh first page", async () => {
+    const fetchMock = routeFetch()
+    vi.stubGlobal("fetch", fetchMock)
+    const { rerender } = render(editor(pagedReport))
+    await editOlderUpdate("Pending older fix.")
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: "Retitled report" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }))
+    await waitFor(() => {
+      expect(navigation.refresh).toHaveBeenCalled()
+    })
+    rerender(editor({ ...pagedReport, title: "Retitled report" }))
+
+    expectPendingOlderEdit()
+    // The rest of the older page is gone and the cursor is back to page one
+    expect(screen.queryByText("Rolling back deploy.")).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Load older" }))
+    await screen.findByText("Rolling back deploy.")
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/v1/status-reports/rep-1/updates?cursor=cursor-1&limit=50",
+      expect.anything()
+    )
+    // Reloaded data holds the row once, still in order and still pending
+    expect(document.querySelectorAll("#edit-markdown-u0")).toHaveLength(1)
+    const sibling = screen.getByText("Rolling back deploy.").closest("li")!
+    expect(
+      sibling.compareDocumentPosition(olderRow()) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(olderMarkdown()?.value).toBe("Pending older fix.")
+
+    fireEvent.click(
+      within(olderRow()).getByRole("button", { name: "Save Update" })
+    )
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/status-reports/rep-1/updates/u0",
+        expect.objectContaining({ method: "PATCH" })
+      )
+    })
+    const patch = fetchMock.mock.calls.find(
+      ([url]) => url === "/api/v1/status-reports/rep-1/updates/u0"
+    ) as unknown as [string, RequestInit]
+    expect(JSON.parse(String(patch[1].body))).toEqual({
+      markdown: "Pending older fix.",
+    })
+    await waitFor(() => {
+      expect(olderMarkdown()).toBeNull()
+    })
+    expect(publishButton().disabled).toBe(false)
+  })
+
+  it("keeps a dirty older edit visible after Post Update and clears on Cancel", async () => {
+    vi.stubGlobal("fetch", routeFetch())
+    const { rerender } = render(editor(pagedReport))
+    await editOlderUpdate("Pending older fix.")
+    fireEvent.change(screen.getByLabelText("New update"), {
+      target: { value: "Postmortem coming." },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Post Update" }))
+    await screen.findByText("Update posted")
+    rerender(
+      editor({
+        ...pagedReport,
+        updates: [
+          {
+            id: "u3",
+            status: "resolved",
+            markdown: "Postmortem coming.",
+            publishedAt: "2026-07-18T13:00:00.000Z",
+            createdAt: "2026-07-18T13:00:00.000Z",
+          },
+          ...pagedReport.updates,
+        ],
+      })
+    )
+
+    expectPendingOlderEdit()
+    fireEvent.click(within(olderRow()).getByRole("button", { name: "Cancel" }))
+    expect(olderMarkdown()).toBeNull()
+    expect(screen.queryByText("Looking into errors.")).toBeNull()
+    expect(publishButton().disabled).toBe(false)
+  })
+
+  it("closes a clean older edit when the timeline resets", async () => {
+    vi.stubGlobal("fetch", routeFetch())
+    render(editor(pagedReport))
+    await editOlderUpdate("Looking into errors.")
+    expect(olderMarkdown()).not.toBeNull()
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: "Retitled report" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }))
+    await waitFor(() => {
+      expect(navigation.refresh).toHaveBeenCalled()
+    })
+    expect(olderMarkdown()).toBeNull()
+    expect(screen.queryByText("Looking into errors.")).toBeNull()
+    expect(publishButton().disabled).toBe(false)
   })
 })

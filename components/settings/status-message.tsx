@@ -8,13 +8,16 @@ import { cn } from "@/lib/utils"
 export interface Message {
   text: string
   tone: "info" | "error"
+  // Routine success the page already shows. Announced to screen readers only.
+  quiet?: boolean
 }
 
 /**
  * The one status live region per settings card. Always mounted (empty when
  * idle) so assistive tech reliably announces changes. Errors get the error
  * color token and role="alert". Focusable so save bars can hand focus here
- * when they unmount.
+ * when they unmount. Quiet info text stays in the region but is visually
+ * hidden.
  */
 export function StatusMessage({
   message,
@@ -39,8 +42,12 @@ export function StatusMessage({
       role={message?.tone === "error" ? "alert" : undefined}
       tabIndex={-1}
     >
-      {/* biome-ignore lint/suspicious/noUnnecessaryConditions: message is null when the card is idle */}
-      {message?.text ?? ""}
+      {message?.quiet && message.tone === "info" ? (
+        <span className="sr-only">{message.text}</span>
+      ) : (
+        // biome-ignore lint/suspicious/noUnnecessaryConditions: message is null when the card is idle
+        (message?.text ?? "")
+      )}
     </p>
   )
 }

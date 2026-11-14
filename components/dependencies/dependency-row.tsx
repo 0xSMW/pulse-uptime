@@ -50,14 +50,18 @@ export function DependencyPanelRow({
         </span>
       </td>
       <td className="px-4">
-        <Link className="font-medium" href={href} prefetch={false}>
+        <Link
+          className="wrap-anywhere font-medium"
+          href={href}
+          prefetch={false}
+        >
           {dependency.name}
         </Link>
-        <div className="flex items-center gap-1.5 text-[var(--fg-muted)] text-xs">
-          <span>{dependency.provider}</span>
+        <div className="flex flex-wrap items-center gap-x-1.5 text-[var(--fg-muted)] text-xs">
+          <span className="wrap-anywhere">{dependency.provider}</span>
           <DependencyFidelityBadge fidelity={dependency.fidelity} />
           {dependency.componentLabel ? (
-            <span className="min-w-0 truncate">
+            <span className="wrap-anywhere min-w-0">
               · {dependency.componentLabel}
             </span>
           ) : null}
@@ -80,10 +84,7 @@ export function DependencyPanelRow({
         />
       </td>
       {showIncident ? (
-        <td
-          className="max-w-[220px] truncate px-6"
-          title={dependency.activeIncidentTitle ?? undefined}
-        >
+        <td className="wrap-anywhere max-w-[220px] px-6">
           {dependency.activeIncidentTitle ?? ""}
         </td>
       ) : null}

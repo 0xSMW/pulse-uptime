@@ -14,6 +14,8 @@ import {
 import { cn } from "@/lib/utils"
 
 const SCROLL_OFFSET = 120
+// The two mobile navigation rows, jump bar, and a 16px reading gap
+const MOBILE_SCROLL_OFFSET = 176
 const SCROLL_STORAGE_KEY = "pulse-help-scroll"
 const firstSectionId = helpEntryId(helpEntries[0]!)
 
@@ -64,7 +66,9 @@ export function HelpCenter() {
       const next = activeHelpSectionId(
         positions,
         window.scrollY,
-        SCROLL_OFFSET,
+        window.matchMedia("(max-width: 639px)").matches
+          ? MOBILE_SCROLL_OFFSET
+          : SCROLL_OFFSET,
         atBottom
       )
       if (next && next !== activeRef.current) {
@@ -167,7 +171,7 @@ export function HelpCenter() {
             Concepts and guides with live examples
           </p>
         </div>
-        <div className="sticky top-14 z-30 -mx-6 mb-6 border-[var(--border)] border-b bg-[color:var(--bg)]/95 px-6 py-3 backdrop-blur lg:hidden">
+        <div className="sticky top-24 z-30 -mx-6 mb-6 border-[var(--border)] border-b bg-[color:var(--bg)]/95 px-6 py-3 backdrop-blur sm:top-14 lg:hidden">
           <label className="flex items-center gap-3 text-[13px] text-[var(--fg-muted)]">
             <span className="shrink-0">Jump to</span>
             <select
@@ -212,7 +216,7 @@ export function HelpCenter() {
                   return (
                     <section
                       aria-labelledby={`${id}-title`}
-                      className="scroll-mt-32 lg:scroll-mt-24"
+                      className="scroll-mt-44 sm:scroll-mt-32 lg:scroll-mt-24"
                       data-help-section
                       id={id}
                       key={id}

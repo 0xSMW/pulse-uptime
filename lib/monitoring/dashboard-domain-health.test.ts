@@ -1,3 +1,8 @@
+vi.mock("@/lib/incidents/exclusions", () => ({
+  loadExclusionSlots: async () => [],
+  loadIncidentExclusionStatuses: async () => new Map(),
+}))
+
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const { dbSelectMock, domainHealthByMonitorIdMock } = vi.hoisted(() => ({

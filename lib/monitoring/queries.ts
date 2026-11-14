@@ -8,6 +8,8 @@ import {
   monitorState,
 } from "@/lib/db/schema"
 import { domainHealthByMonitorId } from "@/lib/domain-health/queries"
+import { loadExclusionSlots } from "@/lib/incidents/exclusions"
+import { overlayExclusions } from "@/lib/reporting/queries/exclusions"
 import {
   isRangeUnlocked,
   rollupsSinceActivation,
@@ -87,9 +89,9 @@ function uptime24hSql(start15m: Date, end15m: Date) {
   // rejects a raw Date at the wire layer. The server infers timestamptz from
   // the comparison context.
   return dsql<number | null>`(
-        select case when coalesce(rollup.completed, 0) + coalesce(raw.completed, 0) = 0 then null
+        select case when coalesce(rollup.completed, 0) + coalesce(raw.completed, 0) - coalesce(correction.excluded, 0) = 0 then null
           else 100.0 * (coalesce(rollup.successful, 0) + coalesce(raw.successful, 0))
-            / (coalesce(rollup.completed, 0) + coalesce(raw.completed, 0)) end
+            / (coalesce(rollup.completed, 0) + coalesce(raw.completed, 0) - coalesce(correction.excluded, 0)) end
         from (
           select sum(${metricRollups.completedChecks}) as completed,
             sum(${metricRollups.successfulChecks}) as successful
@@ -135,6 +137,24 @@ function uptime24hSql(start15m: Date, end15m: Date) {
                 and covered.bucket_start = bit.bucket_start
             )
         ) raw
+        cross join lateral (
+          select count(*) as excluded
+          from incident_exclusion_checks correction_check
+          join incident_exclusions exclusion on exclusion.id = correction_check.exclusion_id
+          where exclusion.reverted_at is null and correction_check.failed
+            and correction_check.monitor_id = ${monitorRegistry.id}
+            and correction_check.scheduled_minute >= ${start15m.toISOString()}
+            and correction_check.scheduled_minute < ${end15m.toISOString()}
+            and date_bin(interval '15 minutes', correction_check.scheduled_minute, timestamptz '2000-01-01') >= ${monitorState.activatedAt}
+            and (
+              exists (select 1 from metric_rollups observed
+                where observed.monitor_id = correction_check.monitor_id and observed.resolution = '15m'
+                  and observed.bucket_start = date_bin(interval '15 minutes', correction_check.scheduled_minute, timestamptz '2000-01-01'))
+              or exists (select 1 from check_batches observed
+                where observed.scheduled_minute = correction_check.scheduled_minute
+                  and correction_check.monitor_id = any(observed.monitor_ids))
+            )
+        ) correction
       )`
 }
 
@@ -220,35 +240,39 @@ export async function listDashboardMonitors() {
   // rather than perfect coverage. The anti-join that keeps a bucket from being
   // counted twice runs in blendRawAvailability below, against the rollup buckets
   // already in hand, so this fetch needs no rollup join of its own.
-  const [health, timelineRollups, timelineRawBuckets] = await Promise.all([
-    domainHealthByMonitorId(rows.map((row) => ({ id: row.id, url: row.url }))),
-    rows.length
-      ? db
-          .select({
-            monitorId: metricRollups.monitorId,
-            bucketStart: metricRollups.bucketStart,
-            expectedChecks: metricRollups.expectedChecks,
-            completedChecks: metricRollups.completedChecks,
-            successfulChecks: metricRollups.successfulChecks,
-            failedChecks: metricRollups.failedChecks,
-            unknownChecks: metricRollups.unknownChecks,
-            downtimeSeconds: metricRollups.downtimeSeconds,
-          })
-          .from(metricRollups)
-          .where(
-            and(
-              inArray(metricRollups.monitorId, monitorIds),
-              eq(metricRollups.resolution, "15m"),
-              gte(metricRollups.bucketStart, start15m),
-              lt(metricRollups.bucketStart, end15m)
+  const [health, timelineRollups, timelineRawBuckets, exclusions] =
+    await Promise.all([
+      domainHealthByMonitorId(
+        rows.map((row) => ({ id: row.id, url: row.url }))
+      ),
+      rows.length
+        ? db
+            .select({
+              monitorId: metricRollups.monitorId,
+              bucketStart: metricRollups.bucketStart,
+              expectedChecks: metricRollups.expectedChecks,
+              completedChecks: metricRollups.completedChecks,
+              successfulChecks: metricRollups.successfulChecks,
+              failedChecks: metricRollups.failedChecks,
+              unknownChecks: metricRollups.unknownChecks,
+              downtimeSeconds: metricRollups.downtimeSeconds,
+            })
+            .from(metricRollups)
+            .where(
+              and(
+                inArray(metricRollups.monitorId, monitorIds),
+                eq(metricRollups.resolution, "15m"),
+                gte(metricRollups.bucketStart, start15m),
+                lt(metricRollups.bucketStart, end15m)
+              )
             )
-          )
-          .orderBy(metricRollups.bucketStart)
-      : Promise.resolve([]),
-    rows.length
-      ? fetchRawAvailabilityBuckets(monitorIds, start15m, end15m)
-      : Promise.resolve([]),
-  ])
+            .orderBy(metricRollups.bucketStart)
+        : Promise.resolve([]),
+      rows.length
+        ? fetchRawAvailabilityBuckets(monitorIds, start15m, end15m)
+        : Promise.resolve([]),
+      loadExclusionSlots(monitorIds, start15m, end15m),
+    ])
   const rollupsByMonitor = new Map<string, (typeof timelineRollups)[number][]>()
   for (const rollup of timelineRollups) {
     const list = rollupsByMonitor.get(rollup.monitorId)
@@ -291,8 +315,19 @@ export async function listDashboardMonitors() {
           timeline: buildRollupTimeline(
             rollupsSinceActivation(
               blendRawAvailability(
-                rollupsByMonitor.get(row.id) ?? [],
-                rawByMonitor.get(row.id) ?? []
+                overlayExclusions(
+                  rollupsByMonitor.get(row.id) ?? [],
+                  exclusions,
+                  "15m",
+                  row.id
+                ),
+                overlayExclusions(
+                  rawByMonitor.get(row.id) ?? [],
+                  exclusions,
+                  "15m",
+                  row.id,
+                  { raw: true }
+                )
               ),
               row.activatedAt
             ),

@@ -20,6 +20,8 @@ export interface RollupAvailability {
   failedChecks: number
   unknownChecks: number
   downtimeSeconds: number
+  excludedChecks?: number
+  excludedDowntimeSeconds?: number
 }
 
 // Scheduler-derived raw 15m buckets from check_batches bitmaps, shaped like a
@@ -54,7 +56,7 @@ export function blendRawAvailability(
 export function summarizeRollupCoverage(
   rows: Pick<
     RollupAvailability,
-    "expectedChecks" | "completedChecks" | "successfulChecks"
+    "expectedChecks" | "completedChecks" | "successfulChecks" | "excludedChecks"
   >[]
 ): {
   uptime: number | null
@@ -63,8 +65,10 @@ export function summarizeRollupCoverage(
   const expected = rows.reduce((sum, row) => sum + row.expectedChecks, 0)
   const completed = rows.reduce((sum, row) => sum + row.completedChecks, 0)
   const successful = rows.reduce((sum, row) => sum + row.successfulChecks, 0)
+  const excluded = rows.reduce((sum, row) => sum + (row.excludedChecks ?? 0), 0)
+  const eligible = completed - excluded
   return {
-    uptime: completed === 0 ? null : (100 * successful) / completed,
+    uptime: eligible === 0 ? null : (100 * successful) / eligible,
     coverage: expected === 0 ? null : completed / expected,
   }
 }
@@ -208,19 +212,28 @@ export function buildRollupTimeline(
       (sum, row) => sum + row.completedChecks,
       0
     )
-    const failures = included.reduce((sum, row) => sum + row.failedChecks, 0)
+    const excluded = included.reduce(
+      (sum, row) => sum + (row.excludedChecks ?? 0),
+      0
+    )
+    const eligible = completed - excluded
+    const failures =
+      included.reduce((sum, row) => sum + row.failedChecks, 0) - excluded
     const downtimeSeconds = included.reduce(
-      (sum, row) => sum + row.downtimeSeconds,
+      (sum, row) =>
+        sum + row.downtimeSeconds - (row.excludedDowntimeSeconds ?? 0),
       0
     )
     const state: TimelineBucket["state"] =
-      checks === 0 || completed === 0
-        ? "no-data"
-        : failures === 0 && completed === checks
-          ? "up"
-          : failures === completed && completed === checks
-            ? "down"
-            : "verifying"
+      excluded > 0 && eligible === 0
+        ? "excluded"
+        : checks === 0 || completed === 0
+          ? "no-data"
+          : failures === 0 && completed === checks
+            ? "up"
+            : failures === eligible && completed === checks
+              ? "down"
+              : "verifying"
 
     return {
       state,
@@ -228,6 +241,7 @@ export function buildRollupTimeline(
       checks,
       failures,
       downtimeSeconds,
+      ...(excluded > 0 ? { excludedChecks: excluded } : {}),
       startMs: bucketStart,
       endMs: bucketEnd,
     }

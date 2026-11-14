@@ -286,6 +286,43 @@ export interface MonitorMutationBody {
   recipients: string[]
 }
 
+// Fields the manual test reads from the saved config. Editing any of them
+// means a test would probe settings the form no longer shows.
+const probeMonitorFields = [
+  "url",
+  "method",
+  "timeoutMs",
+  "expectedStatus",
+] as const satisfies readonly (keyof MonitorMutationBody)[]
+
+// The server merges a PATCH over the stored monitor, so sending only the
+// fields this editor changed keeps concurrent edits to other fields and any
+// stored fields the form never shows. expectedStatus is replaced whole, so it
+// is compared and sent as one field.
+export function monitorPatchBody(
+  values: CommonMonitorFormValues<number | string>,
+  baseline: CommonMonitorFormValues<number | string>,
+  options: { trimUrl: boolean }
+): Partial<MonitorMutationBody> {
+  const next = monitorMutationBody(values, options)
+  const previous = monitorMutationBody(baseline, options)
+  const patch: Partial<MonitorMutationBody> = {}
+  for (const key of Object.keys(next) as (keyof MonitorMutationBody)[]) {
+    if (JSON.stringify(next[key]) !== JSON.stringify(previous[key])) {
+      Object.assign(patch, { [key]: next[key] })
+    }
+  }
+  return patch
+}
+
+export function hasProbeChanges(
+  values: CommonMonitorFormValues<number | string>,
+  saved: CommonMonitorFormValues<number | string>
+): boolean {
+  const patch = monitorPatchBody(values, saved, { trimUrl: true })
+  return probeMonitorFields.some((field) => field in patch)
+}
+
 export function monitorMutationBody(
   values: CommonMonitorFormValues<number | string>,
   options: { trimUrl: boolean }
