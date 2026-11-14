@@ -264,8 +264,10 @@ function ReportEditorForm({
     setLoadedPastFirstPage(false)
   }
 
+  // Trimmed, since saves store the trimmed title. Otherwise trailing spaces
+  // would keep the form dirty after a successful save.
   const basicsDirty =
-    title !== baseline.title ||
+    title.trim() !== baseline.title ||
     startsAt !== baseline.startsAt ||
     (type === "maintenance" && endsAt !== baseline.endsAt)
   const affectedDirty =
@@ -690,7 +692,9 @@ function ReportEditorForm({
   }
 
   async function publish() {
-    if (!report) {
+    // Publish sends no payload, so unsaved edits would stay on screen while
+    // the stored report goes live.
+    if (!report || dirty) {
       return
     }
     setBusy("publish")
@@ -755,16 +759,25 @@ function ReportEditorForm({
         {report?.type === "maintenance" ? <ReportTypeChip /> : null}
         {report ? (
           <div className="ml-auto flex flex-wrap items-center gap-2">
+            {report.publishedAt === null && dirty ? (
+              <span
+                className="min-w-0 break-words text-[var(--fg-muted)] text-xs"
+                id="publish-blocked"
+              >
+                Save or post changes first
+              </span>
+            ) : null}
             {report.publishedAt === null ? (
               confirmPublish ? (
-                <span className="flex items-center gap-2">
-                  <span className="max-w-64 text-[var(--fg-muted)] text-xs">
+                <span className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
+                  <span className="min-w-0 max-w-64 break-words text-[var(--fg-muted)] text-xs">
                     Publishing makes this report publicly visible on your status
                     page.
                   </span>
                   <Button
+                    aria-describedby={dirty ? "publish-blocked" : undefined}
                     className="px-2.5"
-                    disabled={anyBusy}
+                    disabled={anyBusy || dirty}
                     onClick={() => void publish()}
                     size="sm"
                   >
@@ -782,8 +795,9 @@ function ReportEditorForm({
                 </span>
               ) : (
                 <Button
+                  aria-describedby={dirty ? "publish-blocked" : undefined}
                   className="px-2.5"
-                  disabled={anyBusy}
+                  disabled={anyBusy || dirty}
                   onClick={() => setConfirmPublish(true)}
                   size="sm"
                 >

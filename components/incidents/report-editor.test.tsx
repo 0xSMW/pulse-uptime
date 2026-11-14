@@ -580,11 +580,13 @@ describe("ReportEditor edit mode", () => {
     vi.stubGlobal("fetch", fetchMock)
     renderEditor(report)
     fireEvent.click(screen.getByRole("button", { name: "Publish" }))
-    expect(
-      screen.getByText(
-        "Publishing makes this report publicly visible on your status page."
-      )
-    ).toBeDefined()
+    const explanation = screen.getByText(
+      "Publishing makes this report publicly visible on your status page."
+    )
+    // The explanation and buttons wrap on narrow phones instead of overflowing
+    expect(explanation.className).toContain("break-words")
+    expect(explanation.parentElement!.className).toContain("flex-wrap")
+    expect(explanation.parentElement!.className).toContain("max-w-full")
     expect(fetchMock).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole("button", { name: "Confirm" }))
     await waitFor(() => {
@@ -1044,5 +1046,123 @@ describe("ReportEditor unsaved-changes protection", () => {
 
     expect(goSpy).toHaveBeenCalledWith(-2)
     expect(isDialogOpen()).toBe(false)
+  })
+})
+
+describe("ReportEditor publish with pending edits", () => {
+  function header() {
+    return screen
+      .getByRole("heading", { name: "Edit status report" })
+      .closest("header")!
+  }
+
+  function headerButton(name: string) {
+    return within(header()).getByRole("button", { name }) as HTMLButtonElement
+  }
+
+  function expectBlocked(name: string) {
+    const button = headerButton(name)
+    expect(button.disabled).toBe(true)
+    const reason = document.getElementById(
+      button.getAttribute("aria-describedby") ?? ""
+    )
+    expect(reason?.textContent).toBe("Save or post changes first")
+  }
+
+  function expectOpen(name: string) {
+    const button = headerButton(name)
+    expect(button.disabled).toBe(false)
+    expect(button.getAttribute("aria-describedby")).toBeNull()
+    expect(screen.queryByText("Save or post changes first")).toBeNull()
+  }
+
+  it("blocks Publish while basics are unsaved", () => {
+    renderEditor(report)
+    expectOpen("Publish")
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: "Retitled report" },
+    })
+    expectBlocked("Publish")
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: report.title },
+    })
+    expectOpen("Publish")
+    fireEvent.change(screen.getByLabelText(/^Starts at/), {
+      target: { value: "2026-07-18T08:00" },
+    })
+    expectBlocked("Publish")
+  })
+
+  it("blocks Publish while the composer holds unposted text", () => {
+    renderEditor(report)
+    fireEvent.change(screen.getByLabelText("New update"), {
+      target: { value: "Draft in progress" },
+    })
+    expectBlocked("Publish")
+    fireEvent.change(screen.getByLabelText("New update"), {
+      target: { value: "  " },
+    })
+    expectOpen("Publish")
+  })
+
+  it("blocks Publish while an update edit is unsaved", () => {
+    renderEditor(report)
+    const row = screen.getByText("Watching recovery.").closest("li")!
+    fireEvent.click(within(row).getByRole("button", { name: "Edit" }))
+    // Opening the editor without changes leaves publishing available
+    expectOpen("Publish")
+    fireEvent.change(
+      screen.getByLabelText("Update", { selector: "#edit-markdown-u1" }),
+      { target: { value: "Changed body." } }
+    )
+    expectBlocked("Publish")
+  })
+
+  it("blocks Confirm after a new edit and publishes once clean", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        okEnvelope({ ...report, publishedAt: "2026-07-18T13:00:00.000Z" })
+      )
+    vi.stubGlobal("fetch", fetchMock)
+    renderEditor(report)
+    fireEvent.click(headerButton("Publish"))
+    fireEvent.change(screen.getByLabelText("New update"), {
+      target: { value: "Unposted note" },
+    })
+    expectBlocked("Confirm")
+    fireEvent.click(headerButton("Confirm"))
+    expect(fetchMock).not.toHaveBeenCalled()
+    // The pending text stays on screen, never discarded
+    expect(
+      (screen.getByLabelText("New update") as HTMLTextAreaElement).value
+    ).toBe("Unposted note")
+
+    fireEvent.change(screen.getByLabelText("New update"), {
+      target: { value: "" },
+    })
+    expectOpen("Confirm")
+    fireEvent.click(headerButton("Confirm"))
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/status-reports/rep-1/publish",
+        expect.objectContaining({ method: "POST" })
+      )
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("allows Publish after saving a title with trailing spaces", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(okEnvelope(report)))
+    renderEditor(report)
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: "Retitled report  " },
+    })
+    expectBlocked("Publish")
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }))
+    await waitFor(() => {
+      expect(navigation.refresh).toHaveBeenCalled()
+    })
+    expectOpen("Publish")
   })
 })
