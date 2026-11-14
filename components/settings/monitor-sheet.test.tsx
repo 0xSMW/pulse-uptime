@@ -387,6 +387,164 @@ describe("MonitorSheet", () => {
     expect(onClose).toHaveBeenCalledOnce()
   })
 
+  it("blocks Run Test while probe fields differ from the saved config", () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    renderSheet({ monitor: existingMonitor })
+    const test = screen.getByRole("button", {
+      name: "Run Test",
+    }) as HTMLButtonElement
+
+    fireEvent.change(nameInput(), { target: { value: "Renamed" } })
+    expect(test.disabled).toBe(false)
+
+    fireEvent.change(urlInput(), {
+      target: { value: "https://changed.example.com/health" },
+    })
+    expect(test.disabled).toBe(true)
+    expect(test.parentElement?.getAttribute("aria-label")).toBe(
+      "Run Test. Save changes before testing"
+    )
+    fireEvent.click(test)
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    fireEvent.change(urlInput(), { target: { value: existingMonitor.url } })
+    expect(test.disabled).toBe(false)
+
+    fireEvent.click(screen.getByRole("button", { name: "Advanced" }))
+    fireEvent.change(screen.getByLabelText("Expected Status Max"), {
+      target: { value: "299" },
+    })
+    expect(test.disabled).toBe(true)
+  })
+
+  it("patches only edited fields over a refreshed monitor", async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 204 }))
+    vi.stubGlobal("fetch", fetchMock)
+    const props = {
+      groups: [],
+      onClose: vi.fn(),
+      onGroupCreated: vi.fn(),
+      open: true,
+    }
+    const { rerender } = render(
+      <MonitorSheet {...props} monitor={existingMonitor} />
+    )
+    fireEvent.change(nameInput(), { target: { value: "Renamed" } })
+    // Another editor pauses the monitor and a refresh delivers it.
+    rerender(
+      <MonitorSheet
+        {...props}
+        monitor={{ ...existingMonitor, enabled: false }}
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Save Monitor" }))
+    await act(async () => undefined)
+
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/monitors/api-prod")
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit
+    expect(init.method).toBe("PATCH")
+    expect(JSON.parse(String(init.body))).toEqual({ name: "Renamed" })
+  })
+
+  it("sends the whole expected status range when one bound changes", async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 204 }))
+    vi.stubGlobal("fetch", fetchMock)
+    renderSheet({ monitor: existingMonitor })
+
+    fireEvent.click(screen.getByRole("button", { name: "Advanced" }))
+    fireEvent.change(screen.getByLabelText("Expected Status Max"), {
+      target: { value: "299" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save Monitor" }))
+    await act(async () => undefined)
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit
+    expect(JSON.parse(String(init.body))).toEqual({
+      expectedStatus: { minimum: 200, maximum: 299 },
+    })
+  })
+
+  it("closes without a request when edits change nothing saved", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    const onClose = vi.fn()
+    renderSheet({ monitor: existingMonitor, onClose })
+
+    fireEvent.change(urlInput(), {
+      target: { value: `  ${existingMonitor.url}  ` },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save Monitor" }))
+    await act(async () => undefined)
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it("keeps sheet test status out of the archive dialog", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          Response.json(
+            { data: { successful: true, statusCode: 200, errorCode: null } },
+            { status: 200 }
+          )
+        )
+    )
+    renderSheet({ monitor: existingMonitor })
+    fireEvent.click(screen.getByRole("button", { name: "Run Test" }))
+    await screen.findByText("Monitor check passed")
+
+    fireEvent.click(screen.getByRole("button", { name: "Archive" }))
+    const dialog = screen.getByRole("dialog", { name: "Archive Monitor" })
+    expect(within(dialog).queryByText("Monitor check passed")).toBeNull()
+    expect(within(dialog).queryByRole("status")).toBeNull()
+  })
+
+  it("clears an archive failure when the dialog reopens", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json(
+          {
+            error: { code: "EDGE_CONFIG_UNAVAILABLE", message: "Try later" },
+          },
+          { status: 503 }
+        )
+      )
+    )
+    renderSheet({ monitor: existingMonitor })
+
+    fireEvent.click(screen.getByRole("button", { name: "Archive" }))
+    let dialog = screen.getByRole("dialog", { name: "Archive Monitor" })
+    fireEvent.change(within(dialog).getByRole("textbox"), {
+      target: { value: existingMonitor.name },
+    })
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Archive Monitor" })
+    )
+    expect((await within(dialog).findByRole("alert")).textContent).toBe(
+      "Try later"
+    )
+    // The failure belongs to the dialog, not the sheet form.
+    expect(screen.getAllByText("Try later")).toHaveLength(1)
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }))
+    fireEvent.click(screen.getByRole("button", { name: "Archive" }))
+    dialog = screen.getByRole("dialog", { name: "Archive Monitor" })
+    expect(within(dialog).queryByRole("alert")).toBeNull()
+  })
+
   it("treats a reverted edit as clean", () => {
     const onClose = vi.fn()
     renderSheet({ monitor: existingMonitor, onClose })

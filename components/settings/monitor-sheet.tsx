@@ -8,8 +8,10 @@ import {
   type EditableMonitor,
   emptyNumericMonitorValues,
   hasAdvancedMonitorErrors,
+  hasProbeChanges,
   isPublicMonitorUrl,
   monitorMutationBody,
+  monitorPatchBody,
   type NumericMonitorFormValues,
   numericMonitorValidation,
   numericMonitorValues,
@@ -131,7 +133,8 @@ function ArchiveDialog({
   monitorName,
   value,
   busy,
-  status,
+  archived,
+  error,
   onValueChange,
   onCancel,
   onConfirm,
@@ -139,7 +142,10 @@ function ArchiveDialog({
   monitorName: string
   value: string
   busy: boolean
-  status: SheetStatus | null
+  archived: boolean
+  // Only this dialog's own archive failure. Sheet test and save status never
+  // reach it.
+  error: string | null
   onValueChange: (value: string) => void
   onCancel: () => void
   onConfirm: () => void
@@ -175,12 +181,18 @@ function ArchiveDialog({
           value={value}
         />
       </label>
-      {status ? (
+      {error ? (
+        <p className="mt-3 text-[13px] text-[var(--down-text)]" role="alert">
+          {error}
+        </p>
+      ) : null}
+      {archived ? (
         <p
           aria-live="polite"
-          className={`mt-3 text-[13px] ${status.error ? "text-[var(--down-text)]" : "text-[var(--fg-muted)]"}`}
+          className="mt-3 text-[13px] text-[var(--fg-muted)]"
+          role="status"
         >
-          {status.message}
+          Monitor archived
         </p>
       ) : null}
       <div className="mt-5 flex justify-end gap-2">
@@ -224,13 +236,16 @@ export function MonitorSheet({
   const router = useRouter()
   const firstField = useRef<HTMLInputElement>(null)
   const formRef = useRef<HTMLFormElement>(null)
-  const [values, setValues] = useState<MonitorFormValues>(() =>
-    valuesFor(monitor)
-  )
+  // The monitor as this editor first saw it. Dirty checks and the PATCH diff
+  // compare against it, so a refreshed monitor prop carrying another editor's
+  // change never reads as an edit here and is never sent back.
+  const [baseline] = useState<MonitorFormValues>(() => valuesFor(monitor))
+  const [values, setValues] = useState<MonitorFormValues>(baseline)
   const [errors, setErrors] = useState<MonitorFormErrors>({})
   const [busy, setBusy] = useState<string | null>(null)
   const [status, setStatus] = useState<SheetStatus | null>(null)
   const [archiveName, setArchiveName] = useState("")
+  const [archiveError, setArchiveError] = useState<string | null>(null)
   const [confirmArchive, setConfirmArchive] = useState(false)
   const [createGroup, setCreateGroup] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
@@ -257,6 +272,13 @@ export function MonitorSheet({
     key: K,
     value: MonitorFormValues[K]
   ) => setValues((current) => ({ ...current, [key]: value }))
+
+  // The test probes the saved config, so it waits for a save once the form
+  // shows a different URL, method, timeout, or expected status. Name and
+  // other edits leave the probe unchanged and keep the test available.
+  const probeChanged = monitor
+    ? hasProbeChanges(values, valuesFor(monitor))
+    : false
 
   const lastDerivedName = useRef("")
 
@@ -293,30 +315,35 @@ export function MonitorSheet({
       )
       return
     }
+    const request = monitor
+      ? {
+          path: `/api/v1/monitors/${encodeURIComponent(monitor.id)}`,
+          method: "PATCH",
+          body: monitorPatchBody(values, baseline, { trimUrl: true }),
+        }
+      : {
+          path: "/api/v1/monitors",
+          method: "POST",
+          body: {
+            id: generatedMonitorId(values.name),
+            ...monitorMutationBody(values, { trimUrl: true }),
+          },
+        }
+    // Edits that serialize to the saved values, such as added whitespace,
+    // leave nothing to send.
+    if (Object.keys(request.body).length === 0) {
+      onClose()
+      return
+    }
     setBusy("save")
     setStatus(null)
-    const body = monitorMutationBody(values, { trimUrl: true })
     try {
-      if (monitor) {
-        await apiRequest(
-          `/api/v1/monitors/${encodeURIComponent(monitor.id)}`,
-          { method: "PATCH", body: JSON.stringify(body) },
-          { mutation: true }
-        )
-      } else {
-        await apiRequest(
-          "/api/v1/monitors",
-          {
-            method: "POST",
-            body: JSON.stringify({
-              id: generatedMonitorId(values.name),
-              ...body,
-            }),
-          },
-          { mutation: true }
-        )
-      }
-      onMonitorGroupChanged?.(monitor?.groupId ?? null, values.groupId)
+      await apiRequest(
+        request.path,
+        { method: request.method, body: JSON.stringify(request.body) },
+        { mutation: true }
+      )
+      onMonitorGroupChanged?.(baseline.groupId, values.groupId)
       setStatus({
         message: "Updating configuration…",
         error: false,
@@ -335,7 +362,7 @@ export function MonitorSheet({
   }
 
   async function runTest() {
-    if (!monitor) {
+    if (!monitor || probeChanged) {
       return
     }
     setBusy("test")
@@ -357,7 +384,7 @@ export function MonitorSheet({
       return
     }
     setBusy("archive")
-    setStatus(null)
+    setArchiveError(null)
     try {
       await apiRequest(
         `/api/v1/monitors/${encodeURIComponent(monitor.id)}`,
@@ -365,7 +392,6 @@ export function MonitorSheet({
         { mutation: true }
       )
       onMonitorGroupChanged?.(monitor.groupId, null)
-      setStatus({ message: "Monitor archived", error: false })
       setBusy("archived")
       propagationTimer.current = window.setTimeout(() => {
         if (onArchived) {
@@ -376,7 +402,7 @@ export function MonitorSheet({
         onClose()
       }, 800)
     } catch (error) {
-      setStatus({ message: messageForError(error), error: true })
+      setArchiveError(messageForError(error))
     } finally {
       setBusy((current) => (current === "archived" ? current : null))
     }
@@ -385,7 +411,7 @@ export function MonitorSheet({
   const inputClass =
     "h-10 w-full rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-3 text-[13px]"
   const [testLabel, archiveLabel] = monitorSheetActionLabels()
-  const dirty = isDirty(values, valuesFor(monitor))
+  const dirty = isDirty(values, baseline)
   // Close, Escape, and Cancel all route here, so unsaved edits are never
   // dropped without a prompt. A clean form closes at once.
   function requestClose() {
@@ -413,8 +439,10 @@ export function MonitorSheet({
           monitor ? (
             <>
               <SheetIconButton
-                disabled={Boolean(busy)}
-                disabledDescription={actionBusyDescription}
+                disabled={Boolean(busy) || probeChanged}
+                disabledDescription={
+                  busy ? actionBusyDescription : "Save changes before testing"
+                }
                 label={testLabel}
                 onClick={() => void runTest()}
               >
@@ -425,7 +453,10 @@ export function MonitorSheet({
                 disabled={Boolean(busy)}
                 disabledDescription={actionBusyDescription}
                 label={archiveLabel}
-                onClick={() => setConfirmArchive(true)}
+                onClick={() => {
+                  setArchiveError(null)
+                  setConfirmArchive(true)
+                }}
               >
                 <Archive aria-hidden className="size-4" />
               </SheetIconButton>
@@ -645,7 +676,9 @@ export function MonitorSheet({
       </Sheet>
       {monitor && confirmArchive ? (
         <ArchiveDialog
+          archived={busy === "archived"}
           busy={Boolean(busy)}
+          error={archiveError}
           monitorName={monitor.name}
           onCancel={() => {
             setConfirmArchive(false)
@@ -653,7 +686,6 @@ export function MonitorSheet({
           }}
           onConfirm={archive}
           onValueChange={setArchiveName}
-          status={status}
           value={archiveName}
         />
       ) : null}

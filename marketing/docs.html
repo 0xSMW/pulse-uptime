@@ -1049,6 +1049,12 @@ vercel deploy --prod --scope &lt;team&gt;</code></pre>
               id, through the API or <code>config apply</code>, and it comes
               back.
             </p>
+            <p>
+              Response-time charts use elapsed time and leave gaps where no
+              latency was recorded. Manual tests use saved check settings and
+              leave scheduled history unchanged. Save pending check-setting
+              edits before running a test.
+            </p>
 
             <div class="dv-frame ui-mock">
               <div class="dv-head">
@@ -1243,6 +1249,13 @@ vercel deploy --prod --scope &lt;team&gt;</code></pre>
               timestamps, and which notifications were delivered. Incidents open
               only after the failure threshold confirms an outage, so flapping
               checks don't page you.
+            </p>
+            <p>
+              Older history remains available through pagination, with monitor
+              and status filters preserved. <strong>Write Report</strong>
+              creates a draft from the incident. Resolved incidents stay
+              historical, and false alarms describe a monitoring error. Save
+              edits and post pending updates before publishing a draft.
             </p>
             <p>
               When a firewall or monitoring configuration causes a false alarm,

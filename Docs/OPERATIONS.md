@@ -20,9 +20,15 @@ Never infer service health from a successful Vercel deployment alone.
 
 The API is `POST /api/v1/monitors/{monitorId}/test` with `monitors:write`. A 200 response means the probe ran. Read the `successful` field for pass or fail.
 
+The edit sheet disables Run Test while the URL, method, timeout, or expected status has unsaved changes. Other edits can still be tested. Saves send only changed fields, preserving unrelated changes made by another editor.
+
 ## Monitor incident history
 
 **View All** on a monitor's Recent Incidents card opens the incident list filtered to that monitor. The Ongoing and Resolved tabs keep the filter. Choose **All monitors** or open **Incidents** from the main navigation to see every monitor again.
+
+Use **Older incidents** to continue through history. Pagination preserves the monitor and status filters. On All, ongoing incidents appear before the first history page.
+
+**Write Report** creates a draft using the incident's current lifecycle. Resolved incidents stay historical, and fully excluded false alarms describe a monitoring error without outage impact. Existing reports open through **View Report**. Save edits or post pending updates before publishing.
 
 ## Time zones
 

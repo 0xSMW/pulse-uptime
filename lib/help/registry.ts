@@ -221,11 +221,11 @@ const guides: HelpEntry[] = [
     slug: "test-monitor",
     title: "Test a monitor",
     summary:
-      "Run an immediate check when you want proof an endpoint responds right now — after a deploy, a DNS change, or a fix. The result shows the status code and latency without waiting for the next scheduled check.",
+      "Run an immediate check using the saved configuration. Manual tests leave scheduled history, uptime, and incident state unchanged. Save changes to check settings before testing.",
     steps: [
       "Open the monitor from the Overview.",
-      "Select Test Monitor.",
-      "Read the returned status code and latency in Recent Checks.",
+      "Select Run Test.",
+      "Review any failure beside the test control.",
     ],
     demo: "test-monitor",
     relatedLinks: [
@@ -337,7 +337,7 @@ const guides: HelpEntry[] = [
       "Select Create status report.",
       "Choose incident or maintenance and enter a title.",
       "Pick the affected services and each one's impact.",
-      "Write the first update, then select Publish.",
+      "Write the first update, then select Publish Report or Save Draft.",
     ],
     demo: "status-page",
     relatedLinks: [
@@ -373,12 +373,12 @@ const guides: HelpEntry[] = [
     slug: "promote-incident-report",
     title: "Promote an outage to a report",
     summary:
-      "Promotion turns an automatic outage row into an editable draft report prefilled with the incident's title, start time, and affected monitor. The draft never publishes itself; once published, the report replaces the raw incident card on the status page.",
+      "Write Report creates a draft from the incident's timing and affected monitor. Resolved incidents stay resolved, and false alarms describe a monitoring error. Publishing replaces the automatic incident card on the status page.",
     steps: [
       "Open Incidents.",
-      "Select Write report on the outage's row.",
-      "Edit the prefilled draft — title, window, affected services, and the first update.",
-      "Select Publish when the narrative is ready.",
+      "Select Write Report on the incident's row.",
+      "Edit the draft and save changes or post pending updates.",
+      "Select Publish Report, then confirm.",
     ],
     demo: "incident",
     relatedLinks: [
