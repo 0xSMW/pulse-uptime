@@ -46,7 +46,7 @@ export function TopNav({
           />
           Pulse
         </Link>
-        <div className="flex h-full min-w-0 items-center gap-5 overflow-x-auto">
+        <div className="hide-scrollbar flex h-full min-w-0 items-center gap-5 overflow-x-auto">
           {links.map((link) => {
             const active = link.match(pathname)
             return (

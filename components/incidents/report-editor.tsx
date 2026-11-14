@@ -144,6 +144,11 @@ function ZonedLabel({ text, timeZone }: { text: string; timeZone: string }) {
   )
 }
 
+// Phone padding leaves native datetime text room to show in full at 320px
+const cardHeaderClass = "p-4 pb-0 sm:p-6 sm:pb-0"
+const cardContentClass = "p-4 sm:p-6"
+const datetimeInputClass = "px-2 sm:px-3"
+
 const textareaClass =
   "w-full resize-y rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-3 py-2 font-data text-[13px] aria-invalid:border-[var(--down-text)]"
 
@@ -848,13 +853,13 @@ function ReportEditorForm({
         />
       </header>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="space-y-6">
           <Card>
-            <CardHeader>
+            <CardHeader className={cardHeaderClass}>
               <CardTitle>Basic Information</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className={`${cardContentClass} space-y-4`}>
               <Field error={errors.title} htmlFor="report-title" label="Title">
                 <Input
                   aria-invalid={Boolean(errors.title)}
@@ -905,6 +910,7 @@ function ReportEditorForm({
               >
                 <Input
                   aria-invalid={Boolean(errors.startsAt)}
+                  className={datetimeInputClass}
                   id="report-starts"
                   onChange={(event) => setStartsAt(event.target.value)}
                   type="datetime-local"
@@ -920,6 +926,7 @@ function ReportEditorForm({
                 >
                   <Input
                     aria-invalid={Boolean(errors.endsAt)}
+                    className={datetimeInputClass}
                     id="report-ends"
                     onChange={(event) => setEndsAt(event.target.value)}
                     type="datetime-local"
@@ -931,10 +938,10 @@ function ReportEditorForm({
           </Card>
 
           <Card>
-            <CardHeader>
+            <CardHeader className={cardHeaderClass}>
               <CardTitle>Update Timeline</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent className={`${cardContentClass} space-y-6`}>
               <div className="space-y-4">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="grid gap-2">
@@ -972,6 +979,7 @@ function ReportEditorForm({
                   >
                     <Input
                       aria-invalid={Boolean(errors.publishedAt)}
+                      className={datetimeInputClass}
                       id="composer-published"
                       onChange={(event) =>
                         setComposerPublishedAt(event.target.value)
@@ -1047,7 +1055,7 @@ function ReportEditorForm({
                         : null
                     return (
                       <li
-                        className="rounded-[8px] border border-[var(--border-strong)] p-4"
+                        className="rounded-[8px] border border-[var(--border-strong)] p-2 sm:p-4"
                         key={update.id}
                       >
                         {editing?.id === update.id ? (
@@ -1095,6 +1103,7 @@ function ReportEditorForm({
                               >
                                 <Input
                                   aria-invalid={Boolean(editing.timeError)}
+                                  className={datetimeInputClass}
                                   id={`edit-published-${update.id}`}
                                   onChange={(event) =>
                                     setEditingField({
@@ -1180,7 +1189,7 @@ function ReportEditorForm({
                               <span className="font-data text-[var(--fg-muted)] text-xs">
                                 <IncidentTime value={update.publishedAt} />
                               </span>
-                              <span className="ml-auto flex items-center gap-1">
+                              <span className="ml-auto flex flex-wrap items-center justify-end gap-1">
                                 {confirmDeleteUpdateId === update.id ? (
                                   <>
                                     {deleteFlip ? (
@@ -1278,13 +1287,13 @@ function ReportEditorForm({
         </div>
 
         <Card className="h-fit">
-          <CardHeader>
+          <CardHeader className={cardHeaderClass}>
             <CardTitle>Affected Services</CardTitle>
             <CardDescription>
               Impact shown per service on the status page
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-5">
+          <CardContent className={`${cardContentClass} space-y-5`}>
             {pickerGroups.length === 0 ? (
               <p className="text-[13px] text-[var(--fg-muted)]">
                 No monitors configured.
