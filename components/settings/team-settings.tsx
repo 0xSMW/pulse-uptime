@@ -201,10 +201,7 @@ export function TeamSettings({ data }: { data: TeamSettingsData }) {
                     key={user.id}
                   >
                     <td className="px-6">
-                      <div
-                        className="max-w-[240px] truncate font-medium"
-                        title={user.email}
-                      >
+                      <div className="wrap-anywhere max-w-[240px] font-medium">
                         {user.name || user.email}
                         {self ? (
                           <span className="ml-2 text-[var(--fg-faint)] text-xs">
@@ -213,7 +210,7 @@ export function TeamSettings({ data }: { data: TeamSettingsData }) {
                         ) : null}
                       </div>
                       {user.name ? (
-                        <div className="max-w-[240px] truncate text-[var(--fg-faint)] text-xs">
+                        <div className="wrap-anywhere max-w-[240px] text-[var(--fg-faint)] text-xs">
                           {user.email}
                         </div>
                       ) : null}
@@ -311,7 +308,7 @@ export function TeamSettings({ data }: { data: TeamSettingsData }) {
           </div>
           {createdLink ? (
             <div className="mt-4 flex flex-wrap items-center gap-2 rounded-[8px] border border-[var(--border)] bg-[var(--chip-bg)] px-3 py-2">
-              <code className="min-w-0 flex-1 truncate font-data text-xs">
+              <code className="wrap-anywhere min-w-0 flex-1 font-data text-xs">
                 {createdLink}
               </code>
               <Button

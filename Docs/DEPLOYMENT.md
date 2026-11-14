@@ -100,6 +100,21 @@ NEXT_PUBLIC_STATUS_PAGE_NAME=Pulse
 
 The complete canonical environment list is in `.env.example`.
 
+### Private monitor firewall bypass
+
+For a monitor blocked by a browser challenge, set these server-only variables in the Pulse deployment:
+
+```text
+PULSE_MONITOR_BYPASS_URL=https://example.com/
+PULSE_MONITOR_BYPASS_SECRET=<independent random secret>
+```
+
+Generate the secret with `openssl rand -hex 32`. It must contain 32–256 letters, digits, underscores, or hyphens. Set both variables together and redeploy. Leaving both empty disables the feature. Invalid or incomplete configuration fails checks without sending requests.
+
+Pulse sends `x-pulse-monitor-key` only on the initial GET to that exact normalized HTTPS URL, including its path and query. URLs with credentials or fragments are rejected. All redirects strip the header, including redirects within the same origin. Scheduled checks and **Test Monitor** use the same policy. The secret stays out of monitor configuration, exports, and check results.
+
+On the monitored site's firewall, create a custom **Bypass** rule requiring the configured host, path, GET method, HTTPS scheme, and exact `x-pulse-monitor-key` value. If the URL includes a query, match it in the rule too. Place the exception after restrictions that should still apply and before bot challenges. Keep bot protection enabled and do not log the private header. Verify the monitor succeeds while requests with a missing or incorrect secret remain challenged. To rotate, update the firewall value and Pulse secret together, then redeploy Pulse.
+
 ## 7. Deploy and verify
 
 ```sh

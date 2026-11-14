@@ -1,9 +1,47 @@
+// @vitest-environment jsdom
+import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { describe, expect, it } from "vitest"
+import { afterEach, beforeAll, describe, expect, it } from "vitest"
+
+import { ThemeProvider } from "@/components/dashboard/theme-provider"
 
 import { UserMenu } from "./user-menu"
 
+beforeAll(() => {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: (query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: () => {
+        // matchMedia stub
+      },
+      removeEventListener: () => {
+        // matchMedia stub
+      },
+    }),
+  })
+})
+
+afterEach(cleanup)
+
 describe("UserMenu", () => {
+  it("wraps a long name and email instead of truncating", async () => {
+    const name = "Maximiliana Montgomery-Fairweather Featherstonehaugh"
+    const email = "operations.on.call.rotation.primary@very-long-example.com"
+    render(
+      <ThemeProvider>
+        <UserMenu email={email} name={name} />
+      </ThemeProvider>
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Account" }))
+    for (const text of [name, email]) {
+      const element = await screen.findByText(text)
+      expect(element.className).toContain("wrap-anywhere")
+      expect(element.className).not.toContain("truncate")
+    }
+  })
+
   it("renders a compact account trigger instead of the email", () => {
     const html = renderToStaticMarkup(<UserMenu email="ops@example.com" />)
     expect(html).toContain('aria-haspopup="menu"')

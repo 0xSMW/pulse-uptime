@@ -48,7 +48,10 @@ function isDialogOpen(): boolean {
   return document.querySelector("dialog")?.open ?? false
 }
 
-import { TimezoneProvider } from "@/components/dashboard/timezone-provider"
+import {
+  TIMEZONE_STORAGE_KEY,
+  TimezoneProvider,
+} from "@/components/dashboard/timezone-provider"
 import {
   ReportEditor,
   type ReportEditorMonitor,
@@ -114,9 +117,10 @@ function okEnvelope(data: unknown) {
   )
 }
 
+// A fixed display zone keeps typed wall times independent of the machine.
 function renderEditor(target: ReportData | null) {
   return render(
-    <TimezoneProvider>
+    <TimezoneProvider defaultTimezone="UTC">
       <ReportEditor monitors={monitors} report={target} />
     </TimezoneProvider>
   )
@@ -127,9 +131,7 @@ describe("ReportEditor create mode", () => {
     const fetchMock = vi.fn()
     vi.stubGlobal("fetch", fetchMock)
     renderEditor(null)
-    fireEvent.click(
-      screen.getByRole("button", { name: "Create Status Report" })
-    )
+    fireEvent.click(screen.getByRole("button", { name: "Publish Report" }))
     expect(screen.getByText("Enter a title")).toBeDefined()
     expect(screen.getByText("Write the first update")).toBeDefined()
     expect(fetchMock).not.toHaveBeenCalled()
@@ -137,8 +139,8 @@ describe("ReportEditor create mode", () => {
 
   it("hides the maintenance end field for incident reports", () => {
     renderEditor(null)
-    expect(screen.getByLabelText("Starts at")).toBeDefined()
-    expect(screen.queryByLabelText("Ends at")).toBeNull()
+    expect(screen.getByLabelText(/^Starts at/)).toBeDefined()
+    expect(screen.queryByLabelText(/^Ends at/)).toBeNull()
     expect(screen.getByText("You can use markdown.")).toBeDefined()
     expect(screen.getByLabelText("Save as draft")).toBeDefined()
   })
@@ -157,9 +159,7 @@ describe("ReportEditor create mode", () => {
     fireEvent.change(screen.getByLabelText("Initial update"), {
       target: { value: "We are investigating." },
     })
-    fireEvent.click(
-      screen.getByRole("button", { name: "Create Status Report" })
-    )
+    fireEvent.click(screen.getByRole("button", { name: "Publish Report" }))
     await waitFor(() => {
       expect(navigation.push).toHaveBeenCalledWith("/incidents/reports/rep-9")
     })
@@ -174,6 +174,248 @@ describe("ReportEditor create mode", () => {
     expect(body.draft).toBeUndefined()
     expect(body.update.markdown).toBe("We are investigating.")
     expect(new Headers(init.headers).get("Idempotency-Key")).toBeTruthy()
+  })
+
+  it("names the create button by outcome and sends draft when saving a draft", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ data: { id: "rep-3" } }), { status: 201 })
+      )
+    vi.stubGlobal("fetch", fetchMock)
+    renderEditor(null)
+    expect(screen.getByRole("button", { name: "Publish Report" })).toBeDefined()
+    fireEvent.click(screen.getByLabelText("Save as draft"))
+    expect(screen.queryByRole("button", { name: "Publish Report" })).toBeNull()
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: "API outage" },
+    })
+    fireEvent.change(screen.getByLabelText("Initial update"), {
+      target: { value: "We are investigating." },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save Draft" }))
+    await waitFor(() => {
+      expect(navigation.push).toHaveBeenCalledWith("/incidents/reports/rep-3")
+    })
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const body = JSON.parse(String(init.body)) as { draft?: boolean }
+    expect(body.draft).toBe(true)
+  })
+
+  it("shows a publish failure in the header beside the publish action", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: { code: "ALREADY_PUBLISHED", message: "Already" },
+          }),
+          { status: 409 }
+        )
+      )
+    )
+    renderEditor(report)
+    const header = screen
+      .getByRole("heading", { name: "Edit status report" })
+      .closest("header")!
+    fireEvent.click(within(header).getByRole("button", { name: "Publish" }))
+    fireEvent.click(within(header).getByRole("button", { name: "Confirm" }))
+    await waitFor(() => {
+      expect(
+        within(header).getByText("This report is already published.")
+      ).toBeDefined()
+    })
+  })
+
+  it("shows a post failure beside Post Update", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: { code: "REPORT_NOT_FOUND", message: "Gone" },
+          }),
+          { status: 404 }
+        )
+      )
+    )
+    renderEditor(report)
+    fireEvent.change(screen.getByLabelText("New update"), {
+      target: { value: "Postmortem coming." },
+    })
+    const button = screen.getByRole("button", { name: "Post Update" })
+    fireEvent.click(button)
+    await waitFor(() => {
+      expect(
+        within(button.parentElement!).getByText("This report no longer exists.")
+      ).toBeDefined()
+    })
+  })
+})
+
+describe("ReportEditor display time zone", () => {
+  function setBangkokOverride() {
+    window.localStorage.setItem(TIMEZONE_STORAGE_KEY, "Asia/Bangkok")
+  }
+
+  it("labels datetime fields with the zone and shows times in it", async () => {
+    setBangkokOverride()
+    renderEditor(report)
+    await waitFor(() => {
+      expect(screen.getByLabelText("Starts at (Asia/Bangkok)")).toBeDefined()
+    })
+    expect(
+      (screen.getByLabelText(/^Starts at/) as HTMLInputElement).value
+    ).toBe("2026-07-18T16:00")
+    expect(screen.getByLabelText("Published at (Asia/Bangkok)")).toBeDefined()
+    const row = screen.getByText("Watching recovery.").closest("li")!
+    fireEvent.click(within(row).getByRole("button", { name: "Edit" }))
+    expect(
+      (
+        screen.getByLabelText(/^Published at/, {
+          selector: "#edit-published-u1",
+        }) as HTMLInputElement
+      ).value
+    ).toBe("2026-07-18T17:00")
+  })
+
+  it("reads typed times in the display zone when saving", async () => {
+    setBangkokOverride()
+    const fetchMock = vi.fn().mockResolvedValue(okEnvelope(report))
+    vi.stubGlobal("fetch", fetchMock)
+    renderEditor(report)
+    await waitFor(() => {
+      expect(screen.getByLabelText("Starts at (Asia/Bangkok)")).toBeDefined()
+    })
+    fireEvent.change(screen.getByLabelText(/^Starts at/), {
+      target: { value: "2026-07-10T08:00" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }))
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled()
+    })
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const body = JSON.parse(String(init.body)) as { startsAt?: string }
+    expect(body.startsAt).toBe("2026-07-10T01:00:00.000Z")
+  })
+
+  it("keeps an untouched update time out of the PATCH in a non-local zone", async () => {
+    setBangkokOverride()
+    const fetchMock = vi.fn().mockResolvedValue(okEnvelope(report))
+    vi.stubGlobal("fetch", fetchMock)
+    renderEditor(report)
+    await waitFor(() => {
+      expect(screen.getByLabelText("Starts at (Asia/Bangkok)")).toBeDefined()
+    })
+    const row = screen.getByText("Watching recovery.").closest("li")!
+    fireEvent.click(within(row).getByRole("button", { name: "Edit" }))
+    fireEvent.change(
+      screen.getByLabelText("Update", { selector: "#edit-markdown-u1" }),
+      { target: { value: "Recovery confirmed." } }
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Save Update" }))
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled()
+    })
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>
+    expect("publishedAt" in body).toBe(false)
+  })
+
+  // 06:30Z is 01:30 EST, the second pass of the repeated fall-back hour.
+  const fallBackReport: ReportData = {
+    ...report,
+    startsAt: "2026-11-01T06:30:00.000Z",
+    updates: [
+      {
+        id: "u1",
+        status: "monitoring",
+        markdown: "Watching recovery.",
+        publishedAt: "2026-11-01T06:45:00.000Z",
+        createdAt: "2026-11-01T06:45:00.000Z",
+      },
+    ],
+  }
+
+  async function renderNewYork(target: ReportData) {
+    window.localStorage.setItem(TIMEZONE_STORAGE_KEY, "America/New_York")
+    renderEditor(target)
+    await waitFor(() => {
+      expect(
+        screen.getByLabelText("Starts at (America/New_York)")
+      ).toBeDefined()
+    })
+  }
+
+  it("saves around an untouched repeated start time", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(okEnvelope(fallBackReport))
+    vi.stubGlobal("fetch", fetchMock)
+    await renderNewYork(fallBackReport)
+    expect(
+      (screen.getByLabelText(/^Starts at/) as HTMLInputElement).value
+    ).toBe("2026-11-01T01:30")
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: "Retitled report" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }))
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled()
+    })
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(JSON.parse(String(init.body))).toEqual({ title: "Retitled report" })
+  })
+
+  it("rejects a newly typed repeated start time", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    await renderNewYork(report)
+    fireEvent.change(screen.getByLabelText(/^Starts at/), {
+      target: { value: "2026-11-01T01:15" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }))
+    expect(screen.getByText("Time repeats at clock change")).toBeDefined()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("flags a newly typed skipped update time on its field", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    await renderNewYork(fallBackReport)
+    const row = screen.getByText("Watching recovery.").closest("li")!
+    fireEvent.click(within(row).getByRole("button", { name: "Edit" }))
+    const input = screen.getByLabelText(/^Published at/, {
+      selector: "#edit-published-u1",
+    })
+    fireEvent.change(input, { target: { value: "2026-03-08T02:30" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save Update" }))
+    expect(within(row).getByText("Time skipped at clock change")).toBeDefined()
+    expect(input.getAttribute("aria-invalid")).toBe("true")
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("keeps an untouched repeated update time out of the PATCH", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(okEnvelope(fallBackReport))
+    vi.stubGlobal("fetch", fetchMock)
+    await renderNewYork(fallBackReport)
+    const row = screen.getByText("Watching recovery.").closest("li")!
+    fireEvent.click(within(row).getByRole("button", { name: "Edit" }))
+    expect(
+      within(row).queryByText(
+        "This update is dated before the report's start time"
+      )
+    ).toBeNull()
+    fireEvent.change(
+      screen.getByLabelText("Update", { selector: "#edit-markdown-u1" }),
+      { target: { value: "Recovery confirmed." } }
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Save Update" }))
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled()
+    })
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(JSON.parse(String(init.body))).toEqual({
+      markdown: "Recovery confirmed.",
+    })
   })
 })
 
@@ -193,7 +435,7 @@ describe("ReportEditor edit mode", () => {
       ],
       resolvedAt: null,
     })
-    expect(screen.getByLabelText("Ends at")).toBeDefined()
+    expect(screen.getByLabelText(/^Ends at/)).toBeDefined()
     expect(screen.getByText("Type is locked after creation")).toBeDefined()
   })
 
@@ -214,7 +456,9 @@ describe("ReportEditor edit mode", () => {
     const row = screen.getByText("All clear.").closest("li")!
     fireEvent.click(within(row).getByRole("button", { name: "Edit" }))
     fireEvent.change(
-      screen.getByLabelText("Published at", { selector: "#edit-published-u2" }),
+      screen.getByLabelText(/^Published at/, {
+        selector: "#edit-published-u2",
+      }),
       {
         target: { value: "2026-07-17T09:00" },
       }
@@ -286,7 +530,7 @@ describe("ReportEditor edit mode", () => {
     fireEvent.click(within(row).getByRole("button", { name: "Confirm" }))
     await waitFor(() => {
       expect(
-        screen.getByText(
+        within(row).getByText(
           "A report must keep at least one update — delete the report instead."
         )
       ).toBeDefined()
@@ -388,7 +632,9 @@ describe("ReportEditor edit mode", () => {
     // Moves publishedAt later but still well before u2 (resolved), so no
     // state flip and no confirmation gate to click through first.
     fireEvent.change(
-      screen.getByLabelText("Published at", { selector: "#edit-published-u1" }),
+      screen.getByLabelText(/^Published at/, {
+        selector: "#edit-published-u1",
+      }),
       {
         target: { value: "2026-07-18T11:00" },
       }
@@ -456,7 +702,7 @@ describe("ReportEditor edit mode", () => {
     const fetchMock = vi.fn().mockResolvedValue(okEnvelope(report))
     vi.stubGlobal("fetch", fetchMock)
     renderEditor(report)
-    fireEvent.change(screen.getByLabelText("Starts at"), {
+    fireEvent.change(screen.getByLabelText(/^Starts at/), {
       target: { value: "2026-07-10T08:00" },
     })
     fireEvent.click(screen.getByRole("button", { name: "Save Changes" }))
@@ -530,13 +776,13 @@ describe("ReportEditor edit mode", () => {
 
   it("warns when the composer update is dated before the report start", () => {
     renderEditor(report)
-    fireEvent.change(screen.getByLabelText("Published at"), {
+    fireEvent.change(screen.getByLabelText(/^Published at/), {
       target: { value: "2026-07-01T08:00" },
     })
     expect(
       screen.getByText("This update is dated before the report's start time")
     ).toBeDefined()
-    fireEvent.change(screen.getByLabelText("Published at"), {
+    fireEvent.change(screen.getByLabelText(/^Published at/), {
       target: { value: "2026-07-19T08:00" },
     })
     expect(
@@ -549,7 +795,9 @@ describe("ReportEditor edit mode", () => {
     const row = screen.getByText("Watching recovery.").closest("li")!
     fireEvent.click(within(row).getByRole("button", { name: "Edit" }))
     fireEvent.change(
-      screen.getByLabelText("Published at", { selector: "#edit-published-u1" }),
+      screen.getByLabelText(/^Published at/, {
+        selector: "#edit-published-u1",
+      }),
       {
         target: { value: "2026-07-01T08:00" },
       }
@@ -597,7 +845,7 @@ describe("ReportEditor unsaved-changes protection", () => {
   it("guards navigation once the start time changes", () => {
     renderEditor(report)
     const addSpy = vi.spyOn(window, "addEventListener")
-    fireEvent.change(screen.getByLabelText("Starts at"), {
+    fireEvent.change(screen.getByLabelText(/^Starts at/), {
       target: { value: "2026-07-10T08:00" },
     })
     expect(addSpy).toHaveBeenCalledWith("beforeunload", expect.any(Function))

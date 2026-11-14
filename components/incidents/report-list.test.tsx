@@ -24,10 +24,10 @@ const base: ReportListRowData = {
   },
 }
 
-function renderList(reports: ReportListRowData[]) {
+function renderList(reports: ReportListRowData[], canWriteReports = true) {
   return renderToStaticMarkup(
     <TimezoneProvider>
-      <ReportList reports={reports} />
+      <ReportList canWriteReports={canWriteReports} reports={reports} />
     </TimezoneProvider>
   )
 }
@@ -72,17 +72,34 @@ describe("ReportList", () => {
     expect(html).toContain("2 updates")
     expect(html).toContain("Scheduled")
   })
+
+  it("keeps rows readable but drops row actions for viewers", () => {
+    const html = renderList([base], false)
+    expect(html).toContain('href="/incidents/reports/rep-1"')
+    expect(html).not.toContain("Actions for Elevated API error rates")
+    expect(renderList([base])).toContain("Actions for Elevated API error rates")
+  })
 })
 
 describe("ReportsEmpty", () => {
   it("offers creation when unfiltered", () => {
-    const html = renderToStaticMarkup(<ReportsEmpty filtered={false} />)
+    const html = renderToStaticMarkup(
+      <ReportsEmpty canWriteReports filtered={false} />
+    )
     expect(html).toContain("No status reports yet")
     expect(html).toContain('href="/incidents/reports/new"')
   })
 
+  it("hides creation from viewers", () => {
+    const html = renderToStaticMarkup(
+      <ReportsEmpty canWriteReports={false} filtered={false} />
+    )
+    expect(html).toContain("No status reports yet")
+    expect(html).not.toContain('href="/incidents/reports/new"')
+  })
+
   it("explains an empty filter result", () => {
-    const html = renderToStaticMarkup(<ReportsEmpty filtered />)
+    const html = renderToStaticMarkup(<ReportsEmpty canWriteReports filtered />)
     expect(html).toContain("No reports match this filter")
   })
 })

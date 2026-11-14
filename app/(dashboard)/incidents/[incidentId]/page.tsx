@@ -4,12 +4,17 @@ import { notFound } from "next/navigation"
 
 import { DependencyOverlapCard } from "@/components/dependencies/dependency-overlap-card"
 import { IncidentEventTrail } from "@/components/incidents/incident-event-trail"
+import { IncidentExclusions } from "@/components/incidents/incident-exclusions"
 import { formatIncidentDuration } from "@/components/incidents/incident-format"
-import { IncidentStatus } from "@/components/incidents/incident-status"
+import { IncidentStateBadges } from "@/components/incidents/incident-status"
 import { IncidentTime } from "@/components/incidents/incident-time"
 import { NotificationSummary } from "@/components/incidents/notification-summary"
 import type { IncidentDetail } from "@/components/incidents/types"
 import { WriteReportButton } from "@/components/incidents/write-report-button"
+import { hasScope, roleScopes } from "@/lib/api/scopes"
+import { authenticateCurrentSession } from "@/lib/auth/session"
+import { withExclusionAttribution } from "@/lib/incidents/exclusion-attribution"
+import { listIncidentExclusions } from "@/lib/incidents/exclusions"
 import { findIncidentDetail } from "@/lib/reporting/queries/incidents"
 
 export default async function IncidentDetailPage({
@@ -22,6 +27,14 @@ export default async function IncidentDetailPage({
   if (!incident) {
     notFound()
   }
+
+  const session = await authenticateCurrentSession()
+  const scopes = { scopes: roleScopes(session?.role ?? "viewer") }
+  const canManageMonitors = hasScope(scopes, "monitors:write")
+  const canWriteReports = hasScope(scopes, "reports:write")
+  const exclusions = await withExclusionAttribution(
+    await listIncidentExclusions(incident.id)
+  )
 
   const stats = [
     { label: "Started", value: <IncidentTime value={incident.openedAt} /> },
@@ -53,13 +66,23 @@ export default async function IncidentDetailPage({
       </Link>
 
       <header className="mb-6 flex flex-wrap items-center gap-3">
-        <h1 className="font-semibold text-xl tracking-[-0.02em]">
-          {incident.monitorName}
+        <h1 className="min-w-0 break-words font-semibold text-xl tracking-[-0.02em]">
+          <Link
+            className="transition-opacity duration-150 hover:opacity-70"
+            href={`/monitors/${encodeURIComponent(incident.monitorId)}`}
+          >
+            {incident.monitorName}
+          </Link>
         </h1>
-        <IncidentStatus ongoing={!incident.resolvedAt} />
-        <span className="ml-auto">
-          <WriteReportButton incidentId={incident.id} />
-        </span>
+        <IncidentStateBadges
+          exclusionStatus={incident.exclusionStatus}
+          ongoing={!incident.resolvedAt}
+        />
+        {canWriteReports ? (
+          <span className="ml-auto">
+            <WriteReportButton incidentId={incident.id} />
+          </span>
+        ) : null}
       </header>
 
       <dl className="mb-6 grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] overflow-hidden rounded-xl border border-[var(--border-strong)] shadow-[var(--card-shadow)]">
@@ -101,6 +124,14 @@ export default async function IncidentDetailPage({
         </div>
       ) : null}
 
+      <IncidentExclusions
+        canManageMonitors={canManageMonitors}
+        defaultEndAt={incident.resolvedAt}
+        defaultStartAt={incident.firstFailureAt ?? incident.openedAt}
+        exclusions={exclusions}
+        incidentId={incident.id}
+        monitorId={incident.monitorId}
+      />
       <IncidentEventTrail events={incident.events} />
     </>
   )

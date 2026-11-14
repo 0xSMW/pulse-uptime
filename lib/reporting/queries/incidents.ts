@@ -7,7 +7,6 @@ import {
   isNotNull,
   isNull,
 } from "drizzle-orm"
-
 import { db } from "@/lib/db/client"
 import {
   incidents,
@@ -16,6 +15,7 @@ import {
   notificationOutbox,
 } from "@/lib/db/schema"
 import { listOverlappingDependencyIncidents } from "@/lib/dependencies/overlap"
+import { loadIncidentExclusionStatuses } from "@/lib/incidents/exclusions"
 import {
   activationGate,
   durationSeconds,
@@ -66,13 +66,42 @@ export async function listCommandPaletteIncidents() {
   }))
 }
 
-export async function listIncidents(filter: IncidentFilter = "all") {
-  const condition =
+// The monitor name for the incidents page filter context. Archived monitors
+// still resolve because their incidents stay listed.
+export async function findIncidentMonitorName(
+  monitorId: string
+): Promise<string | null> {
+  const [monitor] = await db
+    .select({ name: monitorRegistry.name })
+    .from(monitorRegistry)
+    .where(eq(monitorRegistry.id, monitorId))
+    .limit(1)
+  return monitor?.name ?? null
+}
+
+// Status and monitor filters for the incidents list. A null monitor id lists
+// every monitor.
+export function incidentListCondition(
+  filter: IncidentFilter,
+  monitorId: string | null = null
+) {
+  const status =
     filter === "ongoing"
       ? isNull(incidents.resolvedAt)
       : filter === "resolved"
         ? isNotNull(incidents.resolvedAt)
         : undefined
+  return and(
+    status,
+    monitorId === null ? undefined : eq(incidents.monitorId, monitorId)
+  )
+}
+
+export async function listIncidents(
+  filter: IncidentFilter = "all",
+  monitorId: string | null = null
+) {
+  const condition = incidentListCondition(filter, monitorId)
   const rows = await db
     .select({
       id: incidents.id,
@@ -117,6 +146,9 @@ export async function listIncidents(filter: IncidentFilter = "all") {
     summaries.map((summary) => [summary.incidentId, summary])
   )
 
+  const exclusions = await loadIncidentExclusionStatuses(
+    rows.map((row) => row.id)
+  )
   return rows.map((row) => {
     const summary = summaryByIncident.get(row.id)
     return {
@@ -127,6 +159,7 @@ export async function listIncidents(filter: IncidentFilter = "all") {
       resolvedAt: row.resolvedAt?.toISOString() ?? null,
       durationSeconds: durationSeconds(row.openedAt, row.resolvedAt),
       openingFailure: failureLabel(row.openingErrorCode, row.openingStatusCode),
+      exclusionStatus: exclusions.get(row.id) ?? null,
       notificationSummary: summarizeNotificationAggregate(
         summary ?? { sentCount: 0, anyDead: false, anyUnsent: false }
       ),
@@ -207,7 +240,10 @@ export async function findIncidentDetail(id: string) {
     resolvedAt: row.resolvedAt,
   })
 
+  const exclusions = await loadIncidentExclusionStatuses([row.id])
   return {
+    exclusionStatus: exclusions.get(row.id) ?? null,
+    firstFailureAt: row.firstFailureAt.toISOString(),
     id: row.id,
     monitorId: row.monitorId,
     monitorName: row.monitorName,

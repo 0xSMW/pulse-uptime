@@ -12,10 +12,12 @@ import type {
   ReportListType,
 } from "@/components/incidents/report-status"
 import { buttonVariants } from "@/components/ui/button"
+import { hasScope, roleScopes } from "@/lib/api/scopes"
 import {
   listStatusReportSummaries,
   parseStatusReportListQuery,
 } from "@/lib/api/status-reports"
+import { authenticateCurrentSession } from "@/lib/auth/session"
 import { cn } from "@/lib/utils"
 
 function parseState(value: string | string[] | undefined): ReportListState {
@@ -61,12 +63,14 @@ export default async function ReportsPage({
       cursorParam = null
     }
   }
-  const { data: reports, nextCursor } = await listStatusReportSummaries({
-    state,
-    type,
-    cursor,
-    limit: 100,
-  })
+  const [{ data: reports, nextCursor }, session] = await Promise.all([
+    listStatusReportSummaries({ state, type, cursor, limit: 100 }),
+    authenticateCurrentSession(),
+  ])
+  const canWriteReports = hasScope(
+    { scopes: roleScopes(session?.role ?? "viewer") },
+    "reports:write"
+  )
 
   return (
     <>
@@ -80,15 +84,17 @@ export default async function ReportsPage({
               Status reports published to your status page
             </p>
           </div>
-          <Link
-            className={cn(
-              buttonVariants({ variant: "primary", size: "sm" }),
-              "px-3"
-            )}
-            href="/incidents/reports/new"
-          >
-            Create Status Report
-          </Link>
+          {canWriteReports ? (
+            <Link
+              className={cn(
+                buttonVariants({ variant: "primary", size: "sm" }),
+                "px-3"
+              )}
+              href="/incidents/reports/new"
+            >
+              Create Status Report
+            </Link>
+          ) : null}
         </div>
         <IncidentsTabs className="mt-4" />
       </header>
@@ -98,9 +104,12 @@ export default async function ReportsPage({
       </div>
 
       {reports.length === 0 ? (
-        <ReportsEmpty filtered={state !== "all" || type !== "all"} />
+        <ReportsEmpty
+          canWriteReports={canWriteReports}
+          filtered={state !== "all" || type !== "all"}
+        />
       ) : (
-        <ReportList reports={reports} />
+        <ReportList canWriteReports={canWriteReports} reports={reports} />
       )}
       <ReportListPagination
         cursor={cursorParam}

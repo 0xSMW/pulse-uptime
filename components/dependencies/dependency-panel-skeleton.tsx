@@ -11,7 +11,7 @@ export function DependencyPanelSkeleton() {
       role="status"
     >
       <div className="h-5 w-32 animate-pulse rounded bg-[var(--chip-bg)]" />
-      <div className="mt-4 overflow-hidden rounded-xl border border-[var(--border)]">
+      <div className="mt-4 overflow-hidden rounded-xl border border-[var(--border-strong)]">
         {Array.from({ length: 2 }, (_, index) => (
           <div
             className="flex h-[60px] items-center gap-4 border-[var(--border)] border-b px-6 last:border-0"

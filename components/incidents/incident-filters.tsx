@@ -3,17 +3,39 @@ import Link from "next/link"
 import type { IncidentFilter } from "@/components/incidents/types"
 import { cn } from "@/lib/utils"
 
-const filters: Array<{ value: IncidentFilter; label: string; href: string }> = [
-  { value: "all", label: "All", href: "/incidents" },
-  { value: "ongoing", label: "Ongoing", href: "/incidents?filter=ongoing" },
-  { value: "resolved", label: "Resolved", href: "/incidents?filter=resolved" },
+const filters: Array<{ value: IncidentFilter; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "ongoing", label: "Ongoing" },
+  { value: "resolved", label: "Resolved" },
 ]
 
-export function IncidentFilters({ active }: { active: IncidentFilter }) {
+// Builds an incidents list URL, keeping the monitor filter across status tabs.
+export function incidentListHref(
+  filter: IncidentFilter,
+  monitorId: string | null = null
+): string {
+  const params = new URLSearchParams()
+  if (filter !== "all") {
+    params.set("filter", filter)
+  }
+  if (monitorId !== null) {
+    params.set("monitor", monitorId)
+  }
+  const query = params.toString()
+  return query ? `/incidents?${query}` : "/incidents"
+}
+
+export function IncidentFilters({
+  active,
+  monitorId = null,
+}: {
+  active: IncidentFilter
+  monitorId?: string | null
+}) {
   return (
     <nav
       aria-label="Incident status"
-      className="flex rounded-md border border-[var(--border-strong)] p-0.5"
+      className="flex shrink-0 rounded-md border border-[var(--border-strong)] p-0.5"
     >
       {filters.map((filter) => (
         <Link
@@ -22,7 +44,7 @@ export function IncidentFilters({ active }: { active: IncidentFilter }) {
             "rounded px-3 py-1.5 font-medium text-[var(--fg-muted)] text-xs hover:text-[var(--fg)]",
             active === filter.value && "bg-[var(--chip-bg)] text-[var(--fg)]"
           )}
-          href={filter.href}
+          href={incidentListHref(filter.value, monitorId)}
           key={filter.value}
         >
           {filter.label}

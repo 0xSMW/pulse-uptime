@@ -64,6 +64,16 @@ describe("TeamSettings", () => {
     expect(html).toContain("Never")
   })
 
+  it("wraps long member names and emails instead of truncating", () => {
+    const email = "a-very-long-operator-address@subdomain.example-company.com"
+    const html = markup({
+      users: [{ ...data.users[1]!, email, name: "Operator With Long Name" }],
+    })
+    expect(html).not.toContain("truncate")
+    expect(html).not.toContain(`title="${email}"`)
+    expect(html).toMatch(new RegExp(`wrap-anywhere[^>]*>${email}<`))
+  })
+
   it("lists pending invites with revoke and the single-use note", () => {
     const html = markup()
     expect(html).toContain("Pending Invite")

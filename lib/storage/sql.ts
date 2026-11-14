@@ -301,7 +301,7 @@ limit $4
 // is due.
 export const RECENT_MINUTE_CHECK_TAIL_COUNTS_SQL = `
 with positioned as (
-  select array_position(batch.monitor_ids, $1::text) position,
+  select batch.scheduled_minute, array_position(batch.monitor_ids, $1::text) position,
     batch.expected_bitmap, batch.completed_bitmap, batch.failure_bitmap
   from check_batches batch
   where batch.scheduled_minute >= $2 and batch.scheduled_minute < $3
@@ -309,7 +309,7 @@ with positioned as (
       or batch.scheduled_minute < $4::timestamptz
       or batch.scheduled_minute >= $5::timestamptz)
 ), bits as (
-  select
+  select positioned.scheduled_minute,
     ((get_byte(positioned.expected_bitmap, ((positioned.position - 1) / 8)::integer) >> (((positioned.position - 1) % 8)::integer)) & 1) expected,
     ((get_byte(positioned.completed_bitmap, ((positioned.position - 1) / 8)::integer) >> (((positioned.position - 1) % 8)::integer)) & 1) completed,
     ((get_byte(positioned.failure_bitmap, ((positioned.position - 1) / 8)::integer) >> (((positioned.position - 1) % 8)::integer)) & 1) failed
@@ -320,7 +320,17 @@ select
   count(*) filter (where bits.expected = 1)::integer expected,
   count(*) filter (where bits.expected = 1 and bits.completed = 1)::integer completed,
   count(*) filter (where bits.expected = 1 and bits.completed = 1 and bits.failed = 0)::integer successful,
-  count(*) filter (where bits.expected = 1 and bits.completed = 1 and bits.failed = 1)::integer failed
+  count(*) filter (where bits.expected = 1 and bits.completed = 1 and bits.failed = 1)::integer failed,
+  count(*) filter (
+    where bits.expected = 1 and bits.completed = 1 and bits.failed = 1
+      and exists (
+        select 1 from incident_exclusion_checks exclusion_check
+        join incident_exclusions exclusion on exclusion.id = exclusion_check.exclusion_id
+        where exclusion.reverted_at is null and exclusion_check.failed
+          and exclusion_check.monitor_id = $1::text
+          and exclusion_check.scheduled_minute = bits.scheduled_minute
+      )
+  )::integer excluded
 from bits
 `
 

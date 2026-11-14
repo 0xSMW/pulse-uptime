@@ -32,7 +32,7 @@ function ScopeChips({ scopes }: { scopes: string[] }) {
   const visible = scopes.slice(0, VISIBLE_SCOPES)
   const overflow = scopes.length - visible.length
   return (
-    <div className="flex max-w-[360px] items-center gap-1 whitespace-nowrap">
+    <div className="flex max-w-[360px] flex-wrap items-center gap-1">
       {visible.map((scope) => (
         <span
           className="rounded-full bg-[var(--chip-bg)] px-2 py-0.5 font-data text-[11px]"
@@ -190,13 +190,10 @@ export function AccessSettings({ data }: { data: AccessSettingsData }) {
                   key={`${token.kind}-${token.id}`}
                 >
                   <td className="px-6">
-                    <div
-                      className="max-w-[240px] truncate font-medium"
-                      title={token.name}
-                    >
+                    <div className="wrap-anywhere max-w-[240px] font-medium">
                       {token.name}
                     </div>
-                    <div className="max-w-[240px] truncate whitespace-nowrap text-[var(--fg-faint)] text-xs">
+                    <div className="wrap-anywhere max-w-[240px] text-[var(--fg-faint)] text-xs">
                       {token.kind === "agent"
                         ? "Agent token"
                         : `CLI session${token.detail ? ` · ${token.detail}` : ""}`}

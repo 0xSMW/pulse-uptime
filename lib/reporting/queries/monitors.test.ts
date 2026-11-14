@@ -1,3 +1,16 @@
+const exclusionRows = vi.hoisted(() => ({
+  slots: [] as Array<{
+    monitorId: string
+    scheduledMinute: Date
+    failed: boolean
+    downtimeSeconds: number
+  }>,
+}))
+vi.mock("@/lib/incidents/exclusions", () => ({
+  loadExclusionSlots: async () => exclusionRows.slots,
+  loadIncidentExclusionStatuses: async () => new Map(),
+}))
+
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("server-only", () => ({}))
@@ -127,6 +140,7 @@ function mockUnsafeBySql(
 }
 
 beforeEach(() => {
+  exclusionRows.slots = []
   vi.useFakeTimers()
   vi.setSystemTime(NOW)
   dbMock.select.mockReset()
@@ -426,5 +440,64 @@ describe("selectRecentRollupWindow", () => {
     expect(
       selectRecentRollupWindow([rowAt("2026-07-10T00:00:00Z")], cutoff, end)
     ).toEqual([])
+  })
+})
+
+describe("live exclusion reporting", () => {
+  it("adjusts live uptime, preserves coverage and failed evidence, and refreshes the same bucket after undo", async () => {
+    const at = new Date("2026-07-19T08:01:00Z")
+    exclusionRows.slots = [
+      {
+        monitorId: "site-home",
+        scheduledMinute: at,
+        failed: true,
+        downtimeSeconds: 60,
+      },
+    ]
+    const queueSnapshot = () => {
+      dbMock.select
+        .mockReturnValueOnce(
+          selectChain([
+            identity({ activatedAt: new Date("2026-07-01T00:00:00Z") }),
+          ])
+        )
+        .mockReturnValueOnce(
+          selectChain([
+            rollup({
+              expectedChecks: 3,
+              completedChecks: 3,
+              successfulChecks: 2,
+              failedChecks: 1,
+              downtimeSeconds: 60,
+            }),
+          ])
+        )
+        .mockReturnValueOnce(selectChain([]))
+        .mockReturnValueOnce(selectChain([{ acceptedAt: null }]))
+    }
+    mockUnsafeBySql({
+      recent: [
+        { checked_at: at, completed: true, failed: true, latency_ms: 100 },
+      ],
+    })
+    queueSnapshot()
+    const active = await findMonitorLive("site-home")
+    expect(active!.uptime.h24).toBe(100)
+    expect(active!.coverage.h24).toBe(1)
+    expect(active?.recentChecks[0]).toMatchObject({
+      successful: false,
+      excluded: true,
+      resultLabel: "Excluded",
+    })
+    exclusionRows.slots = []
+    queueSnapshot()
+    const restored = await findMonitorLive("site-home")
+    expect(restored!.uptime.h24).toBeCloseTo(200 / 3)
+    expect(restored!.coverage.h24).toBe(1)
+    expect(restored?.recentChecks[0]).toMatchObject({
+      successful: false,
+      resultLabel: "Failed",
+    })
+    expect(restored?.rollupVersion).not.toBe(active?.rollupVersion)
   })
 })

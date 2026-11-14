@@ -13,11 +13,17 @@ import {
 } from "@/lib/db/schema"
 import { listOverlappingDependencyIncidents } from "@/lib/dependencies/overlap"
 import { domainHealthByMonitorId } from "@/lib/domain-health/queries"
+import type { ExclusionSlot } from "@/lib/incidents/exclusions"
+import {
+  loadExclusionSlots,
+  loadIncidentExclusionStatuses,
+} from "@/lib/incidents/exclusions"
 import type { VisibleMonitorState } from "@/lib/monitoring/types"
 import {
   RECENT_MINUTE_CHECK_TAIL_COUNTS_SQL,
   RECENT_MINUTE_CHECKS_SQL,
 } from "@/lib/storage/sql"
+import { exclusionVersion, overlayExclusions } from "./exclusions"
 
 import {
   type AvailabilityRange,
@@ -116,13 +122,14 @@ const ROLLUP_COLUMNS = {
 
 // Fetches one resolution's buckets in [end - durationMs, end), ordered oldest
 // first so the last row is the most recent completed bucket.
-function fetchRollups(
+async function fetchRollups(
   id: string,
   resolution: "15m" | "hour" | "day",
   end: Date,
-  durationMs: number
+  durationMs: number,
+  exclusions: readonly ExclusionSlot[]
 ) {
-  return db
+  const rows = await db
     .select(ROLLUP_COLUMNS)
     .from(metricRollups)
     .where(
@@ -134,6 +141,7 @@ function fetchRollups(
       )
     )
     .orderBy(metricRollups.bucketStart)
+  return overlayExclusions(rows, exclusions, resolution, id)
 }
 
 // Load identity without rollups. React cache shares the indexed lookup between
@@ -230,6 +238,7 @@ interface RawTailCountsDbRow {
   completed: number | string
   successful: number | string
   failed: number | string
+  excluded?: number | string
 }
 
 // Aggregates the raw post-activation minutes no rollup counts into observed
@@ -267,6 +276,7 @@ export async function getRawTailCounts(
       completed: Number(row.completed) || 0,
       successful: Number(row.successful) || 0,
       failed: Number(row.failed) || 0,
+      ...(Number(row.excluded) > 0 ? { excluded: Number(row.excluded) } : {}),
     }
   } catch {
     return EMPTY_TAIL_COUNTS
@@ -288,6 +298,16 @@ export async function findMonitorDetail(id: string) {
   const end15m = completedRangeEnd(now, "15m")
   const endHour = completedRangeEnd(now, "hour")
   const endDay = completedRangeEnd(now, "day")
+  const exclusions = await loadExclusionSlots(
+    [id],
+    new Date(endDay.getTime() - 90 * 86_400_000),
+    now
+  )
+  const excludedMinutes = new Set(
+    exclusions
+      .filter((slot) => slot.failed)
+      .map((slot) => slot.scheduledMinute.getTime())
+  )
   const [
     rollups7d,
     rollups30d,
@@ -298,9 +318,9 @@ export async function findMonitorDetail(id: string) {
     rawAvailability24h,
     domainHealthById,
   ] = await Promise.all([
-    fetchRollups(id, "15m", end15m, 7 * 86_400_000),
-    fetchRollups(id, "hour", endHour, 30 * 86_400_000),
-    fetchRollups(id, "day", endDay, 90 * 86_400_000),
+    fetchRollups(id, "15m", end15m, 7 * 86_400_000, exclusions),
+    fetchRollups(id, "hour", endHour, 30 * 86_400_000, exclusions),
+    fetchRollups(id, "day", endDay, 90 * 86_400_000, exclusions),
     activatedAt === null
       ? Promise.resolve([])
       : db
@@ -332,13 +352,27 @@ export async function findMonitorDetail(id: string) {
     domainHealthByMonitorId([{ id: monitor.id, url: monitor.url }]),
   ])
 
+  const exclusionStatuses = await loadIncidentExclusionStatuses(
+    recentIncidents.map((incident) => incident.id)
+  )
+  const labeledIncidents = recentIncidents.map((incident) => ({
+    ...incident,
+    exclusionStatus: exclusionStatuses.get(incident.id) ?? null,
+  }))
+
   // Derive the last 24 hours from the fetched seven days of rollups.
   const rollups24h = selectRecentRollupWindow(
     rollups7d,
     end15m.getTime() - 86_400_000,
     end15m.getTime()
   )
-  const activeRawChecks = rawChecksSinceActivation(recentRawChecks, activatedAt)
+  const activeRawChecks = rawChecksSinceActivation(
+    recentRawChecks,
+    activatedAt
+  ).map((check) => ({
+    ...check,
+    excluded: check.failed && excludedMinutes.has(check.checked_at.getTime()),
+  }))
 
   const activeRollups24h = rollupsSinceActivation(rollups24h, activatedAt)
   const observed24h = summarizeCounts(activeRollups24h)
@@ -411,7 +445,7 @@ export async function findMonitorDetail(id: string) {
   // so attach the dependency overlaps onto that result rather than the removed
   // hand-built object. Overlaps ride the detail snapshot only, the live poll
   // stays lean, and a full refresh recomputes them.
-  const builtLatestIncident = buildLatestIncident(recentIncidents, now)
+  const builtLatestIncident = buildLatestIncident(labeledIncidents, now)
   const latestIncidentWithOverlaps = builtLatestIncident
     ? { ...builtLatestIncident, overlaps: latestIncidentOverlaps }
     : null
@@ -485,7 +519,7 @@ export async function findMonitorDetail(id: string) {
       d90: isRangeUnlocked("d90", activatedAt, endDay),
     } satisfies Record<AvailabilityRange, boolean>,
     firstRun: buildFirstRun(monitor, observedCollecting, now),
-    rollupVersion: rollupVersionOf(rollups7d),
+    rollupVersion: `${rollupVersionOf(rollups7d) ?? "none"}:${exclusionVersion(exclusions)}`,
     // The accepted snapshot governs every field the config drives above, so its
     // acceptedAt is the opaque change token the live poll watches to land an
     // out-of-band config edit on a paused monitor whose rollup version never advances.
@@ -507,7 +541,12 @@ export async function findMonitorDetail(id: string) {
         start: new Date(end15m.getTime() - 86_400_000).toISOString(),
         buckets: buildRollupTimeline(
           rollupsSinceActivation(
-            blendRawAvailability(rollups24h, rawAvailability24h),
+            blendRawAvailability(
+              rollups24h,
+              overlayExclusions(rawAvailability24h, exclusions, "15m", id, {
+                raw: true,
+              })
+            ),
             activatedAt
           ),
           60,
@@ -552,7 +591,7 @@ export async function findMonitorDetail(id: string) {
       d30: responsePoints(rollupsSinceActivation(rollups30d, activatedAt)),
     },
     latestIncident: latestIncidentWithOverlaps,
-    recentIncidents: buildRecentIncidents(recentIncidents, now),
+    recentIncidents: buildRecentIncidents(labeledIncidents, now),
     // Recent Checks hide pre-activation setup minutes the same way uptime,
     // timelines, latency, and incidents do. The raw path filters to checks at or
     // after activation, and the rollup fallback reuses rollupsSinceActivation, so
@@ -594,9 +633,19 @@ export async function findMonitorLive(
   const end15m = completedRangeEnd(now, "15m")
   const endHour = completedRangeEnd(now, "hour")
   const endDay = completedRangeEnd(now, "day")
+  const exclusions = await loadExclusionSlots(
+    [id],
+    new Date(endDay.getTime() - 90 * 86_400_000),
+    now
+  )
+  const excludedMinutes = new Set(
+    exclusions
+      .filter((slot) => slot.failed)
+      .map((slot) => slot.scheduledMinute.getTime())
+  )
   const [rollups7d, recentIncidents, recentRawChecks, accepted] =
     await Promise.all([
-      fetchRollups(id, "15m", end15m, 7 * 86_400_000),
+      fetchRollups(id, "15m", end15m, 7 * 86_400_000, exclusions),
       includeIncidents && activatedAt !== null
         ? db
             .select()
@@ -623,12 +672,26 @@ export async function findMonitorLive(
         .limit(1),
     ])
 
+  const exclusionStatuses = await loadIncidentExclusionStatuses(
+    recentIncidents.map((incident) => incident.id)
+  )
+  const labeledIncidents = recentIncidents.map((incident) => ({
+    ...incident,
+    exclusionStatus: exclusionStatuses.get(incident.id) ?? null,
+  }))
+
   const rollups24h = selectRecentRollupWindow(
     rollups7d,
     end15m.getTime() - 86_400_000,
     end15m.getTime()
   )
-  const activeRawChecks = rawChecksSinceActivation(recentRawChecks, activatedAt)
+  const activeRawChecks = rawChecksSinceActivation(
+    recentRawChecks,
+    activatedAt
+  ).map((check) => ({
+    ...check,
+    excluded: check.failed && excludedMinutes.has(check.checked_at.getTime()),
+  }))
   const activeRollups24h = rollupsSinceActivation(rollups24h, activatedAt)
   const observed24h = summarizeCounts(activeRollups24h)
   // The collecting card folds the raw minutes no rollup counts onto the completed
@@ -681,8 +744,8 @@ export async function findMonitorLive(
       d90: isRangeUnlocked("d90", activatedAt, endDay),
     },
     firstRun: buildFirstRun(monitor, observedCollecting, now),
-    latestIncident: buildLatestIncident(recentIncidents, now),
-    recentIncidents: buildRecentIncidents(recentIncidents, now),
+    latestIncident: buildLatestIncident(labeledIncidents, now),
+    recentIncidents: buildRecentIncidents(labeledIncidents, now),
     // Recent Checks hide pre-activation setup minutes the same way uptime,
     // timelines, latency, and incidents do, so the live poll stays consistent
     // with the detail snapshot. A null activation yields an empty list.
@@ -690,7 +753,7 @@ export async function findMonitorLive(
       activeRawChecks.length > 0
         ? buildRecentChecksFromRaw(activeRawChecks)
         : buildRecentChecks(rollupsSinceActivation(rollups24h, activatedAt)),
-    rollupVersion: rollupVersionOf(rollups7d),
+    rollupVersion: `${rollupVersionOf(rollups7d) ?? "none"}:${exclusionVersion(exclusions)}`,
     acceptedConfigToken: accepted[0]?.acceptedAt?.toISOString() ?? null,
     // The completed 15-minute boundary the h24 and d7 scores read against. The
     // client refreshes once when it advances so the server recomputes the

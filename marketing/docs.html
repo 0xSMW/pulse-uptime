@@ -682,6 +682,27 @@ vercel deploy --prod --scope &lt;team&gt;</code></pre>
                     <td>Canonical deployment URL.</td>
                   </tr>
                   <tr>
+                    <td>PULSE_MONITOR_BYPASS_URL</td>
+                    <td>No</td>
+                    <td>
+                      Exact HTTPS URL allowed to receive a private firewall
+                      header. Initial GET only, including path and query. All
+                      redirects strip the header.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>PULSE_MONITOR_BYPASS_SECRET</td>
+                    <td>No</td>
+                    <td>
+                      Server-only value for <code>x-pulse-monitor-key</code>.
+                      Generate with <code>openssl rand -hex 32</code> and match
+                      its exact value, host, path, method, and HTTPS scheme in a
+                      custom firewall bypass rule. Set both bypass variables
+                      together and redeploy. Never log the header. Invalid or
+                      incomplete configuration fails checks without requests.
+                    </td>
+                  </tr>
+                  <tr>
                     <td>NEXT_PUBLIC_STATUS_PAGE_NAME</td>
                     <td>No</td>
                     <td>
@@ -1222,6 +1243,24 @@ vercel deploy --prod --scope &lt;team&gt;</code></pre>
               timestamps, and which notifications were delivered. Incidents open
               only after the failure threshold confirms an outage, so flapping
               checks don't page you.
+            </p>
+            <p>
+              When a firewall or monitoring configuration causes a false alarm,
+              open the incident and choose <strong>Mark false alarm</strong>.
+              Review the fixed interval, affected failed checks, and 24-hour
+              uptime preview. Narrow the interval if needed, enter a reason,
+              then choose <strong>Exclude from downtime</strong>. Administrators
+              can undo the correction from the same incident.
+            </p>
+            <p>
+              Selected failures stop counting toward uptime and downtime.
+              Successful checks and execution coverage stay unchanged. Excluded
+              timeline segments are neutral, and the excluded check count
+              remains visible. The original evidence and private audit history
+              are preserved. Public history labels the monitoring error without
+              exposing the reason. Corrections never hide future failures or
+              change the monitor's live state. Complete retained check evidence
+              is required to create a correction.
             </p>
 
             <div class="dv-frame ui-mock">
@@ -2809,6 +2848,31 @@ pulsectl incident get 8f4e2c10-…</code></pre>
                 </figure>
               </div>
             </div>
+          </div>
+
+          <div class="docs-sub">
+            <h3>Incident corrections</h3>
+            <p>
+              <code
+                >POST /api/v1/incidents/ { incidentId}/exclusions/preview</code
+              >
+              accepts optional <code>startAt</code> and <code>endAt</code> ISO
+              timestamps and returns fixed bounds, affected checks, a 24-hour
+              uptime comparison, and <code>previewVersion</code>.
+            </p>
+            <p>
+              <code>POST /api/v1/incidents/ { incidentId}/exclusions</code>
+              applies those bounds with <code>reason</code> and
+              <code>previewVersion</code>.
+              <code
+                >POST /api/v1/incidents/ { incidentId}/exclusions/ {
+                exclusionId}/undo</code
+              >
+              restores the contribution with an empty JSON body. All three
+              require <code>monitors:write</code>. Apply and undo also require a
+              UUID <code>Idempotency-Key</code>. Refresh the preview if the
+              server reports changed evidence.
+            </p>
           </div>
 
           <!-- ---- Status ---- -->

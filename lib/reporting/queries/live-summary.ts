@@ -38,6 +38,7 @@ export interface LiveIncidentRow {
   resolvedAt: Date | null
   openingErrorCode: string | null
   openingStatusCode: number | null
+  exclusionStatus?: "full" | "partial" | null
 }
 
 export interface LiveRollupRow {
@@ -45,6 +46,7 @@ export interface LiveRollupRow {
   expectedChecks: number
   completedChecks: number
   failedChecks: number
+  excludedChecks?: number
   unknownChecks: number
   latencyCount: number
   latencySumMs: bigint
@@ -57,6 +59,7 @@ export interface LiveLatestIncident {
   resolvedAt: string | null
   durationSeconds: number
   openingFailure: string
+  exclusionStatus?: "full" | "partial" | null
 }
 
 export interface LiveRecentIncident {
@@ -64,12 +67,14 @@ export interface LiveRecentIncident {
   openedAt: string
   durationSeconds: number
   openingFailure: string
+  exclusionStatus?: "full" | "partial" | null
 }
 
 export interface LiveRecentCheck {
   id: string
   checkedAt: string
   successful: boolean
+  excluded?: boolean
   statusCode: number | null
   resultLabel: string
   latencyMs: number | null
@@ -79,7 +84,12 @@ export interface MonitorFirstRun {
   phase: MonitorPhase
   activatedAt: string | null
   observedSeconds: number
-  observed: { uptime: number | null; completed: number; expected: number }
+  observed: {
+    uptime: number | null
+    completed: number
+    expected: number
+    excluded?: number
+  }
   setupError: string | null
   lastCheckedAt: string | null
 }
@@ -148,6 +158,9 @@ export function buildLatestIncident(
   }
   return {
     id: latest.id,
+    ...(latest.exclusionStatus
+      ? { exclusionStatus: latest.exclusionStatus }
+      : {}),
     state: latest.resolvedAt ? "RESOLVED" : "ONGOING",
     openedAt: latest.openedAt.toISOString(),
     resolvedAt: latest.resolvedAt?.toISOString() ?? null,
@@ -165,6 +178,9 @@ export function buildRecentIncidents(
 ): LiveRecentIncident[] {
   return rows.map((incident) => ({
     id: incident.id,
+    ...(incident.exclusionStatus
+      ? { exclusionStatus: incident.exclusionStatus }
+      : {}),
     openedAt: incident.openedAt.toISOString(),
     durationSeconds: secondsBetween(
       incident.openedAt,
@@ -182,6 +198,7 @@ export interface RawMinuteCheck {
   completed: boolean
   failed: boolean
   latency_ms: number | null
+  excluded?: boolean
 }
 
 // Keeps only raw minute checks recorded at or after activation. A raw row's
@@ -214,13 +231,30 @@ export function buildRecentChecksFromRaw(
     checkedAt: check.checked_at.toISOString(),
     successful: check.completed && !check.failed,
     statusCode: null,
-    resultLabel: check.completed
-      ? check.failed
-        ? "Failed"
-        : "Passed"
-      : "No response recorded",
+    ...(check.excluded ? { excluded: true } : {}),
+    resultLabel: check.excluded
+      ? "Excluded"
+      : check.completed
+        ? check.failed
+          ? "Failed"
+          : "Passed"
+        : "No response recorded",
     latencyMs: check.latency_ms,
   }))
+}
+
+// The excluded count appears once. A bucket whose only failures are excluded
+// reads as the count alone rather than "Excluded checks · N excluded".
+function rollupResultLabel(rollup: LiveRollupRow): string {
+  const excluded = rollup.excludedChecks ?? 0
+  const excludedSuffix = excluded > 0 ? ` · ${excluded} excluded` : ""
+  if (rollup.unknownChecks > 0) {
+    return `Unknown coverage${excludedSuffix}`
+  }
+  if (rollup.failedChecks > excluded) {
+    return `Failed checks${excludedSuffix}`
+  }
+  return excluded > 0 ? `${excluded} excluded` : "Passed"
 }
 
 export function buildRecentChecks(
@@ -236,12 +270,11 @@ export function buildRecentChecks(
         rollup.failedChecks === 0 &&
         rollup.completedChecks === rollup.expectedChecks,
       statusCode: null,
-      resultLabel:
-        rollup.unknownChecks > 0
-          ? "Unknown coverage"
-          : rollup.failedChecks > 0
-            ? "Failed checks"
-            : "Healthy rollup",
+      ...((rollup.excludedChecks ?? 0) > 0 &&
+      rollup.failedChecks === rollup.excludedChecks
+        ? { excluded: true }
+        : {}),
+      resultLabel: rollupResultLabel(rollup),
       latencyMs:
         rollup.latencyCount === 0
           ? null
@@ -257,6 +290,7 @@ export interface RawTailCounts {
   completed: number
   successful: number
   failed: number
+  excluded?: number
 }
 
 // The two boundaries that carve the raw contribution to the collecting card out
@@ -330,6 +364,7 @@ export function observedWithRawTail(
     completedChecks: number
     successfulChecks: number
     failedChecks: number
+    excludedChecks?: number
   }>,
   tail: RawTailCounts
 ): ObservedCounts {
@@ -338,12 +373,15 @@ export function observedWithRawTail(
   const completed = base.completed + tail.completed
   const successful = base.successful + tail.successful
   const failed = base.failed + tail.failed
+  const excluded = (base.excluded ?? 0) + (tail.excluded ?? 0)
+  const eligible = completed - excluded
   return {
     expected,
     completed,
     successful,
     failed,
-    uptime: completed === 0 ? null : (100 * successful) / completed,
+    ...(excluded > 0 ? { excluded } : {}),
+    uptime: eligible === 0 ? null : (100 * successful) / eligible,
     coverage: expected === 0 ? null : completed / expected,
   }
 }
@@ -373,6 +411,7 @@ export function buildFirstRun(
       uptime: observed24h.uptime,
       completed: observed24h.completed,
       expected: observed24h.expected,
+      ...(observed24h.excluded ? { excluded: observed24h.excluded } : {}),
     },
     setupError:
       phase === "setup" && (monitor.consecutiveFailures ?? 0) > 0

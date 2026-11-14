@@ -50,6 +50,26 @@ describe("MonitorsSettings", () => {
     expect(html).toMatch(/whitespace-nowrap[^>]*>GET · 1m · 8s timeout</)
   })
 
+  it("wraps long monitor names, URLs, and group names instead of truncating", () => {
+    const url =
+      "https://api.example.com/v2/health/checks/deep?region=ap-southeast-1&probe=uptime"
+    const html = renderToStaticMarkup(
+      <MonitorsSettings
+        data={{
+          ...data,
+          monitors: [{ ...data.monitors[0]!, url }],
+          groups: [
+            { id: "core", name: "Core-services-production", monitorCount: 1 },
+          ],
+        }}
+      />
+    )
+    expect(html).not.toContain("truncate")
+    expect(html).toContain(url.replaceAll("&", "&amp;"))
+    expect(html).toMatch(/wrap-anywhere[^>]*>Core-services-production</)
+    expect(html).toMatch(/wrap-anywhere[^>]*>Pulse\/1.0</)
+  })
+
   it("guards deletion of non-empty groups and allows it for empty ones", () => {
     const html = renderToStaticMarkup(<MonitorsSettings data={data} />)
     expect(html).toContain("Move monitors before deleting")

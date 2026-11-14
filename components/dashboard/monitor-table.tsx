@@ -12,6 +12,7 @@ import {
 } from "@/components/monitors/expiry-chip"
 import {
   StatusDot,
+  stateLabels,
   type VisibleMonitorState,
 } from "@/components/monitors/status-dot"
 import {
@@ -93,14 +94,6 @@ export function navigateFromMonitorRow(
     `/monitors/${encodeURIComponent(monitorId)}`,
     navigate
   )
-}
-
-function stateLabel(state: VisibleMonitorState): string {
-  return state
-    .toLowerCase()
-    .split("_")
-    .map((part) => part[0]?.toUpperCase() + part.slice(1))
-    .join(" ")
 }
 
 export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
@@ -199,7 +192,7 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
           </kbd>
         )}
       </div>
-      <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
+      <div className="hide-scrollbar overflow-x-auto rounded-xl border border-[var(--border-strong)]">
         <table className="w-full min-w-[960px] border-collapse text-left text-[13px]">
           <thead className="text-[var(--fg-muted)] text-xs">
             <tr className="h-10 border-[var(--border)] border-b">
@@ -242,15 +235,15 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
                 onMouseLeave={handleRowMouseLeave}
               >
                 <td className="px-6">
-                  <span className="inline-flex items-center gap-2">
+                  <span className="inline-flex items-center gap-2 whitespace-nowrap">
                     <StatusDot state={monitor.state} />
-                    {stateLabel(monitor.state)}
+                    {stateLabels[monitor.state]}
                   </span>
                 </td>
-                <td className="px-4">
-                  <span className="inline-flex max-w-[320px] items-center gap-2">
+                <td className="px-4 py-2">
+                  <span className="flex max-w-[320px] items-center gap-2">
                     <Link
-                      className="truncate font-medium"
+                      className="min-w-0 break-words font-medium [overflow-wrap:anywhere]"
                       href={`/monitors/${encodeURIComponent(monitor.id)}`}
                       onClick={(event) => {
                         if (isPlainLeftClick(event)) {
@@ -262,8 +255,10 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
                       {monitor.name}
                     </Link>
                   </span>
-                  <div className="flex max-w-[320px] items-center gap-2 font-data text-[var(--fg-muted)] text-xs">
-                    <span className="min-w-0 truncate">{monitor.url}</span>
+                  <div className="flex max-w-[320px] flex-wrap items-center gap-x-2 gap-y-1 font-data text-[var(--fg-muted)] text-xs">
+                    <span className="min-w-0 [overflow-wrap:anywhere]">
+                      {monitor.url}
+                    </span>
                     <ExpiryInlineWarnings
                       warnings={expiryWarnings(
                         monitor.certExpiresAt,
@@ -275,6 +270,17 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
                 </td>
                 <td className="px-4 text-right font-data">
                   {uptime24hLabel(monitor, new Date())}
+                  {monitor.timeline.some(
+                    (bucket) => (bucket.excludedChecks ?? 0) > 0
+                  ) ? (
+                    <span className="block text-[var(--fg-muted)] text-xs">
+                      {monitor.timeline.reduce(
+                        (sum, bucket) => sum + (bucket.excludedChecks ?? 0),
+                        0
+                      )}{" "}
+                      excluded
+                    </span>
+                  ) : null}
                 </td>
                 <td className="w-[280px] min-w-[220px] px-4">
                   <TimelineBar

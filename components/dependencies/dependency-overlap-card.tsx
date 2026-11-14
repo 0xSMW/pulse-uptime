@@ -32,7 +32,7 @@ export function DependencyOverlapCard({
   return (
     <section
       aria-labelledby="dependency-overlap-title"
-      className="rounded-xl border border-[var(--border)] p-4"
+      className="rounded-xl border border-[var(--border-strong)] p-4"
     >
       <h3 className="font-medium text-[13px]" id="dependency-overlap-title">
         Possible dependency overlap

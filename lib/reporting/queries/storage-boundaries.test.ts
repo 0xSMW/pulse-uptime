@@ -1,3 +1,8 @@
+vi.mock("@/lib/incidents/exclusions", () => ({
+  loadExclusionSlots: async () => [],
+  loadIncidentExclusionStatuses: async () => new Map(),
+}))
+
 import { getTableName } from "drizzle-orm"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -63,6 +68,8 @@ const ALLOWED_REPORTING_TABLES = new Set([
   "monitor_registry",
   "monitor_state",
   "metric_rollups",
+  "incident_exclusions",
+  "incident_exclusion_checks",
   "incidents",
   "monitoring_config_snapshots",
   // Shared daily domain and certificate facts enrich monitor detail.

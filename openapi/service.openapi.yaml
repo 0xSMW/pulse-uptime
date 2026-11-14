@@ -1485,6 +1485,307 @@
         }
       }
     },
+    "/api/v1/incidents/{incidentId}/exclusions/preview": {
+      "post": {
+        "operationId": "previewIncidentExclusion",
+        "tags": [
+          "Incidents"
+        ],
+        "summary": "Preview a false alarm correction",
+        "x-required-scopes": [
+          "monitors:write"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/IncidentId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "startAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "endAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": []
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Preview a false alarm correction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentExclusionPreviewEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid bounds, reason, version, or idempotency key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Preview changed, overlapping correction, or retained evidence unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/v1/incidents/{incidentId}/exclusions": {
+      "post": {
+        "operationId": "applyIncidentExclusion",
+        "tags": [
+          "Incidents"
+        ],
+        "summary": "Exclude a false alarm from downtime",
+        "x-required-scopes": [
+          "monitors:write"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/IncidentId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "startAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "endAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "previewVersion": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "startAt",
+                  "endAt",
+                  "reason",
+                  "previewVersion"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Exclude a false alarm from downtime",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentExclusionEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid bounds, reason, version, or idempotency key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Preview changed, overlapping correction, or retained evidence unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/v1/incidents/{incidentId}/exclusions/{exclusionId}/undo": {
+      "post": {
+        "operationId": "undoIncidentExclusion",
+        "tags": [
+          "Incidents"
+        ],
+        "summary": "Restore an excluded incident contribution",
+        "x-required-scopes": [
+          "monitors:write"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "humanSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/IncidentId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "name": "exclusionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {},
+                "required": []
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Restore an excluded incident contribution",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentExclusionEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid bounds, reason, version, or idempotency key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeDenied"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Preview changed, overlapping correction, or retained evidence unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
     "/api/v1/database-health": {
       "get": {
         "operationId": "getDatabaseHealth",
@@ -3926,7 +4227,7 @@
           "latestIncident": {"type": ["object", "null"], "description": "Latest incident summary. Withheld as null unless the principal holds incidents:read."},
           "recentIncidents": {"type": "array", "items": {"type": "object"}, "description": "Recent incident summaries. Withheld as an empty array unless the principal holds incidents:read."},
           "recentChecks": {"type": "array", "items": {"type": "object"}},
-          "rollupVersion": {"type": ["string", "null"], "description": "Latest completed rollup bucket start. It advances when a new bucket finalizes."},
+          "rollupVersion": {"type": ["string", "null"], "description": "Opaque token for the latest completed rollup and active exclusion evidence. It changes when a new bucket finalizes or a correction is applied or undone."},
           "acceptedConfigToken": {"type": ["string", "null"], "description": "Accepted config snapshot acceptedAt as an opaque change token, not a counter. It advances when a config edit is accepted, so a client refreshes even when no rollup finalizes."},
           "windowVersion": {"type": "string", "format": "date-time", "description": "Completed 15-minute window boundary the h24 and d7 scores read against. It advances every 15 minutes even on a paused monitor, so a client refreshes once to recompute the timeline and chart against the current window."}
         }
@@ -4046,6 +4347,257 @@
             }
           }
         },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "IncidentExclusion": {
+        "type": "object",
+        "required": [
+          "id",
+          "incidentId",
+          "monitorId",
+          "startAt",
+          "endAt",
+          "reason",
+          "createdAt",
+          "createdByPrincipal",
+          "revertedAt",
+          "revertedByPrincipal",
+          "affectedFailedChecks"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "incidentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "monitorId": {
+            "type": "string"
+          },
+          "startAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdByPrincipal": {
+            "type": "string"
+          },
+          "revertedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "revertedByPrincipal": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "affectedFailedChecks": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "IncidentExclusionPreview": {
+        "type": "object",
+        "required": [
+          "incidentId",
+          "monitorId",
+          "startAt",
+          "endAt",
+          "affectedFailedChecks",
+          "windowStart",
+          "windowEnd",
+          "before",
+          "after",
+          "previewVersion"
+        ],
+        "properties": {
+          "incidentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "monitorId": {
+            "type": "string"
+          },
+          "startAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "affectedFailedChecks": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "windowStart": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "windowEnd": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "before": {
+            "type": "object",
+            "required": [
+              "expectedChecks",
+              "completedChecks",
+              "successfulChecks",
+              "failedChecks",
+              "unknownChecks",
+              "uptime",
+              "excludedFailedChecks"
+            ],
+            "properties": {
+              "expectedChecks": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "completedChecks": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "successfulChecks": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "failedChecks": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "unknownChecks": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "uptime": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 100
+              },
+              "excludedFailedChecks": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Observed failures excluded from the completed-check denominator. Observed counts and execution coverage remain unchanged."
+              }
+            }
+          },
+          "after": {
+            "type": "object",
+            "required": [
+              "expectedChecks",
+              "completedChecks",
+              "successfulChecks",
+              "failedChecks",
+              "unknownChecks",
+              "uptime",
+              "excludedFailedChecks"
+            ],
+            "properties": {
+              "expectedChecks": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "completedChecks": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "successfulChecks": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "failedChecks": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "unknownChecks": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "uptime": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 100
+              },
+              "excludedFailedChecks": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Observed failures excluded from the completed-check denominator. Observed counts and execution coverage remain unchanged."
+              }
+            }
+          },
+          "previewVersion": {
+            "type": "string"
+          }
+        }
+      },
+      "IncidentExclusionEnvelope": {
+        "type": "object",
+        "required": [
+          "apiVersion",
+          "kind",
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "const": "IncidentExclusion"
+          },
+          "data": {
+            "$ref": "#/components/schemas/IncidentExclusion"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "IncidentExclusionPreviewEnvelope": {
+        "type": "object",
+        "required": [
+          "apiVersion",
+          "kind",
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ApiVersion"
+          },
+          "kind": {
+            "const": "IncidentExclusionPreview"
+          },
+          "data": {
+            "$ref": "#/components/schemas/IncidentExclusionPreview"
+          },
           "meta": {
             "$ref": "#/components/schemas/Meta"
           }

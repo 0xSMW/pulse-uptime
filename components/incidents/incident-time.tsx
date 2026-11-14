@@ -2,6 +2,7 @@
 
 import { useTimezone } from "@/components/dashboard/timezone-provider"
 import {
+  formatIncidentRange,
   formatIncidentTime,
   formatIncidentTimeOfDay,
 } from "@/components/incidents/incident-format"
@@ -22,4 +23,15 @@ export function IncidentTime({
     return <>{formatIncidentTimeOfDay(value, resolvedTimeZone)}</>
   }
   return <>{formatIncidentTime(value, resolvedTimeZone)}</>
+}
+
+export function IncidentTimeRange({
+  startAt,
+  endAt,
+}: {
+  startAt: string
+  endAt: string
+}) {
+  const { resolvedTimeZone } = useTimezone()
+  return <>{formatIncidentRange(startAt, endAt, resolvedTimeZone)}</>
 }
