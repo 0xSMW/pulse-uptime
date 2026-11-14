@@ -24,7 +24,7 @@ The original checks, incident timestamps, notification history, and live monitor
 
 For an ongoing incident, the proposed interval stops at a completed check. Later failures continue to count and monitoring continues normally. Only one active correction is allowed per incident, and corrections cannot overlap for the same monitor. To change a correction, undo it and apply a new range.
 
-Use **Undo exclusion** on the incident to restore its contribution. Both the original reason and the undo remain in the audit history. Corrections retain their check evidence independently of telemetry retention, so an existing correction can still be undone after raw checks have expired. Creating a new correction requires complete retained check evidence for the selected interval. If that evidence is unavailable, Pulse refuses to guess.
+Use **Undo** on the incident to restore its contribution. Both the original reason and the undo remain in the audit history. Corrections retain their check evidence independently of telemetry retention, so an existing correction can still be undone after raw checks have expired. Creating a new correction requires complete retained check evidence for the selected interval. If that evidence is unavailable, Pulse refuses to guess.
 
 The API exposes preview, apply, and undo under `/api/v1/incidents/{incidentId}/exclusions`. All three require `monitors:write`. Apply and undo require a UUID `Idempotency-Key`. Preview returns fixed, minute-aligned bounds and a version token. Apply sends those bounds, the token, and the required reason. If the evidence changed, refresh the preview before applying. Browser mutations also require a same-origin request.
 

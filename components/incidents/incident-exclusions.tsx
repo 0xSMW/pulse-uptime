@@ -4,17 +4,18 @@ import { useRouter } from "next/navigation"
 import { useEffect, useId, useRef, useState } from "react"
 import useSWR, { useSWRConfig } from "swr"
 
-import { IncidentTime } from "@/components/incidents/incident-time"
+import {
+  IncidentTime,
+  IncidentTimeRange,
+} from "@/components/incidents/incident-time"
 import {
   type ApiEnvelope,
   apiRequest,
   messageForError,
 } from "@/components/settings/settings-api"
 import { Button } from "@/components/ui/button"
-import type {
-  IncidentExclusionPreview,
-  IncidentExclusionRecord,
-} from "@/lib/incidents/exclusions"
+import type { AttributedIncidentExclusion } from "@/lib/incidents/exclusion-attribution"
+import type { IncidentExclusionPreview } from "@/lib/incidents/exclusions"
 
 function localInput(value: string): string {
   const date = new Date(value)
@@ -142,8 +143,10 @@ function ExclusionDialog({
           <div className="space-y-3 text-[13px]">
             <p>Excluded interval</p>
             <p className="font-data text-[var(--fg-muted)]">
-              <IncidentTime value={preview.startAt} /> to{" "}
-              <IncidentTime value={preview.endAt} />
+              <IncidentTimeRange
+                endAt={preview.endAt}
+                startAt={preview.startAt}
+              />
             </p>
           </div>
         ) : null}
@@ -275,7 +278,7 @@ export function IncidentExclusions({
 }: {
   incidentId: string
   monitorId: string
-  exclusions: IncidentExclusionRecord[]
+  exclusions: AttributedIncidentExclusion[]
   canManageMonitors: boolean
   defaultStartAt: string
   defaultEndAt: string | null
@@ -337,22 +340,22 @@ export function IncidentExclusions({
       {exclusions.map((exclusion) => (
         <article className="space-y-2 text-[13px]" key={exclusion.id}>
           <p className="font-medium">
-            {exclusion.revertedAt
-              ? "Exclusion undone"
-              : "Excluded from downtime"}
+            {exclusion.revertedAt ? "Exclusion undone" : "Excluded"}
           </p>
           <p className="font-data text-[var(--fg-muted)]">
-            <IncidentTime value={exclusion.startAt} /> to{" "}
-            <IncidentTime value={exclusion.endAt} />
+            <IncidentTimeRange
+              endAt={exclusion.endAt}
+              startAt={exclusion.startAt}
+            />
           </p>
           <p className="whitespace-pre-wrap break-words">{exclusion.reason}</p>
           <p className="break-words text-[var(--fg-muted)]">
-            {exclusion.createdByPrincipal} ·{" "}
+            {exclusion.createdByLabel} ·{" "}
             <IncidentTime value={exclusion.createdAt} />
           </p>
           {exclusion.revertedAt ? (
             <p className="break-words text-[var(--fg-muted)]">
-              Undone by {exclusion.revertedByPrincipal} ·{" "}
+              Undone by {exclusion.revertedByLabel} ·{" "}
               <IncidentTime value={exclusion.revertedAt} />
             </p>
           ) : canManageMonitors ? (
@@ -362,7 +365,7 @@ export function IncidentExclusions({
               size="sm"
               variant="secondary"
             >
-              Undo exclusion
+              Undo
             </Button>
           ) : null}
         </article>

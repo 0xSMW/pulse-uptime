@@ -9,13 +9,13 @@ import {
 import { SWRConfig } from "swr"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { TimezoneProvider } from "@/components/dashboard/timezone-provider"
-import type { IncidentExclusionRecord } from "@/lib/incidents/exclusions"
+import type { AttributedIncidentExclusion } from "@/lib/incidents/exclusion-attribution"
 import { IncidentExclusions } from "./incident-exclusions"
 
 const refresh = vi.fn()
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }))
 
-const exclusion: IncidentExclusionRecord = {
+const exclusion: AttributedIncidentExclusion = {
   id: "exc-1",
   incidentId: "inc-1",
   monitorId: "mon-1",
@@ -23,7 +23,9 @@ const exclusion: IncidentExclusionRecord = {
   endAt: "2026-11-13T10:10:00.000Z",
   createdAt: "2026-11-13T11:00:00.000Z",
   reason: "Scheduled firewall test",
-  createdByPrincipal: "user:admin",
+  createdByPrincipal: "human:admin",
+  createdByLabel: "Taylor Morgan",
+  revertedByLabel: null,
   revertedAt: null,
   revertedByPrincipal: null,
   affectedFailedChecks: 10,
@@ -62,7 +64,7 @@ afterEach(() => {
 
 function mount(
   canManageMonitors = true,
-  exclusions: IncidentExclusionRecord[] = []
+  exclusions: AttributedIncidentExclusion[] = []
 ) {
   return render(
     <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
@@ -90,27 +92,33 @@ describe("incident exclusions", () => {
       {
         ...exclusion,
         revertedAt: exclusion.createdAt,
-        revertedByPrincipal: "user:owner",
+        revertedByPrincipal: "human:owner",
+        revertedByLabel: "Alex Morgan",
       },
     ])
     expect(screen.queryByRole("button")).toBeNull()
     expect(screen.getByText("Exclusion undone")).toBeTruthy()
     expect(screen.getByText("Scheduled firewall test")).toBeTruthy()
-    expect(screen.getByText(/Undone by user:owner/)).toBeTruthy()
+    expect(screen.getByText(/Taylor Morgan/)).toBeTruthy()
+    expect(screen.queryByText(/human:/)).toBeNull()
+    expect(screen.getByText(/Undone by Alex Morgan/)).toBeTruthy()
   })
 
   it("offers a new exclusion only after the active exclusion is undone", () => {
     const active = mount(true, [exclusion])
+    expect(screen.getByText("Excluded")).toBeTruthy()
+    expect(screen.queryByText("Excluded from downtime")).toBeNull()
     expect(
       screen.queryByRole("button", { name: "Mark false alarm" })
     ).toBeNull()
-    expect(screen.getByRole("button", { name: "Undo exclusion" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Undo" })).toBeTruthy()
     active.unmount()
     mount(true, [
       {
         ...exclusion,
         revertedAt: exclusion.createdAt,
-        revertedByPrincipal: "user:owner",
+        revertedByPrincipal: "human:owner",
+        revertedByLabel: "Alex Morgan",
       },
     ])
     expect(
@@ -235,11 +243,13 @@ describe("incident exclusions", () => {
       )
     vi.stubGlobal("fetch", fetcher)
     mount(true, [exclusion])
-    fireEvent.click(screen.getByRole("button", { name: "Undo exclusion" }))
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }))
     await waitFor(() => expect(fetcher).toHaveBeenCalled())
     expect(fetcher.mock.calls[0]?.[0]).toBe(
       "/api/v1/incidents/inc-1/exclusions/exc-1/undo"
     )
     expect(screen.getByText("Scheduled firewall test")).toBeTruthy()
+    expect(screen.getByText(/Taylor Morgan/)).toBeTruthy()
+    expect(screen.queryByText(/human:/)).toBeNull()
   })
 })

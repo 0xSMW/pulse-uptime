@@ -16,6 +16,7 @@ import type { IncidentDetail } from "@/components/incidents/types"
 import { WriteReportButton } from "@/components/incidents/write-report-button"
 import { hasScope, roleScopes } from "@/lib/api/scopes"
 import { authenticateCurrentSession } from "@/lib/auth/session"
+import { withExclusionAttribution } from "@/lib/incidents/exclusion-attribution"
 import { listIncidentExclusions } from "@/lib/incidents/exclusions"
 import { findIncidentDetail } from "@/lib/reporting/queries/incidents"
 
@@ -35,7 +36,9 @@ export default async function IncidentDetailPage({
     { scopes: roleScopes(session?.role ?? "viewer") },
     "monitors:write"
   )
-  const exclusions = await listIncidentExclusions(incident.id)
+  const exclusions = await withExclusionAttribution(
+    await listIncidentExclusions(incident.id)
+  )
 
   const stats = [
     { label: "Started", value: <IncidentTime value={incident.openedAt} /> },
