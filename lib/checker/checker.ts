@@ -9,6 +9,7 @@ import {
   isIpLiteral,
   normalizeIpLiteral,
 } from "./ip-policy"
+import { privateMonitorHeaders } from "./private-header"
 import {
   createSecureLookup,
   type ResolveAll,
@@ -242,6 +243,7 @@ export function createHttpChecker(dependencies: CheckerDependencies = {}) {
       // flattened into an ordinary schema-validation failure.
       currentUrl = parsePublicHttpUrl(input.url)
       const target = validateCheckTarget(input)
+      const privateHeaders = privateMonitorHeaders(currentUrl, method)
 
       for (;;) {
         const remaining = target.timeoutMs - (now() - startedAt)
@@ -282,6 +284,8 @@ export function createHttpChecker(dependencies: CheckerDependencies = {}) {
             maxRedirections: 0,
             headers: {
               "user-agent": userAgent,
+              // Never forward credentials, even through same-origin redirects.
+              ...(redirects === 0 ? privateHeaders : {}),
               // Content checks scan raw bytes and never decompress. Absent
               // Accept-Encoding permits any coding (RFC 9110 12.5.3), so a
               // CDN's unsolicited gzip would read as a false mismatch.
