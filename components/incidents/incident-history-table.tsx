@@ -136,7 +136,7 @@ export function IncidentHistoryTable({
                 <td className="whitespace-nowrap px-4 font-data">
                   {formatIncidentDuration(incident.durationSeconds)}
                 </td>
-                <td className="wrap-anywhere max-w-52 px-4 py-2 font-data">
+                <td className="wrap-anywhere min-w-28 max-w-52 px-4 py-2 font-data">
                   {incident.openingFailure}
                 </td>
                 <td className="incident-hide-notifications px-4">
