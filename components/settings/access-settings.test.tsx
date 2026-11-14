@@ -91,6 +91,21 @@ describe("AccessSettings", () => {
     expect(html).toContain("5 more scopes:")
   })
 
+  it("wraps token names, details, and scope chips instead of truncating", () => {
+    const name = "deploy-bot-for-the-production-cluster-in-region-ap-southeast"
+    const html = renderToStaticMarkup(
+      <TimezoneProvider>
+        <AccessSettings
+          data={{ ...data, tokens: [{ ...data.tokens[1]!, name }] }}
+        />
+      </TimezoneProvider>
+    )
+    expect(html).not.toContain("truncate")
+    expect(html).not.toContain('whitespace-nowrap">CLI session')
+    expect(html).toMatch(new RegExp(`wrap-anywhere[^>]*>${name}<`))
+    expect(html).toMatch(/flex-wrap[^>]*><span[^>]*>monitors:read</)
+  })
+
   it("renders an empty token state", () => {
     const html = renderToStaticMarkup(
       <TimezoneProvider>

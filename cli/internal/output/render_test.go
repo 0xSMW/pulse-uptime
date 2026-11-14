@@ -2,9 +2,17 @@ package output
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
+
+type errorWriter struct{}
+
+func (errorWriter) Write([]byte) (int, error) {
+	return 0, errors.New("write failed")
+}
 
 func TestTableAlignsMixedWidthCells(t *testing.T) {
 	// Widths count runes, so the em-dash placeholder, glyph cells, and a
@@ -211,5 +219,94 @@ func TestRenderJSONPreservesEnvelope(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"apiVersion": "v1"`) || !strings.HasSuffix(out.String(), "\n") {
 		t.Fatalf("unexpected JSON: %q", out.String())
+	}
+}
+
+func TestRenderStructuredPreservesMachineFormatBytes(t *testing.T) {
+	value := struct {
+		APIVersion string          `json:"apiVersion" yaml:"wrong_api_version"`
+		Data       json.RawMessage `json:"data" yaml:"wrong_data"`
+	}{APIVersion: "v1", Data: json.RawMessage(`{"label":"<api>"}`)}
+	tests := []struct {
+		format string
+		want   string
+	}{
+		{format: "json", want: "{\n  \"apiVersion\": \"v1\",\n  \"data\": {\n    \"label\": \"<api>\"\n  }\n}\n"},
+		{format: "jsonl", want: `{"apiVersion":"v1","data":{"label":"\u003capi\u003e"}}` + "\n"},
+		{format: "yaml", want: "apiVersion: v1\ndata:\n    label: <api>\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.format, func(t *testing.T) {
+			var out bytes.Buffer
+			handled, err := RenderStructured(&out, tt.format, value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !handled {
+				t.Fatal("format was not handled")
+			}
+			if out.String() != tt.want {
+				t.Fatalf("output = %q, want %q", out.String(), tt.want)
+			}
+		})
+	}
+	var out bytes.Buffer
+	handled, err := RenderStructured(&out, "table", value)
+	if err != nil || handled || out.Len() != 0 {
+		t.Fatalf("custom format = handled %t, error %v, output %q", handled, err, out.String())
+	}
+}
+
+func TestRenderStructuredListJSONLWritesRawRecordsOnly(t *testing.T) {
+	records := []json.RawMessage{json.RawMessage(`{"id":"first","label":"<api>"}`), json.RawMessage(`not-json`)}
+	var out bytes.Buffer
+	handled, err := RenderStructuredList(&out, "jsonl", map[string]any{"data": records}, records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !handled {
+		t.Fatal("jsonl was not handled")
+	}
+	want := "{\"id\":\"first\",\"label\":\"<api>\"}\nnot-json\n"
+	if out.String() != want {
+		t.Fatalf("output = %q, want %q", out.String(), want)
+	}
+}
+
+func TestStructuredRenderersReturnWriterErrors(t *testing.T) {
+	if handled, err := RenderStructured(errorWriter{}, "json", map[string]string{"id": "api"}); !handled || err == nil {
+		t.Fatalf("json = handled %t, error %v", handled, err)
+	}
+	if handled, err := RenderStructuredList(errorWriter{}, "jsonl", nil, []json.RawMessage{json.RawMessage(`{"id":"api"}`)}); !handled || err == nil {
+		t.Fatalf("jsonl list = handled %t, error %v", handled, err)
+	}
+}
+
+func TestCursorHintPreservesWordingAndSanitizesCursor(t *testing.T) {
+	malicious := "next\x1b]52;c;copied\x07"
+	var out bytes.Buffer
+	CursorHint(&out, "monitors", &malicious)
+	want := `More monitors available. Continue with --cursor next\x1b]52;c;copied\x07` + "\n"
+	if out.String() != want {
+		t.Fatalf("hint = %q, want %q", out.String(), want)
+	}
+	CursorHint(&out, "monitors", nil)
+	empty := ""
+	CursorHint(&out, "monitors", &empty)
+	if out.String() != want {
+		t.Fatalf("empty cursor changed output: %q", out.String())
+	}
+}
+
+func TestIsMachineMatchesSupportedStructuredAndTabularFormats(t *testing.T) {
+	for _, format := range []string{"json", "jsonl", "yaml", "tsv"} {
+		if !IsMachine(format) {
+			t.Errorf("%q must be machine output", format)
+		}
+	}
+	for _, format := range []string{"", "table", "csv", "JSON"} {
+		if IsMachine(format) {
+			t.Errorf("%q must be human output", format)
+		}
 	}
 }

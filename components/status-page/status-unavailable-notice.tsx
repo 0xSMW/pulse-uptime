@@ -16,7 +16,7 @@ export function StatusUnavailableNotice() {
         Status information is temporarily unavailable
       </h2>
       <p className="mt-2 text-[13px] text-[var(--fg-muted)]">
-        We&rsquo;re working to restore it — refresh in a moment.
+        Please refresh in a moment
       </p>
     </section>
   )

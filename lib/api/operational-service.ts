@@ -1,3 +1,4 @@
+import { loadIncidentExclusionStatuses } from "@/lib/incidents/exclusions"
 import "server-only"
 
 import { and, desc, eq, inArray, isNull, lt, or } from "drizzle-orm"
@@ -47,9 +48,11 @@ function incidentResponse(
     openingErrorCode: string | null
     openingStatusCode: number | null
   },
-  notifications: NotificationRow[]
+  notifications: NotificationRow[],
+  exclusionStatus: "full" | "partial" | null
 ) {
   return {
+    exclusionStatus,
     id: row.id,
     monitorId: row.monitorId,
     monitorName: row.monitorName,
@@ -128,12 +131,17 @@ export function createOperationalService(
                 )
               )
               .limit(4000)
+      const exclusions = await loadIncidentExclusionStatuses(
+        page.map((row) => row.id),
+        database
+      )
       const last = page.at(-1)
       return {
         data: page.map((row) =>
           incidentResponse(
             row,
-            notifications.filter((item) => item.incidentId === row.id)
+            notifications.filter((item) => item.incidentId === row.id),
+            exclusions.get(row.id) ?? null
           )
         ),
         nextCursor:
@@ -173,7 +181,12 @@ export function createOperationalService(
         .from(notificationOutbox)
         .where(eq(notificationOutbox.incidentId, id))
         .limit(100)
-      return incidentResponse(row, notifications)
+      const exclusions = await loadIncidentExclusionStatuses([row.id], database)
+      return incidentResponse(
+        row,
+        notifications,
+        exclusions.get(row.id) ?? null
+      )
     },
 
     getStatus: () => dependencies.getStatus(),

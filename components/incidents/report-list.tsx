@@ -15,7 +15,13 @@ import {
   reportDotState,
 } from "./report-status"
 
-export function ReportList({ reports }: { reports: ReportListRowData[] }) {
+export function ReportList({
+  reports,
+  canWriteReports,
+}: {
+  reports: ReportListRowData[]
+  canWriteReports: boolean
+}) {
   return (
     <ul className="divide-y divide-[var(--border)] overflow-hidden rounded-xl border border-[var(--border-strong)] shadow-[var(--card-shadow)]">
       {reports.map((report) => {
@@ -35,7 +41,7 @@ export function ReportList({ reports }: { reports: ReportListRowData[] }) {
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <Link
-                  className="truncate font-medium text-sm tracking-[-0.28px] after:absolute after:inset-0"
+                  className="wrap-anywhere min-w-0 font-medium text-sm tracking-[-0.28px] after:absolute after:inset-0"
                   href={`/incidents/reports/${encodeURIComponent(report.id)}`}
                 >
                   {report.title}
@@ -57,7 +63,9 @@ export function ReportList({ reports }: { reports: ReportListRowData[] }) {
                 ) : null}
               </p>
             </div>
-            <ReportRowActions reportId={report.id} title={report.title} />
+            {canWriteReports ? (
+              <ReportRowActions reportId={report.id} title={report.title} />
+            ) : null}
           </li>
         )
       })}
@@ -111,14 +119,20 @@ export function ReportListPagination({
   )
 }
 
-export function ReportsEmpty({ filtered }: { filtered: boolean }) {
+export function ReportsEmpty({
+  filtered,
+  canWriteReports,
+}: {
+  filtered: boolean
+  canWriteReports: boolean
+}) {
   return (
     <div className="flex min-h-40 items-center justify-center rounded-xl border border-[var(--border-strong)] px-6 py-12">
       <div className="flex items-center gap-2 text-[13px] text-[var(--fg-muted)]">
         <StatusDot aria-label="Operational" state="UP" />
         {filtered ? (
           <span>No reports match this filter</span>
-        ) : (
+        ) : canWriteReports ? (
           <span>
             No status reports yet.{" "}
             <Link
@@ -129,6 +143,8 @@ export function ReportsEmpty({ filtered }: { filtered: boolean }) {
             </Link>{" "}
             to narrate an incident or maintenance window.
           </span>
+        ) : (
+          <span>No status reports yet</span>
         )}
       </div>
     </div>

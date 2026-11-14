@@ -1,11 +1,86 @@
-import { describe, expect, it, vi } from "vitest"
+// @vitest-environment jsdom
+import { cleanup, render, screen } from "@testing-library/react"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), prefetch: vi.fn() }),
+}))
+
+import { TimezoneProvider } from "@/components/dashboard/timezone-provider"
 import {
+  type DashboardMonitor,
   HOVER_PREFETCH_DELAY_MS,
   isPlainLeftClick,
+  MonitorTable,
   navigateFromMonitorRow,
   shouldPrefetchMonitor,
 } from "./monitor-table"
+
+afterEach(() => {
+  cleanup()
+})
+
+function monitor(
+  state: DashboardMonitor["state"],
+  overrides: Partial<DashboardMonitor> = {}
+): DashboardMonitor {
+  return {
+    id: `mon-${state}`,
+    name: `Monitor ${state}`,
+    url: `https://${state.toLowerCase()}.example.com/health`,
+    state,
+    uptime24h: null,
+    latestLatencyMs: null,
+    lastCheckedAt: null,
+    activatedAt: null,
+    activeIncidentOpenedAt: null,
+    uptime24hUnlocked: false,
+    timeline: [],
+    certExpiresAt: null,
+    domainExpiresAt: null,
+    ...overrides,
+  }
+}
+
+function statusCell(name: string): string | null | undefined {
+  return screen.getByRole("link", { name }).closest("tr")?.cells[0]?.textContent
+}
+
+describe("MonitorTable", () => {
+  it("uses the shared state labels and keeps setup apart from confirmation", () => {
+    render(
+      <TimezoneProvider>
+        <MonitorTable
+          monitors={[
+            monitor("PENDING"),
+            monitor("VERIFYING_DOWN"),
+            monitor("VERIFYING_UP"),
+            monitor("PAUSED"),
+          ]}
+        />
+      </TimezoneProvider>
+    )
+    expect(statusCell("Monitor PENDING")).toBe("Pending")
+    expect(statusCell("Monitor VERIFYING_DOWN")).toBe("Verifying")
+    expect(statusCell("Monitor VERIFYING_UP")).toBe("Verifying")
+    expect(statusCell("Monitor PAUSED")).toBe("Paused")
+    expect(document.body.textContent).not.toContain("Verifying Down")
+  })
+
+  it("wraps long monitor names and URLs instead of truncating them", () => {
+    const name = `Checkout ${"service".repeat(20)}`
+    const url = `https://example.com/${"path".repeat(40)}`
+    render(
+      <TimezoneProvider>
+        <MonitorTable monitors={[monitor("UP", { name, url })]} />
+      </TimezoneProvider>
+    )
+    expect(screen.getByRole("link", { name }).className).not.toContain(
+      "truncate"
+    )
+    expect(screen.getByText(url).className).not.toContain("truncate")
+  })
+})
 
 function targetWithClosest(result: Element | null): EventTarget {
   return { closest: vi.fn(() => result) } as unknown as EventTarget

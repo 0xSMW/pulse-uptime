@@ -101,7 +101,7 @@ export function SettingsSidebar({
       // explicit, confirmable Back-to-app or sidebar navigation. Announce why
       // the key did nothing instead of failing silently.
       if (dirty) {
-        setEscFeedback("Unsaved changes — save or discard before leaving")
+        setEscFeedback("Save or discard changes before leaving")
         return
       }
       router.push(storedReturnPath())

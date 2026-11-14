@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest"
 import {
   type EditableMonitor,
   emptyNumericMonitorValues,
+  hasProbeChanges,
   monitorMutationBody,
+  monitorPatchBody,
   numericMonitorValidation,
   numericMonitorValues,
   stringMonitorValues,
@@ -110,6 +112,48 @@ describe("monitor form adapters", () => {
       recoveryThreshold: 4,
       recipients: ["ops@example.com", "owner@example.com"],
     })
+  })
+
+  it("patches only the fields that changed from the baseline", () => {
+    const baseline = numericMonitorValues(monitor)
+    expect(
+      monitorPatchBody(
+        { ...baseline, name: "Renamed", recipientsText: "ops@example.com" },
+        baseline,
+        { trimUrl: true }
+      )
+    ).toEqual({ name: "Renamed", recipients: ["ops@example.com"] })
+    expect(
+      monitorPatchBody(
+        { ...baseline, url: ` ${baseline.url} `, expectedStatusMin: 200 },
+        baseline,
+        { trimUrl: true }
+      )
+    ).toEqual({ expectedStatus: { minimum: 200, maximum: 398 } })
+  })
+
+  it("flags only probe fields as probe changes", () => {
+    const saved = numericMonitorValues(monitor)
+    expect(
+      hasProbeChanges(
+        {
+          ...saved,
+          name: "Renamed",
+          enabled: false,
+          intervalMinutes: 15,
+          failureThreshold: 1,
+          recipientsText: "",
+          groupId: null,
+          url: ` ${saved.url} `,
+        },
+        saved
+      )
+    ).toBe(false)
+    expect(hasProbeChanges({ ...saved, method: "HEAD" }, saved)).toBe(true)
+    expect(hasProbeChanges({ ...saved, timeoutMs: 1000 }, saved)).toBe(true)
+    expect(
+      hasProbeChanges({ ...saved, url: "https://other.example.com" }, saved)
+    ).toBe(true)
   })
 
   it("keeps the numeric editor's low-minimum behavior", () => {

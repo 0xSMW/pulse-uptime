@@ -22,7 +22,9 @@ export function HelpDemoFrame({
         <span className="font-semibold text-[11px] text-[var(--fg-faint)] uppercase tracking-[0.08em]">
           Example
         </span>
-        <span className="truncate text-[var(--fg-muted)] text-xs">{label}</span>
+        <span className="min-w-0 text-[var(--fg-muted)] text-xs [overflow-wrap:anywhere]">
+          {label}
+        </span>
       </figcaption>
       <div className="p-4 sm:p-5">{children}</div>
     </figure>

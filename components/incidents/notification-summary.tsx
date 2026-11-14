@@ -12,7 +12,7 @@ export function NotificationSummary({
       : summary.state === "retrying"
         ? "Retrying"
         : summary.state === "dead"
-          ? "Dead"
+          ? "Failed"
           : "—"
 
   return (

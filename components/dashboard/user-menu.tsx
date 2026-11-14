@@ -129,13 +129,13 @@ export function UserMenu({
           </span>
           <span className="flex min-w-0 flex-col">
             {displayName ? (
-              <span className="min-w-0 truncate text-[13px] text-[var(--fg)]">
+              <span className="wrap-anywhere min-w-0 text-[13px] text-[var(--fg)]">
                 {displayName}
               </span>
             ) : null}
             <span
               className={cn(
-                "min-w-0 truncate text-[13px]",
+                "wrap-anywhere min-w-0 text-[13px]",
                 displayName ? "text-[var(--fg-muted)]" : "text-[var(--fg)]"
               )}
             >

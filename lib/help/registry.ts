@@ -34,7 +34,7 @@ const concepts: HelpEntry[] = [
     slug: "monitors",
     title: "Monitors",
     summary:
-      "A monitor checks one HTTP or HTTPS endpoint on a fixed interval. Each check records reachability, status code, and latency, and those results drive the monitor's state, uptime, and incident history. Create and edit monitors in Settings; the Overview table shows every monitor's current state at a glance.",
+      "A monitor checks one HTTP or HTTPS endpoint on a fixed interval. Each check records reachability, status code, and latency, and those results drive the monitor's state, uptime, and incident history. Create and edit monitors in Settings. The Overview table shows every monitor's current state at a glance.",
     demo: "monitor-row",
     relatedLinks: [
       { label: "Monitors in Settings", href: "/settings/monitors" },
@@ -62,7 +62,7 @@ const concepts: HelpEntry[] = [
     slug: "checks-and-thresholds",
     title: "Checks and thresholds",
     summary:
-      "Each check requests the monitor's URL with its configured method and timeout. A response outside the expected status range, or no response at all, counts as a failure. The failure threshold sets how many consecutive failures confirm an outage; the recovery threshold sets how many consecutive successes confirm recovery.",
+      "Each check requests the monitor's URL with its configured method and timeout. A response outside the expected status range, or no response at all, counts as a failure. The failure threshold sets how many consecutive failures confirm an outage. The recovery threshold sets how many consecutive successes confirm recovery.",
     demo: "check-settings",
     relatedLinks: [
       { label: "Edit check settings", href: "#guide-edit-check-settings" },
@@ -74,7 +74,7 @@ const concepts: HelpEntry[] = [
     slug: "uptime-and-unknown",
     title: "Uptime and Unknown time",
     summary:
-      "Uptime is the share of scheduled checks that succeeded in a window. When a scheduled check never ran — during a deploy or a scheduler gap — that period counts as Unknown rather than up or down, so missing data never inflates uptime. Timelines shade Unknown periods separately from success and failure.",
+      "Uptime is the share of scheduled checks that succeeded in a window. When a scheduled check never ran, such as during a deploy or a scheduler gap, that period counts as Unknown rather than up or down, so missing data never inflates uptime. Timelines shade Unknown periods separately from success and failure.",
     demo: "timeline",
     relatedLinks: [
       { label: "Overview", href: "/" },
@@ -98,7 +98,7 @@ const concepts: HelpEntry[] = [
     slug: "alerts",
     title: "Alerts and recipients",
     summary:
-      "Pulse sends an email when an outage is confirmed and again when recovery is confirmed. Each monitor can list its own recipients; monitors without any use the default recipients in Settings. Delivery state — sent, retrying, or dead — appears beside every incident.",
+      "Pulse sends an email when an outage is confirmed and again when recovery is confirmed. Each monitor can list its own recipients. Monitors without any use the default recipients in Settings. Each incident shows its delivery state: Sent, Retrying, or Failed.",
     demo: "alerts",
     relatedLinks: [
       { label: "Notifications in Settings", href: "/settings/notifications" },
@@ -111,7 +111,7 @@ const concepts: HelpEntry[] = [
     slug: "status-page",
     title: "Public status page",
     summary:
-      "The status page shares live availability without requiring sign-in. It shows an overall banner, each monitor's state, and recent timelines, and it follows each visitor's device theme — unless you force a theme in Settings → Status page — rather than your dashboard appearance. Share its address with anyone who needs to know whether service is up.",
+      "The status page shares live availability without requiring sign-in. It shows an overall banner, each monitor's state, and recent timelines. It follows each visitor's device theme rather than your dashboard appearance, unless you force a theme in Settings → Status page. Share its address with anyone who needs to know whether service is up.",
     demo: "status-page",
     relatedLinks: [
       { label: "Status page", href: "/status" },
@@ -199,7 +199,7 @@ const guides: HelpEntry[] = [
     slug: "edit-check-settings",
     title: "Edit check settings",
     summary:
-      "Tune how strictly a monitor decides an endpoint is down. Tighter thresholds react faster but can alert on brief blips; looser thresholds wait for repeated failures.",
+      "Tune how strictly a monitor decides an endpoint is down. Tighter thresholds react faster but can alert on brief blips. Looser thresholds wait for repeated failures.",
     steps: [
       "Open Settings → Monitors.",
       "Select Edit on the monitor's row.",
@@ -221,11 +221,11 @@ const guides: HelpEntry[] = [
     slug: "test-monitor",
     title: "Test a monitor",
     summary:
-      "Run an immediate check when you want proof an endpoint responds right now — after a deploy, a DNS change, or a fix. The result shows the status code and latency without waiting for the next scheduled check.",
+      "Run an immediate check using the saved configuration. Manual tests leave scheduled history, uptime, and incident state unchanged. Save changes to check settings before testing.",
     steps: [
       "Open the monitor from the Overview.",
-      "Select Test Monitor.",
-      "Read the returned status code and latency in Recent Checks.",
+      "Select Run Test.",
+      "Review any failure beside the test control.",
     ],
     demo: "test-monitor",
     relatedLinks: [
@@ -337,7 +337,7 @@ const guides: HelpEntry[] = [
       "Select Create status report.",
       "Choose incident or maintenance and enter a title.",
       "Pick the affected services and each one's impact.",
-      "Write the first update, then select Publish.",
+      "Write the first update, then select Publish Report or Save Draft.",
     ],
     demo: "status-page",
     relatedLinks: [
@@ -355,9 +355,9 @@ const guides: HelpEntry[] = [
     steps: [
       "Open Incidents and select the Reports tab.",
       "Select the ongoing report.",
-      "Choose the update status — Investigating, Identified, Monitoring, or Resolved.",
+      "Choose the update status: Investigating, Identified, Monitoring, or Resolved.",
       "Write the update in Markdown.",
-      "Post the update; the status page reflects it immediately.",
+      "Post the update. The status page reflects it immediately.",
     ],
     demo: "status-page",
     relatedLinks: [
@@ -373,12 +373,12 @@ const guides: HelpEntry[] = [
     slug: "promote-incident-report",
     title: "Promote an outage to a report",
     summary:
-      "Promotion turns an automatic outage row into an editable draft report prefilled with the incident's title, start time, and affected monitor. The draft never publishes itself; once published, the report replaces the raw incident card on the status page.",
+      "Write Report creates a draft from the incident's timing and affected monitor. Resolved incidents stay resolved, and false alarms describe a monitoring error. Publishing replaces the automatic incident card on the status page.",
     steps: [
       "Open Incidents.",
-      "Select Write report on the outage's row.",
-      "Edit the prefilled draft — title, window, affected services, and the first update.",
-      "Select Publish when the narrative is ready.",
+      "Select Write Report on the incident's row.",
+      "Edit the draft and save changes or post pending updates.",
+      "Select Publish, then confirm.",
     ],
     demo: "incident",
     relatedLinks: [
@@ -431,10 +431,10 @@ const guides: HelpEntry[] = [
     slug: "connect-agent",
     title: "Connect an agent",
     summary:
-      "Agents and CI authenticate with a scoped token in the environment — never the device flow. Scope tokens to the least access the job needs, and revoke them from Settings when the job is gone.",
+      "Agents and CI authenticate with a scoped token in the environment, never the device flow. Scope tokens to the least access the job needs, and revoke them from Settings when the job is gone.",
     steps: [
       "Create a token under Settings → Access.",
-      "Copy the token when it is shown — it appears once.",
+      "Copy the token when it is shown. It appears once.",
       "Export it as PULSECTL_TOKEN in the agent's environment.",
       "Prefer JSON output for machine parsing.",
     ],
@@ -449,7 +449,7 @@ const guides: HelpEntry[] = [
     slug: "database-health",
     title: "Read Database Health",
     summary:
-      "Check Database Health when you want to know whether monitoring history fits its storage budget. Watch the projection against the budget, the oldest retained data per detail level, and the governor's current mode — it explains any automatic compaction before it happens.",
+      "Check Database Health when you want to know whether monitoring history fits its storage budget. Watch the projection against the budget, the oldest retained data per detail level, and the governor's current mode, which explains any automatic compaction before it happens.",
     demo: "database-health",
     relatedLinks: [
       { label: "Database Health in Settings", href: "/settings/system" },
@@ -515,7 +515,7 @@ const guides: HelpEntry[] = [
     slug: "override-timezone",
     title: "Override your time zone on one device",
     summary:
-      "The account time zone applies everywhere you sign in. A device override changes only the device you set it on — useful while traveling — and the Account page shows provenance whenever one is active.",
+      "The account time zone applies everywhere you sign in. A device override changes only the device you set it on, which helps while traveling. The Account page shows provenance whenever one is active.",
     steps: [
       "Open Settings → Account.",
       "Select Use a different time zone on this device.",

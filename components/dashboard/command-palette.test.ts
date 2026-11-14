@@ -73,7 +73,7 @@ describe("command palette helpers", () => {
     ])
     expect(groups[3]?.items).toEqual([
       expect.objectContaining({
-        text: "Public API — HTTP 503",
+        text: "Public API · HTTP 503",
         hint: "ongoing · 30m 0s",
         href: "/incidents",
       }),

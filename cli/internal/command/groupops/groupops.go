@@ -17,7 +17,6 @@ import (
 	"github.com/0xSMW/pulse-uptime/cli/internal/output"
 	"github.com/0xSMW/pulse-uptime/cli/internal/paginator"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
 // Request describes one logical API operation. Implementations must reuse
@@ -257,13 +256,10 @@ func idempotencyKey(d Dependencies) (string, error) {
 }
 
 func renderEnvelope(d Dependencies, format string, doc Envelope) error {
+	if handled, err := output.RenderStructured(d.Out, format, doc); handled {
+		return err
+	}
 	switch format {
-	case "json":
-		return jsonPretty(d.Out, doc)
-	case "jsonl":
-		return json.NewEncoder(d.Out).Encode(doc)
-	case "yaml":
-		return yamlValue(d.Out, doc)
 	case "tsv":
 		var group Group
 		if json.Unmarshal(doc.Data, &group) == nil && group.ID != "" {
@@ -284,18 +280,10 @@ func renderEnvelope(d Dependencies, format string, doc Envelope) error {
 }
 
 func renderList(d Dependencies, format string, doc ListEnvelope) error {
+	if handled, err := output.RenderStructuredList(d.Out, format, doc, doc.Data); handled {
+		return err
+	}
 	switch format {
-	case "json":
-		return jsonPretty(d.Out, doc)
-	case "jsonl":
-		for _, raw := range doc.Data {
-			if _, err := fmt.Fprintln(d.Out, string(raw)); err != nil {
-				return err
-			}
-		}
-		return nil
-	case "yaml":
-		return yamlValue(d.Out, doc)
 	case "tsv":
 		for _, raw := range doc.Data {
 			var group Group
@@ -317,9 +305,7 @@ func renderList(d Dependencies, format string, doc ListEnvelope) error {
 		if err := output.Table(d.Out, []string{"ID", "NAME", "MONITORS"}, rows); err != nil {
 			return err
 		}
-		if doc.Meta.NextCursor != nil && *doc.Meta.NextCursor != "" {
-			fmt.Fprintf(d.Err, "More groups available. Continue with --cursor %s\n", output.SanitizeDisplay(*doc.Meta.NextCursor))
-		}
+		output.CursorHint(d.Err, "groups", doc.Meta.NextCursor)
 		return nil
 	}
 }
@@ -329,30 +315,11 @@ func annotations(scope string) map[string]string {
 }
 
 func machine(format string) bool {
-	return format == "json" || format == "jsonl" || format == "yaml" || format == "tsv"
+	return output.IsMachine(format)
 }
 
 func groupPath(id string) string { return "/api/v1/groups/" + url.PathEscape(id) }
 
 func invalid(message string) error {
 	return &Error{Exit: 2, Code: "INVALID_ARGUMENT", Message: message}
-}
-
-func jsonPretty(w io.Writer, value any) error {
-	encoder := json.NewEncoder(w)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(value)
-}
-
-func yamlValue(w io.Writer, value any) error {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return err
-	}
-	var decoded any
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	return yaml.NewEncoder(w).Encode(decoded)
 }

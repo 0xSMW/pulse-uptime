@@ -81,7 +81,7 @@ function MonitorRowDemo() {
         <StatusDot aria-hidden state="UP" />
         <div className="min-w-0">
           <p className="font-medium text-[13px]">Marketing site</p>
-          <p className="truncate font-data text-[var(--fg-faint)] text-xs">
+          <p className="font-data text-[var(--fg-faint)] text-xs [overflow-wrap:anywhere]">
             https://superposition.app
           </p>
         </div>
@@ -161,7 +161,7 @@ function IncidentDemo() {
         <IncidentStatus ongoing />
         <div className="min-w-0">
           <p className="font-medium text-[13px]">Inference</p>
-          <p className="truncate font-data text-[var(--fg-muted)] text-xs">
+          <p className="font-data text-[var(--fg-muted)] text-xs [overflow-wrap:anywhere]">
             HTTP 529 from https://inference.superposition.app/health
           </p>
         </div>

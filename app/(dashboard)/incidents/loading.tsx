@@ -8,9 +8,6 @@ export default function IncidentsLoading() {
           <h1 className="font-semibold text-xl tracking-[-0.02em]">
             Incidents
           </h1>
-          <p className="mt-1 text-[13px] text-[var(--fg-muted)]">
-            Endpoint outage history
-          </p>
         </div>
         <div
           aria-hidden

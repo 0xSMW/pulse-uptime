@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation"
 import { useMemo, useState } from "react"
 
+import { useTimezone } from "@/components/dashboard/timezone-provider"
 import { useNavigationGuard } from "@/components/navigation/use-navigation-guard"
 import {
   type ApiEnvelope,
@@ -35,6 +36,7 @@ import {
 import { messageForReportError } from "./report-errors"
 import {
   BEFORE_START_COPY,
+  datetimeLocalError,
   fromDatetimeLocal,
   impactOptions,
   isBeforeStart,
@@ -46,6 +48,7 @@ import {
   type ReportType,
   type ReportUpdateData,
   type ReportUpdateStatus,
+  resolveDatetimeLocal,
   STATE_FLIP_COPY,
   type StateFlipDirection,
   stateFlipAfterRemoval,
@@ -69,12 +72,136 @@ interface EditingUpdate {
   publishedAt: string
   warning: StateFlipDirection | null
   error: string
+  timeError: string
+  /**
+   * The update as loaded when editing began. It is the baseline for dirty
+   * checks and PATCH fields, and keeps an older-page row on screen after a
+   * timeline reset drops its page.
+   */
+  original: ReportUpdateData
 }
+
+/** Whether a pending update edit differs from the update it started from. */
+function editChanged(edit: EditingUpdate, timeZone: string): boolean {
+  return (
+    edit.status !== edit.original.status ||
+    edit.markdown !== edit.original.markdown ||
+    edit.publishedAt !== toDatetimeLocal(edit.original.publishedAt, timeZone)
+  )
+}
+
+/**
+ * Newest-first test in the server's total order (publishedAt, createdAt, id).
+ * Without createdAt on both sides, ties keep the loaded order.
+ */
+function sortsBefore(left: ReportUpdateData, right: ReportUpdateData): boolean {
+  const leftPublished = Date.parse(left.publishedAt)
+  const rightPublished = Date.parse(right.publishedAt)
+  if (leftPublished !== rightPublished) {
+    return leftPublished > rightPublished
+  }
+  if (!(left.createdAt && right.createdAt)) {
+    return false
+  }
+  const leftCreated = Date.parse(left.createdAt)
+  const rightCreated = Date.parse(right.createdAt)
+  if (leftCreated !== rightCreated) {
+    return leftCreated > rightCreated
+  }
+  return left.id > right.id
+}
+
+/**
+ * Adds the update under edit at its ordered position when the loaded timeline
+ * no longer holds it, so a pending edit never goes off screen.
+ */
+function withEditedUpdate(
+  updates: ReportUpdateData[],
+  edited: ReportUpdateData | null
+): ReportUpdateData[] {
+  if (!edited || updates.some((update) => update.id === edited.id)) {
+    return updates
+  }
+  const index = updates.findIndex((update) => sortsBefore(edited, update))
+  if (index === -1) {
+    return [...updates, edited]
+  }
+  return [...updates.slice(0, index), edited, ...updates.slice(index)]
+}
+
+/**
+ * Where a message renders, so feedback lands next to the control that
+ * triggered it. Row actions use `update:<id>`.
+ */
+type MessageAt =
+  | "header"
+  | "composer"
+  | "timeline"
+  | "older"
+  | "footer"
+  | `update:${string}`
 
 interface Message {
   text: string
   tone: "info" | "error"
+  at: MessageAt
 }
+
+function messageClass(tone: Message["tone"]): string {
+  return tone === "error" ? "text-[var(--down-text)]" : "text-[var(--fg-muted)]"
+}
+
+function ActionMessage({
+  message,
+  className,
+}: {
+  message: Message | null
+  className?: string
+}) {
+  if (!message) {
+    return null
+  }
+  // Routine success already shows in the timeline, badge, or buttons, so it is
+  // announced to screen readers only. The footer keeps Report saved visible.
+  if (message.tone === "info") {
+    return (
+      <p className="sr-only" role="status">
+        {message.text}
+      </p>
+    )
+  }
+  return (
+    <p
+      className={`min-w-0 break-words text-[13px] ${messageClass(message.tone)} ${className ?? ""}`}
+      role={message.tone === "error" ? "alert" : "status"}
+    >
+      {message.text}
+    </p>
+  )
+}
+
+/** Names the create outcome: a draft stays private, otherwise it goes live. */
+function createLabel(draft: boolean, busy: boolean): string {
+  if (draft) {
+    return busy ? "Saving…" : "Save Draft"
+  }
+  return busy ? "Publishing…" : "Publish Report"
+}
+
+/** Field label with the display time zone, so typed times are unambiguous. */
+function ZonedLabel({ text, timeZone }: { text: string; timeZone: string }) {
+  return (
+    <>
+      {text}{" "}
+      <span className="font-normal text-[var(--fg-muted)]">({timeZone})</span>
+    </>
+  )
+}
+
+// Phone padding leaves native datetime text room to show in full at 320px
+const cardHeaderClass = "p-4 pb-0 sm:p-6 sm:pb-0"
+const cardContentClass = "p-4 sm:p-6"
+const datetimeInputClass = "px-2 sm:px-3"
 
 const textareaClass =
   "w-full resize-y rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-3 py-2 font-data text-[13px] aria-invalid:border-[var(--down-text)]"
@@ -108,18 +235,38 @@ function impactSignature(impacts: Record<string, ImpactValue>): string {
   )
 }
 
-export function ReportEditor({
-  report,
-  monitors,
-}: {
+interface ReportEditorProps {
   report: ReportData | null
   monitors: ReportEditorMonitor[]
-}) {
+}
+
+export function ReportEditor(props: ReportEditorProps) {
+  const { resolvedTimeZone } = useTimezone()
+  // Datetime fields hold wall-clock text in the display zone. The zone
+  // settles after hydration, so remount on change to keep every field and
+  // conversion in one zone.
+  return (
+    <ReportEditorForm
+      key={resolvedTimeZone}
+      {...props}
+      timeZone={resolvedTimeZone}
+    />
+  )
+}
+
+function ReportEditorForm({
+  report,
+  monitors,
+  timeZone,
+}: ReportEditorProps & { timeZone: string }) {
   const router = useRouter()
   const [baseline, setBaseline] = useState<EditorBaseline>(() => ({
     title: report?.title ?? "",
-    startsAt: toDatetimeLocal(report?.startsAt ?? new Date().toISOString()),
-    endsAt: report?.endsAt ? toDatetimeLocal(report.endsAt) : "",
+    startsAt: toDatetimeLocal(
+      report?.startsAt ?? new Date().toISOString(),
+      timeZone
+    ),
+    endsAt: report?.endsAt ? toDatetimeLocal(report.endsAt, timeZone) : "",
     impacts: initialImpacts(report),
   }))
   const [title, setTitle] = useState(baseline.title)
@@ -135,7 +282,7 @@ export function ReportEditor({
   )
   const [composerMarkdown, setComposerMarkdown] = useState("")
   const [composerPublishedAt, setComposerPublishedAt] = useState(() =>
-    toDatetimeLocal(new Date().toISOString())
+    toDatetimeLocal(new Date().toISOString(), timeZone)
   )
   const [errors, setErrors] = useState<ReportFormErrors>({})
   const [busy, setBusy] = useState<string | null>(null)
@@ -152,46 +299,55 @@ export function ReportEditor({
   const [olderCursor, setOlderCursor] = useState<string | null>(null)
   const [loadedPastFirstPage, setLoadedPastFirstPage] = useState(false)
 
+  // Same object across keystrokes, so typing does not rebuild the timeline
+  const editedUpdate = editing?.original ?? null
+
   const timelineUpdates = useMemo(() => {
     if (!report) {
       return []
     }
     if (!loadedPastFirstPage || olderUpdates.length === 0) {
-      return report.updates
+      return withEditedUpdate(report.updates, editedUpdate)
     }
     const seen = new Set(report.updates.map((update) => update.id))
-    return [
-      ...report.updates,
-      ...olderUpdates.filter((update) => !seen.has(update.id)),
-    ]
-  }, [report, olderUpdates, loadedPastFirstPage])
+    return withEditedUpdate(
+      [
+        ...report.updates,
+        ...olderUpdates.filter((update) => !seen.has(update.id)),
+      ],
+      editedUpdate
+    )
+  }, [report, olderUpdates, loadedPastFirstPage, editedUpdate])
 
   const timelineNextCursor = loadedPastFirstPage
     ? olderCursor
     : (report?.updatesNextCursor ?? null)
 
+  // Back to the first page. An unsaved update edit stays open with its
+  // baseline, and a clean one closes.
   function resetOlderTimeline() {
     setOlderUpdates([])
     setOlderCursor(null)
     setLoadedPastFirstPage(false)
+    setEditing((current) =>
+      current && editChanged(current, timeZone) ? current : null
+    )
   }
 
+  // Trimmed, since saves store the trimmed title. Otherwise trailing spaces
+  // would keep the form dirty after a successful save.
   const basicsDirty =
-    title !== baseline.title ||
+    title.trim() !== baseline.title ||
     startsAt !== baseline.startsAt ||
     (type === "maintenance" && endsAt !== baseline.endsAt)
   const affectedDirty =
     impactSignature(impacts) !== impactSignature(baseline.impacts)
   const composerDirty = composerMarkdown.trim() !== ""
-  const editingOriginal =
-    editing && timelineUpdates.find((update) => update.id === editing.id)
-  const editingDirty = editing
-    ? !editingOriginal ||
-      editing.status !== editingOriginal.status ||
-      editing.markdown !== editingOriginal.markdown ||
-      editing.publishedAt !== toDatetimeLocal(editingOriginal.publishedAt)
-    : false
+  const editingDirty = editing ? editChanged(editing, timeZone) : false
   const dirty = basicsDirty || affectedDirty || composerDirty || editingDirty
+  const publishBlocked = report?.publishedAt === null && dirty
+  // Another row's Edit would replace the unsaved edit, so it waits
+  const editSwitchBlocked = editingDirty && timelineUpdates.length > 1
 
   // Unsaved-changes protection: the editor lives outside the settings shell,
   // so it mounts its own navigation guard (beforeunload, Back/Forward, and
@@ -246,6 +402,11 @@ export function ReportEditor({
     )
   }
 
+  const originals = {
+    startsAt: report?.startsAt ?? null,
+    endsAt: report?.endsAt ?? null,
+  }
+
   async function create() {
     const nextErrors = validateReportForm({
       title,
@@ -255,6 +416,7 @@ export function ReportEditor({
       requireUpdate: true,
       markdown: composerMarkdown,
       publishedAt: composerPublishedAt,
+      timeZone,
     })
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0) {
@@ -266,15 +428,15 @@ export function ReportEditor({
       const body = {
         type,
         title: title.trim(),
-        startsAt: fromDatetimeLocal(startsAt)!,
+        startsAt: fromDatetimeLocal(startsAt, timeZone)!,
         ...(type === "maintenance" && endsAt.trim()
-          ? { endsAt: fromDatetimeLocal(endsAt)! }
+          ? { endsAt: fromDatetimeLocal(endsAt, timeZone)! }
           : {}),
         affected: affectedBody(),
         update: {
           status: composerStatus,
           markdown: composerMarkdown,
-          publishedAt: fromDatetimeLocal(composerPublishedAt)!,
+          publishedAt: fromDatetimeLocal(composerPublishedAt, timeZone)!,
         },
         ...(draft ? { draft: true } : {}),
       }
@@ -285,7 +447,11 @@ export function ReportEditor({
       )
       router.push(`/incidents/reports/${encodeURIComponent(result.data.id)}`)
     } catch (cause) {
-      setMessage({ text: messageForReportError(cause), tone: "error" })
+      setMessage({
+        text: messageForReportError(cause),
+        tone: "error",
+        at: "footer",
+      })
       setBusy(null)
     }
   }
@@ -302,6 +468,8 @@ export function ReportEditor({
       requireUpdate: false,
       markdown: "",
       publishedAt: "",
+      timeZone,
+      originals,
     })
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0) {
@@ -323,9 +491,21 @@ export function ReportEditor({
       const titleChanged = title.trim() !== baseline.title
       const body = {
         ...(titleChanged ? { title: title.trim() } : {}),
-        ...(startsAtChanged ? { startsAt: fromDatetimeLocal(startsAt)! } : {}),
+        ...(startsAtChanged
+          ? {
+              startsAt: resolveDatetimeLocal(
+                startsAt,
+                timeZone,
+                originals.startsAt
+              )!,
+            }
+          : {}),
         ...(endsAtChanged
-          ? { endsAt: endsAt.trim() ? fromDatetimeLocal(endsAt)! : null }
+          ? {
+              endsAt: endsAt.trim()
+                ? resolveDatetimeLocal(endsAt, timeZone, originals.endsAt)!
+                : null,
+            }
           : {}),
         // Only send affected when it actually changed: the service treats
         // this key as a full replacement that re-snapshots monitor
@@ -345,10 +525,14 @@ export function ReportEditor({
       )
       setBaseline({ title: title.trim(), startsAt, endsAt, impacts })
       resetOlderTimeline()
-      setMessage({ text: "Report saved", tone: "info" })
+      setMessage({ text: "Report saved", tone: "info", at: "footer" })
       router.refresh()
     } catch (cause) {
-      setMessage({ text: messageForReportError(cause), tone: "error" })
+      setMessage({
+        text: messageForReportError(cause),
+        tone: "error",
+        at: "footer",
+      })
     } finally {
       setBusy(null)
     }
@@ -366,6 +550,8 @@ export function ReportEditor({
       requireUpdate: true,
       markdown: composerMarkdown,
       publishedAt: composerPublishedAt,
+      timeZone,
+      originals,
     })
     setErrors({
       markdown: nextErrors.markdown,
@@ -384,18 +570,24 @@ export function ReportEditor({
           body: JSON.stringify({
             status: composerStatus,
             markdown: composerMarkdown,
-            publishedAt: fromDatetimeLocal(composerPublishedAt)!,
+            publishedAt: fromDatetimeLocal(composerPublishedAt, timeZone)!,
           }),
         },
         { mutation: true }
       )
       setComposerMarkdown("")
-      setComposerPublishedAt(toDatetimeLocal(new Date().toISOString()))
+      setComposerPublishedAt(
+        toDatetimeLocal(new Date().toISOString(), timeZone)
+      )
       resetOlderTimeline()
-      setMessage({ text: "Update posted", tone: "info" })
+      setMessage({ text: "Update posted", tone: "info", at: "composer" })
       router.refresh()
     } catch (cause) {
-      setMessage({ text: messageForReportError(cause), tone: "error" })
+      setMessage({
+        text: messageForReportError(cause),
+        tone: "error",
+        at: "composer",
+      })
     } finally {
       setBusy(null)
     }
@@ -419,13 +611,21 @@ export function ReportEditor({
       setOlderCursor(result.meta?.nextCursor ?? null)
       setLoadedPastFirstPage(true)
     } catch (cause) {
-      setMessage({ text: messageForReportError(cause), tone: "error" })
+      setMessage({
+        text: messageForReportError(cause),
+        tone: "error",
+        at: "older",
+      })
     } finally {
       setBusy(null)
     }
   }
 
   function startEditUpdate(updateId: string) {
+    // An unsaved edit stays open until it is saved or cancelled
+    if (editingDirty && editing?.id !== updateId) {
+      return
+    }
     const update = timelineUpdates.find((entry) => entry.id === updateId)
     if (!update) {
       return
@@ -435,9 +635,11 @@ export function ReportEditor({
       id: update.id,
       status: update.status,
       markdown: update.markdown,
-      publishedAt: toDatetimeLocal(update.publishedAt),
+      publishedAt: toDatetimeLocal(update.publishedAt, timeZone),
       warning: null,
       error: "",
+      timeError: "",
+      original: update,
     })
   }
 
@@ -445,7 +647,9 @@ export function ReportEditor({
     patch: Partial<Pick<EditingUpdate, "status" | "markdown" | "publishedAt">>
   ) {
     setEditing((current) =>
-      current ? { ...current, ...patch, warning: null, error: "" } : current
+      current
+        ? { ...current, ...patch, warning: null, error: "", timeError: "" }
+        : current
     )
   }
 
@@ -460,22 +664,25 @@ export function ReportEditor({
     // datetime-local drops seconds, so round-tripping an untouched value would
     // silently rewrite publishedAt at minute precision. Only send it (and only
     // apply it to the flip check) when the input actually changed.
-    const original = timelineUpdates.find((update) => update.id === editing.id)
+    const { original } = editing
     const publishedAtChanged =
-      !original || editing.publishedAt !== toDatetimeLocal(original.publishedAt)
+      editing.publishedAt !== toDatetimeLocal(original.publishedAt, timeZone)
     const publishedAt = publishedAtChanged
-      ? fromDatetimeLocal(editing.publishedAt)
+      ? fromDatetimeLocal(editing.publishedAt, timeZone)
       : null
     if (publishedAtChanged && !publishedAt) {
-      setEditing({ ...editing, error: "Enter a valid time" })
+      setEditing({
+        ...editing,
+        timeError: datetimeLocalError(editing.publishedAt, timeZone) ?? "",
+      })
       return
     }
     // No If-Match on report-update edits, so sending the page-load
     // status/markdown on a publishedAt-only edit would clobber a concurrent
     // change to either field. Only send each when it actually changed from
     // the loaded update.
-    const statusChanged = !original || editing.status !== original.status
-    const markdownChanged = !original || editing.markdown !== original.markdown
+    const statusChanged = editing.status !== original.status
+    const markdownChanged = editing.markdown !== original.markdown
     // An edited timestamp or status that flips the report between Ongoing
     // and Resolved needs an explicit second confirmation.
     const flip = stateFlipDirection(timelineUpdates, {
@@ -484,7 +691,7 @@ export function ReportEditor({
       ...(publishedAtChanged && publishedAt ? { publishedAt } : {}),
     })
     if (flip && editing.warning === null) {
-      setEditing({ ...editing, warning: flip, error: "" })
+      setEditing({ ...editing, warning: flip, error: "", timeError: "" })
       return
     }
     if (!(statusChanged || markdownChanged || publishedAtChanged)) {
@@ -508,10 +715,18 @@ export function ReportEditor({
       )
       setEditing(null)
       resetOlderTimeline()
-      setMessage({ text: "Update saved", tone: "info" })
+      setMessage({
+        text: "Update saved",
+        tone: "info",
+        at: `update:${editing.id}`,
+      })
       router.refresh()
     } catch (cause) {
-      setMessage({ text: messageForReportError(cause), tone: "error" })
+      setMessage({
+        text: messageForReportError(cause),
+        tone: "error",
+        at: `update:${editing.id}`,
+      })
     } finally {
       setBusy(null)
     }
@@ -531,17 +746,24 @@ export function ReportEditor({
       )
       setConfirmDeleteUpdateId(null)
       resetOlderTimeline()
-      setMessage({ text: "Update deleted", tone: "info" })
+      // The row is gone after refresh, so confirm above the timeline.
+      setMessage({ text: "Update deleted", tone: "info", at: "timeline" })
       router.refresh()
     } catch (cause) {
-      setMessage({ text: messageForReportError(cause), tone: "error" })
+      setMessage({
+        text: messageForReportError(cause),
+        tone: "error",
+        at: `update:${updateId}`,
+      })
     } finally {
       setBusy(null)
     }
   }
 
   async function publish() {
-    if (!report) {
+    // Publish sends no payload, so unsaved edits would stay on screen while
+    // the stored report goes live.
+    if (!report || dirty) {
       return
     }
     setBusy("publish")
@@ -554,10 +776,14 @@ export function ReportEditor({
       )
       setConfirmPublish(false)
       resetOlderTimeline()
-      setMessage({ text: "Report published", tone: "info" })
+      setMessage({ text: "Report published", tone: "info", at: "header" })
       router.refresh()
     } catch (cause) {
-      setMessage({ text: messageForReportError(cause), tone: "error" })
+      setMessage({
+        text: messageForReportError(cause),
+        tone: "error",
+        at: "header",
+      })
     } finally {
       setBusy(null)
     }
@@ -577,13 +803,20 @@ export function ReportEditor({
       )
       router.push("/incidents/reports")
     } catch (cause) {
-      setMessage({ text: messageForReportError(cause), tone: "error" })
+      setMessage({
+        text: messageForReportError(cause),
+        tone: "error",
+        at: "header",
+      })
       setBusy(null)
     }
   }
 
   const statuses = REPORT_STATUSES[type]
   const anyBusy = busy !== null
+  const messageAt = (at: MessageAt) => (message?.at === at ? message : null)
+  const footerMessage = messageAt("footer")
+  const timelineMessage = messageAt("timeline")
 
   return (
     <div>
@@ -595,16 +828,31 @@ export function ReportEditor({
         {report?.type === "maintenance" ? <ReportTypeChip /> : null}
         {report ? (
           <div className="ml-auto flex flex-wrap items-center gap-2">
+            {/* Always mounted so screen readers announce the reason when it appears */}
+            <span
+              className={
+                publishBlocked
+                  ? "min-w-0 break-words text-[var(--fg-muted)] text-xs"
+                  : "sr-only"
+              }
+              id="publish-blocked"
+              role="status"
+            >
+              {publishBlocked ? "Save, post, or clear pending changes" : ""}
+            </span>
             {report.publishedAt === null ? (
               confirmPublish ? (
-                <span className="flex items-center gap-2">
-                  <span className="max-w-64 text-[var(--fg-muted)] text-xs">
+                <span className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
+                  <span className="min-w-0 max-w-64 break-words text-[var(--fg-muted)] text-xs">
                     Publishing makes this report publicly visible on your status
                     page.
                   </span>
                   <Button
+                    aria-describedby={
+                      publishBlocked ? "publish-blocked" : undefined
+                    }
                     className="px-2.5"
-                    disabled={anyBusy}
+                    disabled={anyBusy || publishBlocked}
                     onClick={() => void publish()}
                     size="sm"
                   >
@@ -622,8 +870,11 @@ export function ReportEditor({
                 </span>
               ) : (
                 <Button
+                  aria-describedby={
+                    publishBlocked ? "publish-blocked" : undefined
+                  }
                   className="px-2.5"
-                  disabled={anyBusy}
+                  disabled={anyBusy || publishBlocked}
                   onClick={() => setConfirmPublish(true)}
                   size="sm"
                 >
@@ -668,15 +919,19 @@ export function ReportEditor({
             )}
           </div>
         ) : null}
+        <ActionMessage
+          className="basis-full text-right"
+          message={messageAt("header")}
+        />
       </header>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="space-y-6">
           <Card>
-            <CardHeader>
+            <CardHeader className={cardHeaderClass}>
               <CardTitle>Basic Information</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className={`${cardContentClass} space-y-4`}>
               <Field error={errors.title} htmlFor="report-title" label="Title">
                 <Input
                   aria-invalid={Boolean(errors.title)}
@@ -703,7 +958,10 @@ export function ReportEditor({
                   onValueChange={(value) => changeType(value as ReportType)}
                   value={type}
                 >
-                  <SelectTrigger aria-labelledby="report-type-label">
+                  <SelectTrigger
+                    aria-describedby={report ? "report-type-locked" : undefined}
+                    aria-labelledby="report-type-label"
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -712,7 +970,7 @@ export function ReportEditor({
                   </SelectContent>
                 </Select>
                 {report ? (
-                  <p className="text-[var(--fg-muted)] text-xs leading-4">
+                  <p className="sr-only" id="report-type-locked">
                     Type is locked after creation
                   </p>
                 ) : null}
@@ -720,10 +978,11 @@ export function ReportEditor({
               <Field
                 error={errors.startsAt}
                 htmlFor="report-starts"
-                label="Starts at"
+                label={<ZonedLabel text="Starts at" timeZone={timeZone} />}
               >
                 <Input
                   aria-invalid={Boolean(errors.startsAt)}
+                  className={datetimeInputClass}
                   id="report-starts"
                   onChange={(event) => setStartsAt(event.target.value)}
                   type="datetime-local"
@@ -732,13 +991,14 @@ export function ReportEditor({
               </Field>
               {type === "maintenance" ? (
                 <Field
-                  description="End of the maintenance window — leave empty if open-ended"
+                  description="Optional"
                   error={errors.endsAt}
                   htmlFor="report-ends"
-                  label="Ends at"
+                  label={<ZonedLabel text="Ends at" timeZone={timeZone} />}
                 >
                   <Input
                     aria-invalid={Boolean(errors.endsAt)}
+                    className={datetimeInputClass}
                     id="report-ends"
                     onChange={(event) => setEndsAt(event.target.value)}
                     type="datetime-local"
@@ -750,15 +1010,10 @@ export function ReportEditor({
           </Card>
 
           <Card>
-            <CardHeader>
+            <CardHeader className={cardHeaderClass}>
               <CardTitle>Update Timeline</CardTitle>
-              <CardDescription>
-                {report
-                  ? "Newest first — updates render on your status page"
-                  : "The first update publishes with the report"}
-              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent className={`${cardContentClass} space-y-6`}>
               <div className="space-y-4">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="grid gap-2">
@@ -790,10 +1045,13 @@ export function ReportEditor({
                   <Field
                     error={errors.publishedAt}
                     htmlFor="composer-published"
-                    label="Published at"
+                    label={
+                      <ZonedLabel text="Published at" timeZone={timeZone} />
+                    }
                   >
                     <Input
                       aria-invalid={Boolean(errors.publishedAt)}
+                      className={datetimeInputClass}
                       id="composer-published"
                       onChange={(event) =>
                         setComposerPublishedAt(event.target.value)
@@ -803,7 +1061,12 @@ export function ReportEditor({
                     />
                   </Field>
                 </div>
-                {isBeforeStart(composerPublishedAt, startsAt) ? (
+                {isBeforeStart(
+                  composerPublishedAt,
+                  startsAt,
+                  timeZone,
+                  originals
+                ) ? (
                   <p
                     className="text-[13px] text-[var(--down-text)]"
                     role="status"
@@ -829,9 +1092,10 @@ export function ReportEditor({
                   />
                 </Field>
                 {report ? (
-                  <div className="flex justify-end">
+                  <div className="flex items-center justify-end gap-3">
+                    <ActionMessage message={messageAt("composer")} />
                     <Button
-                      className="px-2.5"
+                      className="shrink-0 px-2.5"
                       disabled={anyBusy}
                       onClick={() => void postUpdate()}
                       size="sm"
@@ -844,6 +1108,16 @@ export function ReportEditor({
 
               {report ? (
                 <ul className="space-y-4 border-[var(--border)] border-t pt-5">
+                  {timelineMessage ? (
+                    // A hidden success keeps the list item out of the layout
+                    <li
+                      className={
+                        timelineMessage.tone === "error" ? undefined : "sr-only"
+                      }
+                    >
+                      <ActionMessage message={timelineMessage} />
+                    </li>
+                  ) : null}
                   {timelineUpdates.map((update) => {
                     // Deleting the latest resolving update can flip the
                     // report back to Ongoing. Warn inside the delete confirm.
@@ -853,7 +1127,7 @@ export function ReportEditor({
                         : null
                     return (
                       <li
-                        className="rounded-[8px] border border-[var(--border)] p-4"
+                        className="rounded-[8px] border border-[var(--border-strong)] p-2 sm:p-4"
                         key={update.id}
                       >
                         {editing?.id === update.id ? (
@@ -890,10 +1164,18 @@ export function ReportEditor({
                                 </Select>
                               </div>
                               <Field
+                                error={editing.timeError || undefined}
                                 htmlFor={`edit-published-${update.id}`}
-                                label="Published at"
+                                label={
+                                  <ZonedLabel
+                                    text="Published at"
+                                    timeZone={timeZone}
+                                  />
+                                }
                               >
                                 <Input
+                                  aria-invalid={Boolean(editing.timeError)}
+                                  className={datetimeInputClass}
                                   id={`edit-published-${update.id}`}
                                   onChange={(event) =>
                                     setEditingField({
@@ -905,7 +1187,15 @@ export function ReportEditor({
                                 />
                               </Field>
                             </div>
-                            {isBeforeStart(editing.publishedAt, startsAt) ? (
+                            {isBeforeStart(
+                              editing.publishedAt,
+                              startsAt,
+                              timeZone,
+                              {
+                                startsAt: originals.startsAt,
+                                publishedAt: update.publishedAt,
+                              }
+                            ) ? (
                               <p
                                 className="text-[13px] text-[var(--down-text)]"
                                 role="status"
@@ -940,7 +1230,21 @@ export function ReportEditor({
                                 {STATE_FLIP_COPY[editing.warning]}
                               </p>
                             ) : null}
-                            <div className="flex justify-end gap-2">
+                            <div className="flex flex-wrap items-center justify-end gap-2">
+                              {/* Always mounted so screen readers announce the reason when it appears */}
+                              <span
+                                className={
+                                  editSwitchBlocked
+                                    ? "mr-auto min-w-0 break-words text-[var(--fg-muted)] text-xs"
+                                    : "sr-only"
+                                }
+                                id="edit-switch-blocked"
+                                role="status"
+                              >
+                                {editSwitchBlocked
+                                  ? "Save or cancel to edit another"
+                                  : ""}
+                              </span>
                               <Button
                                 className="px-2.5"
                                 disabled={anyBusy}
@@ -971,7 +1275,7 @@ export function ReportEditor({
                               <span className="font-data text-[var(--fg-muted)] text-xs">
                                 <IncidentTime value={update.publishedAt} />
                               </span>
-                              <span className="ml-auto flex items-center gap-1">
+                              <span className="ml-auto flex flex-wrap items-center justify-end gap-1">
                                 {confirmDeleteUpdateId === update.id ? (
                                   <>
                                     {deleteFlip ? (
@@ -1013,8 +1317,13 @@ export function ReportEditor({
                                 ) : (
                                   <>
                                     <Button
+                                      aria-describedby={
+                                        editSwitchBlocked
+                                          ? "edit-switch-blocked"
+                                          : undefined
+                                      }
                                       className="px-2"
-                                      disabled={anyBusy}
+                                      disabled={anyBusy || editSwitchBlocked}
                                       onClick={() => startEditUpdate(update.id)}
                                       size="sm"
                                       variant="tertiary"
@@ -1036,18 +1345,23 @@ export function ReportEditor({
                                 )}
                               </span>
                             </div>
-                            <p className="mt-2 whitespace-pre-wrap font-data text-[13px]">
+                            <p className="mt-2 whitespace-pre-wrap break-words font-data text-[13px]">
                               {update.markdown}
                             </p>
                           </>
                         )}
+                        <ActionMessage
+                          className="mt-3"
+                          message={messageAt(`update:${update.id}`)}
+                        />
                       </li>
                     )
                   })}
                 </ul>
               ) : null}
               {report && timelineNextCursor ? (
-                <div className="flex justify-center border-[var(--border)] border-t pt-4">
+                <div className="flex flex-col items-center gap-2 border-[var(--border)] border-t pt-4">
+                  <ActionMessage message={messageAt("older")} />
                   <Button
                     className="px-2.5"
                     disabled={anyBusy}
@@ -1064,13 +1378,13 @@ export function ReportEditor({
         </div>
 
         <Card className="h-fit">
-          <CardHeader>
+          <CardHeader className={cardHeaderClass}>
             <CardTitle>Affected Services</CardTitle>
             <CardDescription>
               Impact shown per service on the status page
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-5">
+          <CardContent className={`${cardContentClass} space-y-5`}>
             {pickerGroups.length === 0 ? (
               <p className="text-[13px] text-[var(--fg-muted)]">
                 No monitors configured.
@@ -1087,10 +1401,7 @@ export function ReportEditor({
                         className="flex items-center justify-between gap-3"
                         key={row.id}
                       >
-                        <span
-                          className="min-w-0 truncate text-[13px]"
-                          title={row.name}
-                        >
+                        <span className="min-w-0 break-words text-[13px]">
                           {row.name}
                         </span>
                         <Select
@@ -1132,9 +1443,9 @@ export function ReportEditor({
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
         <p
           aria-live="polite"
-          className={`text-[13px] ${message?.tone === "error" ? "text-[var(--down-text)]" : "text-[var(--fg-muted)]"}`}
+          className={`min-w-0 break-words text-[13px] ${messageClass(footerMessage?.tone ?? "info")}`}
         >
-          {message?.text ?? ""}
+          {footerMessage?.text ?? ""}
         </p>
         <div className="flex items-center gap-4">
           {report ? (
@@ -1156,7 +1467,7 @@ export function ReportEditor({
                 Save as draft
               </label>
               <Button disabled={anyBusy} onClick={() => void create()}>
-                {busy === "create" ? "Creating…" : "Create Status Report"}
+                {createLabel(draft, busy === "create")}
               </Button>
             </>
           )}

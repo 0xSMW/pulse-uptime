@@ -1,5 +1,7 @@
+// @vitest-environment jsdom
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { TimezoneProvider } from "@/components/dashboard/timezone-provider"
 import type { DatabaseHealth } from "@/lib/database-health/types"
@@ -119,6 +121,67 @@ describe("DatabaseHealthCard", () => {
     expect(html).toContain('aria-valuetext="Storage usage unavailable"')
     expect(html).not.toContain("aria-valuenow")
     expect(html).toContain("Rollups")
+  })
+})
+
+describe("DatabaseHealthCard refresh", () => {
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+  })
+
+  async function refreshWith(response: Response) {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response))
+    render(
+      <TimezoneProvider>
+        <DatabaseHealthCard initialData={report} />
+      </TimezoneProvider>
+    )
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Refresh" }))
+    })
+  }
+
+  it("shows no message after a fresh measurement", async () => {
+    await refreshWith(
+      Response.json({
+        data: {
+          ...report,
+          freshness: {
+            ...report.freshness,
+            capturedAt: "2026-07-19T08:00:00.000Z",
+          },
+        },
+      })
+    )
+    expect(screen.queryByText("Database metrics refreshed")).toBeNull()
+    expect(screen.getByText(/^Updated Jul 19/)).toBeDefined()
+  })
+
+  it("keeps the stale fallback visible", async () => {
+    await refreshWith(
+      Response.json({
+        data: {
+          ...report,
+          refresh: { ...report.refresh, status: "STALE_FALLBACK" },
+        },
+      })
+    )
+    const message = screen.getByText(
+      "Refresh failed, showing the last measurement"
+    )
+    expect(message.classList.contains("sr-only")).toBe(false)
+  })
+
+  it("keeps a failed refresh visible", async () => {
+    await refreshWith(
+      Response.json(
+        { error: { message: "Database health is unavailable" } },
+        { status: 503 }
+      )
+    )
+    const message = screen.getByText("Database health is unavailable")
+    expect(message.classList.contains("sr-only")).toBe(false)
   })
 })
 

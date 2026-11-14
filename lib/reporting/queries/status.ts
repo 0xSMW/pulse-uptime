@@ -15,6 +15,10 @@ import {
   monitorState,
 } from "@/lib/db/schema"
 import {
+  loadExclusionSlots,
+  loadIncidentExclusionStatuses,
+} from "@/lib/incidents/exclusions"
+import {
   defaultStatusPageDocument,
   displayTimelineBuckets,
   filterShortResolvedIncidents,
@@ -35,7 +39,7 @@ import {
   type StatusReportData,
   StatusReportError,
 } from "@/lib/status-reports/queries"
-
+import { overlayExclusions } from "./exclusions"
 import { rollupsSinceActivation } from "./first-run"
 import {
   buildRollupTimeline,
@@ -318,6 +322,11 @@ async function loadPublicStatus(group?: string) {
         ]),
   ])
 
+  const [exclusions, exclusionStatuses] = await Promise.all([
+    loadExclusionSlots(ids, earliest, completedDay),
+    loadIncidentExclusionStatuses(recent.map((incident) => incident.id)),
+  ])
+
   // Group filtering: a report appears on /status/[group] iff it affects
   // a monitor in that group, matched by visible monitor id or by the slug of
   // the snapshotted group name (see filterReportsForGroup in
@@ -386,7 +395,12 @@ async function loadPublicStatus(group?: string) {
           // never-activated monitor has no observed data, so its uptime is null
           // and its timeline is all no-data, never down.
           const rows = rollupsSinceActivation(
-            rollupsByMonitor.get(monitor.id) ?? [],
+            overlayExclusions(
+              rollupsByMonitor.get(monitor.id) ?? [],
+              exclusions,
+              "day",
+              monitor.id
+            ),
             monitor.activatedAt ?? null
           )
           const summary = summarizeRollupCoverage(rows)
@@ -398,6 +412,10 @@ async function loadPublicStatus(group?: string) {
                 ? ("PENDING" as const)
                 : monitor.state,
             uptime: summary.uptime,
+            excludedChecks: rows.reduce(
+              (sum, row) => sum + (row.excludedChecks ?? 0),
+              0
+            ),
             coverage: summary.coverage,
             timeline: displayTimelineBuckets(
               buildRollupTimeline(
@@ -460,6 +478,9 @@ async function loadPublicStatus(group?: string) {
       excludePromotedIncidents(recent, historyPromoted).map((incident) => ({
         id: incident.id,
         monitorName: incident.monitorName,
+        ...(exclusionStatuses.get(incident.id) === "full"
+          ? { monitoringError: true }
+          : {}),
         openedAt: incident.openedAt.toISOString(),
         // Always non-null here: query 3 above filters isNotNull(resolvedAt).
         // The `?? now` fallback only satisfies the nullable column type.

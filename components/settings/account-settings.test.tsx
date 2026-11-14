@@ -1,9 +1,18 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react"
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 
+const navigation = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn() }))
+
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+  useRouter: () => ({ refresh: navigation.refresh, push: navigation.push }),
 }))
 
 import { ThemeProvider } from "@/components/dashboard/theme-provider"
@@ -16,6 +25,16 @@ import {
 import { SettingsDirtyProvider, useSettingsDirty } from "./settings-dirty"
 
 beforeAll(() => {
+  Element.prototype.scrollIntoView ??= () => {
+    // jsdom stub
+  }
+  Element.prototype.hasPointerCapture ??= () => false
+  Element.prototype.setPointerCapture ??= () => {
+    // jsdom stub
+  }
+  Element.prototype.releasePointerCapture ??= () => {
+    // jsdom stub
+  }
   Object.defineProperty(window, "matchMedia", {
     writable: true,
     value: (query: string) => ({
@@ -41,6 +60,8 @@ beforeAll(() => {
 
 afterEach(() => {
   cleanup()
+  vi.unstubAllGlobals()
+  vi.clearAllMocks()
   window.localStorage.clear()
 })
 
@@ -141,6 +162,52 @@ describe("AccountSettings", () => {
     expect(screen.getByTestId("dirty").textContent).toBe("true")
   })
 
+  it("announces a saved name to screen readers only", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({})))
+    renderAccount()
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Someone Else" },
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save Name" }))
+    })
+    const saved = screen.getByText("Name saved")
+    expect(saved.classList.contains("sr-only")).toBe(true)
+    expect(saved.parentElement?.getAttribute("aria-live")).toBe("polite")
+    vi.unstubAllGlobals()
+  })
+
+  it("keeps the new sign-in email visible after an email change", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          Response.json({ data: { email: "new@example.com" } })
+        )
+    )
+    renderAccount()
+    fireEvent.click(screen.getByRole("button", { name: "Change Email" }))
+    fireEvent.change(screen.getByLabelText("New email"), {
+      target: { value: "new@example.com" },
+    })
+    fireEvent.change(screen.getByLabelText("Confirm new email"), {
+      target: { value: "new@example.com" },
+    })
+    fireEvent.change(screen.getByLabelText("Current password"), {
+      target: { value: "correct horse" },
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Change Email" }))
+    })
+    const message = screen.getByText(
+      "Email updated. You will now sign in as new@example.com."
+    )
+    expect(message.classList.contains("sr-only")).toBe(false)
+    expect(message.querySelector(".sr-only")).toBeNull()
+    vi.unstubAllGlobals()
+  })
+
   it("marks the settings shell dirty while the email form has input", () => {
     renderAccount()
     fireEvent.click(screen.getByRole("button", { name: "Change Email" }))
@@ -151,5 +218,125 @@ describe("AccountSettings", () => {
     expect(screen.getByTestId("dirty").textContent).toBe("true")
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
     expect(screen.getByTestId("dirty").textContent).toBe("false")
+  })
+
+  it("uses the shared JSON transport for profile saves", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ data: {} }))
+    vi.stubGlobal("fetch", fetchMock)
+    renderAccount()
+
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "  Renamed User  " },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save Name" }))
+
+    await waitFor(() => {
+      expect(screen.getByText("Name saved")).toBeDefined()
+    })
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe("/api/v1/me")
+    expect(init.method).toBe("PATCH")
+    expect(JSON.parse(String(init.body))).toEqual({ name: "Renamed User" })
+    expect(new Headers(init.headers).get("Content-Type")).toBe(
+      "application/json"
+    )
+    expect(navigation.refresh).toHaveBeenCalledOnce()
+  })
+
+  it("preserves the profile fallback for non-JSON errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("gateway", { status: 502 }))
+    )
+    renderAccount()
+
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Renamed User" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save Name" }))
+
+    await waitFor(() => {
+      expect(screen.getByText("Request failed. Try again.")).toBeDefined()
+    })
+  })
+
+  it("uploads avatar form data before saving the returned image id", async () => {
+    const imageId = "11111111-1111-4111-8111-111111111111"
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({ data: { id: imageId } }, { status: 201 })
+      )
+      .mockResolvedValueOnce(Response.json({ data: {} }))
+    vi.stubGlobal("fetch", fetchMock)
+    renderAccount()
+
+    const file = new File(["png-bytes"], "avatar.png", { type: "image/png" })
+    fireEvent.change(screen.getByLabelText("Upload avatar"), {
+      target: { files: [file] },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText("Avatar updated")).toBeDefined()
+    })
+    const [uploadUrl, uploadInit] = fetchMock.mock.calls[0] as [
+      string,
+      RequestInit,
+    ]
+    expect(uploadUrl).toBe("/api/v1/images")
+    expect((uploadInit.body as FormData).get("kind")).toBe("avatar")
+    expect(new Headers(uploadInit.headers).get("Content-Type")).toBeNull()
+
+    const [saveUrl, saveInit] = fetchMock.mock.calls[1] as [string, RequestInit]
+    expect(saveUrl).toBe("/api/v1/me")
+    expect(JSON.parse(String(saveInit.body))).toEqual({
+      avatarImageId: imageId,
+    })
+    expect(navigation.refresh).toHaveBeenCalledOnce()
+  })
+
+  it("rejects an upload response without an image id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ data: {} }))
+    vi.stubGlobal("fetch", fetchMock)
+    renderAccount()
+
+    fireEvent.change(screen.getByLabelText("Upload avatar"), {
+      target: {
+        files: [new File(["png-bytes"], "avatar.png", { type: "image/png" })],
+      },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText("Upload failed. Try again.")).toBeDefined()
+    })
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(navigation.refresh).not.toHaveBeenCalled()
+  })
+
+  it("keeps account time zone failures generic", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ error: { message: "Internal detail" } }),
+          {
+            status: 500,
+          }
+        )
+      )
+    )
+    renderAccount()
+
+    fireEvent.click(screen.getByLabelText("Account time zone"))
+    fireEvent.click(
+      await screen.findByRole("option", { name: "Bangkok (UTC+7)" })
+    )
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Could not save the account time zone. Try again.")
+      ).toBeDefined()
+    })
+    expect(screen.queryByText("Internal detail")).toBeNull()
   })
 })

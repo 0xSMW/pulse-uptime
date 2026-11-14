@@ -16,10 +16,11 @@ export const MONITOR_STATE_ORDER = [
 ] as const satisfies readonly MonitorState[]
 
 export interface TimelineBucket {
-  state: "up" | "down" | "verifying" | "paused" | "no-data"
+  state: "up" | "down" | "verifying" | "paused" | "no-data" | "excluded"
   label: string
   checks: number
   failures: number
+  excludedChecks?: number
   downtimeSeconds?: number
   // Epoch millis of the bucket's covered range. Carried so the timeline
   // tooltip can render a human date and time range in the viewer's zone

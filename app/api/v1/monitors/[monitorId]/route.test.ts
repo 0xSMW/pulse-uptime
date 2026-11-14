@@ -46,6 +46,7 @@ vi.mock("@/lib/api/monitors", async (importOriginal) => ({
   archiveMonitor: vi.fn(),
 }))
 
+import { executeIdempotent } from "@/lib/api/idempotency"
 import { type ApiContext, authorize } from "@/lib/api/middleware"
 import {
   archiveMonitor,
@@ -182,6 +183,14 @@ describe("PATCH /api/v1/monitors/{monitorId}", () => {
       context.principalKey,
       "tx"
     )
+    expect(executeIdempotent).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        principalKey: context.principalKey,
+        routeKey: "/api/v1/monitors/site-home",
+        body: { groupId: null },
+        mode: "atomic",
+      })
+    )
 
     const reassigned = await PATCH(
       patchRequest({ groupId: "production" }),
@@ -240,6 +249,14 @@ describe("DELETE /api/v1/monitors/{monitorId}", () => {
     const response = await DELETE(deleteRequest(), params)
     expect(response.status).toBe(200)
     expect((await response.json()).data.archived).toBe(true)
+    expect(executeIdempotent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        principalKey: context.principalKey,
+        routeKey: "/api/v1/monitors/site-home",
+        body: {},
+        mode: "atomic",
+      })
+    )
   })
 
   it("stores a deterministic MONITOR_NOT_FOUND error as the operation's own completed response", async () => {

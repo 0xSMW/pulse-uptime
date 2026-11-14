@@ -1,10 +1,5 @@
-import {
-  apiError,
-  apiJson,
-  listEnvelope,
-  objectEnvelope,
-} from "@/lib/api/envelopes"
-import { executeIdempotent } from "@/lib/api/idempotency"
+import { runAtomicMutation } from "@/lib/api/atomic-mutation"
+import { apiError, apiJson, listEnvelope } from "@/lib/api/envelopes"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
 import { monitorError, storedMonitorError } from "@/lib/api/monitor-http"
 import { createMonitor, listMonitors } from "@/lib/api/monitors"
@@ -108,32 +103,19 @@ export async function POST(request: Request) {
   }
   try {
     const body = await request.json()
-    const result = await executeIdempotent({
+    return runAtomicMutation({
       request,
-      principalKey: context.principalKey,
+      context,
       routeKey: "/api/v1/monitors",
       body,
-      mode: "atomic",
-      work: async (tx) => {
-        try {
-          return {
-            status: 201,
-            body: objectEnvelope(
-              "Monitor",
-              await createMonitor(body, context.principalKey, tx),
-              context.requestId
-            ),
-          }
-        } catch (error) {
-          const stored = storedMonitorError(error, context.requestId)
-          if (stored) {
-            return stored
-          }
-          throw error
-        }
-      },
+      work: async (tx) => ({
+        status: 201,
+        kind: "Monitor",
+        data: await createMonitor(body, context.principalKey, tx),
+      }),
+      storedError: storedMonitorError,
+      mapError: monitorError,
     })
-    return apiJson(result.body, { status: result.status })
   } catch (error) {
     return (
       monitorError(error, context.requestId) ??

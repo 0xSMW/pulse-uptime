@@ -49,10 +49,10 @@ export function SettingsDirtyProvider({
   // navigation), and any link click in the document, including sidebar
   // items, "Back to app", and TopNav/logo alike. See useNavigationGuard for
   // the techniques and their limits. The dialog it returns must be rendered
-  // for the modal to appear.
+  // for the modal to appear. The title carries the whole prompt, so the
+  // dialog has no description line repeating it.
   const guardDialog = useNavigationGuard(dirty, {
-    title: "Discard unsaved changes?",
-    description: DISCARD_PROMPT,
+    title: DISCARD_PROMPT,
     confirmLabel: "Discard",
     cancelLabel: "Keep Editing",
   })

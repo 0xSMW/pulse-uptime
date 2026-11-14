@@ -13,7 +13,6 @@ import (
 	"github.com/0xSMW/pulse-uptime/cli/internal/output"
 	"github.com/0xSMW/pulse-uptime/cli/internal/paginator"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
 type Request struct {
@@ -164,18 +163,15 @@ func pageLimit(message string) error {
 func annotations(scope string) map[string]string {
 	return map[string]string{"supportsOutput": "table,json,jsonl,yaml,tsv", "requiredScope": scope}
 }
-func machine(f string) bool { return f == "json" || f == "jsonl" || f == "yaml" || f == "tsv" }
+func machine(f string) bool { return output.IsMachine(f) }
 func invalid(message string) error {
 	return &Error{Exit: 2, Code: "INVALID_ARGUMENT", Message: message}
 }
 func renderEnvelope(d Dependencies, f string, doc Envelope) error {
+	if handled, err := output.RenderStructured(d.Out, f, doc); handled {
+		return err
+	}
 	switch f {
-	case "json":
-		return jsonPretty(d.Out, doc)
-	case "jsonl":
-		return json.NewEncoder(d.Out).Encode(doc)
-	case "yaml":
-		return yamlValue(d.Out, doc)
 	case "tsv":
 		var i Incident
 		if json.Unmarshal(doc.Data, &i) == nil && i.ID != "" {
@@ -199,18 +195,10 @@ func renderEnvelope(d Dependencies, f string, doc Envelope) error {
 	}
 }
 func renderList(d Dependencies, f string, doc ListEnvelope) error {
+	if handled, err := output.RenderStructuredList(d.Out, f, doc, doc.Data); handled {
+		return err
+	}
 	switch f {
-	case "json":
-		return jsonPretty(d.Out, doc)
-	case "jsonl":
-		for _, raw := range doc.Data {
-			if _, e := fmt.Fprintln(d.Out, string(raw)); e != nil {
-				return e
-			}
-		}
-		return nil
-	case "yaml":
-		return yamlValue(d.Out, doc)
 	case "tsv":
 		for _, raw := range doc.Data {
 			var i Incident
@@ -236,9 +224,7 @@ func renderList(d Dependencies, f string, doc ListEnvelope) error {
 		if err := output.Table(d.Out, []string{"ID", "MONITOR", "STATUS", "OPENED"}, rows); err != nil {
 			return err
 		}
-		if doc.Meta.NextCursor != nil && *doc.Meta.NextCursor != "" {
-			fmt.Fprintf(d.Err, "More incidents available. Continue with --cursor %s\n", output.SanitizeDisplay(*doc.Meta.NextCursor))
-		}
+		output.CursorHint(d.Err, "incidents", doc.Meta.NextCursor)
 		return nil
 	}
 }
@@ -247,21 +233,4 @@ func value(v *string) string {
 		return ""
 	}
 	return *v
-}
-func jsonPretty(w io.Writer, v any) error {
-	e := json.NewEncoder(w)
-	e.SetEscapeHTML(false)
-	e.SetIndent("", "  ")
-	return e.Encode(v)
-}
-func yamlValue(w io.Writer, v any) error {
-	b, e := json.Marshal(v)
-	if e != nil {
-		return e
-	}
-	var x any
-	if e = json.Unmarshal(b, &x); e != nil {
-		return e
-	}
-	return yaml.NewEncoder(w).Encode(x)
 }

@@ -8,6 +8,9 @@ export interface IncidentSummary {
   monitorName: string
   openedAt: string
   resolvedAt: string | null
+  exclusionStatus?: "full" | "partial" | null
+  /** The status report promoted from this incident, when one exists. */
+  reportId?: string | null
   durationSeconds: number
   openingFailure: string
   notificationSummary: {
@@ -50,6 +53,7 @@ export interface DependencyIncidentOverlap {
 }
 
 export interface IncidentDetail extends IncidentSummary {
+  firstFailureAt?: string
   events: IncidentEvent[]
   overlaps: DependencyIncidentOverlap[]
 }

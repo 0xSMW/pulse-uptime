@@ -24,6 +24,7 @@ suite("recent raw checks read straight from check_batches", () => {
       "0001_device_authorization_request_ip.sql",
       "0002_naive_captain_stacy.sql",
       "0003_fast_alice.sql",
+      "0032_organic_strong_guy.sql",
     ]) {
       const source = await readFile(
         resolve(process.cwd(), "drizzle", migration),

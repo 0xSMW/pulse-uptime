@@ -8,7 +8,10 @@ vi.mock("next/navigation", () => ({
 }))
 
 import { TimezoneProvider } from "@/components/dashboard/timezone-provider"
-import { IncidentHistoryTable } from "./incident-history-table"
+import {
+  IncidentHistoryTable,
+  IncidentReportAction,
+} from "./incident-history-table"
 import type { IncidentSummary } from "./types"
 
 afterEach(() => {
@@ -27,15 +30,27 @@ const incident: IncidentSummary = {
   notificationSummary: { state: "sent", sentCount: 1 },
 }
 
-function renderTable() {
+function renderTable(canWriteReports = true, incidents = [incident]) {
   return render(
     <TimezoneProvider>
-      <IncidentHistoryTable incidents={[incident]} />
+      <IncidentHistoryTable
+        canReadReports
+        canWriteReports={canWriteReports}
+        incidents={incidents}
+      />
     </TimezoneProvider>
   )
 }
 
 describe("IncidentHistoryTable", () => {
+  it("names the section History for screen readers without a visible heading", () => {
+    renderTable()
+    const heading = screen.getByRole("heading", { name: "History" })
+    expect(heading.classList.contains("sr-only")).toBe(true)
+    expect(heading.className).not.toContain("mb-3")
+    expect(screen.getByRole("region", { name: "History" })).toBeDefined()
+  })
+
   it("navigates the whole row to the incident on a plain left click", () => {
     renderTable()
     const link = screen.getByRole("link", { name: "API Production" })
@@ -53,6 +68,101 @@ describe("IncidentHistoryTable", () => {
     expect(push).not.toHaveBeenCalledWith("/incidents/inc-1")
   })
 
+  it("links an incident that already has a report to it instead of offering Write Report", () => {
+    renderTable(true, [
+      { ...incident, reportId: "rep-1" },
+      { ...incident, id: "inc-2", monitorName: "Docs", reportId: null },
+    ])
+    const view = screen.getByRole("link", { name: "View Report" })
+    expect(view.getAttribute("href")).toBe("/incidents/reports/rep-1")
+    expect(view.closest("tr")?.textContent).toContain("API Production")
+    const write = screen.getByRole("button", { name: "Write Report" })
+    expect(write.closest("tr")?.textContent).toContain("Docs")
+    fireEvent.click(view, { button: 0 })
+    expect(push).not.toHaveBeenCalledWith("/incidents/inc-1")
+  })
+
+  it("hides Write Report and its column from viewers", () => {
+    renderTable(false)
+    expect(screen.queryByRole("button", { name: "Write Report" })).toBeNull()
+    expect(screen.queryByText("Actions")).toBeNull()
+    expect(screen.getByRole("link", { name: "API Production" })).toBeTruthy()
+  })
+
+  it("lets viewers open an existing report but never write one", () => {
+    renderTable(false, [
+      { ...incident, reportId: "rep-1" },
+      { ...incident, id: "inc-2", monitorName: "Docs", reportId: null },
+    ])
+    expect(screen.queryByRole("button", { name: "Write Report" })).toBeNull()
+    expect(screen.getByText("Actions")).toBeTruthy()
+    const [view, ...others] = screen.getAllByRole("link", {
+      name: "View Report",
+    })
+    expect(others).toHaveLength(0)
+    expect(view?.getAttribute("href")).toBe("/incidents/reports/rep-1")
+    expect(view?.closest("tr")?.textContent).toContain("API Production")
+    const docsRow = screen.getByRole("link", { name: "Docs" }).closest("tr")!
+    expect(docsRow.cells).toHaveLength(8)
+    expect(docsRow.cells[7]?.textContent).toBe("")
+  })
+
+  it("leaves a viewer's View Report click to the link instead of the row", () => {
+    renderTable(false, [{ ...incident, reportId: "rep-1" }])
+    fireEvent.click(screen.getByRole("link", { name: "View Report" }), {
+      button: 0,
+    })
+    expect(push).not.toHaveBeenCalledWith("/incidents/inc-1")
+  })
+
+  it("hides View Report without reports:read", () => {
+    render(
+      <TimezoneProvider>
+        <IncidentHistoryTable
+          canReadReports={false}
+          canWriteReports={false}
+          incidents={[{ ...incident, reportId: "rep-1" }]}
+        />
+      </TimezoneProvider>
+    )
+    expect(screen.queryByRole("link", { name: "View Report" })).toBeNull()
+    expect(screen.queryByText("Actions")).toBeNull()
+  })
+
+  function renderState(overrides: Partial<IncidentSummary>) {
+    renderTable(true, [{ ...incident, ...overrides }])
+    return screen.getByRole("link", { name: "API Production" }).closest("tr")!
+      .cells[1]!
+  }
+
+  it("shows one green False alarm badge and no Resolved badge for a fully excluded resolved incident", () => {
+    const cell = renderState({ exclusionStatus: "full" })
+    const badge = screen.getByText("False alarm")
+    expect(cell.textContent).toBe("False alarm")
+    expect(screen.queryByText("Resolved", { selector: "span" })).toBeNull()
+    expect(badge.className).toContain("bg-[var(--up-bg)]")
+    expect(badge.className).toContain("text-[var(--up-text)]")
+    expect(badge.querySelector(".bg-\\[var\\(--up\\)\\]")).toBeTruthy()
+    expect(screen.getByText("HTTP 503")).toBeTruthy()
+  })
+
+  it("keeps the Resolved badge alone for a normal resolved incident", () => {
+    const cell = renderState({})
+    expect(cell.textContent).toBe("Resolved")
+    expect(screen.queryByText("False alarm")).toBeNull()
+  })
+
+  it("keeps Resolved with the partial annotation for a partially excluded incident", () => {
+    const cell = renderState({ exclusionStatus: "partial" })
+    expect(cell.textContent).toBe("ResolvedPartially excluded")
+  })
+
+  it("keeps an ongoing incident visibly Ongoing even when fully excluded", () => {
+    const cell = renderState({ resolvedAt: null, exclusionStatus: "full" })
+    expect(screen.getByText("Ongoing", { selector: "span" })).toBeTruthy()
+    expect(cell.textContent).toBe("OngoingFalse alarm")
+  })
+
   it("does not render a Status column (finding: it duplicated the HTTP code already shown by Opening Failure)", () => {
     renderTable()
     const headers = screen
@@ -62,5 +172,49 @@ describe("IncidentHistoryTable", () => {
     expect(headers).not.toContain("Status")
     expect(screen.getByText("HTTP 503")).toBeTruthy()
     expect(screen.queryByText("resolved")).toBeNull()
+  })
+})
+
+// The incident page renders this same control in its header.
+describe("IncidentReportAction", () => {
+  function renderAction(
+    reportId: string | null,
+    canReadReports: boolean,
+    canWriteReports: boolean
+  ) {
+    return render(
+      <IncidentReportAction
+        canReadReports={canReadReports}
+        canWriteReports={canWriteReports}
+        incidentId="inc-1"
+        reportId={reportId}
+      />
+    )
+  }
+
+  it("shows View Report to writers when a report exists, not Write Report", () => {
+    renderAction("rep-1", true, true)
+    expect(
+      screen.getByRole("link", { name: "View Report" }).getAttribute("href")
+    ).toBe("/incidents/reports/rep-1")
+    expect(screen.queryByRole("button", { name: "Write Report" })).toBeNull()
+  })
+
+  it("shows View Report to viewers with reports:read", () => {
+    renderAction("rep-1", true, false)
+    expect(screen.getByRole("link", { name: "View Report" })).toBeTruthy()
+  })
+
+  it("offers Write Report only to writers when no report exists", () => {
+    renderAction(null, true, true)
+    expect(screen.getByRole("button", { name: "Write Report" })).toBeTruthy()
+    cleanup()
+    const { container } = renderAction(null, true, false)
+    expect(container.innerHTML).toBe("")
+  })
+
+  it("renders nothing for an existing report without reports:read", () => {
+    const { container } = renderAction("rep-1", false, true)
+    expect(container.innerHTML).toBe("")
   })
 })

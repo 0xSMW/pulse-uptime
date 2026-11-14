@@ -1,6 +1,6 @@
 "use client"
 
-import { Activity, Archive, ChevronDown, Pause, Play } from "lucide-react"
+import { Activity, Archive, ChevronDown } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 import {
@@ -8,19 +8,23 @@ import {
   type EditableMonitor,
   emptyNumericMonitorValues,
   hasAdvancedMonitorErrors,
+  hasProbeChanges,
   isPublicMonitorUrl,
   monitorMutationBody,
+  monitorPatchBody,
   type NumericMonitorFormValues,
   numericMonitorValidation,
   numericMonitorValues,
   validateMonitorValues,
 } from "@/components/monitors/monitor-form"
+import { runMonitorTest } from "@/components/monitors/monitor-test"
 import { Button } from "@/components/ui/button"
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import {
   Select,
   SelectContent,
@@ -36,6 +40,7 @@ import {
   messageForError,
   type SettingsGroup,
 } from "./settings-api"
+import { DISCARD_PROMPT } from "./settings-dirty"
 import { Sheet, SheetIconButton } from "./sheet"
 
 export type { EditableMonitor } from "@/components/monitors/monitor-form"
@@ -52,14 +57,66 @@ export function hasAdvancedMonitorFormErrors(
   return hasAdvancedMonitorErrors(errors)
 }
 
-export function monitorSheetActionLabels(enabled: boolean) {
-  return ["Run Test", enabled ? "Pause" : "Resume", "Archive"] as const
+// Pause and resume live in the Enabled field, so the header only runs a test
+// or archives.
+export function monitorSheetActionLabels() {
+  return ["Run Test", "Archive"] as const
+}
+
+interface SheetStatus {
+  message: string
+  error: boolean
+  // Routine progress and success that the buttons already show. Announced to
+  // screen readers only.
+  quiet?: boolean
+}
+
+function isDirty(values: MonitorFormValues, baseline: MonitorFormValues) {
+  return (Object.keys(baseline) as (keyof MonitorFormValues)[]).some(
+    (key) => values[key] !== baseline[key]
+  )
 }
 
 function valuesFor(monitor: EditableMonitor | null): MonitorFormValues {
   return monitor
     ? numericMonitorValues(monitor)
     : structuredClone(emptyNumericMonitorValues)
+}
+
+// The saved config with only this editor's own edits applied, which is what
+// a save would leave on the server.
+function withLocalEdits(
+  values: MonitorFormValues,
+  baseline: MonitorFormValues,
+  saved: MonitorFormValues
+): MonitorFormValues {
+  const merged = { ...saved }
+  for (const key of Object.keys(saved) as (keyof MonitorFormValues)[]) {
+    if (values[key] !== baseline[key]) {
+      Object.assign(merged, { [key]: values[key] })
+    }
+  }
+  return merged
+}
+
+const SAVE_BEFORE_TEST = "Save changes before testing"
+const REOPEN_BEFORE_TEST = "Reopen to load saved settings"
+
+// The test probes the saved config, so it waits while the form shows a
+// different URL, method, timeout, or expected status. Edits this editor made
+// need a save. Saved settings that changed elsewhere since the sheet opened
+// need a reopen, even when the form also holds unrelated local edits.
+function testBlockedReason(
+  values: MonitorFormValues,
+  baseline: MonitorFormValues,
+  saved: MonitorFormValues
+): string | null {
+  if (!hasProbeChanges(values, saved)) {
+    return null
+  }
+  return hasProbeChanges(withLocalEdits(values, baseline, saved), saved)
+    ? SAVE_BEFORE_TEST
+    : REOPEN_BEFORE_TEST
 }
 
 export { deriveMonitorName, isPublicMonitorUrl }
@@ -112,7 +169,8 @@ function ArchiveDialog({
   monitorName,
   value,
   busy,
-  status,
+  archived,
+  error,
   onValueChange,
   onCancel,
   onConfirm,
@@ -120,7 +178,10 @@ function ArchiveDialog({
   monitorName: string
   value: string
   busy: boolean
-  status: string
+  archived: boolean
+  // Only this dialog's own archive failure. Sheet test and save status never
+  // reach it.
+  error: string | null
   onValueChange: (value: string) => void
   onCancel: () => void
   onConfirm: () => void
@@ -156,12 +217,18 @@ function ArchiveDialog({
           value={value}
         />
       </label>
-      {status ? (
+      {error ? (
+        <p className="mt-3 text-[13px] text-[var(--down-text)]" role="alert">
+          {error}
+        </p>
+      ) : null}
+      {archived ? (
         <p
           aria-live="polite"
-          className={`mt-3 text-[13px] ${status === "Monitor archived" ? "text-[var(--fg-muted)]" : "text-[var(--down-text)]"}`}
+          className="mt-3 text-[13px] text-[var(--fg-muted)]"
+          role="status"
         >
-          {status}
+          Monitor archived
         </p>
       ) : null}
       <div className="mt-5 flex justify-end gap-2">
@@ -186,6 +253,7 @@ export function MonitorSheet({
   groups,
   onGroupCreated,
   onMonitorGroupChanged,
+  onArchived,
   onClose,
 }: {
   open: boolean
@@ -196,21 +264,28 @@ export function MonitorSheet({
     previousGroupId: string | null,
     nextGroupId: string | null
   ) => void
+  // Replaces the default refresh and close after an archive, for example to
+  // leave a detail page that no longer exists.
+  onArchived?: () => void
   onClose: () => void
 }) {
   const router = useRouter()
   const firstField = useRef<HTMLInputElement>(null)
   const formRef = useRef<HTMLFormElement>(null)
-  const [values, setValues] = useState<MonitorFormValues>(() =>
-    valuesFor(monitor)
-  )
+  // The monitor as this editor first saw it. Dirty checks and the PATCH diff
+  // compare against it, so a refreshed monitor prop carrying another editor's
+  // change never reads as an edit here and is never sent back.
+  const [baseline] = useState<MonitorFormValues>(() => valuesFor(monitor))
+  const [values, setValues] = useState<MonitorFormValues>(baseline)
   const [errors, setErrors] = useState<MonitorFormErrors>({})
   const [busy, setBusy] = useState<string | null>(null)
-  const [status, setStatus] = useState("")
+  const [status, setStatus] = useState<SheetStatus | null>(null)
   const [archiveName, setArchiveName] = useState("")
+  const [archiveError, setArchiveError] = useState<string | null>(null)
   const [confirmArchive, setConfirmArchive] = useState(false)
   const [createGroup, setCreateGroup] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
   const propagationTimer = useRef<number | null>(null)
 
   useEffect(() => {
@@ -233,6 +308,12 @@ export function MonitorSheet({
     key: K,
     value: MonitorFormValues[K]
   ) => setValues((current) => ({ ...current, [key]: value }))
+
+  // Name and other non-probe edits keep the test available.
+  const testBlocked = monitor
+    ? testBlockedReason(values, baseline, valuesFor(monitor))
+    : null
+  const probeChanged = testBlocked !== null
 
   const lastDerivedName = useRef("")
 
@@ -269,73 +350,67 @@ export function MonitorSheet({
       )
       return
     }
-    setBusy("save")
-    setStatus("")
-    const body = monitorMutationBody(values, { trimUrl: true })
-    try {
-      if (monitor) {
-        await apiRequest(
-          `/api/v1/monitors/${encodeURIComponent(monitor.id)}`,
-          { method: "PATCH", body: JSON.stringify(body) },
-          { mutation: true }
-        )
-      } else {
-        await apiRequest(
-          "/api/v1/monitors",
-          {
-            method: "POST",
-            body: JSON.stringify({
-              id: generatedMonitorId(values.name),
-              ...body,
-            }),
+    const request = monitor
+      ? {
+          path: `/api/v1/monitors/${encodeURIComponent(monitor.id)}`,
+          method: "PATCH",
+          body: monitorPatchBody(values, baseline, { trimUrl: true }),
+        }
+      : {
+          path: "/api/v1/monitors",
+          method: "POST",
+          body: {
+            id: generatedMonitorId(values.name),
+            ...monitorMutationBody(values, { trimUrl: true }),
           },
-          { mutation: true }
-        )
-      }
-      onMonitorGroupChanged?.(monitor?.groupId ?? null, values.groupId)
-      setStatus("Updating configuration…")
+        }
+    // Edits that serialize to the saved values, such as added whitespace,
+    // leave nothing to send.
+    if (Object.keys(request.body).length === 0) {
+      onClose()
+      return
+    }
+    setBusy("save")
+    setStatus(null)
+    try {
+      await apiRequest(
+        request.path,
+        { method: request.method, body: JSON.stringify(request.body) },
+        { mutation: true }
+      )
+      onMonitorGroupChanged?.(baseline.groupId, values.groupId)
+      setStatus({
+        message: "Updating configuration…",
+        error: false,
+        quiet: true,
+      })
       setBusy("propagation")
       propagationTimer.current = window.setTimeout(() => {
         router.refresh()
         onClose()
       }, 10_000)
     } catch (error) {
-      setStatus(messageForError(error))
+      setStatus({ message: messageForError(error), error: true })
     } finally {
       setBusy((current) => (current === "propagation" ? current : null))
     }
   }
 
-  async function monitorAction(action: "pause" | "resume" | "test") {
-    if (!monitor) {
+  async function runTest() {
+    if (!monitor || probeChanged) {
       return
     }
-    setBusy(action)
-    setStatus(
-      action === "test"
-        ? "Testing…"
-        : action === "pause"
-          ? "Pausing…"
-          : "Resuming…"
-    )
-    try {
-      await apiRequest(
-        `/api/v1/monitors/${encodeURIComponent(monitor.id)}/${action}`,
-        { method: "POST" },
-        { mutation: true }
-      )
-      setStatus(
-        action === "test"
-          ? "Test completed"
-          : action === "pause"
-            ? "Monitor paused"
-            : "Monitor resumed"
-      )
+    setBusy("test")
+    setStatus({ message: "Testing…", error: false, quiet: true })
+    const outcome = await runMonitorTest(monitor.id)
+    setStatus({
+      message: outcome.message,
+      error: outcome.status === "error",
+      quiet: outcome.status !== "error",
+    })
+    setBusy(null)
+    if (outcome.status === "success") {
       router.refresh()
-    } catch (error) {
-      setStatus(messageForError(error))
-    } finally {
-      setBusy(null)
     }
   }
 
@@ -344,7 +419,7 @@ export function MonitorSheet({
       return
     }
     setBusy("archive")
-    setStatus("")
+    setArchiveError(null)
     try {
       await apiRequest(
         `/api/v1/monitors/${encodeURIComponent(monitor.id)}`,
@@ -352,14 +427,17 @@ export function MonitorSheet({
         { mutation: true }
       )
       onMonitorGroupChanged?.(monitor.groupId, null)
-      setStatus("Monitor archived")
       setBusy("archived")
       propagationTimer.current = window.setTimeout(() => {
+        if (onArchived) {
+          onArchived()
+          return
+        }
         router.refresh()
         onClose()
       }, 800)
     } catch (error) {
-      setStatus(messageForError(error))
+      setArchiveError(messageForError(error))
     } finally {
       setBusy((current) => (current === "archived" ? current : null))
     }
@@ -367,9 +445,20 @@ export function MonitorSheet({
 
   const inputClass =
     "h-10 w-full rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-3 text-[13px]"
-  const [testLabel, toggleLabel, archiveLabel] = monitorSheetActionLabels(
-    monitor?.enabled ?? true
-  )
+  const [testLabel, archiveLabel] = monitorSheetActionLabels()
+  const dirty = isDirty(values, baseline)
+  // Close, Escape, and Cancel all route here, so unsaved edits are never
+  // dropped without a prompt. A clean form closes at once.
+  function requestClose() {
+    if (busy) {
+      return
+    }
+    if (dirty) {
+      setConfirmDiscard(true)
+      return
+    }
+    onClose()
+  }
   const actionBusyDescription = "Another monitor action is in progress"
   function createdGroup(group: SettingsGroup) {
     onGroupCreated(group)
@@ -385,40 +474,31 @@ export function MonitorSheet({
           monitor ? (
             <>
               <SheetIconButton
-                disabled={Boolean(busy)}
-                disabledDescription={actionBusyDescription}
+                disabled={Boolean(busy) || probeChanged}
+                disabledDescription={
+                  busy ? actionBusyDescription : (testBlocked ?? undefined)
+                }
                 label={testLabel}
-                onClick={() => void monitorAction("test")}
+                onClick={() => void runTest()}
               >
                 <Activity aria-hidden className="size-4" />
-              </SheetIconButton>
-              <SheetIconButton
-                disabled={Boolean(busy)}
-                disabledDescription={actionBusyDescription}
-                label={toggleLabel}
-                onClick={() =>
-                  void monitorAction(monitor.enabled ? "pause" : "resume")
-                }
-              >
-                {monitor.enabled ? (
-                  <Pause aria-hidden className="size-4" />
-                ) : (
-                  <Play aria-hidden className="size-4" />
-                )}
               </SheetIconButton>
               <SheetIconButton
                 destructive
                 disabled={Boolean(busy)}
                 disabledDescription={actionBusyDescription}
                 label={archiveLabel}
-                onClick={() => setConfirmArchive(true)}
+                onClick={() => {
+                  setArchiveError(null)
+                  setConfirmArchive(true)
+                }}
               >
                 <Archive aria-hidden className="size-4" />
               </SheetIconButton>
             </>
           ) : undefined
         }
-        onClose={() => !busy && onClose()}
+        onClose={requestClose}
         open={open}
         title={monitor ? "Edit Monitor" : "New Monitor"}
       >
@@ -596,18 +676,34 @@ export function MonitorSheet({
               type="checkbox"
             />
           </label>
-          {status ? (
+          {/* Touch users cannot hover the disabled test icon, so its reason
+              also shows here. Hidden while busy, the icon then names the
+              running action instead. */}
+          {testBlocked && !busy ? (
             <p
               aria-live="polite"
-              className={`text-[13px] ${["Updating configuration…", "Testing…", "Pausing…", "Resuming…", "Test completed", "Monitor paused", "Monitor resumed"].includes(status) ? "text-[var(--fg-muted)]" : "text-[var(--down-text)]"}`}
+              className="text-[13px] text-[var(--fg-muted)]"
+              role="status"
             >
-              {status}
+              {testBlocked}
+            </p>
+          ) : null}
+          <p aria-live="polite" className="sr-only" role="status">
+            {status?.quiet ? status.message : null}
+          </p>
+          {status && !status.quiet ? (
+            <p
+              aria-live="polite"
+              className={`text-[13px] ${status.error ? "text-[var(--down-text)]" : "text-[var(--fg-muted)]"}`}
+              role={status.error ? "alert" : "status"}
+            >
+              {status.message}
             </p>
           ) : null}
           <div className="flex justify-end gap-2 pt-1">
             <Button
               disabled={Boolean(busy)}
-              onClick={onClose}
+              onClick={requestClose}
               type="button"
               variant="secondary"
             >
@@ -627,7 +723,9 @@ export function MonitorSheet({
       </Sheet>
       {monitor && confirmArchive ? (
         <ArchiveDialog
+          archived={busy === "archived"}
           busy={Boolean(busy)}
+          error={archiveError}
           monitorName={monitor.name}
           onCancel={() => {
             setConfirmArchive(false)
@@ -635,10 +733,21 @@ export function MonitorSheet({
           }}
           onConfirm={archive}
           onValueChange={setArchiveName}
-          status={status}
           value={archiveName}
         />
       ) : null}
+      <ConfirmDialog
+        cancelLabel="Keep Editing"
+        confirmLabel="Discard"
+        destructive
+        onCancel={() => setConfirmDiscard(false)}
+        onConfirm={() => {
+          setConfirmDiscard(false)
+          onClose()
+        }}
+        open={confirmDiscard}
+        title={DISCARD_PROMPT}
+      />
       {createGroup ? (
         <GroupDialog
           onClose={() => setCreateGroup(false)}

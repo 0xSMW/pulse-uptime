@@ -87,6 +87,7 @@ export interface ObservedCounts {
   failed: number
   uptime: number | null
   coverage: number | null
+  excluded?: number
 }
 
 // Uptime divides successful by completed, so a stalled scheduler cannot inflate
@@ -97,18 +98,22 @@ export function summarizeCounts(
     completedChecks: number
     successfulChecks: number
     failedChecks: number
+    excludedChecks?: number
   }>
 ): ObservedCounts {
   const expected = rows.reduce((sum, row) => sum + row.expectedChecks, 0)
   const completed = rows.reduce((sum, row) => sum + row.completedChecks, 0)
   const successful = rows.reduce((sum, row) => sum + row.successfulChecks, 0)
   const failed = rows.reduce((sum, row) => sum + row.failedChecks, 0)
+  const excluded = rows.reduce((sum, row) => sum + (row.excludedChecks ?? 0), 0)
+  const eligible = completed - excluded
   return {
     expected,
     completed,
     successful,
     failed,
-    uptime: completed === 0 ? null : (100 * successful) / completed,
+    ...(excluded > 0 ? { excluded } : {}),
+    uptime: eligible === 0 ? null : (100 * successful) / eligible,
     coverage: expected === 0 ? null : completed / expected,
   }
 }
