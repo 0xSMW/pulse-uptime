@@ -487,7 +487,7 @@ describe("live exclusion reporting", () => {
     expect(active?.recentChecks[0]).toMatchObject({
       successful: false,
       excluded: true,
-      resultLabel: "Excluded · Failed",
+      resultLabel: "Excluded",
     })
     exclusionRows.slots = []
     queueSnapshot()

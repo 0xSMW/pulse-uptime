@@ -233,7 +233,7 @@ export function buildRecentChecksFromRaw(
     statusCode: null,
     ...(check.excluded ? { excluded: true } : {}),
     resultLabel: check.excluded
-      ? "Excluded · Failed"
+      ? "Excluded"
       : check.completed
         ? check.failed
           ? "Failed"

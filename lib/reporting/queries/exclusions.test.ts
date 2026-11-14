@@ -148,7 +148,7 @@ describe("persistent availability exclusions", () => {
     ).toMatchObject({
       successful: false,
       excluded: true,
-      resultLabel: "Excluded · Failed",
+      resultLabel: "Excluded",
       latencyMs: 100,
     })
   })
