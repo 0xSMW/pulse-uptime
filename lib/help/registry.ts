@@ -378,7 +378,7 @@ const guides: HelpEntry[] = [
       "Open Incidents.",
       "Select Write Report on the incident's row.",
       "Edit the draft and save changes or post pending updates.",
-      "Select Publish Report, then confirm.",
+      "Select Publish, then confirm.",
     ],
     demo: "incident",
     relatedLinks: [

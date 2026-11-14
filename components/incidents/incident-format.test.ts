@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   formatIncidentRange,
+  formatIncidentRangeParts,
   formatIncidentTime,
   formatIncidentTimeOfDay,
   formatIncidentTimeParts,
@@ -78,5 +79,65 @@ describe("incident interval formats", () => {
         "America/Los_Angeles"
       )
     ).toBe("Nov 1, 01:30 PDT–01:30 PST")
+  })
+})
+
+describe("incident interval parts", () => {
+  const cases: [string, string, string | undefined][] = [
+    ["2026-11-13T19:00:00Z", "2026-11-14T06:16:00Z", "America/Los_Angeles"],
+    ["2026-11-13T23:00:00Z", "2026-11-14T00:16:00Z", undefined],
+    ["2026-12-31T23:00:00Z", "2027-01-01T01:00:00Z", undefined],
+    ["2026-11-01T08:30:00Z", "2026-11-01T09:30:00Z", "America/Los_Angeles"],
+  ]
+
+  it("joins back into the exact range string", () => {
+    for (const [startAt, endAt, zone] of cases) {
+      const { startDate, startTime, endDate, endTime } =
+        formatIncidentRangeParts(startAt, endAt, zone)
+      expect(
+        `${startDate}, ${startTime}–${endDate === null ? "" : `${endDate}, `}${endTime}`
+      ).toBe(formatIncidentRange(startAt, endAt, zone))
+    }
+  })
+
+  it("drops the end date on a shared local day", () => {
+    expect(
+      formatIncidentRangeParts(
+        "2026-11-13T19:00:00Z",
+        "2026-11-14T06:16:00Z",
+        "America/Los_Angeles"
+      )
+    ).toEqual({
+      startDate: "Nov 13",
+      startTime: "11:00",
+      endDate: null,
+      endTime: "22:16 PST",
+    })
+  })
+
+  it("keeps both dates across local midnight", () => {
+    expect(
+      formatIncidentRangeParts("2026-11-13T23:00:00Z", "2026-11-14T00:16:00Z")
+    ).toEqual({
+      startDate: "Nov 13",
+      startTime: "23:00",
+      endDate: "Nov 14",
+      endTime: "00:16 UTC",
+    })
+  })
+
+  it("keeps each zone with its own time across a DST change", () => {
+    expect(
+      formatIncidentRangeParts(
+        "2026-11-01T08:30:00Z",
+        "2026-11-01T09:30:00Z",
+        "America/Los_Angeles"
+      )
+    ).toEqual({
+      startDate: "Nov 1",
+      startTime: "01:30 PDT",
+      endDate: null,
+      endTime: "01:30 PST",
+    })
   })
 })

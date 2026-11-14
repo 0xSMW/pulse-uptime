@@ -346,6 +346,8 @@ function ReportEditorForm({
   const editingDirty = editing ? editChanged(editing, timeZone) : false
   const dirty = basicsDirty || affectedDirty || composerDirty || editingDirty
   const publishBlocked = report?.publishedAt === null && dirty
+  // Another row's Edit would replace the unsaved edit, so it waits
+  const editSwitchBlocked = editingDirty && timelineUpdates.length > 1
 
   // Unsaved-changes protection: the editor lives outside the settings shell,
   // so it mounts its own navigation guard (beforeunload, Back/Forward, and
@@ -620,6 +622,10 @@ function ReportEditorForm({
   }
 
   function startEditUpdate(updateId: string) {
+    // An unsaved edit stays open until it is saved or cancelled
+    if (editingDirty && editing?.id !== updateId) {
+      return
+    }
     const update = timelineUpdates.find((entry) => entry.id === updateId)
     if (!update) {
       return
@@ -1224,7 +1230,21 @@ function ReportEditorForm({
                                 {STATE_FLIP_COPY[editing.warning]}
                               </p>
                             ) : null}
-                            <div className="flex justify-end gap-2">
+                            <div className="flex flex-wrap items-center justify-end gap-2">
+                              {/* Always mounted so screen readers announce the reason when it appears */}
+                              <span
+                                className={
+                                  editSwitchBlocked
+                                    ? "mr-auto min-w-0 break-words text-[var(--fg-muted)] text-xs"
+                                    : "sr-only"
+                                }
+                                id="edit-switch-blocked"
+                                role="status"
+                              >
+                                {editSwitchBlocked
+                                  ? "Save or cancel to edit another"
+                                  : ""}
+                              </span>
                               <Button
                                 className="px-2.5"
                                 disabled={anyBusy}
@@ -1297,8 +1317,13 @@ function ReportEditorForm({
                                 ) : (
                                   <>
                                     <Button
+                                      aria-describedby={
+                                        editSwitchBlocked
+                                          ? "edit-switch-blocked"
+                                          : undefined
+                                      }
                                       className="px-2"
-                                      disabled={anyBusy}
+                                      disabled={anyBusy || editSwitchBlocked}
                                       onClick={() => startEditUpdate(update.id)}
                                       size="sm"
                                       variant="tertiary"

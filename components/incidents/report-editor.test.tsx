@@ -1183,6 +1183,115 @@ describe("ReportEditor publish with pending edits", () => {
   })
 })
 
+describe("ReportEditor switching the open update edit", () => {
+  const SWITCH_REASON = "Save or cancel to edit another"
+
+  function openEdit(text: string) {
+    const row = screen.getByText(text).closest("li")!
+    fireEvent.click(within(row).getByRole("button", { name: "Edit" }))
+  }
+
+  function u1Markdown() {
+    return screen.getByLabelText("Update", {
+      selector: "#edit-markdown-u1",
+    }) as HTMLTextAreaElement
+  }
+
+  function u2Edit() {
+    const row = screen.getByText("All clear.").closest("li")!
+    return within(row).getByRole("button", {
+      name: "Edit",
+    }) as HTMLButtonElement
+  }
+
+  function reasonRegion() {
+    return document.getElementById("edit-switch-blocked")
+  }
+
+  it("keeps typed text when another row's Edit is tried, then frees it on Cancel", () => {
+    renderEditor(report)
+    openEdit("Watching recovery.")
+    fireEvent.change(u1Markdown(), { target: { value: "Typed but unsaved." } })
+
+    const blocked = u2Edit()
+    expect(blocked.disabled).toBe(true)
+    expect(blocked.getAttribute("aria-describedby")).toBe("edit-switch-blocked")
+    expect(reasonRegion()?.textContent).toBe(SWITCH_REASON)
+    expect(reasonRegion()?.getAttribute("role")).toBe("status")
+    expect(reasonRegion()?.classList.contains("sr-only")).toBe(false)
+
+    fireEvent.click(blocked)
+    expect(u1Markdown().value).toBe("Typed but unsaved.")
+    expect(document.getElementById("edit-markdown-u2")).toBeNull()
+    // Save and Cancel stay available while the switch waits
+    expect(
+      (screen.getByRole("button", { name: "Save Update" }) as HTMLButtonElement)
+        .disabled
+    ).toBe(false)
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(document.getElementById("edit-markdown-u1")).toBeNull()
+    expect(u2Edit().disabled).toBe(false)
+    expect(u2Edit().getAttribute("aria-describedby")).toBeNull()
+    fireEvent.click(u2Edit())
+    expect(
+      (
+        screen.getByLabelText("Update", {
+          selector: "#edit-markdown-u2",
+        }) as HTMLTextAreaElement
+      ).value
+    ).toBe("All clear.")
+  })
+
+  it("frees other rows once the typed edit is saved", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(okEnvelope(report))
+    vi.stubGlobal("fetch", fetchMock)
+    renderEditor(report)
+    openEdit("Watching recovery.")
+    fireEvent.change(u1Markdown(), { target: { value: "Recovery confirmed." } })
+    expect(u2Edit().disabled).toBe(true)
+
+    fireEvent.click(screen.getByRole("button", { name: "Save Update" }))
+    await waitFor(() => {
+      expect(document.getElementById("edit-markdown-u1")).toBeNull()
+    })
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe("/api/v1/status-reports/rep-1/updates/u1")
+    expect(JSON.parse(String(init.body))).toEqual({
+      markdown: "Recovery confirmed.",
+    })
+    expect(u2Edit().disabled).toBe(false)
+  })
+
+  it("switches freely from an unchanged edit without showing the reason", () => {
+    renderEditor(report)
+    openEdit("Watching recovery.")
+    expect(u2Edit().disabled).toBe(false)
+    expect(reasonRegion()?.textContent).toBe("")
+    expect(reasonRegion()?.classList.contains("sr-only")).toBe(true)
+
+    fireEvent.click(u2Edit())
+    expect(document.getElementById("edit-markdown-u1")).toBeNull()
+    expect(
+      (
+        screen.getByLabelText("Update", {
+          selector: "#edit-markdown-u2",
+        }) as HTMLTextAreaElement
+      ).value
+    ).toBe("All clear.")
+  })
+
+  it("frees other rows when typed text returns to the original", () => {
+    renderEditor(report)
+    openEdit("Watching recovery.")
+    fireEvent.change(u1Markdown(), { target: { value: "Changed." } })
+    expect(u2Edit().disabled).toBe(true)
+    fireEvent.change(u1Markdown(), { target: { value: "Watching recovery." } })
+    expect(u2Edit().disabled).toBe(false)
+    expect(reasonRegion()?.textContent).toBe("")
+  })
+})
+
 describe("ReportEditor pending edit on an older update", () => {
   const pagedReport: ReportData = {
     ...report,

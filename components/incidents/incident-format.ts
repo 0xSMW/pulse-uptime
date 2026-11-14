@@ -69,6 +69,13 @@ export function formatIncidentDuration(seconds: number): string {
   return formatDuration(Math.max(0, seconds))
 }
 
+export interface IncidentRangeParts {
+  endDate: string | null
+  endTime: string
+  startDate: string
+  startTime: string
+}
+
 // Share the date and zone within a range, while preserving both zone labels
 // across a daylight-saving transition and both years across a year boundary.
 export function formatIncidentRange(
@@ -76,6 +83,21 @@ export function formatIncidentRange(
   endAt: string,
   timeZone = "UTC"
 ): string {
+  const { startDate, startTime, endDate, endTime } = formatIncidentRangeParts(
+    startAt,
+    endAt,
+    timeZone
+  )
+  return `${startDate}, ${startTime}–${endDate === null ? "" : `${endDate}, `}${endTime}`
+}
+
+// The same range as date chunks and time with zone chunks, so a wrapping
+// layout keeps each chunk on one line. endDate is null on a shared local day.
+export function formatIncidentRangeParts(
+  startAt: string,
+  endAt: string,
+  timeZone = "UTC"
+): IncidentRangeParts {
   const start = new Date(startAt)
   const end = new Date(endAt)
   const yearFormat = new Intl.DateTimeFormat("en-US", {
@@ -105,7 +127,12 @@ export function formatIncidentRange(
       .find((part) => part.type === "timeZoneName")!.value
   const startZone = zoneOf(start)
   const endZone = zoneOf(end)
-  const first = `${dateFormat.format(start)}, ${timeFormat.format(start)}${startZone === endZone ? "" : ` ${startZone}`}`
-  const last = `${sameDayInZone(start, end, timeZone) ? "" : `${dateFormat.format(end)}, `}${timeFormat.format(end)} ${endZone}`
-  return `${first}–${last}`
+  return {
+    startDate: dateFormat.format(start),
+    startTime: `${timeFormat.format(start)}${startZone === endZone ? "" : ` ${startZone}`}`,
+    endDate: sameDayInZone(start, end, timeZone)
+      ? null
+      : dateFormat.format(end),
+    endTime: `${timeFormat.format(end)} ${endZone}`,
+  }
 }

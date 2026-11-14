@@ -2,7 +2,7 @@
 
 import { useTimezone } from "@/components/dashboard/timezone-provider"
 import {
-  formatIncidentRange,
+  formatIncidentRangeParts,
   formatIncidentTimeOfDay,
   formatIncidentTimeParts,
 } from "@/components/incidents/incident-format"
@@ -50,5 +50,26 @@ export function IncidentTimeRange({
   endAt: string
 }) {
   const { resolvedTimeZone } = useTimezone()
-  return <>{formatIncidentRange(startAt, endAt, resolvedTimeZone)}</>
+  const { startDate, startTime, endDate, endTime } = formatIncidentRangeParts(
+    startAt,
+    endAt,
+    resolvedTimeZone
+  )
+  // Each date and each time with zone stays on one line. The range wraps
+  // only at the comma space or after the dash, so a zone never sits alone.
+  return (
+    <>
+      <span className="whitespace-nowrap">{startDate}</span>
+      {", "}
+      <span className="whitespace-nowrap">{startTime}</span>
+      {"–"}
+      {endDate === null ? null : (
+        <>
+          <span className="whitespace-nowrap">{endDate}</span>
+          {", "}
+        </>
+      )}
+      <span className="whitespace-nowrap">{endTime}</span>
+    </>
+  )
 }

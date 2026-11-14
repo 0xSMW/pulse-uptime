@@ -1087,7 +1087,7 @@ export function MonitorDetail({
       monitor.domainHealth.domainExpiresAt ||
       (monitor.domainHealth.registrationSource === "porkbun" &&
         monitor.domainHealth.domainAutoRenew !== null) ? (
-        <Card id="domain-certificate">
+        <Card className="scroll-mt-28 sm:scroll-mt-18" id="domain-certificate">
           <CardHeader>
             <CardTitle>Domain &amp; Certificate</CardTitle>
           </CardHeader>
