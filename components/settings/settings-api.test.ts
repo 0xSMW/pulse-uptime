@@ -186,16 +186,7 @@ describe("Settings form helpers", () => {
     ).toBeNull()
   })
 
-  it("keeps edit-sheet header actions in test, state, archive order", () => {
-    expect(monitorSheetActionLabels(true)).toEqual([
-      "Run Test",
-      "Pause",
-      "Archive",
-    ])
-    expect(monitorSheetActionLabels(false)).toEqual([
-      "Run Test",
-      "Resume",
-      "Archive",
-    ])
+  it("keeps edit-sheet header actions to test then archive", () => {
+    expect(monitorSheetActionLabels()).toEqual(["Run Test", "Archive"])
   })
 })

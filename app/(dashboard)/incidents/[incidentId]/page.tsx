@@ -32,10 +32,9 @@ export default async function IncidentDetailPage({
   }
 
   const session = await authenticateCurrentSession()
-  const canManageMonitors = hasScope(
-    { scopes: roleScopes(session?.role ?? "viewer") },
-    "monitors:write"
-  )
+  const scopes = { scopes: roleScopes(session?.role ?? "viewer") }
+  const canManageMonitors = hasScope(scopes, "monitors:write")
+  const canWriteReports = hasScope(scopes, "reports:write")
   const exclusions = await withExclusionAttribution(
     await listIncidentExclusions(incident.id)
   )
@@ -70,14 +69,21 @@ export default async function IncidentDetailPage({
       </Link>
 
       <header className="mb-6 flex flex-wrap items-center gap-3">
-        <h1 className="font-semibold text-xl tracking-[-0.02em]">
-          {incident.monitorName}
+        <h1 className="min-w-0 break-words font-semibold text-xl tracking-[-0.02em]">
+          <Link
+            className="transition-opacity duration-150 hover:opacity-70"
+            href={`/monitors/${encodeURIComponent(incident.monitorId)}`}
+          >
+            {incident.monitorName}
+          </Link>
         </h1>
         <IncidentStatus ongoing={!incident.resolvedAt} />
         <IncidentExclusionBadge status={incident.exclusionStatus} />
-        <span className="ml-auto">
-          <WriteReportButton incidentId={incident.id} />
-        </span>
+        {canWriteReports ? (
+          <span className="ml-auto">
+            <WriteReportButton incidentId={incident.id} />
+          </span>
+        ) : null}
       </header>
 
       <dl className="mb-6 grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] overflow-hidden rounded-xl border border-[var(--border-strong)] shadow-[var(--card-shadow)]">

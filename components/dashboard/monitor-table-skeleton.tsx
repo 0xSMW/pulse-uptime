@@ -6,7 +6,7 @@ export function MonitorTableSkeleton({ rows = 3 }: { rows?: number }) {
       {/* Chrome copied from components/ui/input.tsx (md) so the swap to the
           real search input changes nothing visually. */}
       <div className="mb-4 h-10 animate-pulse rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)]" />
-      <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
+      <div className="overflow-x-auto rounded-xl border border-[var(--border-strong)]">
         <table className="w-full min-w-[960px] border-collapse text-left text-[13px]">
           <thead className="text-[var(--fg-muted)] text-xs">
             <tr className="h-10 border-[var(--border)] border-b">

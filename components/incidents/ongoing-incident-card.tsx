@@ -43,7 +43,7 @@ export function OngoingIncidentCard({
             className="status-dot-pulse relative size-2.5 shrink-0 rounded-full bg-[var(--down)] text-[var(--down)]"
           />
           <Link
-            className="truncate font-semibold text-sm tracking-[-0.28px] transition-opacity duration-150 hover:opacity-70"
+            className="wrap-anywhere min-w-0 font-semibold text-sm tracking-[-0.28px] transition-opacity duration-150 hover:opacity-70"
             href={`/incidents/${encodeURIComponent(incident.id)}`}
           >
             {incident.monitorName}
@@ -65,7 +65,7 @@ export function OngoingIncidentCard({
           {formatIncidentDuration(elapsed)} elapsed
         </span>
       </div>
-      <p className="mt-3 font-data text-[13px] text-[var(--down-text)]">
+      <p className="wrap-anywhere mt-3 font-data text-[13px] text-[var(--down-text)]">
         {incident.openingFailure}
       </p>
     </article>

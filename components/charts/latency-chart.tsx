@@ -10,6 +10,7 @@ import {
   YAxis,
 } from "recharts"
 
+import { latencyChartLabels } from "@/components/charts/latency-chart-data"
 import { useTimezone } from "@/components/dashboard/timezone-provider"
 import { formatLatency } from "@/lib/reporting/format"
 
@@ -25,17 +26,11 @@ const seriesLabels: Record<string, string> = {
   latencyMs: "Latency",
 }
 
+// The chart draws every point in the selected range. Ranges top out near 720
+// rollup buckets, which Recharts renders without downsampling.
 export function LatencyChart({ data }: { data: LatencyPoint[] }) {
   const { resolvedTimeZone } = useTimezone()
-  const points = data.slice(-240).map((point) => ({
-    ...point,
-    time: new Date(point.timestamp).toLocaleTimeString("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-      timeZone: resolvedTimeZone,
-    }),
-  }))
+  const labels = latencyChartLabels(data, resolvedTimeZone)
 
   return (
     <div
@@ -45,7 +40,7 @@ export function LatencyChart({ data }: { data: LatencyPoint[] }) {
     >
       <ResponsiveContainer height="100%" width="100%">
         <AreaChart
-          data={points}
+          data={data}
           margin={{ top: 8, right: 4, bottom: 0, left: 4 }}
         >
           <defs>
@@ -57,13 +52,14 @@ export function LatencyChart({ data }: { data: LatencyPoint[] }) {
           <CartesianGrid stroke="var(--border)" vertical={false} />
           <XAxis
             axisLine={false}
-            dataKey="time"
+            dataKey="timestamp"
             minTickGap={48}
             tick={{
               fill: "var(--fg-muted)",
               fontFamily: "var(--font-geist-mono)",
               fontSize: 11,
             }}
+            tickFormatter={(value: string) => labels.tick(value)}
             tickLine={false}
           />
           <YAxis
@@ -90,6 +86,9 @@ export function LatencyChart({ data }: { data: LatencyPoint[] }) {
               formatLatency(typeof value === "number" ? value : null),
               seriesLabels[name as string] ?? name,
             ]}
+            labelFormatter={(label) =>
+              typeof label === "string" ? labels.tooltip(label) : label
+            }
             separator="  "
           />
           <Area

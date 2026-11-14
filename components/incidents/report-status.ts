@@ -8,6 +8,10 @@ import {
   type ReportType,
   type ReportUpdateStatus,
 } from "@/lib/status-reports/domain"
+import {
+  formatDatetimeInput,
+  parseDatetimeInput,
+} from "@/lib/time/datetime-input"
 
 /**
  * Client-safe status-report form types and helpers. The DTO shapes mirror the
@@ -227,24 +231,99 @@ export function formatUpdateCount(count: number): string {
   return count === 1 ? "1 update" : `${count} updates`
 }
 
-/** Renders an ISO timestamp as a datetime-local input value (local time). */
-export function toDatetimeLocal(iso: string): string {
+/**
+ * Renders an ISO timestamp as a datetime-local input value. Uses `timeZone`
+ * when given, otherwise the browser's local zone.
+ */
+export function toDatetimeLocal(iso: string, timeZone?: string): string {
+  if (timeZone) {
+    return formatDatetimeInput(iso, timeZone)
+  }
   const date = new Date(iso)
   const pad = (value: number) => String(value).padStart(2, "0")
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-/** Parses a datetime-local input value back to ISO, or null when unparseable. */
-export function fromDatetimeLocal(value: string): string | null {
+/**
+ * Parses a datetime-local input value back to ISO, or null when unparseable.
+ * With `timeZone`, a time skipped or repeated by a daylight-saving change is
+ * null, since it names no single instant. Without it, the browser's local
+ * zone applies.
+ */
+export function fromDatetimeLocal(
+  value: string,
+  timeZone?: string
+): string | null {
   if (!value.trim()) {
     return null
+  }
+  if (timeZone) {
+    const parsed = parseDatetimeInput(value, timeZone)
+    return parsed.status === "ok" ? parsed.iso : null
   }
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? null : date.toISOString()
 }
 
+/**
+ * Resolves a datetime-local value to ISO. A value still showing `original`
+ * keeps that exact instant, so untouched fields never lose seconds or fail
+ * on a repeated daylight-saving hour.
+ */
+export function resolveDatetimeLocal(
+  value: string,
+  timeZone?: string,
+  original?: string | null
+): string | null {
+  if (!value.trim()) {
+    return null
+  }
+  if (original && value === toDatetimeLocal(original, timeZone)) {
+    return original
+  }
+  return fromDatetimeLocal(value, timeZone)
+}
+
+/** Names a wall time that a daylight-saving change skips or repeats. */
+function clockChangeError(
+  value: string,
+  timeZone?: string
+): string | undefined {
+  if (!timeZone) {
+    return
+  }
+  const parsed = parseDatetimeInput(value, timeZone)
+  if (parsed.status === "ambiguous") {
+    return "Time repeats at clock change"
+  }
+  if (parsed.status === "nonexistent") {
+    return "Time skipped at clock change"
+  }
+}
+
+/**
+ * Field error for a datetime-local value that resolves to no single
+ * instant, or undefined when it resolves.
+ */
+export function datetimeLocalError(
+  value: string,
+  timeZone?: string,
+  original?: string | null
+): string | undefined {
+  if (resolveDatetimeLocal(value, timeZone, original)) {
+    return
+  }
+  return clockChangeError(value, timeZone) ?? "Enter a valid time"
+}
+
 export const BEFORE_START_COPY =
   "This update is dated before the report's start time"
+
+export interface DatetimeOriginals {
+  startsAt?: string | null
+  endsAt?: string | null
+  publishedAt?: string | null
+}
 
 /**
  * Non-blocking warning: true when both datetime-local values parse and the
@@ -252,11 +331,25 @@ export const BEFORE_START_COPY =
  */
 export function isBeforeStart(
   publishedAtLocal: string,
-  startsAtLocal: string
+  startsAtLocal: string,
+  timeZone?: string,
+  originals: DatetimeOriginals = {}
 ): boolean {
-  const publishedAt = fromDatetimeLocal(publishedAtLocal)
-  const startsAt = fromDatetimeLocal(startsAtLocal)
-  return publishedAt !== null && startsAt !== null && publishedAt < startsAt
+  const publishedAt = resolveDatetimeLocal(
+    publishedAtLocal,
+    timeZone,
+    originals.publishedAt
+  )
+  const startsAt = resolveDatetimeLocal(
+    startsAtLocal,
+    timeZone,
+    originals.startsAt
+  )
+  return (
+    publishedAt !== null &&
+    startsAt !== null &&
+    new Date(publishedAt).getTime() < new Date(startsAt).getTime()
+  )
 }
 
 export interface ReportFormErrors {
@@ -277,22 +370,40 @@ export function validateReportForm(input: {
   requireUpdate: boolean
   markdown: string
   publishedAt: string
+  /** Display zone the datetime fields are typed in. Browser zone if absent. */
+  timeZone?: string
+  /** Loaded instants, so untouched fields keep their exact value. */
+  originals?: DatetimeOriginals
 }): ReportFormErrors {
   const errors: ReportFormErrors = {}
+  const { timeZone, originals = {} } = input
   if (!input.title.trim()) {
     errors.title = "Enter a title"
   } else if (input.title.trim().length > 160) {
     errors.title = "Use 160 characters or fewer"
   }
-  const startsAt = fromDatetimeLocal(input.startsAt)
+  const startsAt = resolveDatetimeLocal(
+    input.startsAt,
+    timeZone,
+    originals.startsAt
+  )
   if (!startsAt) {
-    errors.startsAt = "Enter a start time"
+    errors.startsAt =
+      clockChangeError(input.startsAt, timeZone) ?? "Enter a start time"
   }
   if (input.type === "maintenance" && input.endsAt.trim()) {
-    const endsAt = fromDatetimeLocal(input.endsAt)
+    const endsAt = resolveDatetimeLocal(
+      input.endsAt,
+      timeZone,
+      originals.endsAt
+    )
     if (!endsAt) {
-      errors.endsAt = "Enter a valid end time"
-    } else if (startsAt && endsAt <= startsAt) {
+      errors.endsAt =
+        clockChangeError(input.endsAt, timeZone) ?? "Enter a valid end time"
+    } else if (
+      startsAt &&
+      new Date(endsAt).getTime() <= new Date(startsAt).getTime()
+    ) {
       errors.endsAt = "End must be after start"
     }
   }
@@ -302,8 +413,11 @@ export function validateReportForm(input: {
     } else if (input.markdown.length > MAX_REPORT_MARKDOWN) {
       errors.markdown = "Use 10 KB or fewer"
     }
-    if (!fromDatetimeLocal(input.publishedAt)) {
-      errors.publishedAt = "Enter a valid time"
+    if (
+      !resolveDatetimeLocal(input.publishedAt, timeZone, originals.publishedAt)
+    ) {
+      errors.publishedAt =
+        clockChangeError(input.publishedAt, timeZone) ?? "Enter a valid time"
     }
   }
   return errors

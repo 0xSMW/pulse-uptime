@@ -14,6 +14,20 @@ Check these signals together:
 
 Never infer service health from a successful Vercel deployment alone.
 
+## Manual monitor tests
+
+**Test Monitor** on a monitor page and **Run Test** in the edit sheet run one check against the saved configuration. The result reads as a pass only when the check succeeds. A failed check reports its HTTP status or error code. Manual tests are not recorded, so they never change uptime, state, or incidents.
+
+The API is `POST /api/v1/monitors/{monitorId}/test` with `monitors:write`. A 200 response means the probe ran. Read the `successful` field for pass or fail.
+
+## Monitor incident history
+
+**View All** on a monitor's Recent Incidents card opens the incident list filtered to that monitor. The Ongoing and Resolved tabs keep the filter. Choose **All monitors** or open **Incidents** from the main navigation to see every monitor again.
+
+## Time zones
+
+Dashboard timestamps use the account time zone from Settings. Choosing a zone saves it immediately. A device override changes only that browser. Status report start, end, and publish times are entered and shown in the selected zone, and the field label names it. Public timestamps use the status page display time zone.
+
 ## Correct a false alarm
 
 Open an incident from its alert email or the incident history, then choose **Mark false alarm**. Administrators can review the fixed interval, narrow it when only part of the incident was a monitoring error, and preview the affected failed checks and 24-hour uptime. Enter a reason and choose **Exclude from downtime**.
@@ -88,7 +102,9 @@ Expiry alerts are off by default. When enabled, Pulse emails default recipients 
 
 ## Publishing a status report during an outage
 
-Detected incidents and authored reports coexist. Promotion always creates a draft; nothing reaches the public status page until you publish.
+Detected incidents and authored reports coexist. Promotion always creates a draft. Drafts stay private, and a report reaches the public status page only when you publish it.
+
+A new report uses **Publish Report** to publish immediately or **Save Draft** when Save as draft is selected. Viewers can read reports and older updates, while report writing controls are available to administrators.
 
 From the dashboard:
 

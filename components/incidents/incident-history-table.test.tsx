@@ -27,10 +27,13 @@ const incident: IncidentSummary = {
   notificationSummary: { state: "sent", sentCount: 1 },
 }
 
-function renderTable() {
+function renderTable(canWriteReports = true) {
   return render(
     <TimezoneProvider>
-      <IncidentHistoryTable incidents={[incident]} />
+      <IncidentHistoryTable
+        canWriteReports={canWriteReports}
+        incidents={[incident]}
+      />
     </TimezoneProvider>
   )
 }
@@ -53,10 +56,18 @@ describe("IncidentHistoryTable", () => {
     expect(push).not.toHaveBeenCalledWith("/incidents/inc-1")
   })
 
+  it("hides Write Report and its column from viewers", () => {
+    renderTable(false)
+    expect(screen.queryByRole("button", { name: "Write Report" })).toBeNull()
+    expect(screen.queryByText("Actions")).toBeNull()
+    expect(screen.getByRole("link", { name: "API Production" })).toBeTruthy()
+  })
+
   it("shows exclusion metadata alongside observed recovery", () => {
     render(
       <TimezoneProvider>
         <IncidentHistoryTable
+          canWriteReports
           incidents={[{ ...incident, exclusionStatus: "full" }]}
         />
       </TimezoneProvider>

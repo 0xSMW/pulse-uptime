@@ -1,7 +1,11 @@
+import Link from "next/link"
 import { Suspense } from "react"
 
 import { IncidentEmpty } from "@/components/incidents/incident-empty"
-import { IncidentFilters } from "@/components/incidents/incident-filters"
+import {
+  IncidentFilters,
+  incidentListHref,
+} from "@/components/incidents/incident-filters"
 import { IncidentHistoryTable } from "@/components/incidents/incident-history-table"
 import { IncidentsTabs } from "@/components/incidents/incidents-tabs"
 import { OngoingIncidentCard } from "@/components/incidents/ongoing-incident-card"
@@ -9,58 +13,127 @@ import type {
   IncidentFilter,
   IncidentSummary,
 } from "@/components/incidents/types"
+import { hasScope, roleScopes } from "@/lib/api/scopes"
+import { authenticateCurrentSession } from "@/lib/auth/session"
 import {
+  findIncidentMonitorName,
   hasConfiguredMonitors,
   listIncidents,
 } from "@/lib/reporting/queries/incidents"
 
+function firstParam(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value
+}
+
 function parseFilter(value: string | string[] | undefined): IncidentFilter {
-  const filter = Array.isArray(value) ? value[0] : value
+  const filter = firstParam(value)
   return filter === "ongoing" || filter === "resolved" ? filter : "all"
+}
+
+function parseMonitorId(value: string | string[] | undefined): string | null {
+  const monitorId = firstParam(value)?.trim()
+  return monitorId ? monitorId : null
 }
 
 export default async function IncidentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ filter?: string | string[] }>
+  searchParams: Promise<{
+    filter?: string | string[]
+    monitor?: string | string[]
+  }>
 }) {
-  const filter = parseFilter((await searchParams).filter)
+  const params = await searchParams
+  const filter = parseFilter(params.filter)
+  const monitorId = parseMonitorId(params.monitor)
+  const [session, monitorName] = await Promise.all([
+    authenticateCurrentSession(),
+    monitorId === null ? null : findIncidentMonitorName(monitorId),
+  ])
+  const canWriteReports = hasScope(
+    { scopes: roleScopes(session?.role ?? "viewer") },
+    "reports:write"
+  )
 
   return (
     <>
       <header className="mb-6">
         <div className="flex items-center justify-between gap-4">
-          <div>
+          <div className="min-w-0">
             <h1 className="font-semibold text-xl tracking-[-0.02em]">
               Incidents
             </h1>
-            <p className="mt-1 text-[13px] text-[var(--fg-muted)]">
-              Endpoint outage history
-            </p>
+            {monitorId === null ? (
+              <p className="mt-1 text-[13px] text-[var(--fg-muted)]">
+                Endpoint outage history
+              </p>
+            ) : (
+              <p className="mt-1 break-words text-[13px] text-[var(--fg-muted)]">
+                Outage history for{" "}
+                {monitorName === null ? (
+                  "an unknown monitor"
+                ) : (
+                  <Link
+                    className="font-medium text-[var(--fg)] transition-opacity duration-150 hover:opacity-70"
+                    href={`/monitors/${encodeURIComponent(monitorId)}`}
+                  >
+                    {monitorName}
+                  </Link>
+                )}
+                {" · "}
+                <Link
+                  className="transition-colors duration-150 hover:text-[var(--fg)]"
+                  href={incidentListHref(filter)}
+                >
+                  All monitors
+                </Link>
+              </p>
+            )}
           </div>
-          <IncidentFilters active={filter} />
+          <IncidentFilters active={filter} monitorId={monitorId} />
         </div>
         <IncidentsTabs className="mt-4" />
       </header>
 
-      {/* key={filter}: switching filters re-shows the fallback instead of
+      {/* Keyed on both filters: switching re-shows the fallback instead of
           freezing the stale list while the new one loads. */}
-      <Suspense fallback={<IncidentListSkeleton />} key={filter}>
-        <IncidentList filter={filter} />
+      <Suspense
+        fallback={<IncidentListSkeleton />}
+        key={`${filter}:${monitorId ?? ""}`}
+      >
+        <IncidentList
+          canWriteReports={canWriteReports}
+          filter={filter}
+          monitorId={monitorId}
+        />
       </Suspense>
     </>
   )
 }
 
-async function IncidentList({ filter }: { filter: IncidentFilter }) {
+async function IncidentList({
+  canWriteReports,
+  filter,
+  monitorId,
+}: {
+  canWriteReports: boolean
+  filter: IncidentFilter
+  monitorId: string | null
+}) {
   const [incidents, hasMonitors]: [IncidentSummary[], boolean] =
-    await Promise.all([listIncidents(filter), hasConfiguredMonitors()])
+    await Promise.all([
+      listIncidents(filter, monitorId),
+      hasConfiguredMonitors(),
+    ])
   const ongoing = incidents.filter((incident) => !incident.resolvedAt)
   const history = incidents.filter((incident) => Boolean(incident.resolvedAt))
 
   if (incidents.length === 0) {
     return (
-      <IncidentEmpty filtered={filter !== "all"} hasMonitors={hasMonitors} />
+      <IncidentEmpty
+        filtered={filter !== "all" || monitorId !== null}
+        hasMonitors={hasMonitors}
+      />
     )
   }
   return (
@@ -80,7 +153,12 @@ async function IncidentList({ filter }: { filter: IncidentFilter }) {
           </div>
         </section>
       ) : null}
-      {history.length > 0 ? <IncidentHistoryTable incidents={history} /> : null}
+      {history.length > 0 ? (
+        <IncidentHistoryTable
+          canWriteReports={canWriteReports}
+          incidents={history}
+        />
+      ) : null}
     </div>
   )
 }

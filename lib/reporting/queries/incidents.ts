@@ -66,13 +66,42 @@ export async function listCommandPaletteIncidents() {
   }))
 }
 
-export async function listIncidents(filter: IncidentFilter = "all") {
-  const condition =
+// The monitor name for the incidents page filter context. Archived monitors
+// still resolve because their incidents stay listed.
+export async function findIncidentMonitorName(
+  monitorId: string
+): Promise<string | null> {
+  const [monitor] = await db
+    .select({ name: monitorRegistry.name })
+    .from(monitorRegistry)
+    .where(eq(monitorRegistry.id, monitorId))
+    .limit(1)
+  return monitor?.name ?? null
+}
+
+// Status and monitor filters for the incidents list. A null monitor id lists
+// every monitor.
+export function incidentListCondition(
+  filter: IncidentFilter,
+  monitorId: string | null = null
+) {
+  const status =
     filter === "ongoing"
       ? isNull(incidents.resolvedAt)
       : filter === "resolved"
         ? isNotNull(incidents.resolvedAt)
         : undefined
+  return and(
+    status,
+    monitorId === null ? undefined : eq(incidents.monitorId, monitorId)
+  )
+}
+
+export async function listIncidents(
+  filter: IncidentFilter = "all",
+  monitorId: string | null = null
+) {
+  const condition = incidentListCondition(filter, monitorId)
   const rows = await db
     .select({
       id: incidents.id,

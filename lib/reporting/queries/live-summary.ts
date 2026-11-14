@@ -243,6 +243,20 @@ export function buildRecentChecksFromRaw(
   }))
 }
 
+// The excluded count appears once. A bucket whose only failures are excluded
+// reads as the count alone rather than "Excluded checks · N excluded".
+function rollupResultLabel(rollup: LiveRollupRow): string {
+  const excluded = rollup.excludedChecks ?? 0
+  const excludedSuffix = excluded > 0 ? ` · ${excluded} excluded` : ""
+  if (rollup.unknownChecks > 0) {
+    return `Unknown coverage${excludedSuffix}`
+  }
+  if (rollup.failedChecks > excluded) {
+    return `Failed checks${excludedSuffix}`
+  }
+  return excluded > 0 ? `${excluded} excluded` : "Passed"
+}
+
 export function buildRecentChecks(
   rollups24h: LiveRollupRow[]
 ): LiveRecentCheck[] {
@@ -260,17 +274,7 @@ export function buildRecentChecks(
       rollup.failedChecks === rollup.excludedChecks
         ? { excluded: true }
         : {}),
-      resultLabel:
-        (rollup.unknownChecks > 0
-          ? "Unknown coverage"
-          : rollup.failedChecks > (rollup.excludedChecks ?? 0)
-            ? "Failed checks"
-            : (rollup.excludedChecks ?? 0) > 0
-              ? "Excluded checks"
-              : "Healthy rollup") +
-        ((rollup.excludedChecks ?? 0) > 0
-          ? ` · ${rollup.excludedChecks} excluded`
-          : ""),
+      resultLabel: rollupResultLabel(rollup),
       latencyMs:
         rollup.latencyCount === 0
           ? null

@@ -201,13 +201,13 @@ export function MonitorsSettings({ data }: { data: MonitorSettingsData }) {
                       <div className="min-w-0">
                         <button
                           aria-label={`Edit ${monitor.name}`}
-                          className="block text-left font-medium"
+                          className="wrap-anywhere block text-left font-medium"
                           onClick={() => setMonitorSheet(monitor)}
                           type="button"
                         >
                           {monitor.name}
                         </button>
-                        <div className="max-w-[360px] truncate font-data text-[var(--fg-faint)] text-xs">
+                        <div className="wrap-anywhere max-w-[360px] font-data text-[var(--fg-faint)] text-xs">
                           {monitor.url}
                         </div>
                       </div>
@@ -284,8 +284,10 @@ export function MonitorsSettings({ data }: { data: MonitorSettingsData }) {
                 className="flex min-h-[60px] flex-wrap items-center justify-between gap-3 border-[var(--border)] border-b px-6 py-3 last:border-0"
                 key={group.id}
               >
-                <div>
-                  <p className="font-medium text-[13px]">{group.name}</p>
+                <div className="min-w-0">
+                  <p className="wrap-anywhere font-medium text-[13px]">
+                    {group.name}
+                  </p>
                   <p className="text-[var(--fg-muted)] text-xs">
                     {group.monitorCount}{" "}
                     {group.monitorCount === 1 ? "monitor" : "monitors"}
@@ -372,7 +374,7 @@ export function MonitorsSettings({ data }: { data: MonitorSettingsData }) {
             description="Sent with every monitor request. Allowlist it if your endpoints sit behind a firewall."
             label="Check user agent"
           >
-            <span className="font-data text-[13px] text-[var(--fg-muted)]">
+            <span className="wrap-anywhere font-data text-[13px] text-[var(--fg-muted)]">
               {data.userAgent}
             </span>
           </SettingsRow>

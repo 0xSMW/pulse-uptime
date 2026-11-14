@@ -1,35 +1,36 @@
+// @vitest-environment jsdom
+import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
-}))
+const router = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn() }))
+
+vi.mock("next/navigation", () => ({ useRouter: () => router }))
 
 import {
   type EditableMonitor,
-  hasAdvancedMonitorEditErrors,
   MonitorActions,
   MonitorEditButton,
-  type MonitorEditValues,
   MonitorSetupActions,
-  validateMonitorEdit,
 } from "./monitor-actions"
 
-const validValues: MonitorEditValues = {
-  name: "Public API",
-  url: "https://api.example.com/health",
-  groupId: null,
-  method: "GET",
-  intervalMinutes: "1",
-  timeoutMs: "8000",
-  expectedStatusMin: "200",
-  expectedStatusMax: "399",
-  failureThreshold: "2",
-  recoveryThreshold: "2",
-  recipients: "ops@example.com\nowner@example.com",
-  enabled: true,
-}
+beforeEach(() => {
+  router.push.mockReset()
+  router.refresh.mockReset()
+  HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+    this.setAttribute("open", "")
+  }
+  HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
+    this.removeAttribute("open")
+    this.dispatchEvent(new Event("close"))
+  }
+})
+
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 
 const monitor: EditableMonitor = {
   id: "public-api",
@@ -109,70 +110,100 @@ describe("monitor mutation capabilities", () => {
   })
 })
 
-describe("validateMonitorEdit", () => {
-  it.each([
-    "http://127.0.0.1/health",
-    "http://10.0.0.1/health",
-    "http://192.168.1.1/health",
-    "http://203.0.113.10/health",
-    "http://[::1]/health",
-    "https://example.com:8443",
-  ])("rejects private or reserved URL %s", (url) => {
-    expect(validateMonitorEdit({ ...validValues, url }).url).toBe(
-      "Enter a public HTTP or HTTPS URL"
+describe("manual test entry points", () => {
+  function stubFailedProbe() {
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json(
+        {
+          data: {
+            successful: false,
+            statusCode: 503,
+            errorCode: "INVALID_STATUS",
+          },
+        },
+        { status: 200 }
+      )
     )
-  })
+    vi.stubGlobal("fetch", fetchMock)
+    return fetchMock
+  }
 
-  it("rejects a status maximum below the minimum", () => {
-    expect(
-      validateMonitorEdit({
-        ...validValues,
-        expectedStatusMin: "500",
-        expectedStatusMax: "200",
-      }).expectedStatusMax
-    ).toBe("Maximum must be at least the minimum")
-  })
-
-  it("does not compare the maximum when the minimum is invalid", () => {
-    expect(
-      validateMonitorEdit({
-        ...validValues,
-        expectedStatusMin: "700",
-        expectedStatusMax: "200",
+  it("shows a failed probe from the header action", async () => {
+    const fetchMock = stubFailedProbe()
+    render(
+      createElement(MonitorActions, {
+        canManageMonitors: true,
+        groups: [],
+        monitor,
       })
-    ).toMatchObject({
-      expectedStatusMin: "Use a status from 100–599",
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Test Monitor" }))
+
+    const alert = await screen.findByRole("alert")
+    expect(alert.textContent).toBe("Monitor check failed with HTTP 503")
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/api/v1/monitors/public-api/test"
+    )
+    expect(router.refresh).not.toHaveBeenCalled()
+  })
+
+  it("shows a failed probe from the setup action", async () => {
+    stubFailedProbe()
+    render(
+      createElement(MonitorSetupActions, {
+        canManageMonitors: true,
+        groups: [],
+        monitor,
+      })
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Run Test" }))
+
+    const alert = await screen.findByRole("alert")
+    expect(alert.textContent).toBe("Monitor check failed with HTTP 503")
+  })
+})
+
+describe("detail edit", () => {
+  it("opens the shared monitor sheet with its field order", () => {
+    render(
+      createElement(MonitorEditButton, {
+        canManageMonitors: true,
+        groups: [],
+        monitor,
+      })
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit Monitor" }))
+
+    const sheet = screen.getByRole("dialog", { name: "Edit Monitor" })
+    const url = screen.getByLabelText("URL")
+    const name = screen.getByLabelText("Name")
+    expect(sheet.contains(url)).toBe(true)
+    expect(
+      url.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Archive" })).toBeDefined()
+    expect(screen.queryByRole("button", { name: "Pause" })).toBeNull()
+  })
+
+  it("prompts before discarding detail edits", () => {
+    render(
+      createElement(MonitorEditButton, {
+        canManageMonitors: true,
+        groups: [],
+        monitor,
+      })
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Edit Monitor" }))
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Renamed" },
     })
-    expect(
-      validateMonitorEdit({
-        ...validValues,
-        expectedStatusMin: "700",
-        expectedStatusMax: "200",
-      }).expectedStatusMax
-    ).toBeUndefined()
-  })
 
-  it("rejects duplicate recipients case-insensitively", () => {
-    expect(
-      validateMonitorEdit({
-        ...validValues,
-        recipients: "ops@example.com\nOPS@example.com",
-      }).recipients
-    ).toBe("Remove duplicate recipients")
-  })
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }))
 
-  it("accepts a complete valid form", () => {
-    expect(validateMonitorEdit(validValues)).toEqual({})
-  })
-
-  it("identifies errors hidden inside advanced settings", () => {
-    expect(
-      hasAdvancedMonitorEditErrors({
-        recipients: "Enter valid email addresses",
-      })
-    ).toBe(true)
-    expect(
-      hasAdvancedMonitorEditErrors({ url: "Enter a public HTTP or HTTPS URL" })
-    ).toBe(false)
+    expect(screen.queryByRole("dialog", { name: "Edit Monitor" })).toBeNull()
   })
 })

@@ -32,7 +32,7 @@ export async function DependencyPanel() {
           </p>
         </div>
       </div>
-      <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
+      <div className="overflow-x-auto rounded-xl border border-[var(--border-strong)]">
         <table className="w-full min-w-[820px] border-collapse text-left text-[13px]">
           <thead className="text-[var(--fg-muted)] text-xs">
             <tr className="h-10 border-[var(--border)] border-b">

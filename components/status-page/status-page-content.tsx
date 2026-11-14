@@ -30,6 +30,7 @@ import {
 } from "@/lib/status-page/reports-display"
 import type { StatusPageNavLink } from "@/lib/status-page/schema"
 import { REPORT_STATUS_LABELS } from "@/lib/status-reports/domain"
+import { cn } from "@/lib/utils"
 
 import { OverallBanner } from "./overall-banner"
 import styles from "./status-page.module.css"
@@ -205,7 +206,7 @@ function AffectedChips({ report }: { report: PublicReportEntry }) {
     <ul aria-label="Affected services" className="mt-3 flex flex-wrap gap-1.5">
       {report.affected.map((entry) => (
         <li
-          className="rounded-full border border-[var(--border-strong)] bg-[var(--bg)] px-2 py-0.5 text-[var(--fg-muted)] text-xs"
+          className="wrap-anywhere max-w-full rounded-full border border-[var(--border-strong)] bg-[var(--bg)] px-2 py-0.5 text-[var(--fg-muted)] text-xs"
           key={entry.monitorId}
         >
           {entry.monitorName}
@@ -245,7 +246,7 @@ function OngoingReports({
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
               <div className="flex min-w-0 items-center gap-2">
                 <StatusDot aria-hidden state={reportTierDots[tier]} />
-                <h3 className="font-semibold text-sm">
+                <h3 className="wrap-anywhere min-w-0 font-semibold text-sm">
                   <Link
                     className="transition-opacity duration-150 hover:opacity-70"
                     href={statusReportUrl(report.id)}
@@ -348,7 +349,7 @@ function MaintenanceSchedule({
             <span className="flex min-w-0 items-center gap-2 font-medium">
               <StatusDot aria-hidden state="PENDING" />
               <Link
-                className="truncate transition-opacity duration-150 hover:opacity-70"
+                className="wrap-anywhere min-w-0 transition-opacity duration-150 hover:opacity-70"
                 href={statusReportUrl(report.id)}
               >
                 {report.title}
@@ -372,7 +373,7 @@ function MaintenanceSchedule({
             <span className="flex min-w-0 items-center gap-2 font-medium">
               <StatusDot aria-hidden state="PENDING" />
               <Link
-                className="truncate transition-opacity duration-150 hover:opacity-70"
+                className="wrap-anywhere min-w-0 transition-opacity duration-150 hover:opacity-70"
                 href={statusReportUrl(report.id)}
               >
                 {report.title}
@@ -419,6 +420,16 @@ function mergeRecentHistory(data: PublicStatusData): RecentHistoryEntry[] {
   ].sort((left, right) => right.resolvedMs - left.resolvedMs)
 }
 
+/** Visible word for every non-UP monitor, tinted like its dot. */
+const stateWordStyles: Record<VisibleMonitorState, string> = {
+  UP: "text-[var(--up-text)]",
+  VERIFYING_DOWN: "text-[var(--verifying-text)]",
+  VERIFYING_UP: "text-[var(--verifying-text)]",
+  DOWN: "text-[var(--down-text)]",
+  PENDING: "text-[var(--fg-muted)]",
+  PAUSED: "text-[var(--fg-muted)]",
+}
+
 function StatusCard({
   data,
   groupView,
@@ -458,14 +469,17 @@ function StatusCard({
           className="overflow-hidden rounded-xl border border-[var(--border-strong)] shadow-[var(--card-shadow)]"
           key={group.slug}
         >
-          <div className="flex items-center justify-between px-6 pt-5 pb-2">
-            <h2 className="font-semibold text-sm" id={`group-${group.slug}`}>
+          <div className="flex items-center justify-between gap-4 px-6 pt-5 pb-2">
+            <h2
+              className="wrap-anywhere min-w-0 font-semibold text-sm"
+              id={`group-${group.slug}`}
+            >
               {group.name}
             </h2>
             {groupView ? null : (
               <Link
                 aria-label={`View ${group.name} status`}
-                className="text-[var(--fg-muted)] text-xs transition-colors duration-150 hover:text-[var(--fg)]"
+                className="shrink-0 text-[var(--fg-muted)] text-xs transition-colors duration-150 hover:text-[var(--fg)]"
                 href={`/status/${group.slug}`}
               >
                 View Group
@@ -475,28 +489,52 @@ function StatusCard({
           <div>
             {group.monitors.map((monitor) => {
               const annotation = annotations.get(monitor.id)
+              // A down report annotation already names the state, so the
+              // machine word would repeat it.
+              const stateWord =
+                monitor.state === "UP" ||
+                (monitor.state === "DOWN" && annotation?.impact === "down")
+                  ? null
+                  : stateLabels[monitor.state]
               return (
                 <div
                   className="grid gap-3 border-[var(--border)] border-t px-6 py-4 sm:grid-cols-[minmax(130px,0.8fr)_minmax(210px,1.4fr)_72px] sm:items-center"
                   key={monitor.id}
                 >
-                  <div className="flex min-w-0 items-center gap-2">
-                    <StatusDot aria-hidden state={monitor.state} />
-                    <span className="truncate font-medium text-[13px]">
-                      {monitor.name}
-                    </span>
-                    <span className="sr-only">
-                      {stateLabels[monitor.state]}
-                      {annotation ? `. ${annotation.label}` : ""}
-                    </span>
-                    {annotation ? (
-                      <span
-                        aria-hidden
-                        className="shrink-0 whitespace-nowrap text-[var(--fg-muted)] text-xs"
-                      >
-                        {annotation.label}
+                  <div className="flex min-w-0 items-start gap-2">
+                    <StatusDot
+                      aria-hidden
+                      className="mt-1.5"
+                      state={monitor.state}
+                    />
+                    <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                      <span className="wrap-anywhere min-w-0 font-medium text-[13px]">
+                        {monitor.name}
                       </span>
-                    ) : null}
+                      <span className="sr-only">
+                        {stateLabels[monitor.state]}
+                        {annotation ? `. ${annotation.label}` : ""}
+                      </span>
+                      {stateWord ? (
+                        <span
+                          aria-hidden
+                          className={cn(
+                            "whitespace-nowrap font-medium text-xs",
+                            stateWordStyles[monitor.state]
+                          )}
+                        >
+                          {stateWord}
+                        </span>
+                      ) : null}
+                      {annotation ? (
+                        <span
+                          aria-hidden
+                          className="whitespace-nowrap text-[var(--fg-muted)] text-xs"
+                        >
+                          {annotation.label}
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                   <TimelineBar
                     buckets={monitor.timeline}
@@ -541,11 +579,13 @@ export function StatusPageContent({
 
   const title = (
     <div>
-      <h1 className="font-semibold text-base tracking-[-0.32px]">
+      <h1 className="wrap-anywhere font-semibold text-base tracking-[-0.32px]">
         {data.pageName}
       </h1>
       {groupName ? (
-        <p className="mt-1 text-[13px] text-[var(--fg-muted)]">{groupName}</p>
+        <p className="wrap-anywhere mt-1 text-[13px] text-[var(--fg-muted)]">
+          {groupName}
+        </p>
       ) : null}
     </div>
   )
@@ -650,7 +690,7 @@ export function StatusPageContent({
             >
               <div className="flex items-center gap-2">
                 <StatusDot aria-hidden state="DOWN" />
-                <h3 className="font-semibold text-sm">
+                <h3 className="wrap-anywhere min-w-0 font-semibold text-sm">
                   {incident.monitorName}
                 </h3>
               </div>
@@ -708,7 +748,7 @@ export function StatusPageContent({
                   <span className="flex min-w-0 items-center gap-2 font-medium">
                     <StatusDot aria-hidden state="PENDING" />
                     <Link
-                      className="truncate transition-opacity duration-150 hover:opacity-70"
+                      className="wrap-anywhere min-w-0 transition-opacity duration-150 hover:opacity-70"
                       href={statusReportUrl(entry.report.id)}
                     >
                       {entry.report.title}
@@ -739,7 +779,7 @@ export function StatusPageContent({
                 >
                   <span className="flex min-w-0 items-center gap-2 font-medium">
                     <StatusDot aria-hidden state="PENDING" />
-                    <span className="truncate">
+                    <span className="wrap-anywhere min-w-0">
                       {entry.incident.monitorName}
                     </span>
                     {entry.incident.monitoringError ? (

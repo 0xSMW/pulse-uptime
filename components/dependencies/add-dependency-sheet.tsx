@@ -441,7 +441,7 @@ export function AddDependencySheet({
                         role="option"
                         title={preset.sourceScopeNote ?? undefined}
                       >
-                        {/* Grid so the name column flexes and truncates while the
+                        {/* Grid so the name column flexes and wraps while the
                             leading brand mark and the right controls keep a fixed
                             width and never wrap onto a second row. */}
                         <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5">
@@ -449,14 +449,11 @@ export function AddDependencySheet({
                               row stays calm and reads as one system. */}
                           <ProviderMark provider={preset.provider} />
                           <div className="min-w-0">
-                            <p
-                              className="truncate font-medium text-[13px]"
-                              title={preset.name}
-                            >
+                            <p className="wrap-anywhere font-medium text-[13px]">
                               {preset.name}
                             </p>
-                            <div className="flex min-w-0 items-center gap-1.5 text-[var(--fg-muted)] text-xs">
-                              <span className="truncate">
+                            <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[var(--fg-muted)] text-xs">
+                              <span className="wrap-anywhere min-w-0">
                                 {preset.provider}
                               </span>
                               <DependencyFidelityBadge

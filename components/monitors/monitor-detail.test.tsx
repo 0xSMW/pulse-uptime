@@ -1,6 +1,82 @@
-import { describe, expect, it } from "vitest"
+// @vitest-environment jsdom
+import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { domainExpiryLine, domainVerificationCopy } from "./monitor-detail"
+const router = vi.hoisted(() => ({ push: vi.fn(), prefetch: vi.fn() }))
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: router.push, prefetch: router.prefetch }),
+}))
+
+import {
+  domainExpiryLine,
+  domainVerificationCopy,
+  RecentIncidentsTable,
+} from "./monitor-detail"
+
+afterEach(() => {
+  cleanup()
+  vi.clearAllMocks()
+})
+
+const longFailure = `TLS handshake failed ${"x".repeat(120)}`
+
+function renderRecentIncidents() {
+  return render(
+    <RecentIncidentsTable
+      incidents={[
+        {
+          id: "inc 1",
+          openedAt: "2026-11-13T09:00:00.000Z",
+          durationSeconds: 300,
+          openingFailure: longFailure,
+          exclusionStatus: "full",
+        },
+      ]}
+      mounted={false}
+      timeZone="UTC"
+    />
+  )
+}
+
+describe("RecentIncidentsTable", () => {
+  it("navigates the whole row on a plain left click", () => {
+    renderRecentIncidents()
+    const row = screen.getByText(longFailure).closest("tr")!
+    expect(row.className).toContain("cursor-pointer")
+    fireEvent.click(row.cells[1]!, { button: 0 })
+    expect(router.push).toHaveBeenCalledWith("/incidents/inc%201")
+  })
+
+  it.each([
+    ["cmd", { metaKey: true }],
+    ["ctrl", { ctrlKey: true }],
+    ["shift", { shiftKey: true }],
+    ["middle button", { button: 1 }],
+  ])("leaves %s clicks to the browser", (_label, modifier) => {
+    renderRecentIncidents()
+    const row = screen.getByText(longFailure).closest("tr")!
+    fireEvent.click(row.cells[1]!, { button: 0, ...modifier })
+    expect(router.push).not.toHaveBeenCalled()
+  })
+
+  it("keeps the Started link a real anchor and leaves its click alone", () => {
+    renderRecentIncidents()
+    const link = screen.getByRole("link")
+    expect(link.getAttribute("href")).toBe("/incidents/inc%201")
+    fireEvent.click(link, { button: 0 })
+    expect(router.push).not.toHaveBeenCalled()
+  })
+
+  it("wraps the opening failure and keeps the exclusion badge as a sibling", () => {
+    renderRecentIncidents()
+    const failure = screen.getByText(longFailure)
+    const badge = screen.getByText("False alarm")
+    expect(failure.contains(badge)).toBe(false)
+    expect(failure.parentElement).toBe(badge.parentElement)
+    expect(failure.parentElement?.className).toContain("flex-wrap")
+    expect(failure.closest("td")?.className).not.toContain("truncate")
+  })
+})
 
 const expiry = "2027-01-02T03:04:05.000Z"
 const now = new Date("2026-12-20T00:00:00.000Z")

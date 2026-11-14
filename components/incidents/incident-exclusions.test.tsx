@@ -36,6 +36,7 @@ const counts = {
   successfulChecks: 1430,
   failedChecks: 10,
   unknownChecks: 0,
+  excludedFailedChecks: 0,
   uptime: 99.305,
 }
 const preview = {
@@ -47,7 +48,7 @@ const preview = {
   windowStart: "2026-11-12T11:00:00.000Z",
   windowEnd: exclusion.createdAt,
   before: counts,
-  after: { ...counts, failedChecks: 0, uptime: 100 },
+  after: { ...counts, excludedFailedChecks: 10, uptime: 100 },
   previewVersion: "version-1",
 }
 
@@ -58,6 +59,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   cleanup()
+  window.localStorage.clear()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
@@ -132,7 +134,12 @@ describe("incident exclusions", () => {
     mount()
     fireEvent.click(screen.getByRole("button", { name: "Mark false alarm" }))
     await screen.findByText("10 failed checks excluded")
-    expect(screen.getByText(/99.305% → 100.000%/)).toBeTruthy()
+    expect(screen.getByText(/99.305% → 100%/)).toBeTruthy()
+    expect(screen.getByText(/^Window:/)).toBeTruthy()
+    expect(screen.queryByText(/Completed window/)).toBeNull()
+    expect(
+      screen.queryByText(/older than 24 hours|Outside the last/)
+    ).toBeNull()
     const submit = screen.getByRole("button", {
       name: "Exclude from downtime",
     }) as HTMLButtonElement
@@ -184,8 +191,8 @@ describe("incident exclusions", () => {
     fireEvent.click(
       screen.getByRole("checkbox", { name: "Choose a narrower interval" })
     )
-    const start = screen.getByLabelText("Start, local time") as HTMLInputElement
-    const end = screen.getByLabelText("End, local time") as HTMLInputElement
+    const start = screen.getByLabelText(/^Start, /) as HTMLInputElement
+    const end = screen.getByLabelText(/^End, /) as HTMLInputElement
     fireEvent.change(start, { target: { value: end.value } })
     expect(screen.getByRole("alert").textContent).toBe(
       "Choose an end after the start"
@@ -231,8 +238,186 @@ describe("incident exclusions", () => {
     }) as HTMLInputElement
     expect(narrow.disabled).toBe(false)
     fireEvent.click(narrow)
-    expect(screen.getByLabelText("Start, local time")).toBeTruthy()
-    expect(screen.getByLabelText("End, local time")).toBeTruthy()
+    expect(screen.getByLabelText(/^Start, /)).toBeTruthy()
+    expect(screen.getByLabelText(/^End, /)).toBeTruthy()
+  })
+
+  it("reads the narrowed interval in the selected display zone", async () => {
+    window.localStorage.setItem("pulse-timezone-override", "America/New_York")
+    const fetcher = vi.fn().mockImplementation(async () => response(preview))
+    vi.stubGlobal("fetch", fetcher)
+    mount()
+    fireEvent.click(screen.getByRole("button", { name: "Mark false alarm" }))
+    await screen.findByText("10 failed checks excluded")
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Choose a narrower interval" })
+    )
+    const start = (await screen.findByLabelText(
+      "Start, America/New_York"
+    )) as HTMLInputElement
+    expect(start.value).toBe("2026-11-13T05:00")
+    expect(
+      (screen.getByLabelText("End, America/New_York") as HTMLInputElement).value
+    ).toBe("2026-11-13T05:10")
+    fireEvent.change(start, { target: { value: "2026-11-13T05:05" } })
+    await waitFor(() =>
+      expect(
+        fetcher.mock.calls.some(
+          (call) =>
+            JSON.parse(call[1].body).startAt === "2026-11-13T10:05:00.000Z"
+        )
+      ).toBe(true)
+    )
+  })
+
+  it("blocks skipped and repeated clock-change times", async () => {
+    window.localStorage.setItem("pulse-timezone-override", "America/New_York")
+    const fetcher = vi.fn().mockImplementation(async () => response(preview))
+    vi.stubGlobal("fetch", fetcher)
+    mount()
+    fireEvent.click(screen.getByRole("button", { name: "Mark false alarm" }))
+    await screen.findByText("10 failed checks excluded")
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Choose a narrower interval" })
+    )
+    const start = await screen.findByLabelText("Start, America/New_York")
+    const end = screen.getByLabelText("End, America/New_York")
+    fireEvent.change(end, { target: { value: "2026-11-13T05:10" } })
+    fireEvent.change(start, { target: { value: "2026-03-08T02:30" } })
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Start time is skipped by a clock change"
+    )
+    fireEvent.change(start, { target: { value: "2026-11-01T01:30" } })
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Start time repeats at a clock change"
+    )
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Exclude from downtime",
+        }) as HTMLButtonElement
+      ).disabled
+    ).toBe(true)
+    expect(screen.queryByText("10 failed checks excluded")).toBeNull()
+    const bodies = fetcher.mock.calls.map((call) => JSON.parse(call[1].body))
+    expect(
+      bodies.some((body) => String(body.startAt).startsWith("2026-03-08"))
+    ).toBe(false)
+    expect(
+      bodies.some((body) => String(body.startAt).startsWith("2026-11-01"))
+    ).toBe(false)
+  })
+
+  it("keeps a repeated time that came from the incident itself", async () => {
+    window.localStorage.setItem("pulse-timezone-override", "America/New_York")
+    const repeated = {
+      ...preview,
+      startAt: "2026-11-01T06:30:00.000Z",
+      endAt: "2026-11-01T06:50:00.000Z",
+    }
+    const fetcher = vi.fn().mockImplementation(async () => response(repeated))
+    vi.stubGlobal("fetch", fetcher)
+    mount()
+    fireEvent.click(screen.getByRole("button", { name: "Mark false alarm" }))
+    await screen.findByText("10 failed checks excluded")
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Choose a narrower interval" })
+    )
+    const start = (await screen.findByLabelText(
+      "Start, America/New_York"
+    )) as HTMLInputElement
+    expect(start.value).toBe("2026-11-01T01:30")
+    expect(screen.queryByRole("alert")).toBeNull()
+    await waitFor(() =>
+      expect(
+        fetcher.mock.calls.some(
+          (call) =>
+            JSON.parse(call[1].body).startAt === "2026-11-01T06:30:00.000Z"
+        )
+      ).toBe(true)
+    )
+  })
+
+  it("names a single check and older checks outside the 24-hour window", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        response({
+          ...preview,
+          startAt: "2026-11-01T10:00:00.000Z",
+          endAt: "2026-11-01T10:01:00.000Z",
+          affectedFailedChecks: 1,
+          after: { ...counts },
+        })
+      )
+    )
+    mount()
+    fireEvent.click(screen.getByRole("button", { name: "Mark false alarm" }))
+    await screen.findByText("1 failed check excluded")
+    expect(
+      screen.getByText(
+        "Outside the last 24 hours, so only historical uptime changes"
+      )
+    ).toBeTruthy()
+  })
+
+  it("notes when only some checks fall inside the 24-hour window", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        response({
+          ...preview,
+          startAt: "2026-11-12T10:00:00.000Z",
+          affectedFailedChecks: 12,
+          after: { ...counts, excludedFailedChecks: 4, uptime: 99.6 },
+        })
+      )
+    )
+    mount()
+    fireEvent.click(screen.getByRole("button", { name: "Mark false alarm" }))
+    await screen.findByText("12 failed checks excluded")
+    expect(
+      screen.getByText(
+        "Some are older than 24 hours, so historical uptime also changes"
+      )
+    ).toBeTruthy()
+  })
+
+  it("keeps the last preview visible with apply disabled while refreshing", async () => {
+    let release: (value: Response) => void = () => undefined
+    const fetcher = vi
+      .fn()
+      .mockImplementationOnce(async () => response(preview))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            release = resolve
+          })
+      )
+    vi.stubGlobal("fetch", fetcher)
+    mount()
+    fireEvent.click(screen.getByRole("button", { name: "Mark false alarm" }))
+    await screen.findByText("10 failed checks excluded")
+    const status = screen.getByRole("status")
+    fireEvent.change(screen.getByRole("textbox", { name: "Reason, private" }), {
+      target: { value: "Scheduled firewall test" },
+    })
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Choose a narrower interval" })
+    )
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2))
+    expect(screen.getByText("10 failed checks excluded")).toBeTruthy()
+    expect(screen.getByRole("status")).toBe(status)
+    expect(status.getAttribute("aria-busy")).toBe("true")
+    const submit = screen.getByRole("button", {
+      name: "Exclude from downtime",
+    }) as HTMLButtonElement
+    expect(submit.disabled).toBe(true)
+    release(response({ ...preview, affectedFailedChecks: 1 }))
+    await screen.findByText("1 failed check excluded")
+    expect(screen.getByRole("status")).toBe(status)
+    expect(status.getAttribute("aria-busy")).toBe("false")
+    expect(submit.disabled).toBe(false)
   })
 
   it("undoes an active exclusion without deleting audit history", async () => {

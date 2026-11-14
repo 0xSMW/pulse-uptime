@@ -28,8 +28,10 @@ function incidentHref(id: string): string {
 
 export function IncidentHistoryTable({
   incidents,
+  canWriteReports,
 }: {
   incidents: IncidentSummary[]
+  canWriteReports: boolean
 }) {
   const router = useRouter()
   const hoverIntentRef = useRef<number | undefined>(undefined)
@@ -81,9 +83,11 @@ export function IncidentHistoryTable({
               <th className="incident-hide-notifications px-4 font-medium">
                 Notifications
               </th>
-              <th className="px-6 font-medium">
-                <span className="sr-only">Actions</span>
-              </th>
+              {canWriteReports ? (
+                <th className="px-6 font-medium">
+                  <span className="sr-only">Actions</span>
+                </th>
+              ) : null}
             </tr>
           </thead>
           <tbody>
@@ -138,18 +142,17 @@ export function IncidentHistoryTable({
                 <td className="whitespace-nowrap px-4 font-data">
                   {formatIncidentDuration(incident.durationSeconds)}
                 </td>
-                <td
-                  className="incident-hide-failure max-w-52 truncate px-4 font-data"
-                  title={incident.openingFailure}
-                >
+                <td className="incident-hide-failure wrap-anywhere max-w-52 px-4 py-2 font-data">
                   {incident.openingFailure}
                 </td>
                 <td className="incident-hide-notifications px-4">
                   <NotificationSummary summary={incident.notificationSummary} />
                 </td>
-                <td className="px-6 text-right">
-                  <WriteReportButton incidentId={incident.id} />
-                </td>
+                {canWriteReports ? (
+                  <td className="px-6 text-right">
+                    <WriteReportButton incidentId={incident.id} />
+                  </td>
+                ) : null}
               </tr>
             ))}
           </tbody>

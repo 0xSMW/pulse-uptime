@@ -1,51 +1,16 @@
 "use client"
 
-import {
-  Activity,
-  Archive,
-  ChevronDown,
-  Pause,
-  Pencil,
-  Play,
-  X,
-} from "lucide-react"
+import { Activity, Pause, Pencil, Play } from "lucide-react"
 import { useRouter } from "next/navigation"
+import { type ReactNode, useId, useState } from "react"
+import type { EditableMonitor } from "@/components/monitors/monitor-form"
+import { runMonitorTest } from "@/components/monitors/monitor-test"
+import { MonitorSheet } from "@/components/settings/monitor-sheet"
 import {
-  type FormEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type ReactNode,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-} from "react"
-import {
-  type EditableMonitor,
-  hasAdvancedMonitorErrors,
-  monitorMutationBody,
-  type StringMonitorFormValues,
-  stringMonitorValidation,
-  stringMonitorValues,
-  validateMonitorValues,
-} from "@/components/monitors/monitor-form"
-import { GroupDialog } from "@/components/settings/group-dialog"
-import { MonitorGroupField } from "@/components/settings/monitor-group-field"
-import type { SettingsGroup } from "@/components/settings/settings-api"
+  type SettingsGroup,
+  sortSettingsGroups,
+} from "@/components/settings/settings-api"
 import { Button } from "@/components/ui/button"
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
-import { Field } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 
 export type { EditableMonitor } from "@/components/monitors/monitor-form"
 
@@ -54,38 +19,6 @@ type MutationState =
   | { status: "loading"; message: string }
   | { status: "success"; message: string }
   | { status: "error"; message: string }
-
-export type MonitorEditValues = Omit<
-  StringMonitorFormValues,
-  "recipientsText"
-> & {
-  recipients: string
-}
-
-export type MonitorEditErrors = Partial<Record<keyof MonitorEditValues, string>>
-
-export function hasAdvancedMonitorEditErrors(
-  errors: MonitorEditErrors
-): boolean {
-  const { recipients, ...rest } = errors
-  return hasAdvancedMonitorErrors({ ...rest, recipientsText: recipients })
-}
-
-function initialValues(monitor: EditableMonitor): MonitorEditValues {
-  const { recipientsText, ...values } = stringMonitorValues(monitor)
-  return { ...values, recipients: recipientsText }
-}
-
-export function validateMonitorEdit(
-  values: MonitorEditValues
-): MonitorEditErrors {
-  const { recipients, ...common } = values
-  const { recipientsText, ...errors } = validateMonitorValues(
-    { ...common, recipientsText: recipients },
-    stringMonitorValidation
-  )
-  return { ...errors, recipients: recipientsText }
-}
 
 async function readError(response: Response): Promise<string> {
   try {
@@ -111,83 +44,39 @@ async function mutateMonitor(
   })
 }
 
-function ModalFrame({
-  children,
-  labelledBy,
+// Detail page entry to the shared monitor sheet. Groups created from the sheet
+// are held here so the new group is selectable before the server refresh.
+// Mounted only while open, so each open starts from the server groups.
+function DetailMonitorSheet({
+  monitor,
+  groups,
   onClose,
-  panelClassName,
 }: {
-  children: ReactNode
-  labelledBy: string
+  monitor: EditableMonitor
+  groups: readonly SettingsGroup[]
   onClose: () => void
-  panelClassName: string
 }) {
-  const panelRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const previousOverflow = document.body.style.overflow
-    const previouslyFocused =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null
-    document.body.style.overflow = "hidden"
-    const autofocusTarget =
-      panelRef.current?.querySelector<HTMLElement>("[data-autofocus]")
-    ;(autofocusTarget ?? panelRef.current)?.focus()
-    return () => {
-      document.body.style.overflow = previousOverflow
-      previouslyFocused?.focus()
-    }
-  }, [])
-
-  function handleKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
-    if (event.key === "Escape") {
-      event.preventDefault()
-      onClose()
-      return
-    }
-    if (event.key !== "Tab") {
-      return
-    }
-    const focusable = panelRef.current?.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
-    )
-    if (!focusable?.length) {
-      return
-    }
-    const first = focusable[0]!
-    // biome-ignore lint/style/useAtIndex: NodeListOf has no .at in the DOM lib
-    const last = focusable[focusable.length - 1]!
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault()
-      last.focus()
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault()
-      first.focus()
-    }
-  }
+  const router = useRouter()
+  const [availableGroups, setAvailableGroups] = useState(() =>
+    sortSettingsGroups(groups)
+  )
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex bg-black/60"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          onClose()
-        }
-      }}
-    >
-      <div
-        aria-labelledby={labelledBy}
-        aria-modal="true"
-        className={panelClassName}
-        onKeyDown={handleKeyDown}
-        ref={panelRef}
-        role="dialog"
-        tabIndex={-1}
-      >
-        {children}
-      </div>
-    </div>
+    <MonitorSheet
+      groups={availableGroups}
+      monitor={monitor}
+      onArchived={() => router.push("/")}
+      onClose={onClose}
+      onGroupCreated={(group) =>
+        setAvailableGroups((current) =>
+          sortSettingsGroups([
+            ...current.filter((item) => item.id !== group.id),
+            group,
+          ])
+        )
+      }
+      open
+    />
   )
 }
 
@@ -270,20 +159,20 @@ export function MonitorActions({
   const [editOpen, setEditOpen] = useState(false)
   const [action, setAction] = useState<MutationState>({ status: "idle" })
 
-  async function runAction(kind: "test" | "pause" | "resume") {
-    const present =
-      kind === "test"
-        ? "Checking…"
-        : kind === "pause"
-          ? "Pausing…"
-          : "Resuming…"
-    const complete =
-      kind === "test"
-        ? "Monitor check complete"
-        : kind === "pause"
-          ? "Monitor paused"
-          : "Monitor resumed"
-    setAction({ status: "loading", message: present })
+  async function runTest() {
+    setAction({ status: "loading", message: "Checking…" })
+    const outcome = await runMonitorTest(monitor.id)
+    setAction(outcome)
+    if (outcome.status === "success") {
+      router.refresh()
+    }
+  }
+
+  async function runToggle(kind: "pause" | "resume") {
+    setAction({
+      status: "loading",
+      message: kind === "pause" ? "Pausing…" : "Resuming…",
+    })
     try {
       const response = await mutateMonitor(
         `/api/v1/monitors/${encodeURIComponent(monitor.id)}/${kind}`,
@@ -299,7 +188,10 @@ export function MonitorActions({
         })
         return
       }
-      setAction({ status: "success", message: complete })
+      setAction({
+        status: "success",
+        message: kind === "pause" ? "Monitor paused" : "Monitor resumed",
+      })
       router.refresh()
     } catch {
       setAction({
@@ -327,7 +219,7 @@ export function MonitorActions({
               : "Another monitor action is in progress"
           }
           label="Test Monitor"
-          onClick={() => void runAction("test")}
+          onClick={() => void runTest()}
         >
           <Activity aria-hidden className="size-4" />
         </HeaderIconAction>
@@ -335,7 +227,7 @@ export function MonitorActions({
           disabled={isBusy}
           disabledDescription="Another monitor action is in progress"
           label={paused ? "Resume Monitor" : "Pause Monitor"}
-          onClick={() => void runAction(paused ? "resume" : "pause")}
+          onClick={() => void runToggle(paused ? "resume" : "pause")}
         >
           {paused ? (
             <Play aria-hidden className="size-4" />
@@ -357,10 +249,9 @@ export function MonitorActions({
         </div>
       </div>
       {editOpen ? (
-        <MonitorEditSheet
+        <DetailMonitorSheet
           groups={groups}
           monitor={monitor}
-          onArchived={() => router.push("/")}
           onClose={() => setEditOpen(false)}
         />
       ) : null}
@@ -404,42 +295,10 @@ export function MonitorRunTestButton({
 
   async function runTest() {
     setState({ status: "loading", message: "Checking…" })
-    try {
-      const response = await mutateMonitor(
-        `/api/v1/monitors/${encodeURIComponent(monitor.id)}/test`,
-        { method: "POST" }
-      )
-      if (!response.ok) {
-        setState({ status: "error", message: await readError(response) })
-        return
-      }
-      // A completed probe can still fail. The endpoint reports that in the
-      // successful flag, so a failed check reads as a failure, not success.
-      const body = (await response.json()) as {
-        data?: {
-          successful?: boolean
-          statusCode?: number | null
-          errorCode?: string | null
-        }
-      }
-      if (body.data?.successful !== true) {
-        const detail =
-          body.data?.statusCode == null
-            ? (body.data?.errorCode ?? "Unknown failure")
-            : `HTTP ${body.data.statusCode}`
-        setState({
-          status: "error",
-          message: `Monitor check failed with ${detail}`,
-        })
-        return
-      }
-      setState({ status: "success", message: "Monitor check complete" })
+    const outcome = await runMonitorTest(monitor.id)
+    setState(outcome)
+    if (outcome.status === "success") {
       router.refresh()
-    } catch {
-      setState({
-        status: "error",
-        message: "Unable to reach the server. Try again.",
-      })
     }
   }
 
@@ -467,7 +326,6 @@ export function MonitorEditButton({
   monitor: EditableMonitor
   groups: readonly SettingsGroup[]
 }) {
-  const router = useRouter()
   const [open, setOpen] = useState(false)
 
   if (!canManageMonitors) {
@@ -480,513 +338,12 @@ export function MonitorEditButton({
         Edit Monitor
       </Button>
       {open ? (
-        <MonitorEditSheet
+        <DetailMonitorSheet
           groups={groups}
           monitor={monitor}
-          onArchived={() => router.push("/")}
           onClose={() => setOpen(false)}
         />
       ) : null}
     </>
-  )
-}
-
-function MonitorEditSheet({
-  monitor,
-  groups,
-  onClose,
-  onArchived,
-}: {
-  monitor: EditableMonitor
-  groups: readonly SettingsGroup[]
-  onClose: () => void
-  onArchived: () => void
-}) {
-  const router = useRouter()
-  const titleId = useId()
-  const [values, setValues] = useState(() => initialValues(monitor))
-  const [errors, setErrors] = useState<MonitorEditErrors>({})
-  const [state, setState] = useState<MutationState>({ status: "idle" })
-  const [archiveOpen, setArchiveOpen] = useState(false)
-  const [createGroupOpen, setCreateGroupOpen] = useState(false)
-  const [availableGroups, setAvailableGroups] = useState(() => [...groups])
-  const [advancedOpen, setAdvancedOpen] = useState(false)
-  const formRef = useRef<HTMLFormElement>(null)
-  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(
-    () => () => {
-      if (refreshTimer.current) {
-        clearTimeout(refreshTimer.current)
-      }
-    },
-    []
-  )
-
-  function update<K extends keyof MonitorEditValues>(
-    key: K,
-    value: MonitorEditValues[K]
-  ) {
-    setValues((current) => ({ ...current, [key]: value }))
-    setErrors((current) => ({ ...current, [key]: undefined }))
-  }
-
-  async function submit(event: FormEvent) {
-    event.preventDefault()
-    const nextErrors = validateMonitorEdit(values)
-    setErrors(nextErrors)
-    if (Object.keys(nextErrors).length) {
-      if (hasAdvancedMonitorEditErrors(nextErrors)) {
-        setAdvancedOpen(true)
-      }
-      setState({ status: "error", message: "Fix the highlighted fields" })
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() =>
-          formRef.current
-            ?.querySelector<HTMLElement>("[aria-invalid='true']")
-            ?.focus()
-        )
-      )
-      return
-    }
-    setState({ status: "loading", message: "Saving…" })
-    try {
-      const { recipients, ...commonValues } = values
-      const response = await mutateMonitor(
-        `/api/v1/monitors/${encodeURIComponent(monitor.id)}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(
-            monitorMutationBody(
-              { ...commonValues, recipientsText: recipients },
-              { trimUrl: false }
-            )
-          ),
-        }
-      )
-      if (!response.ok) {
-        setState({
-          status: "error",
-          message:
-            response.status === 409
-              ? "Configuration changed elsewhere. Reload before saving."
-              : await readError(response),
-        })
-        return
-      }
-      setState({ status: "success", message: "Updating configuration…" })
-      refreshTimer.current = setTimeout(() => {
-        router.refresh()
-        onClose()
-      }, 10_000)
-    } catch {
-      setState({
-        status: "error",
-        message: "Unable to reach the server. Try again.",
-      })
-    }
-  }
-
-  const busy = state.status === "loading" || state.status === "success"
-  return (
-    <>
-      <ModalFrame
-        labelledBy={titleId}
-        onClose={busy ? () => undefined : onClose}
-        panelClassName="ml-auto flex h-full w-[min(480px,100vw)] flex-col border-l border-[var(--border-strong)] bg-[var(--bg)] shadow-2xl outline-none"
-      >
-        <div className="flex items-center justify-between border-[var(--border)] border-b px-6 py-4">
-          <h2 className="font-semibold text-sm" id={titleId}>
-            Edit Monitor
-          </h2>
-          <Button
-            aria-label="Close edit monitor"
-            disabled={busy}
-            onClick={onClose}
-            size="icon-sm"
-            variant="tertiary"
-          >
-            <X className="size-4" />
-          </Button>
-        </div>
-        <form
-          className="flex min-h-0 flex-1 flex-col"
-          onSubmit={submit}
-          ref={formRef}
-        >
-          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
-            <TextField
-              autoFocus
-              data-autofocus
-              error={errors.name}
-              id="monitor-name"
-              label="Name"
-              onChange={(value) => update("name", value)}
-              value={values.name}
-            />
-            <TextField
-              className="font-data"
-              error={errors.url}
-              id="monitor-url"
-              label="URL"
-              onChange={(value) => update("url", value)}
-              value={values.url}
-            />
-            <MonitorGroupField
-              groups={availableGroups}
-              labelClassName="text-sm"
-              onChange={(groupId) => update("groupId", groupId)}
-              onCreateGroup={() => setCreateGroupOpen(true)}
-              value={values.groupId}
-            />
-            <SelectField
-              id="monitor-method"
-              label="Method"
-              onChange={(value) => update("method", value as "GET" | "HEAD")}
-              options={["GET", "HEAD"]}
-              value={values.method}
-            />
-            <SelectField
-              error={errors.intervalMinutes}
-              id="monitor-interval"
-              label="Interval"
-              onChange={(value) => update("intervalMinutes", value)}
-              options={["1", "5", "10", "15"]}
-              renderLabel={(value) => `${value} min`}
-              value={values.intervalMinutes}
-            />
-            <Collapsible
-              className="border-[var(--border)] border-y"
-              onOpenChange={setAdvancedOpen}
-              open={advancedOpen}
-            >
-              <CollapsibleTrigger className="group flex w-full items-center justify-between py-3 text-left font-medium text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]">
-                Advanced
-                <ChevronDown
-                  aria-hidden
-                  className="size-4 text-[var(--fg-muted)] transition-transform group-data-[panel-open]:rotate-180 motion-reduce:transition-none"
-                />
-              </CollapsibleTrigger>
-              <CollapsibleContent className="space-y-5 pb-5 transition-opacity duration-150">
-                <TextField
-                  className="font-data"
-                  error={errors.timeoutMs}
-                  id="monitor-timeout"
-                  label="Timeout ms"
-                  max={15_000}
-                  min={1000}
-                  onChange={(value) => update("timeoutMs", value)}
-                  type="number"
-                  value={values.timeoutMs}
-                />
-                <div className="grid grid-cols-2 gap-3">
-                  <TextField
-                    className="font-data"
-                    error={errors.expectedStatusMin}
-                    id="monitor-status-min"
-                    label="Expected Status Min"
-                    max={599}
-                    min={100}
-                    onChange={(value) => update("expectedStatusMin", value)}
-                    type="number"
-                    value={values.expectedStatusMin}
-                  />
-                  <TextField
-                    className="font-data"
-                    error={errors.expectedStatusMax}
-                    id="monitor-status-max"
-                    label="Expected Status Max"
-                    max={599}
-                    min={100}
-                    onChange={(value) => update("expectedStatusMax", value)}
-                    type="number"
-                    value={values.expectedStatusMax}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <TextField
-                    className="font-data"
-                    error={errors.failureThreshold}
-                    id="monitor-failure-threshold"
-                    label="Failure Threshold"
-                    max={5}
-                    min={1}
-                    onChange={(value) => update("failureThreshold", value)}
-                    type="number"
-                    value={values.failureThreshold}
-                  />
-                  <TextField
-                    className="font-data"
-                    error={errors.recoveryThreshold}
-                    id="monitor-recovery-threshold"
-                    label="Recovery Threshold"
-                    max={5}
-                    min={1}
-                    onChange={(value) => update("recoveryThreshold", value)}
-                    type="number"
-                    value={values.recoveryThreshold}
-                  />
-                </div>
-                <Field
-                  description="Empty inherits default recipients"
-                  error={errors.recipients}
-                  htmlFor="monitor-recipients"
-                  label="Recipients"
-                >
-                  <textarea
-                    aria-invalid={Boolean(errors.recipients)}
-                    className="w-full resize-y rounded-[6px] border border-[var(--border-strong)] bg-[var(--bg)] px-3 py-2 font-data text-sm outline-none hover:border-[var(--border-hover)] aria-invalid:border-[var(--down-text)]"
-                    id="monitor-recipients"
-                    onChange={(event) =>
-                      update("recipients", event.target.value)
-                    }
-                    rows={5}
-                    value={values.recipients}
-                  />
-                </Field>
-              </CollapsibleContent>
-            </Collapsible>
-            <label className="flex items-center justify-between gap-4 font-medium text-sm">
-              Enabled
-              <input
-                checked={values.enabled}
-                className="size-4 accent-[var(--fg)]"
-                onChange={(event) => update("enabled", event.target.checked)}
-                type="checkbox"
-              />
-            </label>
-            <MutationMessage state={state} />
-          </div>
-          <div className="flex items-center justify-between gap-3 border-[var(--border)] border-t px-6 py-4">
-            <Button
-              disabled={busy}
-              onClick={() => setArchiveOpen(true)}
-              type="button"
-              variant="secondary"
-            >
-              <Archive className="size-4" />
-              Archive Monitor
-            </Button>
-            <div className="flex gap-2">
-              <Button
-                disabled={busy}
-                onClick={onClose}
-                type="button"
-                variant="secondary"
-              >
-                Cancel
-              </Button>
-              <Button disabled={busy} type="submit">
-                {state.status === "loading"
-                  ? "Saving…"
-                  : state.status === "success"
-                    ? "Updating…"
-                    : "Save Monitor"}
-              </Button>
-            </div>
-          </div>
-        </form>
-      </ModalFrame>
-      {createGroupOpen ? (
-        <GroupDialog
-          onClose={() => setCreateGroupOpen(false)}
-          onSaved={(group) => {
-            setAvailableGroups((current) => [
-              ...current.filter((item: SettingsGroup) => item.id !== group.id),
-              group,
-            ])
-            update("groupId", group.id)
-            setCreateGroupOpen(false)
-          }}
-          open
-        />
-      ) : null}
-      {archiveOpen ? (
-        <ArchiveDialog
-          monitor={monitor}
-          onArchived={onArchived}
-          onClose={() => setArchiveOpen(false)}
-        />
-      ) : null}
-    </>
-  )
-}
-
-function ArchiveDialog({
-  monitor,
-  onClose,
-  onArchived,
-}: {
-  monitor: EditableMonitor
-  onClose: () => void
-  onArchived: () => void
-}) {
-  const titleId = useId()
-  const [confirmation, setConfirmation] = useState("")
-  const [state, setState] = useState<MutationState>({ status: "idle" })
-  const navigationTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const matches = confirmation === monitor.name
-
-  useEffect(
-    () => () => {
-      if (navigationTimer.current) {
-        clearTimeout(navigationTimer.current)
-      }
-    },
-    []
-  )
-
-  async function archive() {
-    setState({ status: "loading", message: "Archiving…" })
-    try {
-      const response = await mutateMonitor(
-        `/api/v1/monitors/${encodeURIComponent(monitor.id)}`,
-        { method: "DELETE" }
-      )
-      if (!response.ok) {
-        setState({
-          status: "error",
-          message:
-            response.status === 409
-              ? "Configuration changed elsewhere. Reload before archiving."
-              : await readError(response),
-        })
-        return
-      }
-      setState({ status: "success", message: "Monitor archived" })
-      navigationTimer.current = setTimeout(onArchived, 800)
-    } catch {
-      setState({
-        status: "error",
-        message: "Unable to reach the server. Try again.",
-      })
-    }
-  }
-
-  return (
-    <ModalFrame
-      labelledBy={titleId}
-      onClose={
-        state.status === "idle" || state.status === "error"
-          ? onClose
-          : () => undefined
-      }
-      panelClassName="m-auto w-[min(420px,calc(100vw-32px))] rounded-xl border border-[var(--border-strong)] bg-[var(--bg)] p-6 shadow-2xl outline-none"
-    >
-      <h2 className="font-semibold text-sm" id={titleId}>
-        Archive Monitor
-      </h2>
-      <p className="mt-3 text-[13px] text-[var(--fg-muted)]">
-        Archive removes this monitor from active monitoring. Type{" "}
-        <span className="font-data text-[var(--fg)]">{monitor.name}</span> to
-        continue.
-      </p>
-      <Field
-        className="mt-5"
-        htmlFor="archive-monitor-name"
-        label="Monitor Name"
-      >
-        <Input
-          autoComplete="off"
-          autoFocus
-          data-autofocus
-          id="archive-monitor-name"
-          onChange={(event) => setConfirmation(event.target.value)}
-          value={confirmation}
-        />
-      </Field>
-      <div className="mt-3">
-        <MutationMessage state={state} />
-      </div>
-      <div className="mt-6 flex justify-end gap-2">
-        <Button
-          disabled={state.status === "loading" || state.status === "success"}
-          onClick={onClose}
-          variant="tertiary"
-        >
-          Cancel
-        </Button>
-        <Button
-          disabled={
-            !matches || state.status === "loading" || state.status === "success"
-          }
-          onClick={() => void archive()}
-          variant="secondary"
-        >
-          {state.status === "loading"
-            ? "Archiving…"
-            : state.status === "success"
-              ? "Archived"
-              : "Archive Monitor"}
-        </Button>
-      </div>
-    </ModalFrame>
-  )
-}
-
-function TextField({
-  id,
-  label,
-  error,
-  onChange,
-  className,
-  ...props
-}: {
-  id: string
-  label: string
-  error?: string
-  onChange: (value: string) => void
-  className?: string
-} & Omit<React.ComponentProps<typeof Input>, "id" | "onChange">) {
-  return (
-    <Field error={error} htmlFor={id} label={label}>
-      <Input
-        id={id}
-        {...props}
-        aria-invalid={Boolean(error)}
-        className={className}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </Field>
-  )
-}
-
-function SelectField({
-  id,
-  label,
-  value,
-  onChange,
-  options,
-  renderLabel = (option) => option,
-  error,
-}: {
-  id: string
-  label: string
-  value: string
-  onChange: (value: string) => void
-  options: string[]
-  renderLabel?: (value: string) => string
-  error?: string
-}) {
-  return (
-    <Field error={error} htmlFor={id} label={label}>
-      <Select onValueChange={onChange} value={value}>
-        <SelectTrigger
-          aria-invalid={Boolean(error)}
-          className="aria-invalid:border-[var(--down-text)]"
-          id={id}
-        >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {options.map((option) => (
-            <SelectItem key={option} value={option}>
-              {renderLabel(option)}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </Field>
   )
 }

@@ -2,7 +2,8 @@
 
 import { ArrowLeft, ExternalLink } from "lucide-react"
 import Link from "next/link"
-import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import { useEffect, useRef, useState } from "react"
 import type { LatencyPoint } from "@/components/charts/latency-chart"
 import { LazyLatencyChart } from "@/components/charts/lazy-latency-chart"
 import { useTimezone } from "@/components/dashboard/timezone-provider"
@@ -34,6 +35,13 @@ import {
 import type { SettingsGroup } from "@/components/settings/settings-api"
 import { buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  HOVER_PREFETCH_DELAY_MS,
+  isPlainLeftClick,
+  navigateRow,
+  resolveFullPrefetchOptions,
+  shouldPrefetchOnce,
+} from "@/components/ui/row-navigation"
 import {
   Tooltip,
   TooltipContent,
@@ -300,17 +308,17 @@ function MonitorUrlLabel({
           <div className="space-y-1 text-left">
             <p className="font-medium">{segments.apex}</p>
             {domainHealth.domainExpiresAt ? (
-              <p className="whitespace-nowrap text-[var(--fg-muted)]">
+              <p className="text-[var(--fg-muted)] [overflow-wrap:anywhere]">
                 {domainExpiryLine(domainHealth, timeZone, now)}
               </p>
             ) : null}
             {hasPorkbunAutoRenew && !domainHealth.domainExpiresAt ? (
-              <p className="whitespace-nowrap text-[var(--fg-muted)]">
+              <p className="text-[var(--fg-muted)] [overflow-wrap:anywhere]">
                 Auto-renew {domainHealth.domainAutoRenew ? "on" : "off"}
               </p>
             ) : null}
             {domainHealth.certExpiresAt ? (
-              <p className="whitespace-nowrap text-[var(--fg-muted)]">
+              <p className="text-[var(--fg-muted)] [overflow-wrap:anywhere]">
                 {expiresLine(
                   "Cert expires",
                   domainHealth.certExpiresAt,
@@ -536,6 +544,104 @@ function SetupStat() {
   )
 }
 
+function incidentHref(id: string): string {
+  return `/incidents/${encodeURIComponent(id)}`
+}
+
+// Whole-row navigation per AGENTS.md Design. The Started link stays a real
+// anchor for keyboard, middle-click, and assistive tech.
+export function RecentIncidentsTable({
+  incidents,
+  mounted,
+  timeZone,
+}: {
+  incidents: MonitorDetailData["recentIncidents"]
+  mounted: boolean
+  timeZone: string
+}) {
+  const router = useRouter()
+  const hoverIntentRef = useRef<number | undefined>(undefined)
+  const prefetchedIdsRef = useRef<Set<string>>(new Set())
+
+  const prefetchIncident = (id: string) => {
+    if (!shouldPrefetchOnce(id, prefetchedIdsRef.current)) {
+      return
+    }
+    router.prefetch(incidentHref(id), resolveFullPrefetchOptions())
+  }
+
+  // Prefetch keyboard focus immediately. Delay pointer hover for intent.
+  const handleRowMouseEnter = (id: string) => {
+    window.clearTimeout(hoverIntentRef.current)
+    hoverIntentRef.current = window.setTimeout(
+      () => prefetchIncident(id),
+      HOVER_PREFETCH_DELAY_MS
+    )
+  }
+  const handleRowMouseLeave = () => window.clearTimeout(hoverIntentRef.current)
+  useEffect(() => () => window.clearTimeout(hoverIntentRef.current), [])
+
+  return (
+    <div className="hide-scrollbar overflow-x-auto">
+      <table className="w-full min-w-[580px] border-collapse text-left text-[13px]">
+        <thead className="text-[var(--fg-muted)] text-xs">
+          <tr className="h-10 border-[var(--border)] border-y">
+            <th className="px-6 font-medium">Started</th>
+            <th className="px-4 font-medium">Duration</th>
+            <th className="px-6 font-medium">Opening Failure</th>
+          </tr>
+        </thead>
+        <tbody>
+          {incidents.map((incident) => (
+            <tr
+              className="h-12 cursor-pointer border-[var(--border)] border-b last:border-0 hover:bg-[var(--hover)]"
+              key={incident.id}
+              onClick={(event) => {
+                if (!isPlainLeftClick(event)) {
+                  return
+                }
+                navigateRow(
+                  event.target,
+                  incidentHref(incident.id),
+                  router.push
+                )
+              }}
+              onFocus={() => prefetchIncident(incident.id)}
+              onMouseEnter={() => handleRowMouseEnter(incident.id)}
+              onMouseLeave={handleRowMouseLeave}
+            >
+              <td className="whitespace-nowrap px-6 font-data">
+                <Link
+                  className="transition-opacity duration-150 hover:opacity-70"
+                  href={incidentHref(incident.id)}
+                  prefetch={false}
+                >
+                  <RelativeTimestamp
+                    mounted={mounted}
+                    timeZone={timeZone}
+                    value={incident.openedAt}
+                  />
+                </Link>
+              </td>
+              <td className="whitespace-nowrap px-4 font-data">
+                {formatDuration(incident.durationSeconds)}
+              </td>
+              <td className="px-6 py-2 font-data">
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="min-w-0 [overflow-wrap:anywhere]">
+                    {incident.openingFailure}
+                  </span>
+                  <IncidentExclusionBadge status={incident.exclusionStatus} />
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 export function MonitorDetail({
   canManageMonitors,
   monitor: snapshot,
@@ -643,7 +749,7 @@ export function MonitorDetail({
         <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2.5">
-              <h1 className="font-semibold text-xl tracking-[-0.02em]">
+              <h1 className="min-w-0 font-semibold text-xl tracking-[-0.02em] [overflow-wrap:anywhere]">
                 {monitor.name}
               </h1>
               <StatusBadge state={monitor.state} />
@@ -657,11 +763,10 @@ export function MonitorDetail({
                 {monitor.method}
               </span>
               <a
-                className="min-w-0 truncate transition-colors duration-150 hover:text-[var(--fg)]"
+                className="min-w-0 transition-colors duration-150 [overflow-wrap:anywhere] hover:text-[var(--fg)]"
                 href={monitor.url}
                 rel="noreferrer"
                 target="_blank"
-                title={monitor.url}
               >
                 <MonitorUrlLabel
                   domainHealth={monitor.domainHealth}
@@ -722,12 +827,12 @@ export function MonitorDetail({
       </section>
 
       {phase === "setup" ? (
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--bg)] p-4 text-[13px]">
+        <Card className="p-4 text-[13px]">
           <span className="flex items-center gap-2">
             <StatusDot state="PENDING" />
             <span className="font-medium">Verifying setup</span>
           </span>
-          <p className="mt-1.5 text-[var(--fg-muted)]">
+          <p className="mt-1.5 text-[var(--fg-muted)] [overflow-wrap:anywhere]">
             {monitor.firstRun.setupError
               ? canManageMonitors
                 ? `The last check failed with ${monitor.firstRun.setupError}. Setup failures are warnings, not incidents. Fix the endpoint or edit the configuration, then run a test to confirm it is reachable. Monitoring begins at the next scheduled check that succeeds.`
@@ -739,7 +844,7 @@ export function MonitorDetail({
             groups={groups}
             monitor={monitor}
           />
-        </div>
+        </Card>
       ) : null}
 
       {monitor.latestIncident ? (
@@ -749,11 +854,11 @@ export function MonitorDetail({
               "flex flex-col justify-between gap-2 rounded-xl border p-4 text-[13px] transition-colors hover:border-[var(--border-hover)] sm:flex-row sm:items-center",
               monitor.latestIncident.state === "ONGOING"
                 ? "border-[var(--down-border)] bg-[var(--down-bg)]"
-                : "border-[var(--border)] bg-[var(--bg)]"
+                : "border-[var(--border-strong)] bg-[var(--bg)] shadow-[var(--card-shadow)]"
             )}
             href={`/incidents/${encodeURIComponent(monitor.latestIncident.id)}`}
           >
-            <span className="flex min-w-0 items-center gap-2">
+            <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
               <StatusDot
                 state={
                   monitor.latestIncident.state === "ONGOING" ? "DOWN" : "UP"
@@ -764,15 +869,12 @@ export function MonitorDetail({
                   ? "Ongoing incident"
                   : "Recently resolved"}
               </span>
-              <span
-                className="truncate font-data text-[var(--fg-muted)]"
-                title={monitor.latestIncident.openingFailure}
-              >
+              <span className="min-w-0 font-data text-[var(--fg-muted)] [overflow-wrap:anywhere]">
                 {monitor.latestIncident.openingFailure}
-                <IncidentExclusionBadge
-                  status={monitor.latestIncident.exclusionStatus}
-                />
               </span>
+              <IncidentExclusionBadge
+                status={monitor.latestIncident.exclusionStatus}
+              />
             </span>
             <span className="shrink-0 font-data text-[var(--fg-muted)]">
               {formatTimestamp(
@@ -887,50 +989,11 @@ export function MonitorDetail({
           </CardHeader>
           <CardContent className="px-0 pb-0">
             {monitor.recentIncidents.length ? (
-              <div className="hide-scrollbar overflow-x-auto">
-                <table className="w-full min-w-[580px] border-collapse text-left text-[13px]">
-                  <thead className="text-[var(--fg-muted)] text-xs">
-                    <tr className="h-10 border-[var(--border)] border-y">
-                      <th className="px-6 font-medium">Started</th>
-                      <th className="px-4 font-medium">Duration</th>
-                      <th className="px-6 font-medium">Opening Failure</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {monitor.recentIncidents.map((incident) => (
-                      <tr
-                        className="h-12 border-[var(--border)] border-b last:border-0 hover:bg-[var(--hover)]"
-                        key={incident.id}
-                      >
-                        <td className="whitespace-nowrap px-6 font-data">
-                          <Link
-                            className="transition-opacity duration-150 hover:opacity-70"
-                            href={`/incidents/${encodeURIComponent(incident.id)}`}
-                          >
-                            <RelativeTimestamp
-                              mounted={mounted}
-                              timeZone={resolvedTimeZone}
-                              value={incident.openedAt}
-                            />
-                          </Link>
-                        </td>
-                        <td className="whitespace-nowrap px-4 font-data">
-                          {formatDuration(incident.durationSeconds)}
-                        </td>
-                        <td
-                          className="max-w-64 truncate px-6 font-data"
-                          title={incident.openingFailure}
-                        >
-                          {incident.openingFailure}
-                          <IncidentExclusionBadge
-                            status={incident.exclusionStatus}
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <RecentIncidentsTable
+                incidents={monitor.recentIncidents}
+                mounted={mounted}
+                timeZone={resolvedTimeZone}
+              />
             ) : (
               <EmptyCardContent>No incidents yet</EmptyCardContent>
             )}
@@ -1153,7 +1216,9 @@ function ConfigurationField({
   return (
     <div>
       <dt className="text-[var(--fg-muted)] text-xs">{label}</dt>
-      <dd className="mt-1 font-data text-[13px]">{value}</dd>
+      <dd className="mt-1 font-data text-[13px] [overflow-wrap:anywhere]">
+        {value}
+      </dd>
     </div>
   )
 }

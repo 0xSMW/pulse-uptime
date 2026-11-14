@@ -15,6 +15,7 @@ import {
   type EditableMonitor,
   isPublicMonitorUrl,
   MonitorSheet,
+  validateMonitorForm,
 } from "./monitor-sheet"
 
 const router = vi.hoisted(() => ({ refresh: vi.fn() }))
@@ -249,5 +250,179 @@ describe("MonitorSheet", () => {
     act(() => vi.advanceTimersByTime(1))
     expect(router.refresh).toHaveBeenCalledOnce()
     expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it("hands the archive to onArchived instead of refreshing", async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+    )
+    const onClose = vi.fn()
+    const onArchived = vi.fn()
+    renderSheet({ monitor: existingMonitor, onArchived, onClose })
+
+    fireEvent.click(screen.getByRole("button", { name: "Archive" }))
+    const dialog = screen.getByRole("dialog", { name: "Archive Monitor" })
+    fireEvent.change(within(dialog).getByRole("textbox"), {
+      target: { value: existingMonitor.name },
+    })
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Archive Monitor" })
+    )
+
+    await act(async () => undefined)
+    act(() => vi.advanceTimersByTime(800))
+    expect(onArchived).toHaveBeenCalledOnce()
+    expect(router.refresh).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it("leaves pause and resume to the Enabled field", () => {
+    renderSheet({ monitor: existingMonitor })
+    expect(screen.getByRole("button", { name: "Run Test" })).toBeDefined()
+    expect(screen.queryByRole("button", { name: "Pause" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Resume" })).toBeNull()
+    expect(screen.getByRole("checkbox", { name: "Enabled" })).toBeDefined()
+  })
+
+  it.each([
+    [
+      { successful: false, statusCode: 503, errorCode: "INVALID_STATUS" },
+      "HTTP 503",
+    ],
+    [{ successful: false, statusCode: null, errorCode: "TIMEOUT" }, "TIMEOUT"],
+  ])("reports a failed manual test %#", async (data, detail) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(Response.json({ data }, { status: 200 }))
+    )
+    renderSheet({ monitor: existingMonitor })
+
+    fireEvent.click(screen.getByRole("button", { name: "Run Test" }))
+
+    const alert = await screen.findByRole("alert")
+    expect(alert.textContent).toBe(`Monitor check failed with ${detail}`)
+    expect(router.refresh).not.toHaveBeenCalled()
+  })
+
+  it("reports a passing manual test and refreshes", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          Response.json(
+            { data: { successful: true, statusCode: 200, errorCode: null } },
+            { status: 200 }
+          )
+        )
+    )
+    renderSheet({ monitor: existingMonitor })
+
+    fireEvent.click(screen.getByRole("button", { name: "Run Test" }))
+
+    const status = await screen.findByText("Monitor check passed")
+    expect(status.getAttribute("role")).toBe("status")
+    expect(router.refresh).toHaveBeenCalledOnce()
+  })
+
+  it("closes a clean sheet without a prompt", () => {
+    const onClose = vi.fn()
+    renderSheet({ monitor: existingMonitor, onClose })
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+
+    expect(onClose).toHaveBeenCalledOnce()
+    expect(
+      screen.queryByRole("dialog", { name: "Discard unsaved changes?" })
+    ).toBeNull()
+  })
+
+  it("confirms before Escape discards unsaved edits", () => {
+    const onClose = vi.fn()
+    renderSheet({ monitor: existingMonitor, onClose })
+    fireEvent.change(nameInput(), { target: { value: "Renamed" } })
+
+    const sheet = screen.getByRole("dialog", { name: "Edit Monitor" })
+    fireEvent(sheet, new Event("cancel", { cancelable: true }))
+
+    const prompt = screen.getByRole("dialog", {
+      name: "Discard unsaved changes?",
+    })
+    expect(onClose).not.toHaveBeenCalled()
+    fireEvent.click(
+      within(prompt).getByRole("button", { name: "Keep Editing" })
+    )
+    expect(onClose).not.toHaveBeenCalled()
+    expect(nameInput().value).toBe("Renamed")
+
+    fireEvent.click(screen.getByRole("button", { name: "Close sheet" }))
+    fireEvent.click(
+      within(
+        screen.getByRole("dialog", { name: "Discard unsaved changes?" })
+      ).getByRole("button", { name: "Discard" })
+    )
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it("treats a reverted edit as clean", () => {
+    const onClose = vi.fn()
+    renderSheet({ monitor: existingMonitor, onClose })
+    fireEvent.change(nameInput(), { target: { value: "Renamed" } })
+    fireEvent.change(nameInput(), { target: { value: existingMonitor.name } })
+
+    fireEvent.click(screen.getByRole("button", { name: "Close sheet" }))
+
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+})
+
+describe("validateMonitorForm", () => {
+  const valid = {
+    name: "Public API",
+    url: "https://api.example.com/health",
+    enabled: true,
+    groupId: null,
+    method: "GET",
+    intervalMinutes: 1,
+    timeoutMs: 8000,
+    expectedStatusMin: 200,
+    expectedStatusMax: 399,
+    failureThreshold: 2,
+    recoveryThreshold: 2,
+    recipientsText: "ops@example.com\nowner@example.com",
+  }
+
+  it.each([
+    "http://127.0.0.1/health",
+    "http://10.0.0.1/health",
+    "http://192.168.1.1/health",
+    "http://[::1]/health",
+  ])("rejects private URL %s", (url) => {
+    expect(validateMonitorForm({ ...valid, url }).url).toBeDefined()
+  })
+
+  it("rejects a status maximum below the minimum", () => {
+    expect(
+      validateMonitorForm({
+        ...valid,
+        expectedStatusMin: 500,
+        expectedStatusMax: 200,
+      }).expectedStatusMax
+    ).toBeDefined()
+  })
+
+  it("rejects duplicate recipients case-insensitively", () => {
+    expect(
+      validateMonitorForm({
+        ...valid,
+        recipientsText: "ops@example.com\nOPS@example.com",
+      }).recipientsText
+    ).toBe("Remove duplicate recipients")
+  })
+
+  it("accepts a complete valid form", () => {
+    expect(validateMonitorForm(valid)).toEqual({})
   })
 })

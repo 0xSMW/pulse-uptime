@@ -17,13 +17,15 @@ export default async function OverviewPage() {
     { scopes: roleScopes(session?.role ?? "viewer") },
     "monitors:write"
   )
+  // Matches requireAdminSettings, which gates the System settings page.
+  const canOpenSystem = session?.role === "admin"
 
   return (
     <>
       {/* Empty fallback: warnings are rare, and layout shift from a
           late-arriving alert banner is acceptable for an alert. */}
       <Suspense fallback={null}>
-        <HealthBannerIsland />
+        <HealthBannerIsland canOpenSystem={canOpenSystem} />
       </Suspense>
       <div className="mb-6 flex items-center justify-between gap-4">
         <div>
@@ -44,8 +46,17 @@ export default async function OverviewPage() {
   )
 }
 
-async function HealthBannerIsland() {
-  return <HealthBanner warnings={await getHealthWarnings()} />
+async function HealthBannerIsland({
+  canOpenSystem,
+}: {
+  canOpenSystem: boolean
+}) {
+  return (
+    <HealthBanner
+      canOpenSystem={canOpenSystem}
+      warnings={await getHealthWarnings()}
+    />
+  )
 }
 
 async function MonitorTableIsland() {
