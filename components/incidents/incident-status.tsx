@@ -32,3 +32,18 @@ export function IncidentStatus({
     </span>
   )
 }
+
+export function IncidentExclusionBadge({
+  status,
+}: {
+  status?: "full" | "partial" | null
+}) {
+  if (!status) {
+    return null
+  }
+  return (
+    <span className="inline-flex rounded-full bg-[var(--chip-bg)] px-2 py-0.5 font-medium text-[var(--fg-muted)] text-xs leading-4">
+      {status === "full" ? "False alarm" : "Partially excluded"}
+    </span>
+  )
+}

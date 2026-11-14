@@ -3,11 +3,11 @@
 import { ArrowLeft, ExternalLink } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
-
 import type { LatencyPoint } from "@/components/charts/latency-chart"
 import { LazyLatencyChart } from "@/components/charts/lazy-latency-chart"
 import { useTimezone } from "@/components/dashboard/timezone-provider"
 import { DependencyOverlapCard } from "@/components/dependencies/dependency-overlap-card"
+import { IncidentExclusionBadge } from "@/components/incidents/incident-status"
 import type { DependencyIncidentOverlap } from "@/components/incidents/types"
 import {
   ExpiryHeaderChip,
@@ -102,6 +102,7 @@ export interface MonitorDetailData {
       uptime: number | null
       completed: number
       expected: number
+      excluded?: number
     }
     setupError: string | null
     lastCheckedAt: string | null
@@ -118,6 +119,7 @@ export interface MonitorDetailData {
     resolvedAt: string | null
     durationSeconds: number
     openingFailure: string
+    exclusionStatus?: "full" | "partial" | null
     overlaps: DependencyIncidentOverlap[]
   } | null
   recentIncidents: Array<{
@@ -125,11 +127,13 @@ export interface MonitorDetailData {
     openedAt: string
     durationSeconds: number
     openingFailure: string
+    exclusionStatus?: "full" | "partial" | null
   }>
   recentChecks: Array<{
     id: string
     checkedAt: string
     successful: boolean
+    excluded?: boolean
     statusCode: number | null
     resultLabel: string
     latencyMs: number | null
@@ -509,6 +513,9 @@ function ObservedUptimeStat({
         </p>
         <p className="mt-1 font-data text-[var(--fg-muted)] text-xs">
           {firstRun.observed.completed} of {firstRun.observed.expected} checks
+          {firstRun.observed.excluded
+            ? ` · ${firstRun.observed.excluded} excluded`
+            : ""}
         </p>
       </CardContent>
     </Card>
@@ -611,7 +618,9 @@ export function MonitorDetail({
   // incident degrades it to amber instead.
   const currentlyDown =
     monitor.state === "DOWN" || monitor.latestIncident?.state === "ONGOING"
-  const recentlyDegraded = monitor.latestIncident?.state === "RESOLVED"
+  const recentlyDegraded =
+    monitor.latestIncident?.state === "RESOLVED" &&
+    monitor.latestIncident.exclusionStatus !== "full"
   const toneFor = (range: AvailabilityRange): UptimeTone =>
     uptimeTone({
       unlocked: monitor.rangeUnlocked[range],
@@ -760,6 +769,9 @@ export function MonitorDetail({
                 title={monitor.latestIncident.openingFailure}
               >
                 {monitor.latestIncident.openingFailure}
+                <IncidentExclusionBadge
+                  status={monitor.latestIncident.exclusionStatus}
+                />
               </span>
             </span>
             <span className="shrink-0 font-data text-[var(--fg-muted)]">
@@ -789,6 +801,17 @@ export function MonitorDetail({
                 <span className="ml-2 text-[var(--fg-muted)]">
                   Coverage {formatCoverage(monitor.coverage[availabilityRange])}
                 </span>
+                {availability.buckets.some(
+                  (bucket) => (bucket.excludedChecks ?? 0) > 0
+                ) ? (
+                  <span className="ml-2 text-[var(--fg-muted)]">
+                    {availability.buckets.reduce(
+                      (sum, bucket) => sum + (bucket.excludedChecks ?? 0),
+                      0
+                    )}{" "}
+                    checks excluded
+                  </span>
+                ) : null}
               </p>
             ) : (
               <p className="mt-1 text-[13px] text-[var(--fg-muted)]">
@@ -899,6 +922,9 @@ export function MonitorDetail({
                           title={incident.openingFailure}
                         >
                           {incident.openingFailure}
+                          <IncidentExclusionBadge
+                            status={incident.exclusionStatus}
+                          />
                         </td>
                       </tr>
                     ))}
@@ -931,7 +957,7 @@ export function MonitorDetail({
                       <tr
                         className={cn(
                           "h-12 border-[var(--border)] border-b last:border-0",
-                          !check.successful &&
+                          !(check.successful || check.excluded) &&
                             "bg-[color-mix(in_srgb,var(--down-bg)_40%,transparent)]"
                         )}
                         key={check.id}
@@ -946,7 +972,8 @@ export function MonitorDetail({
                         <td
                           className={cn(
                             "px-4 font-data",
-                            !check.successful && "text-[var(--down-text)]"
+                            !(check.successful || check.excluded) &&
+                              "text-[var(--down-text)]"
                           )}
                         >
                           <span className="inline-flex items-center gap-2 whitespace-nowrap">
@@ -954,9 +981,11 @@ export function MonitorDetail({
                               aria-hidden
                               className={cn(
                                 "size-1.5 rounded-full",
-                                check.successful
-                                  ? "bg-[var(--up)]"
-                                  : "bg-[var(--down)]"
+                                check.excluded
+                                  ? "bg-[var(--neutral-state)]"
+                                  : check.successful
+                                    ? "bg-[var(--up)]"
+                                    : "bg-[var(--down)]"
                               )}
                             />
                             {check.resultLabel}

@@ -434,6 +434,74 @@ export const incidents = pgTable(
   ]
 )
 
+export const incidentExclusions = pgTable(
+  "incident_exclusions",
+  {
+    id: uuid("id").primaryKey(),
+    incidentId: uuid("incident_id")
+      .notNull()
+      .references(() => incidents.id),
+    monitorId: text("monitor_id")
+      .notNull()
+      .references(() => monitorRegistry.id),
+    startAt: timestamptz("start_at").notNull(),
+    endAt: timestamptz("end_at").notNull(),
+    reason: text("reason").notNull(),
+    createdByPrincipal: text("created_by_principal").notNull(),
+    createdAt: timestamptz("created_at").notNull(),
+    revertedAt: timestamptz("reverted_at"),
+    revertedByPrincipal: text("reverted_by_principal"),
+  },
+  (table) => [
+    uniqueIndex("incident_exclusions_active_incident")
+      .on(table.incidentId)
+      .where(sql`${table.revertedAt} is null`),
+    index("incident_exclusions_monitor_range").on(
+      table.monitorId,
+      table.startAt,
+      table.endAt
+    ),
+    check(
+      "incident_exclusions_range",
+      sql`${table.startAt} < ${table.endAt} and isfinite(${table.startAt}) and isfinite(${table.endAt}) and date_trunc('minute', ${table.startAt}) = ${table.startAt} and date_trunc('minute', ${table.endAt}) = ${table.endAt}`
+    ),
+    check(
+      "incident_exclusions_reason",
+      sql`length(btrim(${table.reason})) between 1 and 1000`
+    ),
+    check(
+      "incident_exclusions_revert",
+      sql`(${table.revertedAt} is null) = (${table.revertedByPrincipal} is null)`
+    ),
+  ]
+)
+
+export const incidentExclusionChecks = pgTable(
+  "incident_exclusion_checks",
+  {
+    exclusionId: uuid("exclusion_id")
+      .notNull()
+      .references(() => incidentExclusions.id),
+    scheduledMinute: timestamptz("scheduled_minute").notNull(),
+    monitorId: text("monitor_id")
+      .notNull()
+      .references(() => monitorRegistry.id),
+    failed: boolean("failed").notNull(),
+    downtimeSeconds: integer("downtime_seconds").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.exclusionId, table.scheduledMinute] }),
+    index("incident_exclusion_checks_monitor_minute").on(
+      table.monitorId,
+      table.scheduledMinute
+    ),
+    check(
+      "incident_exclusion_checks_downtime",
+      sql`${table.downtimeSeconds} in (0, 60)`
+    ),
+  ]
+)
+
 export const notificationOutbox = pgTable(
   "notification_outbox",
   {

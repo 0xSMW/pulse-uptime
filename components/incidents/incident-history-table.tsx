@@ -5,7 +5,10 @@ import { useRouter } from "next/navigation"
 import { useEffect, useRef } from "react"
 
 import { formatIncidentDuration } from "@/components/incidents/incident-format"
-import { IncidentStatus } from "@/components/incidents/incident-status"
+import {
+  IncidentExclusionBadge,
+  IncidentStatus,
+} from "@/components/incidents/incident-status"
 import { IncidentTime } from "@/components/incidents/incident-time"
 import { NotificationSummary } from "@/components/incidents/notification-summary"
 import type { IncidentSummary } from "@/components/incidents/types"
@@ -114,7 +117,10 @@ export function IncidentHistoryTable({
                   </Link>
                 </td>
                 <td className="px-4">
-                  <IncidentStatus ongoing={!incident.resolvedAt} />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <IncidentStatus ongoing={!incident.resolvedAt} />
+                    <IncidentExclusionBadge status={incident.exclusionStatus} />
+                  </div>
                 </td>
                 <td className="whitespace-nowrap px-4 font-data">
                   <IncidentTime value={incident.openedAt} />

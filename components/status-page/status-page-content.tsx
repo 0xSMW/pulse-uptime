@@ -73,6 +73,7 @@ export interface PublicStatusData {
       name: string
       state: VisibleMonitorState
       uptime: number | null
+      excludedChecks?: number
       timeline: TimelineBucket[]
     }>
   }>
@@ -82,6 +83,7 @@ export interface PublicStatusData {
     openedAt: string
     resolvedAt: string
     durationSeconds: number
+    monitoringError?: boolean
   }>
 }
 
@@ -507,6 +509,11 @@ function StatusCard({
                       monitor.uptime,
                       data.config.uptimeDecimals
                     )}
+                    {monitor.excludedChecks ? (
+                      <span className="block text-[var(--fg-muted)] text-xs">
+                        {monitor.excludedChecks} excluded
+                      </span>
+                    ) : null}
                   </span>
                 </div>
               )
@@ -735,7 +742,13 @@ export function StatusPageContent({
                     <span className="truncate">
                       {entry.incident.monitorName}
                     </span>
-                    <span className="sr-only">Resolved</span>
+                    {entry.incident.monitoringError ? (
+                      <span className="text-[var(--fg-muted)] text-xs">
+                        Monitoring error
+                      </span>
+                    ) : (
+                      <span className="sr-only">Resolved</span>
+                    )}
                   </span>
                   <time
                     className="font-data text-[var(--fg-muted)]"

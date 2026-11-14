@@ -14,6 +14,20 @@ Check these signals together:
 
 Never infer service health from a successful Vercel deployment alone.
 
+## Correct a false alarm
+
+Open an incident from its alert email or the incident history, then choose **Mark false alarm**. Administrators can review the fixed interval, narrow it when only part of the incident was a monitoring error, and preview the affected failed checks and 24-hour uptime. Enter a reason and choose **Exclude from downtime**.
+
+The correction excludes selected failed checks from the uptime denominator and removes the selected incident's recorded downtime contribution. Successful checks still count. Execution coverage stays unchanged. The dashboard, monitor detail, and public status page use the same correction. Excluded timeline segments remain neutral, and uptime displays the excluded check count. If every completed check in a range is excluded, uptime is unavailable rather than a fabricated 100%.
+
+The original checks, incident timestamps, notification history, and live monitor state remain intact. A resolved incident with its full interval excluded is labeled **False alarm**. A narrower correction is labeled **Partially excluded**. Public history identifies a monitoring error without disclosing the private reason or actor. Existing emails and published reports are not rewritten.
+
+For an ongoing incident, the proposed interval stops at a completed check. Later failures continue to count and monitoring continues normally. Only one active correction is allowed per incident, and corrections cannot overlap for the same monitor. To change a correction, undo it and apply a new range.
+
+Use **Undo exclusion** on the incident to restore its contribution. Both the original reason and the undo remain in the audit history. Corrections retain their check evidence independently of telemetry retention, so an existing correction can still be undone after raw checks have expired. Creating a new correction requires complete retained check evidence for the selected interval. If that evidence is unavailable, Pulse refuses to guess.
+
+The API exposes preview, apply, and undo under `/api/v1/incidents/{incidentId}/exclusions`. All three require `monitors:write`. Apply and undo require a UUID `Idempotency-Key`. Preview returns fixed, minute-aligned bounds and a version token. Apply sends those bounds, the token, and the required reason. If the evidence changed, refresh the preview before applying. Browser mutations also require a same-origin request.
+
 ## Monitoring cron
 
 `/api/cron/check-monitors` runs each minute. It acquires the `monitor-check` lease, resolves an accepted configuration, reconciles and delivers notifications, dispatches due monitors, records transitions, and finalizes its run.

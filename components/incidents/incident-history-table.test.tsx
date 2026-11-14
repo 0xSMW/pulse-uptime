@@ -53,6 +53,19 @@ describe("IncidentHistoryTable", () => {
     expect(push).not.toHaveBeenCalledWith("/incidents/inc-1")
   })
 
+  it("shows exclusion metadata alongside observed recovery", () => {
+    render(
+      <TimezoneProvider>
+        <IncidentHistoryTable
+          incidents={[{ ...incident, exclusionStatus: "full" }]}
+        />
+      </TimezoneProvider>
+    )
+    expect(screen.getByText("False alarm")).toBeTruthy()
+    expect(screen.getByText("Resolved", { selector: "span" })).toBeTruthy()
+    expect(screen.getByText("HTTP 503")).toBeTruthy()
+  })
+
   it("does not render a Status column (finding: it duplicated the HTTP code already shown by Opening Failure)", () => {
     renderTable()
     const headers = screen

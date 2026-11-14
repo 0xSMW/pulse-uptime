@@ -225,6 +225,13 @@
       "when": 1786590674047,
       "tag": "0031_credential_epoch",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1794638592658,
+      "tag": "0032_organic_strong_guy",
+      "breakpoints": true
     }
   ]
 }

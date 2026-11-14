@@ -275,6 +275,17 @@ export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
                 </td>
                 <td className="px-4 text-right font-data">
                   {uptime24hLabel(monitor, new Date())}
+                  {monitor.timeline.some(
+                    (bucket) => (bucket.excludedChecks ?? 0) > 0
+                  ) ? (
+                    <span className="block text-[var(--fg-muted)] text-xs">
+                      {monitor.timeline.reduce(
+                        (sum, bucket) => sum + (bucket.excludedChecks ?? 0),
+                        0
+                      )}{" "}
+                      excluded
+                    </span>
+                  ) : null}
                 </td>
                 <td className="w-[280px] min-w-[220px] px-4">
                   <TimelineBar

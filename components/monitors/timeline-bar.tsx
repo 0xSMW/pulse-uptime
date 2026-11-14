@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils"
 export type { TimelineBucket }
 
 const bucketClass: Record<TimelineBucket["state"], string> = {
+  excluded: "bg-[var(--neutral-state)]",
   up: "bg-[var(--up)]",
   down: "bg-[var(--down)]",
   verifying: "bg-[var(--verifying)]",
@@ -19,6 +20,7 @@ const bucketClass: Record<TimelineBucket["state"], string> = {
 }
 
 const stateLabel: Record<TimelineBucket["state"], string> = {
+  excluded: "Excluded",
   up: "Operational",
   down: "Down",
   verifying: "Partial",
@@ -48,7 +50,11 @@ function bucketRangeText(bucket: TimelineBucket, timeZone: string): string {
 
 function bucketCountsText(bucket: TimelineBucket): string {
   const checks = `${bucket.checks} ${bucket.checks === 1 ? "check" : "checks"}`
-  return bucket.failures > 0 ? `${checks}, ${bucket.failures} failed` : checks
+  const failures = bucket.failures > 0 ? `, ${bucket.failures} failed` : ""
+  const excluded = bucket.excludedChecks
+    ? `, ${bucket.excludedChecks} excluded`
+    : ""
+  return `${checks}${failures}${excluded}`
 }
 
 export function TimelineBar({
@@ -68,8 +74,9 @@ export function TimelineBar({
     (result, bucket) => ({
       checks: result.checks + bucket.checks,
       failures: result.failures + bucket.failures,
+      excluded: result.excluded + (bucket.excludedChecks ?? 0),
     }),
-    { checks: 0, failures: 0 }
+    { checks: 0, failures: 0, excluded: 0 }
   )
 
   // A single controlled tooltip serves the whole bar: hovering a cell anchors
@@ -91,7 +98,7 @@ export function TimelineBar({
       open={active !== null}
     >
       <div
-        aria-label={`${label}: ${summary.checks} checks, ${summary.failures} failed`}
+        aria-label={`${label}: ${summary.checks} checks, ${summary.failures} failed${summary.excluded > 0 ? `, ${summary.excluded} excluded` : ""}`}
         className={cn("flex w-full gap-0.5", className)}
         // Clearing on leave scopes the tooltip to the bar container, so it
         // never lingers once the pointer leaves the bar.

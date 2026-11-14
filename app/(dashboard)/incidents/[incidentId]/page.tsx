@@ -4,12 +4,19 @@ import { notFound } from "next/navigation"
 
 import { DependencyOverlapCard } from "@/components/dependencies/dependency-overlap-card"
 import { IncidentEventTrail } from "@/components/incidents/incident-event-trail"
+import { IncidentExclusions } from "@/components/incidents/incident-exclusions"
 import { formatIncidentDuration } from "@/components/incidents/incident-format"
-import { IncidentStatus } from "@/components/incidents/incident-status"
+import {
+  IncidentExclusionBadge,
+  IncidentStatus,
+} from "@/components/incidents/incident-status"
 import { IncidentTime } from "@/components/incidents/incident-time"
 import { NotificationSummary } from "@/components/incidents/notification-summary"
 import type { IncidentDetail } from "@/components/incidents/types"
 import { WriteReportButton } from "@/components/incidents/write-report-button"
+import { hasScope, roleScopes } from "@/lib/api/scopes"
+import { authenticateCurrentSession } from "@/lib/auth/session"
+import { listIncidentExclusions } from "@/lib/incidents/exclusions"
 import { findIncidentDetail } from "@/lib/reporting/queries/incidents"
 
 export default async function IncidentDetailPage({
@@ -22,6 +29,13 @@ export default async function IncidentDetailPage({
   if (!incident) {
     notFound()
   }
+
+  const session = await authenticateCurrentSession()
+  const canManageMonitors = hasScope(
+    { scopes: roleScopes(session?.role ?? "viewer") },
+    "monitors:write"
+  )
+  const exclusions = await listIncidentExclusions(incident.id)
 
   const stats = [
     { label: "Started", value: <IncidentTime value={incident.openedAt} /> },
@@ -57,6 +71,7 @@ export default async function IncidentDetailPage({
           {incident.monitorName}
         </h1>
         <IncidentStatus ongoing={!incident.resolvedAt} />
+        <IncidentExclusionBadge status={incident.exclusionStatus} />
         <span className="ml-auto">
           <WriteReportButton incidentId={incident.id} />
         </span>
@@ -101,6 +116,14 @@ export default async function IncidentDetailPage({
         </div>
       ) : null}
 
+      <IncidentExclusions
+        canManageMonitors={canManageMonitors}
+        defaultEndAt={incident.resolvedAt}
+        defaultStartAt={incident.firstFailureAt ?? incident.openedAt}
+        exclusions={exclusions}
+        incidentId={incident.id}
+        monitorId={incident.monitorId}
+      />
       <IncidentEventTrail events={incident.events} />
     </>
   )
