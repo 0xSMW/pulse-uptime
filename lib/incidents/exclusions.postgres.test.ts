@@ -8,11 +8,13 @@ vi.mock("server-only", () => ({}))
 import { executeIdempotent } from "@/lib/api/idempotency"
 import { sql as sharedClient } from "@/lib/db/client"
 import * as schema from "@/lib/db/schema"
+import { exclusionVersion } from "@/lib/reporting/queries/exclusions"
 import { encodeTelemetry } from "@/lib/storage/codec"
 import {
   applyIncidentExclusion,
   listIncidentExclusions,
   loadExclusionSlots,
+  loadExclusionVersion,
   loadIncidentExclusionStatuses,
   previewIncidentExclusion,
   undoIncidentExclusion,
@@ -146,6 +148,14 @@ suite("incident exclusion PostgreSQL invariants", () => {
     expect(slots.map((slot) => slot.downtimeSeconds)).toEqual([60, 60, 60, 60])
     expect(slots.at(-1)?.failed).toBe(false)
     expect(
+      await loadExclusionVersion(
+        f.monitorId,
+        f.start,
+        new Date(f.start.getTime() + 4 * 60_000),
+        database
+      )
+    ).toBe(exclusionVersion(slots))
+    expect(
       (await loadIncidentExclusionStatuses([f.incidentId], database)).get(
         f.incidentId
       )
@@ -159,6 +169,14 @@ suite("incident exclusion PostgreSQL invariants", () => {
     const reverted = await database.transaction((tx) =>
       undoIncidentExclusion(f.incidentId, row.id, "api_token:undoer", tx)
     )
+    expect(
+      await loadExclusionVersion(
+        f.monitorId,
+        f.start,
+        new Date(f.start.getTime() + 4 * 60_000),
+        database
+      )
+    ).toBe(exclusionVersion([]))
     expect(reverted.createdByPrincipal).toBe("human:fixture")
     expect(reverted.revertedByPrincipal).toBe("api_token:undoer")
     expect(

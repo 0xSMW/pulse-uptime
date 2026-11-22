@@ -5,9 +5,12 @@ const exclusionRows = vi.hoisted(() => ({
     failed: boolean
     downtimeSeconds: number
   }>,
+  loadSlots: vi.fn(),
+  loadVersion: vi.fn(),
 }))
 vi.mock("@/lib/incidents/exclusions", () => ({
-  loadExclusionSlots: async () => exclusionRows.slots,
+  loadExclusionSlots: exclusionRows.loadSlots,
+  loadExclusionVersion: exclusionRows.loadVersion,
   loadIncidentExclusionStatuses: async () => new Map(),
 }))
 
@@ -25,6 +28,7 @@ vi.mock("@/lib/domain-health/queries", () => ({
   domainHealthByMonitorId: domainHealthByMonitorIdMock,
 }))
 
+import { exclusionVersion } from "./exclusions"
 import {
   findMonitorDetail,
   findMonitorLive,
@@ -141,6 +145,22 @@ function mockUnsafeBySql(
 
 beforeEach(() => {
   exclusionRows.slots = []
+  exclusionRows.loadSlots
+    .mockReset()
+    .mockImplementation(async (_ids: string[], start: Date, end: Date) =>
+      exclusionRows.slots.filter(
+        (slot) => slot.scheduledMinute >= start && slot.scheduledMinute < end
+      )
+    )
+  exclusionRows.loadVersion
+    .mockReset()
+    .mockImplementation(async (_id: string, start: Date, end: Date) =>
+      exclusionVersion(
+        exclusionRows.slots.filter(
+          (slot) => slot.scheduledMinute >= start && slot.scheduledMinute < end
+        )
+      )
+    )
   vi.useFakeTimers()
   vi.setSystemTime(NOW)
   dbMock.select.mockReset()
@@ -523,6 +543,41 @@ describe("selectRecentRollupWindow", () => {
 })
 
 describe("live exclusion reporting", () => {
+  it("loads only live minutes while tracking exclusions across the 90-day detail window", async () => {
+    const oldSlot = {
+      monitorId: "site-home",
+      scheduledMinute: new Date("2026-06-19T08:01:00Z"),
+      failed: true,
+      downtimeSeconds: 60,
+    }
+    exclusionRows.slots = [oldSlot]
+    const queueSnapshot = () => {
+      dbMock.select
+        .mockReturnValueOnce(selectChain([identity({})]))
+        .mockReturnValueOnce(selectChain([POST_ACTIVATION_ROLLUP]))
+        .mockReturnValueOnce(selectChain([]))
+        .mockReturnValueOnce(selectChain([{ acceptedAt: null }]))
+    }
+    mockUnsafeBySql()
+    queueSnapshot()
+    const active = await findMonitorLive("site-home")
+    expect(exclusionRows.loadSlots).toHaveBeenCalledWith(
+      ["site-home"],
+      new Date("2026-07-12T12:00:00Z"),
+      NOW
+    )
+    expect(exclusionRows.loadVersion).toHaveBeenCalledWith(
+      "site-home",
+      new Date("2026-04-20T00:00:00Z"),
+      NOW
+    )
+    expect(active?.rollupVersion).toContain(exclusionVersion([oldSlot]))
+    exclusionRows.slots = []
+    queueSnapshot()
+    const restored = await findMonitorLive("site-home")
+    expect(restored?.rollupVersion).not.toBe(active?.rollupVersion)
+  })
+
   it("adjusts live uptime, preserves coverage and failed evidence, and refreshes the same bucket after undo", async () => {
     const at = new Date("2026-07-19T08:01:00Z")
     exclusionRows.slots = [
