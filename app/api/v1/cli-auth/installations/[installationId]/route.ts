@@ -4,6 +4,7 @@ import {
 } from "@/lib/api/device-authorization"
 import { apiError, apiJson, objectEnvelope } from "@/lib/api/envelopes"
 import { executeIdempotent } from "@/lib/api/idempotency"
+import { hasLiveScope } from "@/lib/api/live-authority"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
 import { routeError } from "@/lib/api/route"
 import { isUuid } from "@/lib/ids/uuid"
@@ -42,17 +43,31 @@ export async function DELETE(
       routeKey: "cli-installation-admin-revoke",
       body: { installationId },
       mode: "atomic",
-      work: async (tx) => ({
-        status: 200,
-        body: {
-          revocation: await revokeCliInstallationById(
-            installationId,
-            new Date(),
-            tx
-          ),
-        },
-      }),
+      work: async (tx) => {
+        if (!(await hasLiveScope(tx, context.principal, "tokens:manage"))) {
+          return { status: 403, body: { revocation: null } }
+        }
+        return {
+          status: 200,
+          body: {
+            revocation: await revokeCliInstallationById(
+              installationId,
+              new Date(),
+              tx
+            ),
+          },
+        }
+      },
     })
+    if (result.status === 403) {
+      return apiError(
+        context.requestId,
+        403,
+        "SCOPE_DENIED",
+        "The credential is no longer authorized",
+        { scope: "tokens:manage" }
+      )
+    }
     if (!result.body.revocation) {
       return apiError(
         context.requestId,

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("server-only", () => ({}))
 vi.mock("@/lib/db/client", () => ({ db: {} }))
+vi.mock("@/lib/api/live-authority", () => ({ hasLiveScope: vi.fn() }))
 vi.mock("@/lib/api/middleware", () => ({
   authorize: vi.fn(),
   isApiResponse: (value: unknown) => value instanceof Response,
@@ -43,6 +44,7 @@ vi.mock("@/lib/dependencies/service", async (importOriginal) => ({
 }))
 
 import { apiError } from "@/lib/api/envelopes"
+import { hasLiveScope } from "@/lib/api/live-authority"
 import { type ApiContext, authorize } from "@/lib/api/middleware"
 import {
   DependencyApiError,
@@ -75,6 +77,7 @@ const dependency = {
 const params = { params: Promise.resolve({ dependencyId: "dep-1" }) }
 
 beforeEach(() => {
+  vi.mocked(hasLiveScope).mockReset().mockResolvedValue(true)
   vi.mocked(authorize).mockReset().mockResolvedValue(context)
   vi.mocked(requireDependencyDetail)
     .mockReset()
@@ -138,6 +141,17 @@ describe("PATCH /api/v1/dependencies/{dependencyId}", () => {
     })
   }
 
+  it("does not patch after live write authority is revoked", async () => {
+    vi.mocked(hasLiveScope).mockResolvedValue(false)
+    const response = await PATCH(
+      patchRequest({ notificationsEnabled: false }),
+      params
+    )
+    expect(response.status).toBe(403)
+    expect((await response.json()).error.code).toBe("SCOPE_DENIED")
+    expect(patchDependency).not.toHaveBeenCalled()
+  })
+
   it("requires the dependencies:write scope and changes only notificationsEnabled", async () => {
     const response = await PATCH(
       patchRequest({ notificationsEnabled: false }),
@@ -189,6 +203,14 @@ describe("DELETE /api/v1/dependencies/{dependencyId}", () => {
       headers: { "Idempotency-Key": crypto.randomUUID() },
     })
   }
+
+  it("does not remove after live write authority is revoked", async () => {
+    vi.mocked(hasLiveScope).mockResolvedValue(false)
+    const response = await DELETE(deleteRequest(), params)
+    expect(response.status).toBe(403)
+    expect((await response.json()).error.code).toBe("SCOPE_DENIED")
+    expect(removeDependency).not.toHaveBeenCalled()
+  })
 
   it("requires the dependencies:write scope and returns 204 with no body", async () => {
     const response = await DELETE(deleteRequest(), params)

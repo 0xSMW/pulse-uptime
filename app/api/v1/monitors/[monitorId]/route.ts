@@ -42,6 +42,7 @@ export async function PATCH(request: Request, { params }: Params) {
     return runAtomicMutation({
       request,
       context,
+      scope: "monitors:write",
       routeKey: `/api/v1/monitors/${monitorId}`,
       body,
       work: async (tx) => ({
@@ -70,6 +71,7 @@ export async function DELETE(request: Request, { params }: Params) {
     return runAtomicMutation({
       request,
       context,
+      scope: "monitors:write",
       routeKey: `/api/v1/monitors/${monitorId}`,
       body: {},
       work: async (tx) => ({

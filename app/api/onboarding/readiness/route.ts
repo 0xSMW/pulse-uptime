@@ -9,6 +9,10 @@ import { abortSignalForDeadline } from "@/lib/async/deadline"
 import { hasAdministrator } from "@/lib/auth/service"
 import { authenticateCurrentSession } from "@/lib/auth/session"
 import {
+  BOOTSTRAP_TOKEN_HEADER,
+  verifyBootstrapToken,
+} from "@/lib/onboarding/bootstrap"
+import {
   getOnboardingReadiness,
   ONBOARDING_READINESS_TIMEOUT_MS,
 } from "@/lib/onboarding/readiness"
@@ -37,23 +41,27 @@ export async function GET(request: Request) {
     return response
   }
 
-  // The readiness probe performs privileged provider writes (Edge Config, email). Once
-  // the installation is claimed, only the authenticated administrator finishing
-  // onboarding may drive it — anonymous callers are switched off, which removes the
-  // unauthenticated post-bootstrap side-effect path while keeping the onboarding flow
-  // (which can navigate back to this step after the account is created) working.
-  if (await hasAdministrator()) {
-    const session = await authenticateCurrentSession()
-    if (!session) {
+  // Provider probes can write to Edge Config and send an email. Before the
+  // installation is claimed, only an operator with the out-of-band setup token
+  // may start them. An existing admin session can revisit this step without it.
+  const session = await authenticateCurrentSession()
+  if (session && session.role !== "admin") {
+    return NextResponse.json(
+      { error: "Administrator access required" },
+      { status: 403, headers: { "Cache-Control": "no-store" } }
+    )
+  }
+  if (!session) {
+    if (!verifyBootstrapToken(request.headers.get(BOOTSTRAP_TOKEN_HEADER))) {
+      return NextResponse.json(
+        { error: "A valid setup token is required" },
+        { status: 403, headers: { "Cache-Control": "no-store" } }
+      )
+    }
+    if (await hasAdministrator()) {
       return NextResponse.json(
         { error: "Onboarding is already complete" },
         { status: 410, headers: { "Cache-Control": "no-store" } }
-      )
-    }
-    if (session.role !== "admin") {
-      return NextResponse.json(
-        { error: "Administrator access required" },
-        { status: 403, headers: { "Cache-Control": "no-store" } }
       )
     }
   }

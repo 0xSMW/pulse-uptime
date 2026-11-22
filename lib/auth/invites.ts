@@ -1,18 +1,16 @@
 import "server-only"
 
-import {
-  and,
-  desc,
-  sql as drizzleSql,
-  eq,
-  gt,
-  inArray,
-  isNull,
-  max,
-} from "drizzle-orm"
+import { and, desc, sql as drizzleSql, eq, gt, isNull, max } from "drizzle-orm"
 import { trackEvent } from "@/lib/analytics-server"
+import { revokeUserMachineCredentials } from "@/lib/api/credential-revocation"
 import { lockMachineCredentialChanges } from "@/lib/api/machine-credential-lock"
-import { isUserRole, type UserRole } from "@/lib/api/scopes"
+import type { Principal } from "@/lib/api/principal"
+import {
+  isUserRole,
+  normalizeScopes,
+  resolveScopeProfile,
+  type UserRole,
+} from "@/lib/api/scopes"
 import {
   createBearerToken,
   digestBearerToken,
@@ -47,6 +45,7 @@ export class TeamServiceError extends Error {
       | "EMAIL_IN_USE"
       | "LAST_ADMIN"
       | "SELF_FORBIDDEN"
+      | "ACTOR_DENIED"
       | "USER_NOT_FOUND",
     message: string,
     options?: { cause?: unknown }
@@ -143,11 +142,22 @@ export async function createUserInvite(
   input: {
     role: UserRole
     createdByPrincipal: string
+    actor: Principal
     credential?: ReturnType<typeof createBearerToken>
   },
-  now = new Date(),
-  handle: DatabaseHandle = db
+  now: Date,
+  handle: DatabaseHandle
 ): Promise<CreatedInvite> {
+  if (!("rollback" in handle)) {
+    throw new Error("Invite creation requires a transaction")
+  }
+  await requireCurrentUserManager(handle, input.actor, now)
+  if (input.createdByPrincipal !== `${input.actor.type}:${input.actor.id}`) {
+    throw new TeamServiceError(
+      "ACTOR_DENIED",
+      "Administrator access is no longer active"
+    )
+  }
   const credential = input.credential ?? createBearerToken(INVITE_TOKEN_PREFIX)
   if (input.credential) {
     // Idempotent replay inside one atomic operation: a derived credential that
@@ -175,6 +185,8 @@ export async function createUserInvite(
     tokenDigest: credential.digest,
     role: input.role,
     createdByPrincipal: input.createdByPrincipal,
+    issuedByHumanSessionId:
+      input.actor.type === "human" ? input.actor.sessionId : null,
     createdAt: now,
     expiresAt: new Date(now.getTime() + INVITE_LIFETIME_MS),
   }
@@ -187,6 +199,37 @@ export async function createUserInvite(
     createdAt: invite.createdAt,
     expiresAt: invite.expiresAt,
   }
+}
+
+/** Revalidate the creator and pending link before reconstructing a replay secret. */
+export async function requireReplayableUserInvite(
+  inviteId: string,
+  tokenDigest: Buffer,
+  actor: Principal,
+  now = new Date(),
+  handle: DatabaseHandle = db
+): Promise<void> {
+  await handle.transaction(async (tx) => {
+    await requireCurrentUserManager(tx, actor, now)
+    const [invite] = await tx
+      .select({ id: userInvites.id })
+      .from(userInvites)
+      .where(
+        and(
+          eq(userInvites.id, inviteId),
+          eq(userInvites.tokenDigest, tokenDigest),
+          eq(userInvites.createdByPrincipal, `${actor.type}:${actor.id}`),
+          isNull(userInvites.acceptedAt),
+          isNull(userInvites.revokedAt),
+          gt(userInvites.expiresAt, now)
+        )
+      )
+      .for("update")
+      .limit(1)
+    if (!invite) {
+      throw new TeamServiceError("INVITE_INVALID", "Invite is no longer active")
+    }
+  })
 }
 
 export async function revokeUserInvite(
@@ -421,17 +464,103 @@ export interface RoleChangeResult {
  */
 const TEAM_LOCK_SQL = drizzleSql`select pg_advisory_xact_lock(hashtext('pulse:team-roles'))`
 
+/** Serialize team writes with demotion, session revocation, and credential revocation. */
+async function requireCurrentUserManager(
+  tx: TeamTransaction,
+  actor: Principal,
+  now: Date
+): Promise<string> {
+  await tx.execute(TEAM_LOCK_SQL)
+  await lockMachineCredentialChanges(tx)
+
+  if (actor.type === "human") {
+    const [current] = await tx
+      .select({ userId: adminUsers.id })
+      .from(humanSessions)
+      .innerJoin(adminUsers, eq(adminUsers.id, humanSessions.userId))
+      .where(
+        and(
+          eq(humanSessions.id, actor.sessionId),
+          eq(humanSessions.userId, actor.id),
+          isNull(humanSessions.revokedAt),
+          gt(humanSessions.expiresAt, now),
+          eq(adminUsers.role, "admin")
+        )
+      )
+      .for("update")
+      .limit(1)
+    if (current) {
+      return current.userId
+    }
+  } else if (actor.type === "api_token") {
+    const [current] = await tx
+      .select({ userId: adminUsers.id, scopes: apiTokens.scopes })
+      .from(apiTokens)
+      .innerJoin(adminUsers, eq(adminUsers.id, apiTokens.credentialOwnerUserId))
+      .where(
+        and(
+          eq(apiTokens.id, actor.id),
+          isNull(apiTokens.revokedAt),
+          gt(apiTokens.expiresAt, now),
+          eq(apiTokens.credentialEpoch, adminUsers.credentialEpoch),
+          eq(adminUsers.role, "admin")
+        )
+      )
+      .for("update")
+      .limit(1)
+    if (current?.scopes.includes("users:manage")) {
+      return current.userId
+    }
+  } else {
+    const [current] = await tx
+      .select({
+        userId: adminUsers.id,
+        scopes: cliSessions.scopes,
+        scopeProfile: cliSessions.scopeProfile,
+      })
+      .from(cliSessions)
+      .innerJoin(
+        cliInstallations,
+        eq(cliInstallations.id, cliSessions.installationId)
+      )
+      .innerJoin(adminUsers, eq(adminUsers.id, cliInstallations.userId))
+      .where(
+        and(
+          eq(cliSessions.id, actor.id),
+          isNull(cliSessions.revokedAt),
+          gt(cliSessions.expiresAt, now),
+          isNull(cliInstallations.revokedAt),
+          eq(cliInstallations.credentialEpoch, adminUsers.credentialEpoch),
+          eq(adminUsers.role, "admin")
+        )
+      )
+      .for("update")
+      .limit(1)
+    const scopes = current
+      ? (resolveScopeProfile(current.scopeProfile) ??
+        normalizeScopes(current.scopes))
+      : []
+    if (current && scopes.includes("users:manage")) {
+      return current.userId
+    }
+  }
+  throw new TeamServiceError(
+    "ACTOR_DENIED",
+    "Administrator access is no longer active"
+  )
+}
+
 export async function changeUserRole(
-  input: { userId: string; role: unknown },
-  now = new Date()
+  input: { userId: string; role: unknown; actor: Principal },
+  now = new Date(),
+  handle: DatabaseHandle = db
 ): Promise<RoleChangeResult> {
   if (typeof input.role !== "string" || !isUserRole(input.role)) {
     throw new TeamServiceError("INVALID_INPUT", "Role must be admin or viewer")
   }
   const role = input.role
-  return db.transaction(async (tx) => {
-    await tx.execute(TEAM_LOCK_SQL)
-    await lockMachineCredentialChanges(tx)
+  return handle.transaction(async (tx) => {
+    await requireCurrentUserManager(tx, input.actor, now)
     const [target] = await tx
       .select({
         id: adminUsers.id,
@@ -472,7 +601,7 @@ export async function changeUserRole(
 }
 
 export async function removeUser(
-  input: { userId: string; actorUserId: string },
+  input: { userId: string; actorUserId: string; actor: Principal },
   now = new Date()
 ): Promise<{ id: string; email: string }> {
   if (input.userId === input.actorUserId) {
@@ -482,8 +611,20 @@ export async function removeUser(
     )
   }
   return db.transaction(async (tx) => {
-    await tx.execute(TEAM_LOCK_SQL)
-    await lockMachineCredentialChanges(tx)
+    const currentActorUserId = await requireCurrentUserManager(
+      tx,
+      input.actor,
+      now
+    )
+    if (
+      input.actor.type === "api_token" ||
+      currentActorUserId !== input.actorUserId
+    ) {
+      throw new TeamServiceError(
+        "ACTOR_DENIED",
+        "Administrator access is no longer active"
+      )
+    }
     const [target] = await tx
       .select({
         id: adminUsers.id,
@@ -538,10 +679,8 @@ async function assertAnotherAdminExists(
 
 /**
  * Removing a person, or narrowing them to viewer, revokes everything they
- * hold: CLI sessions and installations linked to their email, API tokens
- * created by them or by any of their CLI sessions, children those tokens
- * minted, and pending invites they created. API-token auth checks only the
- * token's own revokedAt, so every tier must be revoked here explicitly.
+ * hold: CLI sessions and installations, all descendant API tokens, and pending
+ * invites created by any of those principals.
  */
 async function revokeIssuedCredentials(
   tx: TeamTransaction,
@@ -549,77 +688,11 @@ async function revokeIssuedCredentials(
   email: string,
   now: Date
 ): Promise<{ revokedCliSessions: number; revokedApiTokens: number }> {
-  // Sessions in every revocation state participate in the token closure: a
-  // child token of an already-revoked session is still live on its own row.
-  const sessions = await tx
-    .select({ id: cliSessions.id })
-    .from(cliSessions)
-    .where(eq(cliSessions.userEmail, email))
-  const creatorKeys = [
-    `human:${userId}`,
-    ...sessions.map((session) => `cli_session:${session.id}`),
-  ]
-  const revokedSessions = await tx
-    .update(cliSessions)
-    .set({ revokedAt: now })
-    .where(and(eq(cliSessions.userEmail, email), isNull(cliSessions.revokedAt)))
-    .returning({ id: cliSessions.id })
-  const ownedTokens = await tx
-    .select({ id: apiTokens.id })
-    .from(apiTokens)
-    .where(inArray(apiTokens.createdByPrincipal, creatorKeys))
-  const directRevoked = await tx
-    .update(apiTokens)
-    .set({ revokedAt: now })
-    .where(
-      and(
-        inArray(apiTokens.createdByPrincipal, creatorKeys),
-        isNull(apiTokens.revokedAt)
-      )
-    )
-    .returning({ id: apiTokens.id })
-  // One tier of children is the closure: machine credentials cannot delegate
-  // tokens:manage, so no token minted by a token can mint further tokens.
-  const childRevoked = ownedTokens.length
-    ? await tx
-        .update(apiTokens)
-        .set({ revokedAt: now })
-        .where(
-          and(
-            inArray(
-              apiTokens.createdByPrincipal,
-              ownedTokens.map((token) => `api_token:${token.id}`)
-            ),
-            isNull(apiTokens.revokedAt)
-          )
-        )
-        .returning({ id: apiTokens.id })
-    : []
-  // A stashed invite link must not outlive its creator's authority, or a
-  // removed admin could re-register through their own pending invite.
-  await tx
-    .update(userInvites)
-    .set({ revokedAt: now })
-    .where(
-      and(
-        inArray(userInvites.createdByPrincipal, creatorKeys),
-        isNull(userInvites.acceptedAt),
-        isNull(userInvites.revokedAt)
-      )
-    )
-  await tx
-    .update(cliInstallations)
-    .set({ revokedAt: now })
-    .where(
-      and(
-        eq(cliInstallations.userEmail, email),
-        isNull(cliInstallations.revokedAt)
-      )
-    )
-  return {
-    revokedCliSessions: revokedSessions.length,
-    revokedApiTokens: directRevoked.length + childRevoked.length,
-  }
+  return revokeUserMachineCredentials(tx, {
+    userId,
+    userEmail: email,
+    now,
+  })
 }
 
 function normalizeOptionalName(

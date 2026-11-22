@@ -2,7 +2,7 @@ import "server-only"
 
 import { createHash, timingSafeEqual } from "node:crypto"
 
-const BOOTSTRAP_TOKEN_HEADER = "x-pulse-bootstrap-token"
+export const BOOTSTRAP_TOKEN_HEADER = "x-pulse-bootstrap-token"
 
 /**
  * The first-admin claim is gated on a one-time, high-entropy bootstrap credential

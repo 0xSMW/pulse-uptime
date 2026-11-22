@@ -5,6 +5,8 @@ import { and, eq, isNull, ne, or, sql } from "drizzle-orm"
 import { db } from "@/lib/db/client"
 import { imageKinds, images } from "@/lib/db/schema"
 import { isUuid } from "@/lib/ids/uuid"
+import { hasLiveScope } from "./live-authority"
+import type { Principal } from "./principal"
 
 /**
  * Postgres-backed image storage. Rows are small (32–512 KB caps) and
@@ -35,7 +37,8 @@ export class ImageServiceError extends Error {
       | "INVALID_MIME_TYPE"
       | "INVALID_IMAGE"
       | "IMAGE_TOO_LARGE"
-      | "OWNER_REQUIRED",
+      | "OWNER_REQUIRED"
+      | "SCOPE_DENIED",
     message: string
   ) {
     super(message)
@@ -145,14 +148,17 @@ export interface StoredImage {
 }
 
 export interface ImageStore {
-  insert: (input: {
-    uploadedByUserId: string | null
-    kind: ImageKind
-    mimeType: string
-    bytes: Buffer
-    byteSize: number
-    createdAt: Date
-  }) => Promise<{ id: string }>
+  insert: (
+    input: {
+      uploadedByUserId: string | null
+      kind: ImageKind
+      mimeType: string
+      bytes: Buffer
+      byteSize: number
+      createdAt: Date
+    },
+    principal: Principal
+  ) => Promise<{ id: string }>
   find: (id: string) => Promise<StoredImage | null>
   findAuthorized: (id: string, userId: string) => Promise<StoredImage | null>
 }
@@ -172,25 +178,33 @@ export async function createImage(
     mimeType: string
     bytes: Buffer
     uploadedByUserId?: string | null
+    principal: Principal
   },
   dependencies: ImageDependencies = {}
 ): Promise<{ id: string }> {
   const validated = validateImageUpload(input.kind, input.mimeType, input.bytes)
-  if (validated.kind === "avatar" && !input.uploadedByUserId) {
+  if (
+    validated.kind === "avatar" &&
+    (input.principal.type !== "human" ||
+      input.uploadedByUserId !== input.principal.id)
+  ) {
     throw new ImageServiceError(
       "OWNER_REQUIRED",
       "Avatar images require an owning user"
     )
   }
   const store = dependencies.store ?? databaseImageStore
-  return store.insert({
-    uploadedByUserId: input.uploadedByUserId ?? null,
-    kind: validated.kind,
-    mimeType: validated.mimeType,
-    bytes: input.bytes,
-    byteSize: input.bytes.length,
-    createdAt: dependencies.now?.() ?? new Date(),
-  })
+  return store.insert(
+    {
+      uploadedByUserId: input.uploadedByUserId ?? null,
+      kind: validated.kind,
+      mimeType: validated.mimeType,
+      bytes: input.bytes,
+      byteSize: input.bytes.length,
+      createdAt: dependencies.now?.() ?? new Date(),
+    },
+    input.principal
+  )
 }
 
 export async function findImage(
@@ -238,8 +252,20 @@ export function imageResponse(
 }
 
 export const databaseImageStore: ImageStore = {
-  async insert(input) {
+  async insert(input, principal) {
     return db.transaction(async (tx) => {
+      if (
+        !(await hasLiveScope(
+          tx,
+          principal,
+          input.kind === "avatar" ? "monitors:read" : "config:write"
+        ))
+      ) {
+        throw new ImageServiceError(
+          "SCOPE_DENIED",
+          "Credential no longer has access to upload this image"
+        )
+      }
       if (input.kind === "avatar" && input.uploadedByUserId) {
         // Serialize each user's uploads. A new pending avatar supersedes prior
         // unattached uploads so repeated changes cannot accumulate storage.

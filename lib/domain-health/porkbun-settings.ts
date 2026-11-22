@@ -56,7 +56,9 @@ export class DomainMonitoringError extends Error {
 
 export interface PorkbunSettingsDependencies {
   fetchAccountDomains: () => Promise<PorkbunDomainLookup>
-  loadMonitors: () => Promise<readonly DomainHealthMonitor[]>
+  loadMonitors: (
+    handle?: DatabaseHandle
+  ) => Promise<readonly DomainHealthMonitor[]>
   now: () => Date
   readIntegration: (
     handle?: DatabaseHandle
@@ -74,7 +76,8 @@ export interface PorkbunSettingsDependencies {
     options?: Parameters<typeof upsertPorkbunIntegration>[1]
   ) => Promise<PorkbunIntegrationState>
   withWebhookProvisioningLock: <T>(
-    work: (handle: DatabaseHandle) => Promise<T>
+    work: (handle: DatabaseHandle) => Promise<T>,
+    handle?: DatabaseHandle
   ) => Promise<T>
 }
 
@@ -90,18 +93,23 @@ export async function withPorkbunWebhookProvisioningLock<T>(
   work: (handle: DatabaseHandle) => Promise<T>,
   handle: DatabaseHandle = db
 ): Promise<T> {
-  return await handle.transaction(async (tx) => {
+  const runLocked = async (tx: DatabaseHandle) => {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtext(${PORKBUN_WEBHOOK_PROVISIONING_LOCK_KEY}))`
     )
     return await work(tx)
-  })
+  }
+  return "rollback" in handle
+    ? await runLocked(handle)
+    : await handle.transaction(runLocked)
 }
 
 function defaultDependencies(): PorkbunSettingsDependencies {
   return {
     fetchAccountDomains: fetchPorkbunAccountDomains,
-    loadMonitors: async () => (await requireAcceptedConfig()).config.monitors,
+    loadMonitors: async (handle) =>
+      (await requireAcceptedConfig(handle as typeof db | undefined)).config
+        .monitors,
     now: () => new Date(),
     readIntegration: readPorkbunIntegration,
     webhookClient: new PorkbunWebhookClient(),
@@ -224,14 +232,17 @@ export async function updateDomainMonitoringSettings(
 
 /** Checks only the Porkbun account portfolio and persists display-safe health. */
 export async function checkPorkbunConnection(
-  options: { dependencies?: Partial<PorkbunSettingsDependencies> } = {}
+  options: {
+    handle?: DatabaseHandle
+    dependencies?: Partial<PorkbunSettingsDependencies>
+  } = {}
 ): Promise<DomainMonitoringData> {
   const dependencies = { ...defaultDependencies(), ...options.dependencies }
   const checkedAt = dependencies.now()
-  const integration = await dependencies.readIntegration()
+  const integration = await dependencies.readIntegration(options.handle)
   const [result, monitors, webhookHealth] = await Promise.all([
     dependencies.fetchAccountDomains(),
-    dependencies.loadMonitors(),
+    dependencies.loadMonitors(options.handle),
     integration?.webhookId
       ? dependencies.webhookClient.inspectDeliveryHealth(integration.webhookId)
       : Promise.resolve(null),
@@ -261,20 +272,26 @@ export async function checkPorkbunConnection(
             webhookUrl: webhookHealth.data.endpoint.url,
           }
         : { webhookStatus: "FAILING" as const }
-  const saved = await dependencies.upsertIntegration({
+  const update = {
     coveredDomainCount,
     providerCheckedAt: checkedAt,
     providerLastErrorCode: providerErrorCode(result),
     providerLastSuccessAt:
       result.outcome === "resolved" ? checkedAt : undefined,
     ...webhookUpdate,
-  })
+  }
+  const saved = options.handle
+    ? await dependencies.upsertIntegration(update, { handle: options.handle })
+    : await dependencies.upsertIntegration(update)
   return dataFromIntegration(saved)
 }
 
 export async function managePorkbunWebhook(
   action: "enable" | "disable" | "test",
-  options: { dependencies?: Partial<PorkbunSettingsDependencies> } = {}
+  options: {
+    handle?: DatabaseHandle
+    dependencies?: Partial<PorkbunSettingsDependencies>
+  } = {}
 ): Promise<DomainMonitoringData> {
   const dependencies = { ...defaultDependencies(), ...options.dependencies }
   return await dependencies.withWebhookProvisioningLock(async (handle) => {
@@ -378,5 +395,5 @@ export async function managePorkbunWebhook(
         { handle }
       )
     )
-  })
+  }, options.handle)
 }

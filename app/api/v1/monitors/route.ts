@@ -106,6 +106,7 @@ export async function POST(request: Request) {
     return runAtomicMutation({
       request,
       context,
+      scope: "monitors:write",
       routeKey: "/api/v1/monitors",
       body,
       work: async (tx) => ({

@@ -100,6 +100,7 @@ describe("API token mint serialization", () => {
     expect(insertValues[0]).toMatchObject({
       credentialOwnerUserId: "11111111-1111-4111-8111-111111111111",
       credentialEpoch: 7,
+      issuedByHumanSessionId: "33333333-3333-4333-8333-333333333333",
     })
   })
 
@@ -156,6 +157,39 @@ describe("API token mint serialization", () => {
     )
 
     expect(events).toEqual(["credential-lock", "parent-lock", "insert"])
+  })
+
+  it("rejects machine delegation of management scopes at the service boundary", async () => {
+    const { handle, events, tx } = lockingHandle({
+      scopes: ["tokens:manage", "users:manage"],
+      expiresAt: new Date("2026-09-01T00:00:00.000Z"),
+      userId: "11111111-1111-4111-8111-111111111111",
+      credentialEpoch: 7,
+      currentEpoch: 7,
+    })
+
+    await expect(
+      createApiToken(
+        {
+          name: "privileged child",
+          scopes: ["tokens:manage"],
+          expiresAt,
+          principal: {
+            type: "api_token",
+            id: "11111111-1111-4111-8111-111111111111",
+          },
+          credential: {
+            raw: "pulse_live_privileged_child",
+            prefix: "pulse_live_privileged_child",
+            digest: Buffer.alloc(32, 3),
+          },
+        },
+        now,
+        handle
+      )
+    ).rejects.toMatchObject({ code: "SCOPE_DENIED" })
+    expect(events).toEqual(["credential-lock", "parent-lock"])
+    expect(tx.insert).not.toHaveBeenCalled()
   })
 
   it("fails closed when revocation wins before the parent lock", async () => {

@@ -101,9 +101,7 @@ export function validateTokenInput(
   }
   // Only the human administrator may delegate the token-management and
   // user-management scopes. Machine credentials (api tokens, CLI sessions)
-  // cannot mint children that themselves mint tokens or invite users, which
-  // bounds any delegation chain to a single level and keeps cascade
-  // revocation of a revoked parent complete.
+  // cannot mint children that themselves mint tokens or invite users.
   if (
     principal.type &&
     principal.type !== "human" &&
@@ -215,6 +213,10 @@ export async function createApiToken(
         scopes: input.scopes,
         createdAt: now,
         createdByPrincipal: `${input.principal.type}:${input.principal.id}`,
+        issuedByHumanSessionId:
+          input.principal.type === "human"
+            ? (input.principal.sessionId ?? null)
+            : null,
         credentialOwnerUserId: credentialOwner.userId,
         credentialEpoch: credentialOwner.epoch,
         expiresAt: input.expiresAt,
@@ -287,7 +289,8 @@ async function lockCreatingPrincipal(
           eq(apiTokens.id, input.principal.id),
           isNull(apiTokens.revokedAt),
           gt(apiTokens.expiresAt, now),
-          eq(apiTokens.credentialEpoch, adminUsers.credentialEpoch)
+          eq(apiTokens.credentialEpoch, adminUsers.credentialEpoch),
+          eq(adminUsers.role, "admin")
         )
       )
       .for("update")
@@ -321,7 +324,8 @@ async function lockCreatingPrincipal(
           isNull(cliSessions.revokedAt),
           gt(cliSessions.expiresAt, now),
           isNull(cliInstallations.revokedAt),
-          eq(cliInstallations.credentialEpoch, adminUsers.credentialEpoch)
+          eq(cliInstallations.credentialEpoch, adminUsers.credentialEpoch),
+          eq(adminUsers.role, "admin")
         )
       )
       .for("update", { of: cliSessions })
@@ -351,12 +355,26 @@ async function lockCreatingPrincipal(
 
 function requireActiveCreatingPrincipal(
   parent: { scopes: string[]; expiresAt?: Date } | undefined,
-  input: { scopes: ApiScope[]; expiresAt: Date }
+  input: {
+    scopes: ApiScope[]
+    expiresAt: Date
+    principal: { type: string }
+  }
 ) {
   if (!parent) {
     throw new TokenServiceError(
       "SCOPE_DENIED",
       "The creating credential is no longer active or cannot delegate these scopes"
+    )
+  }
+  if (
+    input.principal.type !== "human" &&
+    (input.scopes.includes("tokens:manage") ||
+      input.scopes.includes("users:manage"))
+  ) {
+    throw new TokenServiceError(
+      "SCOPE_DENIED",
+      "Machine credentials cannot delegate the tokens:manage or users:manage scopes"
     )
   }
   const hasDelegationAuthority =
@@ -406,28 +424,39 @@ export async function listApiTokens(input: {
 
 export async function requireReplayableApiToken(
   tokenId: string,
+  creator: { type: string; id: string; sessionId?: string },
   now = new Date(),
   handle: DatabaseHandle = db
 ): Promise<void> {
-  const [token] = await handle
-    .select({ id: apiTokens.id })
-    .from(apiTokens)
-    .innerJoin(adminUsers, eq(adminUsers.id, apiTokens.credentialOwnerUserId))
-    .where(
-      and(
-        eq(apiTokens.id, tokenId),
-        isNull(apiTokens.revokedAt),
-        gt(apiTokens.expiresAt, now),
-        eq(apiTokens.credentialEpoch, adminUsers.credentialEpoch)
+  await handle.transaction(async (tx) => {
+    await lockMachineCredentialChanges(tx)
+    await lockCreatingPrincipal(
+      tx,
+      { principal: creator, scopes: [], expiresAt: now },
+      now
+    )
+    const [token] = await tx
+      .select({ id: apiTokens.id })
+      .from(apiTokens)
+      .innerJoin(adminUsers, eq(adminUsers.id, apiTokens.credentialOwnerUserId))
+      .where(
+        and(
+          eq(apiTokens.id, tokenId),
+          eq(apiTokens.createdByPrincipal, `${creator.type}:${creator.id}`),
+          isNull(apiTokens.revokedAt),
+          gt(apiTokens.expiresAt, now),
+          eq(apiTokens.credentialEpoch, adminUsers.credentialEpoch)
+        )
       )
-    )
-    .limit(1)
-  if (!token) {
-    throw new TokenServiceError(
-      "TOKEN_NOT_FOUND",
-      "The token created by this request is no longer active"
-    )
-  }
+      .for("update")
+      .limit(1)
+    if (!token) {
+      throw new TokenServiceError(
+        "TOKEN_NOT_FOUND",
+        "The token created by this request is no longer active"
+      )
+    }
+  })
 }
 
 export async function revokeApiToken(

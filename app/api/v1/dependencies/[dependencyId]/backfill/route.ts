@@ -1,4 +1,7 @@
-import { dependencyError } from "@/lib/api/dependency-http"
+import {
+  deniedDependencyWrite,
+  dependencyError,
+} from "@/lib/api/dependency-http"
 import { apiJson, objectEnvelope } from "@/lib/api/envelopes"
 import { executeIdempotent } from "@/lib/api/idempotency"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
@@ -31,14 +34,20 @@ export async function POST(
       routeKey: `/api/v1/dependencies/${dependencyId}/backfill`,
       body: {},
       mode: "atomic",
-      work: async (tx) => ({
-        status: 200,
-        body: objectEnvelope(
-          "Dependency",
-          await retryDependencyBackfill(dependencyId, {}, tx),
-          context.requestId
-        ),
-      }),
+      work: async (tx) => {
+        const denied = await deniedDependencyWrite(tx, context)
+        if (denied) {
+          return denied
+        }
+        return {
+          status: 200,
+          body: objectEnvelope(
+            "Dependency",
+            await retryDependencyBackfill(dependencyId, {}, tx),
+            context.requestId
+          ),
+        }
+      },
     })
     return apiJson(result.body, { status: result.status })
   } catch (error) {

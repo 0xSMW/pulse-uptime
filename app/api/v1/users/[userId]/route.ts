@@ -25,6 +25,9 @@ function teamErrorStatus(code: TeamServiceError["code"]): number {
   if (code === "LAST_ADMIN" || code === "SELF_FORBIDDEN") {
     return 409
   }
+  if (code === "ACTOR_DENIED") {
+    return 403
+  }
   return 400
 }
 
@@ -102,7 +105,11 @@ export async function PATCH(
       mode: "conservative",
       work: async () => {
         try {
-          const changed = await changeUserRole({ userId, role: body?.role })
+          const changed = await changeUserRole({
+            userId,
+            role: body?.role,
+            actor: context.principal,
+          })
           return {
             status: 200,
             body: objectEnvelope(
@@ -169,7 +176,11 @@ export async function DELETE(
       mode: "conservative",
       work: async () => {
         try {
-          const removed = await removeUser({ userId, actorUserId: actor })
+          const removed = await removeUser({
+            userId,
+            actorUserId: actor,
+            actor: context.principal,
+          })
           return {
             status: 200,
             body: objectEnvelope("UserRemoval", removed, context.requestId),

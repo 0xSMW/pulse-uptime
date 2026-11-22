@@ -6,6 +6,9 @@ vi.mock("@/lib/api/middleware", () => ({
   authorize: vi.fn(),
   isApiResponse: (value: unknown) => value instanceof Response,
 }))
+vi.mock("@/lib/api/live-authority", () => ({
+  hasLiveScope: vi.fn(async () => true),
+}))
 vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/idempotency")>()),
   executeIdempotent: vi.fn(),

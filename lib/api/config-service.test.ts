@@ -13,6 +13,17 @@ import {
   type ConfigurationStore,
   createConfigurationService,
 } from "./config-service"
+import type { Principal } from "./principal"
+import type { ApiScope } from "./scopes"
+
+const humanPrincipal: Principal = {
+  type: "human",
+  id: "admin",
+  sessionId: "session-1",
+  email: "admin@example.com",
+  role: "admin",
+  scopes: ["config:write"],
+}
 
 const current: MonitoringConfig = {
   schemaVersion: 2,
@@ -23,12 +34,24 @@ const current: MonitoringConfig = {
 }
 const currentHash = hashMonitoringConfig(current)
 
-function makeStore(): ConfigurationStore {
+function makeStore(
+  hasLiveScope: (
+    principal: Principal,
+    scope: ApiScope
+  ) => Promise<boolean> = async () => true,
+  events: string[] = []
+): ConfigurationStore {
   return {
     readAccepted: vi.fn(async () => ({ config: current, hash: currentHash })),
     transaction: async (work) =>
       await work({
-        lockConfiguration: vi.fn(async () => undefined),
+        hasLiveScope: async (principal, scope) => {
+          events.push(`live authority:${scope}`)
+          return await hasLiveScope(principal, scope)
+        },
+        lockConfiguration: vi.fn(async () => {
+          events.push("configuration lock")
+        }),
         readAccepted: vi.fn(async () => ({
           config: current,
           hash: currentHash,
@@ -55,8 +78,12 @@ function makeStore(): ConfigurationStore {
 
 describe("configuration service seams", () => {
   it("uses the injected store and writes the complete normalized target through the injected Edge writer", async () => {
-    const store = makeStore()
-    const writeEdgeConfig = vi.fn(async () => ({ version: 42 }))
+    const events: string[] = []
+    const store = makeStore(async () => true, events)
+    const writeEdgeConfig = vi.fn(async () => {
+      events.push("edge write")
+      return { version: 42 }
+    })
     const service = createConfigurationService({ store, writeEdgeConfig })
     const targetConfig = {
       version: 2 as const,
@@ -75,6 +102,7 @@ describe("configuration service seams", () => {
     }
 
     const operation = await service.apply({
+      principal: humanPrincipal,
       principalKey: "human:admin",
       requestId: "req-1",
       idempotencyKey: "key-1",
@@ -86,6 +114,11 @@ describe("configuration service seams", () => {
       ...current,
       configVersion: 5,
     })
+    expect(events).toEqual([
+      "live authority:config:write",
+      "configuration lock",
+      "edge write",
+    ])
     expect(operation).toMatchObject({
       id: "operation-1",
       state: "written",
@@ -93,6 +126,63 @@ describe("configuration service seams", () => {
       targetConfigHash: plan.targetConfigHash,
     })
   })
+
+  it.each<Principal>([
+    humanPrincipal,
+    {
+      type: "api_token",
+      id: "token-1",
+      name: "automation",
+      scopes: ["config:write"],
+      expiresAt: new Date("2030-01-01"),
+    },
+    {
+      type: "cli_session",
+      id: "cli-1",
+      email: "admin@example.com",
+      scopes: ["config:write"],
+      expiresAt: new Date("2030-01-01"),
+      installation: {
+        id: "installation-1",
+        displayName: "laptop",
+        platform: "darwin",
+        architecture: "arm64",
+        clientVersion: "1.0.0",
+        linkedAt: new Date("2026-01-01"),
+      },
+    },
+  ])(
+    "rejects a revoked $type before locking config or writing Edge Config",
+    async (principal) => {
+      const events: string[] = []
+      const store = makeStore(async () => false, events)
+      const writeEdgeConfig = vi.fn(async () => ({ version: 42 }))
+      const service = createConfigurationService({ store, writeEdgeConfig })
+      const targetConfig = {
+        version: 2 as const,
+        settings: { ...DEFAULT_MONITOR_SETTINGS },
+        groups: [],
+        monitors: [],
+      }
+      const plan = await service.plan({
+        baseConfigHash: currentHash,
+        targetConfig,
+      })
+
+      await expect(
+        service.apply({
+          principal,
+          principalKey: `${principal.type}:${principal.id}`,
+          requestId: "req-1",
+          idempotencyKey: "key-1",
+          ifMatch: `"${currentHash}"`,
+          request: { ...plan, targetConfig, allowDestructiveChanges: false },
+        })
+      ).rejects.toMatchObject({ code: "AUTHORIZATION_REVOKED" })
+      expect(events).toEqual(["live authority:config:write"])
+      expect(writeEdgeConfig).not.toHaveBeenCalled()
+    }
+  )
 })
 
 describe("default database store operation projection", () => {
@@ -173,6 +263,9 @@ describe("default database store operation projection", () => {
 
     vi.doMock("server-only", () => ({}))
     vi.doMock("@/lib/db/client", () => ({ db: dbImpl }))
+    vi.doMock("./live-authority", () => ({
+      hasLiveScope: vi.fn(async () => true),
+    }))
     const { createConfigurationService: createServiceWithRealStore } =
       await import("./config-service")
 
@@ -187,6 +280,7 @@ describe("default database store operation projection", () => {
 
     selectResults.push([operationRow])
     const replayed = await service.apply({
+      principal: humanPrincipal,
       principalKey: "human:admin",
       requestId: "req-1",
       idempotencyKey: "key-1",
@@ -207,5 +301,6 @@ describe("default database store operation projection", () => {
 
     vi.doUnmock("server-only")
     vi.doUnmock("@/lib/db/client")
+    vi.doUnmock("./live-authority")
   })
 })

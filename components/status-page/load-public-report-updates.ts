@@ -1,11 +1,21 @@
 "use server"
 
+import { headers } from "next/headers"
+import { enforceRateLimit } from "@/lib/api/rate-limit"
 import {
   listStatusReportUpdates,
   requireStatusReport,
   StatusReportError,
 } from "@/lib/api/status-reports"
+import { digestBearerToken } from "@/lib/api/tokens"
 import { renderRestrictedMarkdown } from "@/lib/markdown/restricted"
+import { clientIpFromHeaders } from "@/lib/net/client-ip"
+
+const PUBLIC_UPDATES_LIMIT = {
+  routeKey: "public-report-updates",
+  limit: 60,
+  windowSeconds: 60,
+}
 
 /**
  * Public older-page loader for a published report timeline. Shares the same
@@ -34,6 +44,12 @@ export async function loadPublicReportUpdates(
   }>
   nextCursor: string | null
 }> {
+  const ip = clientIpFromHeaders(await headers()) ?? "unknown"
+  const sourceKey = `ip:${digestBearerToken(`source-ip:${ip}`).toString("hex")}`
+  const admission = await enforceRateLimit(sourceKey, PUBLIC_UPDATES_LIMIT)
+  if (!admission.allowed) {
+    throw new Error("Too many requests")
+  }
   try {
     const report = await requireStatusReport(reportId)
     if (!report.publishedAt) {

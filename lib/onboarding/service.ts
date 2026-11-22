@@ -2,9 +2,13 @@ import "server-only"
 
 import { randomUUID } from "node:crypto"
 
-import { and, eq, inArray, isNull } from "drizzle-orm"
+import { and, eq, gt, inArray, isNull, sql } from "drizzle-orm"
 
 import { lockConfiguration } from "@/lib/api/configuration-lock"
+import { hasLiveScope } from "@/lib/api/live-authority"
+import { lockMachineCredentialChanges } from "@/lib/api/machine-credential-lock"
+import { roleScopes } from "@/lib/api/scopes"
+import type { HumanSession } from "@/lib/auth/service"
 import {
   type CheckResult,
   parsePublicHttpUrl,
@@ -27,6 +31,7 @@ import {
 } from "@/lib/db/client"
 import {
   adminUsers,
+  humanSessions,
   monitoringConfigSnapshots,
   monitorRegistry,
   onboardingProgress,
@@ -51,6 +56,8 @@ export class OnboardingError extends Error {
       | "CHECK_BLOCKED"
       | "CHECK_FAILED"
       | "ACTIVATION_FAILED"
+      | "ADMIN_SESSION_REVOKED"
+      | "SESSION_REVOKED"
       | "ONBOARDING_STATE_CONFLICT",
     message: string,
     options?: ErrorOptions
@@ -119,6 +126,10 @@ export interface OnboardingMonitorStore {
 }
 
 export interface OnboardingMonitorTx {
+  assertActiveAdmin: (
+    actor: Pick<HumanSession, "userId" | "sessionId" | "email" | "role">
+  ) => Promise<void>
+  assertActiveSession: (userId: string, sessionId: string) => Promise<void>
   lockConfiguration: () => Promise<void>
   readProgress: (userId: string) => Promise<ProgressRow | null>
   readAccepted: () => Promise<{
@@ -213,6 +224,51 @@ function createDatabaseStore(
       await handle.transaction(async (tx) => {
         const dbTx = tx as DatabaseTransaction
         return await work({
+          assertActiveAdmin: async (actor) => {
+            const active = await hasLiveScope(
+              dbTx,
+              {
+                type: "human",
+                id: actor.userId,
+                sessionId: actor.sessionId,
+                email: actor.email,
+                role: actor.role,
+                scopes: roleScopes(actor.role),
+              },
+              "config:write"
+            )
+            if (!active) {
+              throw new OnboardingError(
+                "ADMIN_SESSION_REVOKED",
+                "Administrator session is no longer active"
+              )
+            }
+          },
+          assertActiveSession: async (userId, sessionId) => {
+            await dbTx.execute(
+              sql`select pg_advisory_xact_lock(hashtext('pulse:team-roles'))`
+            )
+            await lockMachineCredentialChanges(dbTx)
+            const [session] = await dbTx
+              .select({ id: humanSessions.id })
+              .from(humanSessions)
+              .where(
+                and(
+                  eq(humanSessions.id, sessionId),
+                  eq(humanSessions.userId, userId),
+                  isNull(humanSessions.revokedAt),
+                  gt(humanSessions.expiresAt, new Date())
+                )
+              )
+              .for("update")
+              .limit(1)
+            if (!session) {
+              throw new OnboardingError(
+                "SESSION_REVOKED",
+                "The current session is no longer active"
+              )
+            }
+          },
           lockConfiguration: async () => {
             await lockConfiguration(dbTx)
           },
@@ -414,10 +470,11 @@ function buildActivationConfig(input: {
 }
 
 export async function activateFirstMonitor(
-  userId: string,
+  actor: Pick<HumanSession, "userId" | "sessionId" | "email" | "role">,
   input: { alertEmail?: string; startAnyway?: boolean },
   deps: ActivateFirstMonitorDeps = {}
 ) {
+  const { userId } = actor
   const store = deps.store ?? defaultStore
   const checkReadiness = deps.checkReadiness ?? syncOnboardingReadiness
   const runCheck = deps.runCheck ?? runManualCheck
@@ -427,13 +484,13 @@ export async function activateFirstMonitor(
       await writeEdgeConfig(config)
     })
 
+  // Readiness uses a second database connection for its database probe, so it
+  // must finish before a session transaction reserves a pool connection.
   const readiness = await checkReadiness()
   if (!readiness.canContinue) {
     throw new OnboardingError("NOT_READY", "Required services are unavailable")
   }
 
-  // Site check runs outside the configuration lock so activation network time
-  // does not block concurrent config writers.
   const preState = await store.readProgress(userId)
   if (
     !preState ||
@@ -447,10 +504,35 @@ export async function activateFirstMonitor(
     )
   }
   const draft = validateDraft(preState.draftMonitor as MonitorDraft)
+  // Admission takes its own pool connection. Acquire its rate limits and
+  // lease first, then hold live admin authority only through the site probe.
   const check = await runWithOnboardingProbeAdmission({
     userId,
     target: draft.url,
-    work: () => runCheck(draft.url),
+    work: () =>
+      store.transaction(async (tx) => {
+        await tx.assertActiveAdmin(actor)
+        const state = await tx.readProgress(userId)
+        if (
+          !state ||
+          state.completedAt ||
+          state.currentStep !== "verify" ||
+          !state.draftMonitor
+        ) {
+          throw new OnboardingError(
+            "ONBOARDING_STATE_CONFLICT",
+            "Onboarding is not ready to start monitoring"
+          )
+        }
+        const lockedDraft = validateDraft(state.draftMonitor as MonitorDraft)
+        if (lockedDraft.url !== draft.url || lockedDraft.name !== draft.name) {
+          throw new OnboardingError(
+            "ONBOARDING_STATE_CONFLICT",
+            "Onboarding draft changed before the site check"
+          )
+        }
+        return runCheck(draft.url)
+      }),
   })
   if (isSecurityFailure(check)) {
     throw new OnboardingError(
@@ -466,6 +548,7 @@ export async function activateFirstMonitor(
     : validateRecipients(input.alertEmail)
 
   const activated = await store.transaction(async (tx) => {
+    await tx.assertActiveAdmin(actor)
     await tx.lockConfiguration()
     const state = await tx.readProgress(userId)
     if (
@@ -531,13 +614,15 @@ export async function activateFirstMonitor(
 }
 
 export async function completeOnboarding(
-  userId: string,
+  actor: Pick<HumanSession, "userId" | "sessionId">,
   deps: CompleteOnboardingDeps = {}
 ) {
+  const { userId, sessionId } = actor
   const store = deps.store ?? defaultStore
   const now = new Date()
 
   await store.transaction(async (tx) => {
+    await tx.assertActiveSession(userId, sessionId)
     await tx.lockConfiguration()
     const state = await tx.readProgress(userId)
     if (

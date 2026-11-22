@@ -1,8 +1,7 @@
 "use client"
 
 import { ArrowLeft, Check, Copy } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
-import useSWR from "swr"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 import { useTimezone } from "@/components/dashboard/timezone-provider"
 import { timezoneOptions } from "@/components/settings/timezone-control"
@@ -62,8 +61,9 @@ export function OnboardingFlow({
     initialEmailWarningAcknowledged
   )
   const [accountCreated, setAccountCreated] = useState(
-    initialStep !== "readiness"
+    initialStep !== "readiness" && initialStep !== "account"
   )
+  const [bootstrapToken, setBootstrapToken] = useState("")
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
 
@@ -75,6 +75,9 @@ export function OnboardingFlow({
   if (step === "readiness") {
     return (
       <Readiness
+        accountCreated={accountCreated}
+        bootstrapToken={bootstrapToken}
+        onBootstrapTokenChange={setBootstrapToken}
         onContinue={(acknowledged) => {
           setEmailWarningAcknowledged(acknowledged)
           setStep(accountCreated ? "monitor" : "account")
@@ -85,9 +88,11 @@ export function OnboardingFlow({
   if (step === "account") {
     return (
       <Account
+        bootstrapToken={bootstrapToken}
         emailWarningAcknowledged={emailWarningAcknowledged}
         onBack={() => setStep("readiness")}
         onCreated={(accountEmail) => {
+          setBootstrapToken("")
           setAccountCreated(true)
           setDraft((value) => ({ ...value, alertEmail: accountEmail }))
           setStep("monitor")
@@ -177,29 +182,56 @@ function Progress({ step }: { step: number }) {
 }
 
 function Readiness({
+  accountCreated,
+  bootstrapToken,
+  onBootstrapTokenChange,
   onContinue,
 }: {
+  accountCreated: boolean
+  bootstrapToken: string
+  onBootstrapTokenChange: (value: string) => void
   onContinue: (acknowledged: boolean) => void
 }) {
-  const {
-    data: report,
-    isLoading: loading,
-    mutate,
-  } = useSWR<ReadinessReport>(
-    "/api/onboarding/readiness",
-    async (url: string) => {
-      const response = await fetch(url, { cache: "no-store" })
-      if (!response.ok) {
-        throw new Error("Readiness failed")
-      }
-      return response.json()
-    }
-  )
+  const [report, setReport] = useState<ReadinessReport | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
   const [visible, setVisible] = useState(0)
-  function replay() {
+  const checkReadiness = useCallback(async () => {
+    const token = bootstrapToken.trim()
+    if (!(accountCreated || token)) {
+      setError("Enter your setup token")
+      return
+    }
     setVisible(0)
-    void mutate()
-  }
+    setReport(null)
+    setError("")
+    setLoading(true)
+    try {
+      const response = await fetch("/api/onboarding/readiness", {
+        cache: "no-store",
+        ...(accountCreated
+          ? {}
+          : { headers: { "x-pulse-bootstrap-token": token } }),
+      })
+      if (!response.ok) {
+        throw new Error(
+          response.status === 403 && !accountCreated
+            ? "Setup token is invalid"
+            : "Readiness failed"
+        )
+      }
+      setReport((await response.json()) as ReadinessReport)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Readiness failed")
+    } finally {
+      setLoading(false)
+    }
+  }, [accountCreated, bootstrapToken])
+  useEffect(() => {
+    if (accountCreated) {
+      void checkReadiness()
+    }
+  }, [accountCreated, checkReadiness])
   useEffect(() => {
     if (!report) {
       return
@@ -233,6 +265,27 @@ function Readiness({
         Verify required services before creating your account
       </p>
       <Card className={styles.card}>
+        {accountCreated ? null : (
+          <Field
+            description="The PULSE_BOOTSTRAP_TOKEN set in this deployment's environment."
+            htmlFor="bootstrapToken"
+            label="Setup Token"
+          >
+            <Input
+              autoComplete="off"
+              disabled={loading}
+              id="bootstrapToken"
+              onChange={(event) => {
+                onBootstrapTokenChange(event.target.value)
+                setReport(null)
+                setVisible(0)
+                setError("")
+              }}
+              type="password"
+              value={bootstrapToken}
+            />
+          </Field>
+        )}
         <h2 className={styles.cardTitle}>System Readiness</h2>
         <p className={styles.cardCopy}>
           Checks your existing deployment configuration
@@ -280,9 +333,18 @@ function Readiness({
             Email alerts are unavailable until Resend is ready
           </div>
         ) : null}
+        {error ? (
+          <p className={styles.error} role="alert">
+            {error}
+          </p>
+        ) : null}
         <div className={styles.stacked}>
-          <Button disabled={loading} onClick={replay} variant="secondary">
-            Check Again
+          <Button
+            disabled={loading || !(accountCreated || bootstrapToken.trim())}
+            onClick={() => void checkReadiness()}
+            variant="secondary"
+          >
+            {accountCreated || report ? "Check Again" : "Check Readiness"}
           </Button>
           <Button
             disabled={!report?.canContinue || visible < 4}
@@ -297,10 +359,12 @@ function Readiness({
 }
 
 function Account({
+  bootstrapToken,
   emailWarningAcknowledged,
   onBack,
   onCreated,
 }: {
+  bootstrapToken: string
   emailWarningAcknowledged: boolean
   onBack: () => void
   onCreated: (email: string) => void
@@ -315,7 +379,6 @@ function Account({
     const email = String(data.get("email"))
     const password = String(data.get("password"))
     const confirmation = String(data.get("confirmation"))
-    const bootstrapToken = String(data.get("bootstrapToken")).trim()
     if (password !== confirmation) {
       setError("Passwords do not match")
       return
@@ -402,19 +465,6 @@ function Account({
               autoComplete="new-password"
               id="confirmation"
               name="confirmation"
-              required
-              type="password"
-            />
-          </Field>
-          <Field
-            description="The PULSE_BOOTSTRAP_TOKEN you set in this deployment's environment. Proves you are the operator."
-            htmlFor="bootstrapToken"
-            label="Setup Token"
-          >
-            <Input
-              autoComplete="off"
-              id="bootstrapToken"
-              name="bootstrapToken"
               required
               type="password"
             />

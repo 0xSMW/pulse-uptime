@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("server-only", () => ({}))
-vi.mock("@/lib/db/client", () => ({ db: {} }))
+vi.mock("@/lib/db/client", () => ({ db: { transaction: vi.fn() } }))
+vi.mock("@/lib/api/live-authority", () => ({ hasLiveScope: vi.fn() }))
 vi.mock("@/lib/api/middleware", () => ({
   authorize: vi.fn(),
   isApiResponse: (value: unknown) => value instanceof Response,
@@ -12,8 +13,10 @@ vi.mock("@/lib/api/rate-limit", () => ({
 
 import { apiError } from "@/lib/api/envelopes"
 import { databaseImageStore, MAX_IMAGE_BYTES } from "@/lib/api/images"
+import { hasLiveScope } from "@/lib/api/live-authority"
 import { type ApiContext, authorize } from "@/lib/api/middleware"
 import { enforceRateLimit } from "@/lib/api/rate-limit"
+import { db } from "@/lib/db/client"
 
 import { AVATAR_UPLOAD_LIMIT, POST } from "./route"
 
@@ -206,7 +209,8 @@ describe("POST /api/v1/images", () => {
         kind: "avatar",
         mimeType: "image/png",
         byteSize: PNG.length,
-      })
+      }),
+      context.principal
     )
   })
 
@@ -220,7 +224,8 @@ describe("POST /api/v1/images", () => {
       expect.objectContaining({
         uploadedByUserId: null,
         kind: "logo-light",
-      })
+      }),
+      context.principal
     )
   })
 
@@ -274,6 +279,100 @@ describe("POST /api/v1/images", () => {
     expect(response.status).toBe(400)
     expect((await response.json()).error.code).toBe("IMAGE_TOO_LARGE")
     expect(databaseImageStore.insert).not.toHaveBeenCalled()
+  })
+
+  it("stops an oversized chunked multipart body before parsing the rest", async () => {
+    const original = uploadRequest({
+      file: pngFile(Buffer.concat([PNG, Buffer.alloc(2 * 1024 * 1024)])),
+      kind: "avatar",
+    })
+    const bytes = new Uint8Array(await original.arrayBuffer())
+    let chunksRead = 0
+    const chunkSize = 600 * 1024
+    const body = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          const start = chunksRead * chunkSize
+          if (start >= bytes.length) {
+            controller.close()
+            return
+          }
+          controller.enqueue(bytes.subarray(start, start + chunkSize))
+          chunksRead += 1
+        },
+      },
+      { highWaterMark: 0 }
+    )
+    const request = new Request("https://pulse.test/api/v1/images", {
+      method: "POST",
+      headers: { "Content-Type": original.headers.get("content-type")! },
+      body,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" })
+
+    const response = await POST(request)
+
+    expect(response.status).toBe(413)
+    expect((await response.json()).error.code).toBe("IMAGE_TOO_LARGE")
+    expect(chunksRead).toBe(2)
+    expect(databaseImageStore.insert).not.toHaveBeenCalled()
+  })
+
+  it("rejects a branding upload when admin authority is revoked while its body is delayed", async () => {
+    vi.mocked(databaseImageStore.insert).mockRestore()
+    let live = true
+    vi.mocked(hasLiveScope).mockImplementation(async () => live)
+    const insert = vi.fn().mockReturnValue({
+      values: () => ({
+        returning: async () => [{ id: "44444444-4444-4444-8444-444444444444" }],
+      }),
+    })
+    vi.mocked(db.transaction).mockImplementationOnce(async (callback) =>
+      callback({ insert } as never)
+    )
+
+    const original = uploadRequest({ file: pngFile(), kind: "logo-light" })
+    const bytes = new Uint8Array(await original.arrayBuffer())
+    let releaseBody: () => void = () => undefined
+    let bodyRequested: () => void = () => undefined
+    const gate = new Promise<void>((resolve) => {
+      releaseBody = resolve
+    })
+    const waitingForBody = new Promise<void>((resolve) => {
+      bodyRequested = resolve
+    })
+    const body = new ReadableStream<Uint8Array>(
+      {
+        async pull(controller) {
+          bodyRequested()
+          await gate
+          controller.enqueue(bytes)
+          controller.close()
+        },
+      },
+      { highWaterMark: 0 }
+    )
+    const request = new Request("https://pulse.test/api/v1/images", {
+      method: "POST",
+      headers: { "Content-Type": original.headers.get("content-type")! },
+      body,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" })
+
+    const pending = POST(request)
+    await waitingForBody
+    live = false
+    releaseBody()
+    const response = await pending
+
+    expect(response.status).toBe(403)
+    expect((await response.json()).error.code).toBe("SCOPE_DENIED")
+    expect(hasLiveScope).toHaveBeenCalledWith(
+      expect.anything(),
+      context.principal,
+      "config:write"
+    )
+    expect(insert).not.toHaveBeenCalled()
   })
 
   it("enforces the 32 KB favicon cap", async () => {

@@ -208,6 +208,7 @@ export async function fetchPorkbunAccountDomains(
     try {
       response = await fetcher(url.toString(), {
         method: "GET",
+        redirect: "manual",
         headers: {
           accept: "application/json",
           "X-API-Key": apiKey,

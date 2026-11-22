@@ -1,5 +1,6 @@
 import { apiError, apiJson, objectEnvelope } from "@/lib/api/envelopes"
 import { executeIdempotent } from "@/lib/api/idempotency"
+import { hasLiveScope } from "@/lib/api/live-authority"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
 import { routeError } from "@/lib/api/route"
 import { revokeUserInvite, TeamServiceError } from "@/lib/auth/invites"
@@ -32,6 +33,9 @@ export async function DELETE(
       body: { inviteId },
       mode: "atomic",
       work: async (tx) => {
+        if (!(await hasLiveScope(tx, context.principal, "users:manage"))) {
+          return { status: 403, body: { invite: null } }
+        }
         try {
           const invite = await revokeUserInvite(inviteId, new Date(), tx)
           return { status: 200, body: { invite } }
@@ -46,6 +50,15 @@ export async function DELETE(
         }
       },
     })
+    if (result.status === 403) {
+      return apiError(
+        context.requestId,
+        403,
+        "SCOPE_DENIED",
+        "The credential is no longer authorized",
+        { scope: "users:manage" }
+      )
+    }
     if (!result.body.invite) {
       return apiError(
         context.requestId,

@@ -285,6 +285,10 @@ describe("POST /api/v1/tokens idempotency contract", () => {
     expect(secondBody.data.expiryClamped).toBe(false)
     expect(firstBody.data).toEqual(secondBody.data)
     expect(createApiToken).toHaveBeenCalledTimes(1)
+    expect(requireReplayableApiToken).toHaveBeenCalledWith(
+      tokenRecord.id,
+      humanContext.principal
+    )
   })
 
   it("returns expiryClamped true on create and replay when clamped", async () => {
@@ -321,7 +325,7 @@ describe("POST /api/v1/tokens idempotency contract", () => {
     expect(firstBody.data).toEqual(secondBody.data)
   })
 
-  it("rejects replay after password rotation invalidates the created token", async () => {
+  it("rejects replay after the created token is revoked", async () => {
     vi.mocked(authorize).mockResolvedValue(humanContext)
     vi.mocked(validateTokenInput).mockReturnValue({
       name: "Deploy",
@@ -348,5 +352,38 @@ describe("POST /api/v1/tokens idempotency contract", () => {
     expect(replay.status).toBe(400)
     expect((await replay.json()).error.code).toBe("TOKEN_NOT_FOUND")
     expect(createApiToken).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not return a stored secret after the creator session is revoked", async () => {
+    vi.mocked(authorize).mockResolvedValue(humanContext)
+    vi.mocked(validateTokenInput).mockReturnValue({
+      name: "Deploy",
+      scopes: ["monitors:read"],
+      expiresAt: tokenRecord.expiresAt,
+      clamped: false,
+    })
+    vi.mocked(createApiToken).mockResolvedValue({
+      token: tokenRecord,
+      secret: "pulse_live_derived-secret-value-aaaaaaaaaaa",
+    })
+    const key = crypto.randomUUID()
+    const body = { name: "Deploy", scopes: ["monitors:read"] }
+
+    expect((await POST(request(body, key))).status).toBe(201)
+    vi.mocked(requireReplayableApiToken).mockRejectedValueOnce(
+      new TokenServiceError(
+        "SCOPE_DENIED",
+        "The creating session is no longer active"
+      )
+    )
+    const replay = await POST(request(body, key))
+
+    expect(replay.status).toBe(403)
+    expect((await replay.json()).error.code).toBe("SCOPE_DENIED")
+    expect(createApiToken).toHaveBeenCalledTimes(1)
+    expect(requireReplayableApiToken).toHaveBeenCalledWith(
+      tokenRecord.id,
+      humanContext.principal
+    )
   })
 })

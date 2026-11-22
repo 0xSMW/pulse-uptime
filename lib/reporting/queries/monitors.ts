@@ -16,6 +16,7 @@ import { domainHealthByMonitorId } from "@/lib/domain-health/queries"
 import type { ExclusionSlot } from "@/lib/incidents/exclusions"
 import {
   loadExclusionSlots,
+  loadExclusionVersion,
   loadIncidentExclusionStatuses,
 } from "@/lib/incidents/exclusions"
 import type { VisibleMonitorState } from "@/lib/monitoring/types"
@@ -695,7 +696,7 @@ export async function findMonitorLive(
   const endDay = completedRangeEnd(now, "day")
   const exclusions = await loadExclusionSlots(
     [id],
-    new Date(endDay.getTime() - 90 * 86_400_000),
+    new Date(end15m.getTime() - 7 * 86_400_000),
     now
   )
   const excludedMinutes = new Set(
@@ -703,34 +704,40 @@ export async function findMonitorLive(
       .filter((slot) => slot.failed)
       .map((slot) => slot.scheduledMinute.getTime())
   )
-  const [rollups7d, recentIncidents, recentRawChecks, accepted] =
-    await Promise.all([
-      fetchRollups(id, "15m", end15m, 7 * 86_400_000, exclusions),
-      includeIncidents && activatedAt !== null
-        ? db
-            .select()
-            .from(incidents)
-            .where(
-              and(
-                eq(incidents.monitorId, id),
-                gte(incidents.openedAt, activatedAt)
-              )
+  const [
+    rollups7d,
+    recentIncidents,
+    recentRawChecks,
+    accepted,
+    exclusionVersion90d,
+  ] = await Promise.all([
+    fetchRollups(id, "15m", end15m, 7 * 86_400_000, exclusions),
+    includeIncidents && activatedAt !== null
+      ? db
+          .select()
+          .from(incidents)
+          .where(
+            and(
+              eq(incidents.monitorId, id),
+              gte(incidents.openedAt, activatedAt)
             )
-            .orderBy(desc(incidents.openedAt))
-            .limit(5)
-        : Promise.resolve([]),
-      getRecentRawChecks(id, now),
-      // Accepted config token only. This one-column single-row read rides the
-      // accepted snapshot index and skips the configJson decode the detail query
-      // runs, so the poll stays lean while still carrying the signal that lands an
-      // out-of-band config edit on a paused monitor.
-      db
-        .select({ acceptedAt: monitoringConfigSnapshots.acceptedAt })
-        .from(monitoringConfigSnapshots)
-        .where(eq(monitoringConfigSnapshots.status, "accepted"))
-        .orderBy(desc(monitoringConfigSnapshots.acceptedAt))
-        .limit(1),
-    ])
+          )
+          .orderBy(desc(incidents.openedAt))
+          .limit(5)
+      : Promise.resolve([]),
+    getRecentRawChecks(id, now),
+    // Accepted config token only. This one-column single-row read rides the
+    // accepted snapshot index and skips the configJson decode the detail query
+    // runs, so the poll stays lean while still carrying the signal that lands an
+    // out-of-band config edit on a paused monitor.
+    db
+      .select({ acceptedAt: monitoringConfigSnapshots.acceptedAt })
+      .from(monitoringConfigSnapshots)
+      .where(eq(monitoringConfigSnapshots.status, "accepted"))
+      .orderBy(desc(monitoringConfigSnapshots.acceptedAt))
+      .limit(1),
+    loadExclusionVersion(id, new Date(endDay.getTime() - 90 * 86_400_000), now),
+  ])
 
   const exclusionStatuses = await loadIncidentExclusionStatuses(
     recentIncidents.map((incident) => incident.id)
@@ -813,7 +820,7 @@ export async function findMonitorLive(
       activeRawChecks.length > 0
         ? buildRecentChecksFromRaw(activeRawChecks)
         : buildRecentChecks(rollupsSinceActivation(rollups24h, activatedAt)),
-    rollupVersion: `${rollupVersionOf(rollups7d) ?? "none"}:${exclusionVersion(exclusions)}`,
+    rollupVersion: `${rollupVersionOf(rollups7d) ?? "none"}:${exclusionVersion90d}`,
     acceptedConfigToken: accepted[0]?.acceptedAt?.toISOString() ?? null,
     // The completed 15-minute boundary the h24 and d7 scores read against. The
     // client refreshes once when it advances so the server recomputes the

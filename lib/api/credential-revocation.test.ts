@@ -22,7 +22,7 @@ function renderedParams(statement: unknown): unknown[] {
 }
 
 function transactionWithNoInstallations() {
-  const execute = vi.fn().mockResolvedValue(undefined)
+  const execute = vi.fn().mockResolvedValue([])
   const select = vi.fn(() => ({
     from: vi.fn(() => ({
       where: vi.fn().mockResolvedValue([]),
@@ -57,6 +57,28 @@ describe("machine credential tree revocation", () => {
     expect(renderedParams(execute.mock.calls[0]![0])).toContain(
       "2026-08-13T00:00:00.000Z"
     )
+  })
+
+  it("revokes pending admin invites from human, CLI, and API-token creators during password rotation", async () => {
+    const { execute, tx } = transactionWithNoInstallations()
+
+    await revokeUserMachineCredentials(tx, {
+      userId: "11111111-1111-4111-8111-111111111111",
+      userEmail: "owner@example.com",
+      now: new Date("2026-08-13T00:00:00Z"),
+    })
+
+    const statements = execute.mock.calls.map(([statement]) =>
+      renderedSql(statement)
+    )
+    const inviteRevocation = statements.find((statement) =>
+      statement.includes("user_invites")
+    )
+    expect(inviteRevocation).toBeDefined()
+    expect(inviteRevocation).toContain("with recursive token_tree")
+    expect(inviteRevocation).toContain("cli_session:")
+    expect(inviteRevocation).toContain("api_token:")
+    expect(inviteRevocation).toContain("accepted_at is null")
   })
 
   it("revokes an API token subtree at arbitrary depth", async () => {

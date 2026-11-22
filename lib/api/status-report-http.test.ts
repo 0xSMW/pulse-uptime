@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 vi.mock("server-only", () => ({}))
 vi.mock("@/lib/db/client", () => ({ db: {} }))
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }))
+vi.mock("@/lib/api/live-authority", () => ({ hasLiveScope: vi.fn() }))
 vi.mock("@/lib/api/status-reports", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@/lib/api/status-reports")>()
@@ -21,6 +22,8 @@ vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
 
 import { revalidatePath } from "next/cache"
 import { executeIdempotent } from "@/lib/api/idempotency"
+import { hasLiveScope } from "@/lib/api/live-authority"
+import type { Principal } from "@/lib/api/principal"
 import {
   databaseStatusReportsStore,
   StatusReportError,
@@ -136,10 +139,24 @@ function mutationRequest() {
  * rolled-back transaction leaving the record running.
  */
 describe("runStatusReportMutation", () => {
-  const stubTx = "stub-tx" as unknown as DatabaseHandle
+  const stubTx = { rollback: vi.fn() } as unknown as DatabaseHandle
+  const principal: Principal = {
+    type: "human",
+    id: "11111111-1111-4111-8111-111111111111",
+    sessionId: "22222222-2222-4222-8222-222222222222",
+    email: "admin@example.com",
+    role: "admin",
+    scopes: ["reports:write"],
+  }
+  const context = {
+    principal,
+    principalKey: `human:${principal.id}`,
+    requestId: "req-1",
+  }
   let completions: Array<{ status: number; body: unknown }>
 
   beforeEach(() => {
+    vi.mocked(hasLiveScope).mockReset().mockResolvedValue(true)
     completions = []
     vi.mocked(executeIdempotent)
       .mockReset()
@@ -155,10 +172,34 @@ describe("runStatusReportMutation", () => {
       })
   })
 
+  it("records a 403 and skips report work when authority is revoked before its transaction", async () => {
+    vi.mocked(hasLiveScope).mockResolvedValue(false)
+    const work = vi.fn(async () => ({
+      status: 201,
+      kind: "StatusReport",
+      data: { id: "rep-1" },
+      revalidatePaths: ["/status"],
+    }))
+
+    const response = await runStatusReportMutation({
+      request: mutationRequest(),
+      context,
+      routeKey: "test",
+      body: {},
+      work,
+    })
+
+    expect(response.status).toBe(403)
+    expect((await response.json()).error.code).toBe("SCOPE_DENIED")
+    expect(work).not.toHaveBeenCalled()
+    expect(completions).toMatchObject([{ status: 403 }])
+    expect(revalidatePath).not.toHaveBeenCalled()
+  })
+
   it("threads the same transaction handle executeIdempotent opened into work(), and commits the completion through it", async () => {
     const response = await runStatusReportMutation({
       request: mutationRequest(),
-      context: { principalKey: "human:1", requestId: "req-1" },
+      context,
       routeKey: "test",
       body: {},
       work: async (tx) => {
@@ -189,7 +230,7 @@ describe("runStatusReportMutation", () => {
 
     await runStatusReportMutation({
       request: mutationRequest(),
-      context: { principalKey: "human:1", requestId: "req-1" },
+      context,
       routeKey: "test",
       body: {},
       work: async () => ({
@@ -221,7 +262,7 @@ describe("runStatusReportMutation", () => {
 
     await runStatusReportMutation({
       request: mutationRequest(),
-      context: { principalKey: "human:1", requestId: "req-1" },
+      context,
       routeKey: "test",
       body: {},
       work: async () => ({
@@ -238,7 +279,7 @@ describe("runStatusReportMutation", () => {
   it("does not revalidate when work() throws a StatusReportError, since nothing changed", async () => {
     await runStatusReportMutation({
       request: mutationRequest(),
-      context: { principalKey: "human:1", requestId: "req-1" },
+      context,
       routeKey: "test",
       body: {},
       work: async () => {
@@ -255,7 +296,7 @@ describe("runStatusReportMutation", () => {
   it("records a StatusReportError thrown by work() as the operation's own completed response, mapped to its HTTP status", async () => {
     const response = await runStatusReportMutation({
       request: mutationRequest(),
-      context: { principalKey: "human:1", requestId: "req-1" },
+      context,
       routeKey: "test",
       body: {},
       work: async () => {
@@ -278,7 +319,7 @@ describe("runStatusReportMutation", () => {
   it("propagates a non-domain error out of the transaction and never persists a completion", async () => {
     const response = await runStatusReportMutation({
       request: mutationRequest(),
-      context: { principalKey: "human:1", requestId: "req-1" },
+      context,
       routeKey: "test",
       body: {},
       work: async () => {

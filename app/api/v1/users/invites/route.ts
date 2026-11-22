@@ -9,6 +9,7 @@ import {
 } from "@/lib/api/tokens"
 import {
   createUserInvite,
+  requireReplayableUserInvite,
   TeamServiceError,
   validateInviteRole,
 } from "@/lib/auth/invites"
@@ -78,7 +79,12 @@ export async function POST(request: Request) {
           INVITE_TOKEN_PREFIX
         )
         const invite = await createUserInvite(
-          { role, createdByPrincipal: context.principalKey, credential },
+          {
+            role,
+            createdByPrincipal: context.principalKey,
+            actor: context.principal,
+            credential,
+          },
           new Date(),
           tx
         )
@@ -95,20 +101,25 @@ export async function POST(request: Request) {
         }
       },
       persistBody: persistCreatedInvite,
-      replayBody: (stored, { operationId }) =>
-        replayCreatedInvite(
-          stored as PersistedCreatedInviteData,
-          deriveBearerToken(
-            credentialDerivationContext({
-              kind: "user-invite",
-              principalKey: context.principalKey,
-              idempotencyKey,
-              body: canonicalBody,
-              operationId,
-            }),
-            INVITE_TOKEN_PREFIX
-          ).raw
-        ),
+      replayBody: async (stored, { operationId }) => {
+        const persisted = stored as PersistedCreatedInviteData
+        const credential = deriveBearerToken(
+          credentialDerivationContext({
+            kind: "user-invite",
+            principalKey: context.principalKey,
+            idempotencyKey,
+            body: canonicalBody,
+            operationId,
+          }),
+          INVITE_TOKEN_PREFIX
+        )
+        await requireReplayableUserInvite(
+          persisted.id,
+          credential.digest,
+          context.principal
+        )
+        return replayCreatedInvite(persisted, credential.raw)
+      },
     })
     return apiJson(
       objectEnvelope("CreatedInvite", result.body, context.requestId),
@@ -116,7 +127,12 @@ export async function POST(request: Request) {
     )
   } catch (error) {
     if (error instanceof TeamServiceError) {
-      return apiError(context.requestId, 400, error.code, error.message)
+      return apiError(
+        context.requestId,
+        error.code === "ACTOR_DENIED" ? 403 : 400,
+        error.code,
+        error.message
+      )
     }
     return routeError(error, context.requestId)
   }

@@ -2,9 +2,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [master]
+    branches: [master, "roadmap/**"]
   push:
-    branches: [master]
+    branches: [master, "roadmap/**"]
 
 permissions:
   contents: read
@@ -27,7 +27,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
-      - run: pnpm audit --audit-level=high || true
+      - run: pnpm audit --audit-level high
 
   cli:
     name: CLI (Go build · vet · test · govulncheck)
@@ -39,9 +39,9 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # v5.0.2
         with:
-          go-version: "1.26"
+          go-version: "1.26.11"
           cache-dependency-path: cli/go.sum
       - run: go build ./...
       - run: go vet ./...
       - run: go test ./...
-      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./... || true
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...

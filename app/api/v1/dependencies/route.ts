@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { sourceFromPrincipalKey, trackEvent } from "@/lib/analytics-server"
 import {
+  deniedDependencyWrite,
   dependencyError,
   storedDependencyError,
 } from "@/lib/api/dependency-http"
@@ -51,6 +52,10 @@ export async function POST(request: Request) {
       body,
       mode: "atomic",
       work: async (tx, { operationId }) => {
+        const denied = await deniedDependencyWrite(tx, context)
+        if (denied) {
+          return denied
+        }
         try {
           const dependency = await addDependency(
             parsed,

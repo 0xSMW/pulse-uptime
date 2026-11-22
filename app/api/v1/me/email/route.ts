@@ -58,13 +58,15 @@ export async function POST(request: Request) {
         return response
       }
       const status =
-        error.code === "INVALID_PASSWORD"
-          ? 403
-          : error.code === "ACCOUNT_NOT_FOUND"
-            ? 404
-            : error.code === "ACCOUNT_CHANGED"
-              ? 409
-              : 400
+        error.code === "SESSION_REVOKED"
+          ? 401
+          : error.code === "INVALID_PASSWORD"
+            ? 403
+            : error.code === "ACCOUNT_NOT_FOUND"
+              ? 404
+              : error.code === "ACCOUNT_CHANGED"
+                ? 409
+                : 400
       return apiError(context.requestId, status, error.code, error.message)
     }
     return routeError(error, context.requestId)

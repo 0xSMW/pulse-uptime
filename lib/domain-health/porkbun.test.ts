@@ -1,3 +1,4 @@
+import { createServer, type Server } from "node:http"
 import { describe, expect, it, vi } from "vitest"
 
 import {
@@ -34,6 +35,56 @@ function domain(domainName: string, overrides: Record<string, unknown> = {}) {
 }
 
 describe("fetchPorkbunAccountDomains", () => {
+  it("does not forward account credentials through an HTTP redirect", async () => {
+    const received: Array<{
+      key: string | undefined
+      secret: string | undefined
+    }> = []
+    const destination = createServer((request, reply) => {
+      received.push({
+        key: request.headers["x-api-key"]?.toString(),
+        secret: request.headers["x-secret-api-key"]?.toString(),
+      })
+      reply.end("unexpected redirect target")
+    })
+    const source = createServer((_request, reply) => {
+      reply.writeHead(302, {
+        location: `http://127.0.0.1:${(destination.address() as { port: number }).port}/capture`,
+      })
+      reply.end()
+    })
+    const listen = (server: Server) =>
+      new Promise<number>((resolve) => {
+        server.listen(0, "127.0.0.1", () =>
+          resolve((server.address() as { port: number }).port)
+        )
+      })
+    const close = (server: Server) =>
+      new Promise<void>((resolve) => server.close(() => resolve()))
+
+    try {
+      await listen(destination)
+      const sourcePort = await listen(source)
+      const result = await fetchPorkbunAccountDomains({
+        env: credentials,
+        fetcher: (_url, init) =>
+          fetch(`http://127.0.0.1:${sourcePort}/start`, init),
+      })
+
+      expect(received).toEqual([])
+      expect(result).toMatchObject({ outcome: "failed", reason: "http" })
+    } finally {
+      source.closeAllConnections()
+      destination.closeAllConnections()
+      if (source.listening) {
+        await close(source)
+      }
+      if (destination.listening) {
+        await close(destination)
+      }
+    }
+  })
+
   it("uses read-only header authentication without a request body", async () => {
     const fetcher = vi.fn<PorkbunFetcher>(async () =>
       response({ status: "SUCCESS", domains: [] })

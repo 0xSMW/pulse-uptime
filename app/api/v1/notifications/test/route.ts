@@ -1,7 +1,8 @@
 import { z } from "zod"
 
-import { apiError, apiJson } from "@/lib/api/envelopes"
+import { apiError, apiJson, errorEnvelope } from "@/lib/api/envelopes"
 import { executeIdempotent } from "@/lib/api/idempotency"
+import { hasLiveScope } from "@/lib/api/live-authority"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
 import {
   OperationalInputError,
@@ -40,8 +41,24 @@ export async function POST(request: Request) {
       // completion commit together. The outbox unique key is a second line
       // of defense if a reclaim ever re-ran.
       mode: "atomic",
-      work: async (tx) =>
-        storedSuccess(
+      work: async (tx) => {
+        if (!("rollback" in tx)) {
+          throw new Error("Notification enqueue requires a transaction")
+        }
+        if (
+          !(await hasLiveScope(tx, context.principal, "notifications:test"))
+        ) {
+          return {
+            status: 403,
+            body: errorEnvelope(
+              "SCOPE_DENIED",
+              "The credential is no longer authorized",
+              context.requestId,
+              { scope: "notifications:test" }
+            ),
+          }
+        }
+        return storedSuccess(
           "NotificationTest",
           await operationalService.enqueueTestNotification({
             recipient: body.data.recipient,
@@ -54,7 +71,8 @@ export async function POST(request: Request) {
           }),
           context.requestId,
           202
-        ),
+        )
+      },
     })
     return apiJson(result.body, { status: result.status })
   } catch (error) {

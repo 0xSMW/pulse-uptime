@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 vi.mock("server-only", () => ({}))
 vi.mock("@/lib/db/client", () => ({ db: {} }))
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }))
+vi.mock("@/lib/api/live-authority", () => ({ hasLiveScope: vi.fn() }))
 vi.mock("@/lib/api/middleware", () => ({
   authorize: vi.fn(),
   isApiResponse: (value: unknown) => value instanceof Response,
@@ -18,7 +19,7 @@ vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
         context: { operationId: string }
       ) => Promise<{ status: number; body: unknown }>
     }) => ({
-      ...(await work("stub-tx", { operationId: "op-1" })),
+      ...(await work({ rollback: vi.fn() }, { operationId: "op-1" })),
       replayed: false,
     })
   ),
@@ -33,6 +34,7 @@ import { revalidatePath } from "next/cache"
 
 import { apiError, errorEnvelope } from "@/lib/api/envelopes"
 import { executeIdempotent } from "@/lib/api/idempotency"
+import { hasLiveScope } from "@/lib/api/live-authority"
 import { type ApiContext, authorize } from "@/lib/api/middleware"
 import {
   getStatusPageConfig,
@@ -84,6 +86,7 @@ function putRequest(body: unknown, headers: Record<string, string> = {}) {
 
 beforeEach(() => {
   vi.mocked(authorize).mockResolvedValue(context)
+  vi.mocked(hasLiveScope).mockReset().mockResolvedValue(true)
   vi.mocked(revalidatePath).mockReset()
   vi.mocked(executeIdempotent).mockClear()
   vi.mocked(getStatusPageConfig)
@@ -134,6 +137,19 @@ describe("GET /api/v1/status-page-config", () => {
 })
 
 describe("PUT /api/v1/status-page-config", () => {
+  it("rejects a revoked writer inside the transaction before changing public content", async () => {
+    vi.mocked(hasLiveScope).mockResolvedValue(false)
+
+    const response = await PUT(
+      putRequest({ name: "Changed" }, { "If-Match": '"5"' })
+    )
+
+    expect(response.status).toBe(403)
+    expect((await response.json()).error.code).toBe("SCOPE_DENIED")
+    expect(putStatusPageConfig).not.toHaveBeenCalled()
+    expect(revalidatePath).not.toHaveBeenCalled()
+  })
+
   it("requires the config:write scope", async () => {
     await PUT(putRequest({}, { "If-Match": '"0"' }))
     expect(authorize).toHaveBeenCalledWith(expect.any(Request), {
@@ -177,7 +193,7 @@ describe("PUT /api/v1/status-page-config", () => {
     expect(putStatusPageConfig).toHaveBeenCalledWith(
       { name: "Acme Status" },
       '"6"',
-      { handle: "stub-tx" }
+      { handle: expect.objectContaining({ rollback: expect.any(Function) }) }
     )
   })
 
@@ -190,7 +206,7 @@ describe("PUT /api/v1/status-page-config", () => {
     expect(putStatusPageConfig).toHaveBeenCalledWith(
       { name: "Acme Status" },
       '"5"',
-      { handle: "stub-tx" }
+      { handle: expect.objectContaining({ rollback: expect.any(Function) }) }
     )
     const payload = await response.json()
     expect(payload.kind).toBe("StatusPageConfig")
@@ -206,11 +222,12 @@ describe("PUT /api/v1/status-page-config", () => {
       ) => Promise<{ status: number; body: unknown }>
     }
     expect(options.mode).toBe("atomic")
-    await options.work("captured-tx", { operationId: "op-2" })
+    const capturedTx = { rollback: vi.fn() }
+    await options.work(capturedTx, { operationId: "op-2" })
     // The mock resolves putStatusPageConfig itself, so assert on the handle
     // that reached it directly rather than re-deriving it from the response.
     expect(vi.mocked(putStatusPageConfig).mock.calls.at(-1)?.[2]).toEqual({
-      handle: "captured-tx",
+      handle: capturedTx,
     })
   })
 
@@ -304,7 +321,7 @@ describe("PUT /api/v1/status-page-config", () => {
       ) => Promise<{ status: number; body: unknown }>
     }
     await expect(
-      options.work("stub-tx", { operationId: "op-1" })
+      options.work({ rollback: vi.fn() }, { operationId: "op-1" })
     ).resolves.toEqual({
       status: 412,
       body: errorEnvelope(

@@ -108,6 +108,43 @@ export async function loadExclusionSlots(
     )
 }
 
+// Match reporting's exclusionVersion without returning every minute in the
+// 90-day window to each live poll. Keep the ordering and UTC representation
+// identical to Date.toISOString() and Array.sort() in that helper.
+export async function loadExclusionVersion(
+  monitorId: string,
+  start: Date,
+  end: Date,
+  handle: DatabaseHandle = db
+): Promise<string> {
+  const downtime = sql<number>`case when ${incidents.openedAt} < ${incidentExclusionChecks.scheduledMinute} + interval '1 minute'
+    and (${incidents.resolvedAt} is null or ${incidents.resolvedAt} > ${incidentExclusionChecks.scheduledMinute})
+    then ${incidentExclusionChecks.downtimeSeconds} else 0 end`
+  const value = sql<string>`${incidentExclusionChecks.monitorId} || ':' ||
+    to_char(${incidentExclusionChecks.scheduledMinute} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') || ':' ||
+    case when ${incidentExclusionChecks.failed} then '1' else '0' end || ':' ||
+    (${downtime})::text`
+  const [row] = await handle
+    .select({
+      version: sql<string>`encode(sha256(convert_to(coalesce(string_agg(${value}, '|' order by ${value} collate "C"), ''), 'UTF8')), 'hex')`,
+    })
+    .from(incidentExclusionChecks)
+    .innerJoin(
+      incidentExclusions,
+      eq(incidentExclusions.id, incidentExclusionChecks.exclusionId)
+    )
+    .innerJoin(incidents, eq(incidents.id, incidentExclusions.incidentId))
+    .where(
+      and(
+        eq(incidentExclusionChecks.monitorId, monitorId),
+        gte(incidentExclusionChecks.scheduledMinute, start),
+        lt(incidentExclusionChecks.scheduledMinute, end),
+        isNull(incidentExclusions.revertedAt)
+      )
+    )
+  return row?.version ?? createHash("sha256").update("").digest("hex")
+}
+
 function serialize(
   row: typeof incidentExclusions.$inferSelect,
   affectedFailedChecks: number

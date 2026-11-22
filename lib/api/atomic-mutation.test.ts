@@ -6,15 +6,27 @@ vi.mock("@/lib/api/idempotency", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/idempotency")>()),
   executeIdempotent: vi.fn(),
 }))
+vi.mock("@/lib/api/live-authority", () => ({ hasLiveScope: vi.fn() }))
 
 import { apiError, errorEnvelope } from "@/lib/api/envelopes"
 import { executeIdempotent, type StoredResponse } from "@/lib/api/idempotency"
+import { hasLiveScope } from "@/lib/api/live-authority"
 import type { DatabaseHandle } from "@/lib/db/client"
 
 import { runAtomicMutation } from "./atomic-mutation"
 
 const stubTx = "stub-tx" as unknown as DatabaseHandle
-const context = { principalKey: "api_token:tok-1", requestId: "req-1" }
+const context = {
+  principalKey: "api_token:tok-1",
+  requestId: "req-1",
+  principal: {
+    type: "api_token" as const,
+    id: "tok-1",
+    name: "test",
+    scopes: ["monitors:write" as const],
+    expiresAt: new Date("2099-01-01T00:00:00Z"),
+  },
+}
 const body = { name: "Production" }
 
 function request() {
@@ -38,6 +50,7 @@ function input(
   return {
     request: request(),
     context,
+    scope: "monitors:write" as const,
     routeKey: "/api/v1/groups/production",
     body,
     work,
@@ -52,9 +65,36 @@ function input(
 
 beforeEach(() => {
   vi.mocked(executeIdempotent).mockReset()
+  vi.mocked(hasLiveScope).mockReset()
+  vi.mocked(hasLiveScope).mockResolvedValue(true)
 })
 
 describe("runAtomicMutation", () => {
+  it("stores a denial before work when authority changed after route authorization", async () => {
+    vi.mocked(hasLiveScope).mockResolvedValue(false)
+    vi.mocked(executeIdempotent).mockImplementation(async (options) => {
+      const result = await (
+        options.work as (
+          tx: DatabaseHandle,
+          operation: { operationId: string }
+        ) => Promise<{ status: number; body: unknown }>
+      )(stubTx, { operationId: "op-1" })
+      return { ...result, replayed: false }
+    })
+    const mutation = input()
+
+    const response = await runAtomicMutation(mutation)
+
+    expect(hasLiveScope).toHaveBeenCalledWith(
+      stubTx,
+      context.principal,
+      "monitors:write"
+    )
+    expect(mutation.work).not.toHaveBeenCalled()
+    expect(response.status).toBe(403)
+    expect((await response.json()).error.code).toBe("SCOPE_DENIED")
+  })
+
   it("preserves the idempotency route, body hash input, atomic mode, and transaction handle", async () => {
     vi.mocked(executeIdempotent).mockImplementation(async (options) => {
       expect(options).toMatchObject({

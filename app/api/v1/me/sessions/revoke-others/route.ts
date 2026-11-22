@@ -43,7 +43,12 @@ export async function POST(request: Request) {
     )
   } catch (error) {
     if (error instanceof AccountServiceError) {
-      return apiError(context.requestId, 400, error.code, error.message)
+      return apiError(
+        context.requestId,
+        error.code === "SESSION_REVOKED" ? 401 : 400,
+        error.code,
+        error.message
+      )
     }
     return routeError(error, context.requestId)
   }

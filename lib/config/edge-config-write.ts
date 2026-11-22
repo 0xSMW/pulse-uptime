@@ -29,6 +29,7 @@ export async function writeMonitoringEdgeConfig(
       body: JSON.stringify({
         items: [{ operation: "upsert", key: "monitoring", value: config }],
       }),
+      redirect: "manual",
       signal: AbortSignal.timeout(8000),
     }
   )

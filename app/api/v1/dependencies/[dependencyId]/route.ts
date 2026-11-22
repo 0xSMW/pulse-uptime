@@ -1,4 +1,7 @@
-import { dependencyError } from "@/lib/api/dependency-http"
+import {
+  deniedDependencyWrite,
+  dependencyError,
+} from "@/lib/api/dependency-http"
 import { apiJson, objectEnvelope } from "@/lib/api/envelopes"
 import { executeIdempotent } from "@/lib/api/idempotency"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
@@ -60,14 +63,20 @@ export async function PATCH(request: Request, { params }: Params) {
       routeKey: `/api/v1/dependencies/${dependencyId}`,
       body,
       mode: "atomic",
-      work: async (tx) => ({
-        status: 200,
-        body: objectEnvelope(
-          "Dependency",
-          await patchDependency(dependencyId, body, {}, tx),
-          context.requestId
-        ),
-      }),
+      work: async (tx) => {
+        const denied = await deniedDependencyWrite(tx, context)
+        if (denied) {
+          return denied
+        }
+        return {
+          status: 200,
+          body: objectEnvelope(
+            "Dependency",
+            await patchDependency(dependencyId, body, {}, tx),
+            context.requestId
+          ),
+        }
+      },
     })
     return apiJson(result.body, { status: result.status })
   } catch (error) {
@@ -97,10 +106,16 @@ export async function DELETE(request: Request, { params }: Params) {
       routeKey: `/api/v1/dependencies/${dependencyId}`,
       body: {},
       mode: "atomic",
-      work: async (tx) => ({
-        status: 204,
-        body: await removeDependency(dependencyId, {}, tx),
-      }),
+      work: async (tx) => {
+        const denied = await deniedDependencyWrite(tx, context)
+        if (denied) {
+          return denied
+        }
+        return {
+          status: 204,
+          body: await removeDependency(dependencyId, {}, tx),
+        }
+      },
     })
     return result.status === 204
       ? noContent()

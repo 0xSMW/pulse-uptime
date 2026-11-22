@@ -232,6 +232,27 @@
       "when": 1794638592658,
       "tag": "0032_organic_strong_guy",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1794698431978,
+      "tag": "0033_revoke_rotated_invites",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1794700107940,
+      "tag": "0034_invite_issuer_session",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1794700167669,
+      "tag": "0035_session_credential_provenance",
+      "breakpoints": true
     }
   ]
 }

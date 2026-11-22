@@ -8,6 +8,7 @@ import {
   objectEnvelope,
 } from "@/lib/api/envelopes"
 import { executeIdempotent, type StoredResponse } from "@/lib/api/idempotency"
+import { hasLiveScope } from "@/lib/api/live-authority"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
 import { routeError } from "@/lib/api/route"
 import {
@@ -120,6 +121,20 @@ export async function PUT(request: Request) {
       body: { ifMatch, document: body },
       mode: "atomic",
       work: async (tx) => {
+        if (!("rollback" in tx)) {
+          throw new Error("Status page configuration requires a transaction")
+        }
+        if (!(await hasLiveScope(tx, context.principal, "config:write"))) {
+          return {
+            status: 403,
+            body: errorEnvelope(
+              "SCOPE_DENIED",
+              "The credential is no longer authorized",
+              context.requestId,
+              { scope: "config:write" }
+            ),
+          }
+        }
         try {
           const { data } = await putStatusPageConfig(body, ifMatch, {
             handle: tx,

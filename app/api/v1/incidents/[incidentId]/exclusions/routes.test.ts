@@ -18,12 +18,14 @@ vi.mock("@/lib/incidents/exclusions", async (importOriginal) => {
   }
 })
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }))
+vi.mock("@/lib/api/live-authority", () => ({ hasLiveScope: vi.fn() }))
 vi.mock("@/lib/api/idempotency", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api/idempotency")>()
   return { ...actual, executeIdempotent: vi.fn() }
 })
 
 import { executeIdempotent } from "@/lib/api/idempotency"
+import { hasLiveScope } from "@/lib/api/live-authority"
 import { authenticatePrincipal } from "@/lib/api/principal"
 import {
   applyIncidentExclusion,
@@ -44,7 +46,11 @@ const body = {
   reason: "false alarm",
   previewVersion: "a".repeat(64),
 }
-function request(document: unknown = {}, origin = "https://pulse.example") {
+function request(
+  document: unknown = {},
+  origin = "https://pulse.example",
+  idempotencyKey = crypto.randomUUID()
+) {
   return new Request(
     `https://pulse.example/api/v1/incidents/${incidentId}/exclusions`,
     {
@@ -52,7 +58,7 @@ function request(document: unknown = {}, origin = "https://pulse.example") {
       headers: {
         Origin: origin,
         "Content-Type": "application/json",
-        "Idempotency-Key": crypto.randomUUID(),
+        "Idempotency-Key": idempotencyKey,
       },
       body: JSON.stringify(document),
     }
@@ -69,6 +75,7 @@ beforeEach(() => {
     role: "admin",
     scopes: ["monitors:write"],
   })
+  vi.mocked(hasLiveScope).mockResolvedValue(true)
 })
 describe("exclusion route authorization and request contracts", () => {
   it("denies viewers on preview, apply, and undo", async () => {
@@ -137,5 +144,82 @@ describe("exclusion route authorization and request contracts", () => {
         body,
       })
     )
+  })
+
+  it("stores a 403 when apply reaches its transaction after revocation", async () => {
+    vi.mocked(hasLiveScope).mockResolvedValue(false)
+    vi.mocked(applyIncidentExclusion).mockResolvedValue({
+      monitorId: "monitor-1",
+    } as never)
+    const stored = new Map<string, { status: number; body: unknown }>()
+    vi.mocked(executeIdempotent).mockImplementation(async (input) => {
+      const key = input.request.headers.get("Idempotency-Key")!
+      const replay = stored.get(key)
+      if (replay) {
+        return { ...replay, replayed: true }
+      }
+      if (input.mode !== "atomic") {
+        throw new Error("test requires atomic idempotency")
+      }
+      const result = await input.work({ rollback: vi.fn() } as never, {
+        operationId: exclusionId,
+      })
+      stored.set(key, result)
+      return { ...result, replayed: false }
+    })
+    const incoming = request(body)
+    const first = await apply(incoming, { params })
+    expect(first.status).toBe(403)
+    expect((await first.json()).error.code).toBe("SCOPE_DENIED")
+    expect(applyIncidentExclusion).not.toHaveBeenCalled()
+    expect(hasLiveScope).toHaveBeenCalledWith(
+      expect.objectContaining({ rollback: expect.any(Function) }),
+      expect.objectContaining({ type: "human", id: "admin" }),
+      "monitors:write"
+    )
+    const replay = await apply(
+      request(
+        body,
+        "https://pulse.example",
+        incoming.headers.get("Idempotency-Key")!
+      ),
+      { params }
+    )
+    expect(replay.status).toBe(403)
+    expect((await replay.json()).error.code).toBe("SCOPE_DENIED")
+    expect(applyIncidentExclusion).not.toHaveBeenCalled()
+    expect(hasLiveScope).toHaveBeenCalledTimes(1)
+  })
+
+  it("blocks undo before its store writes after revocation", async () => {
+    vi.mocked(hasLiveScope).mockResolvedValue(false)
+    vi.mocked(executeIdempotent).mockImplementation(async (input) => {
+      if (input.mode !== "atomic") {
+        throw new Error("test requires atomic idempotency")
+      }
+      const result = await input.work({ rollback: vi.fn() } as never, {
+        operationId: exclusionId,
+      })
+      return { ...result, replayed: false }
+    })
+
+    const response = await undo(request({}), { params })
+    expect(response.status).toBe(403)
+    expect((await response.json()).error.code).toBe("SCOPE_DENIED")
+    expect(undoIncidentExclusion).not.toHaveBeenCalled()
+  })
+
+  it("keeps preview read-only without a mutation authority transaction", async () => {
+    vi.mocked(hasLiveScope).mockResolvedValue(false)
+    vi.mocked(previewIncidentExclusion).mockResolvedValue({
+      incidentId,
+      monitorId: "monitor-1",
+    } as never)
+
+    const response = await preview(request({}), { params })
+    expect(response.status).toBe(200)
+    expect(previewIncidentExclusion).toHaveBeenCalledOnce()
+    expect(hasLiveScope).not.toHaveBeenCalled()
+    expect(executeIdempotent).not.toHaveBeenCalled()
   })
 })

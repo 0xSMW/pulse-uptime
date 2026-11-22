@@ -1,5 +1,6 @@
 import { apiError, apiJson, objectEnvelope } from "@/lib/api/envelopes"
 import { executeIdempotent } from "@/lib/api/idempotency"
+import { hasLiveScope } from "@/lib/api/live-authority"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
 import { routeError } from "@/lib/api/route"
 import { revokeApiToken } from "@/lib/api/token-service"
@@ -32,6 +33,9 @@ export async function DELETE(
       body: { tokenId },
       mode: "atomic",
       work: async (tx) => {
+        if (!(await hasLiveScope(tx, context.principal, "tokens:manage"))) {
+          return { status: 403, body: { token: null } }
+        }
         const token = await revokeApiToken(tokenId, new Date(), tx)
         if (!token) {
           return { status: 404, body: { token: null } }
@@ -47,6 +51,15 @@ export async function DELETE(
         }
       },
     })
+    if (result.status === 403) {
+      return apiError(
+        context.requestId,
+        403,
+        "SCOPE_DENIED",
+        "The credential is no longer authorized",
+        { scope: "tokens:manage" }
+      )
+    }
     if (!result.body.token) {
       return apiError(
         context.requestId,

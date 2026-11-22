@@ -7,7 +7,10 @@ export function isAllowedOrigin(
   }
 
   try {
-    return new URL(origin).origin === new URL(appUrl).origin
+    const supplied = new URL(origin)
+    return (
+      supplied.origin === origin && supplied.origin === new URL(appUrl).origin
+    )
   } catch {
     return false
   }
@@ -15,6 +18,9 @@ export function isAllowedOrigin(
 
 export function mutationOriginAllowed(request: Request) {
   const configured = process.env.NEXT_PUBLIC_APP_URL
+  if (!configured && process.env.NODE_ENV === "production") {
+    return false
+  }
   const appUrl = configured || new URL(request.url).origin
   return isAllowedOrigin(request.headers.get("origin"), appUrl)
 }

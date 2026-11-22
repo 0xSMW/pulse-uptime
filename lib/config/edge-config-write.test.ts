@@ -43,6 +43,7 @@ describe("writeMonitoringEdgeConfig", () => {
     const [url, init] = fetchSpy.mock.calls[0]!
     expect(String(url)).toContain("/edge-config/ecfg_test/items")
     expect(init?.method).toBe("PATCH")
+    expect(init?.redirect).toBe("manual")
     expect(JSON.parse(String(init?.body))).toEqual({
       items: [{ operation: "upsert", key: "monitoring", value: CONFIG }],
     })
@@ -60,5 +61,19 @@ describe("writeMonitoringEdgeConfig", () => {
       new Response(null, { status: 500 })
     )
     await expect(writeMonitoringEdgeConfig(CONFIG)).rejects.toThrow()
+  })
+
+  it("refuses a redirect while carrying the Vercel token", async () => {
+    const fetchSpy = vi
+      .spyOn(global, "fetch")
+      .mockResolvedValue(Response.redirect("https://other.example/", 302))
+
+    await expect(writeMonitoringEdgeConfig(CONFIG)).rejects.toThrow(
+      "Edge Config write failed"
+    )
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ redirect: "manual" })
+    )
   })
 })

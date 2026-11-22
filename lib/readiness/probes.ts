@@ -120,6 +120,7 @@ export function createEdgeConfigProbe(
         {
           headers: { Authorization: `Bearer ${connection.token}` },
           cache: "no-store",
+          redirect: "manual",
           signal,
         }
       )
@@ -151,6 +152,7 @@ export function createEdgeConfigProbe(
               },
             ],
           }),
+          redirect: "manual",
           signal,
         }
       )
@@ -205,8 +207,13 @@ export function createEmailProbe(
       const listResponse = await fetcher(`${RESEND_API_BASE}/domains`, {
         method: "GET",
         headers,
+        redirect: "manual",
         signal,
       })
+
+      if (listResponse.status >= 300 && listResponse.status < 400) {
+        return emailWarning("EMAIL_API_UNAVAILABLE")
+      }
 
       if (!listResponse.ok) {
         const delivery = await sendReadinessEmail({
@@ -259,6 +266,7 @@ async function sendReadinessEmail(input: {
       subject: "Pulse email readiness check",
       text: "Pulse verified this sender for outage and recovery alerts.",
     }),
+    redirect: "manual",
     signal: input.signal,
   })
   if (!response.ok) {

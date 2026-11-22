@@ -91,6 +91,7 @@ import type { DatabaseHandle } from "@/lib/db/client"
 import {
   approveDeviceAuthorization,
   DeviceAuthorizationError,
+  denyDeviceAuthorization,
   pollDeviceAuthorization,
   requireReplayableCliSession,
   startDeviceAuthorization,
@@ -170,6 +171,7 @@ describe("approveDeviceAuthorization", () => {
       installationKey: "install-key-1",
       userEmail: human.email,
       userId: human.id,
+      authorizedByHumanSessionId: human.sessionId,
       credentialEpoch: 7,
       displayName: "laptop",
       platform: "darwin",
@@ -199,6 +201,41 @@ describe("approveDeviceAuthorization", () => {
 
     expect(db.impl.update).not.toHaveBeenCalled()
     expect(db.impl.insert).not.toHaveBeenCalled()
+  })
+})
+
+describe("denyDeviceAuthorization", () => {
+  const now = new Date("2026-07-18T12:00:00.000Z")
+  const human = {
+    id: "human-1",
+    sessionId: "session-1",
+    email: "owner@example.com",
+  }
+
+  it("denies a pending request for an active administrator session", async () => {
+    db.selectResults.push([{ email: human.email, userId: human.id }])
+    db.updateResults.push([{ id: "auth-1" }])
+
+    await expect(
+      denyDeviceAuthorization("abcd-1234", human, now)
+    ).resolves.toBe(true)
+
+    expect(db.impl.update).toHaveBeenCalledTimes(1)
+    expect(db.updateSetValues[0]).toMatchObject({
+      state: "denied",
+      deniedAt: now,
+    })
+  })
+
+  it("rejects a session revoked after action admission before changing the pending request", async () => {
+    db.selectResults.push([])
+    db.updateResults.push([{ id: "auth-1" }])
+
+    await expect(
+      denyDeviceAuthorization("abcd-1234", human, now)
+    ).rejects.toMatchObject({ code: "access_denied" })
+
+    expect(db.impl.update).not.toHaveBeenCalled()
   })
 })
 

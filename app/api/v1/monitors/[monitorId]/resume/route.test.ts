@@ -6,6 +6,7 @@ const { idempotencyRecords } = vi.hoisted(() => ({
 
 vi.mock("server-only", () => ({}))
 vi.mock("@/lib/db/client", () => ({ db: {} }))
+vi.mock("@/lib/api/live-authority", () => ({ hasLiveScope: vi.fn() }))
 vi.mock("@/lib/api/middleware", () => ({
   authorize: vi.fn(),
   isApiResponse: (value: unknown) => value instanceof Response,
@@ -44,6 +45,7 @@ vi.mock("@/lib/api/monitors", async (importOriginal) => ({
   setMonitorEnabled: vi.fn(),
 }))
 
+import { hasLiveScope } from "@/lib/api/live-authority"
 import { type ApiContext, authorize } from "@/lib/api/middleware"
 import { MonitorApiError, setMonitorEnabled } from "@/lib/api/monitors"
 
@@ -96,6 +98,7 @@ function request(key = crypto.randomUUID()) {
 beforeEach(() => {
   idempotencyRecords.clear()
   vi.mocked(authorize).mockReset().mockResolvedValue(context)
+  vi.mocked(hasLiveScope).mockReset().mockResolvedValue(true)
   vi.mocked(setMonitorEnabled).mockReset()
 })
 

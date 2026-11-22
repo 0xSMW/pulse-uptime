@@ -4,6 +4,7 @@ import { z } from "zod"
 
 import { apiError, apiJson, errorEnvelope, objectEnvelope } from "./envelopes"
 import { executeIdempotent, type StoredResponse } from "./idempotency"
+import { hasLiveScope } from "./live-authority"
 import { authorize, isApiResponse } from "./middleware"
 import { MonitorApiError, setMonitorEnabled } from "./monitors"
 import { routeError } from "./route"
@@ -99,6 +100,17 @@ export function monitorEnabledRoute(config: {
         body: {},
         mode: "atomic",
         work: async (tx) => {
+          if (!(await hasLiveScope(tx, context.principal, "monitors:write"))) {
+            return {
+              status: 403,
+              body: errorEnvelope(
+                "SCOPE_DENIED",
+                "The credential is no longer authorized",
+                context.requestId,
+                { scope: "monitors:write" }
+              ),
+            }
+          }
           try {
             return {
               status: 200,

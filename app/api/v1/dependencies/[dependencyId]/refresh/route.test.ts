@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("server-only", () => ({}))
 vi.mock("@/lib/db/client", () => ({ db: {} }))
+vi.mock("@/lib/api/live-authority", () => ({ hasLiveScope: vi.fn() }))
 vi.mock("@/lib/api/middleware", () => ({
   authorize: vi.fn(),
   isApiResponse: (value: unknown) => value instanceof Response,
@@ -27,6 +28,7 @@ vi.mock("@/lib/dependencies/service", async (importOriginal) => ({
   scheduleDependencyPoll: vi.fn(),
 }))
 
+import { hasLiveScope } from "@/lib/api/live-authority"
 import { type ApiContext, authorize } from "@/lib/api/middleware"
 import {
   DependencyApiError,
@@ -57,6 +59,7 @@ function refreshRequest() {
 }
 
 beforeEach(() => {
+  vi.mocked(hasLiveScope).mockReset().mockResolvedValue(true)
   vi.mocked(authorize).mockReset().mockResolvedValue(context)
   vi.mocked(scheduleDependencyPoll)
     .mockReset()
@@ -64,6 +67,14 @@ beforeEach(() => {
 })
 
 describe("POST /api/v1/dependencies/{dependencyId}/refresh", () => {
+  it("does not schedule a poll after live write authority is revoked", async () => {
+    vi.mocked(hasLiveScope).mockResolvedValue(false)
+    const response = await POST(refreshRequest(), params)
+    expect(response.status).toBe(403)
+    expect((await response.json()).error.code).toBe("SCOPE_DENIED")
+    expect(scheduleDependencyPoll).not.toHaveBeenCalled()
+  })
+
   it("requires the dependencies:write scope and returns 202 with a queued ack, never fetching inline", async () => {
     const response = await POST(refreshRequest(), params)
     expect(authorize).toHaveBeenCalledWith(expect.any(Request), {

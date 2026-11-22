@@ -41,10 +41,12 @@ describe("email readiness probe", () => {
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input)
         if (url.endsWith("/domains")) {
+          expect(init?.redirect).toBe("manual")
           return jsonResponse({ message: "restricted" }, 403)
         }
         if (url.endsWith("/emails")) {
           expect(init?.method).toBe("POST")
+          expect(init?.redirect).toBe("manual")
           expect(new Headers(init?.headers).get("Idempotency-Key")).toBe(
             "pulse-readiness-example.com"
           )
@@ -89,6 +91,23 @@ describe("email readiness probe", () => {
     expect(fetcher).toHaveBeenCalledTimes(1)
   })
 
+  it("does not follow a Resend redirect or send a fallback email", async () => {
+    const fetcher = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        expect(init?.redirect).toBe("manual")
+        return Response.redirect("https://other.example/capture", 302)
+      }
+    )
+
+    await expect(
+      createEmailProbe(env, fetcher)(options())
+    ).resolves.toMatchObject({
+      state: "warning",
+      code: "EMAIL_API_UNAVAILABLE",
+    })
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
+
   it("aborts email HTTP when the deadline signal fires", async () => {
     const controller = new AbortController()
     const fetcher = vi.fn(async (_input, init?: RequestInit) => {
@@ -125,11 +144,13 @@ describe("edge readiness probe", () => {
         const url = String(input)
         if (url.includes("edge-config.vercel.com")) {
           expect(init?.signal).toBeDefined()
+          expect(init?.redirect).toBe("manual")
           return jsonResponse({ monitoring: { ok: true } })
         }
         if (url.includes("/v1/edge-config/ecfg_1/items")) {
           expect(init?.method).toBe("PATCH")
           expect(init?.signal).toBeDefined()
+          expect(init?.redirect).toBe("manual")
           expect(JSON.parse(String(init?.body))).toMatchObject({
             items: [
               {

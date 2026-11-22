@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("server-only", () => ({}))
+vi.mock("@/lib/api/live-authority", () => ({
+  hasLiveScope: vi.fn(async () => true),
+}))
 vi.mock("@/lib/db/client", () => ({ db: {} }))
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }))
 vi.mock("@/lib/api/middleware", () => ({

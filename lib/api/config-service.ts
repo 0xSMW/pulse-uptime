@@ -17,10 +17,13 @@ import {
 } from "@/lib/config"
 import { findAcceptedSnapshot } from "@/lib/config/accepted-config"
 import { writeMonitoringEdgeConfig } from "@/lib/config/edge-config-write"
-import { db } from "@/lib/db/client"
+import { type DatabaseTransaction, db } from "@/lib/db/client"
 import { configChangeApprovals, configOperations } from "@/lib/db/schema"
 
 import { lockConfiguration as acquireConfigurationLock } from "./configuration-lock"
+import { hasLiveScope } from "./live-authority"
+import type { Principal } from "./principal"
+import type { ApiScope } from "./scopes"
 
 export const CONFIG_OPERATION_RETENTION_SECONDS = 7 * 24 * 60 * 60
 
@@ -43,7 +46,8 @@ class ConfigurationServiceError extends Error {
     readonly code:
       | "CONFIG_NOT_INITIALIZED"
       | "CONFIG_VERSION_CONFLICT"
-      | "EDGE_CONFIG_WRITE_FAILED",
+      | "EDGE_CONFIG_WRITE_FAILED"
+      | "AUTHORIZATION_REVOKED",
     message: string,
     options?: ErrorOptions
   ) {
@@ -64,6 +68,7 @@ export interface ConfigurationStore {
   readAccepted: () => Promise<AcceptedConfigSnapshot | null>
   transaction: <T>(
     work: (tx: {
+      hasLiveScope: (principal: Principal, scope: ApiScope) => Promise<boolean>
       lockConfiguration: () => Promise<void>
       readAccepted: () => Promise<AcceptedConfigSnapshot | null>
       findOperation: (
@@ -86,6 +91,7 @@ export interface ConfigurationService {
     targetConfig: unknown
   }) => Promise<ConfigurationPlan>
   apply: (input: {
+    principal: Principal
     principalKey: string
     requestId: string
     idempotencyKey: string
@@ -166,6 +172,8 @@ function createDatabaseStore(): ConfigurationStore {
       await db.transaction(
         async (tx) =>
           await work({
+            hasLiveScope: (principal, scope) =>
+              hasLiveScope(tx as DatabaseTransaction, principal, scope),
             lockConfiguration: async () => {
               await acquireConfigurationLock(tx)
             },
@@ -247,6 +255,12 @@ export function createConfigurationService(
     },
     apply: async (input) =>
       await store.transaction(async (tx) => {
+        if (!(await tx.hasLiveScope(input.principal, "config:write"))) {
+          throw new ConfigurationServiceError(
+            "AUTHORIZATION_REVOKED",
+            "Configuration write authorization is no longer active"
+          )
+        }
         await tx.lockConfiguration()
         const existing = await tx.findOperation(
           input.principalKey,

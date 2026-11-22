@@ -10,6 +10,9 @@ vi.mock("@/lib/api/middleware", () => ({
   authorize: vi.fn(),
   isApiResponse: (value: unknown) => value instanceof Response,
 }))
+vi.mock("@/lib/api/live-authority", () => ({
+  hasLiveScope: vi.fn(async () => true),
+}))
 // Mimics executeIdempotent's real completion semantics well enough to test
 // the routes' error-storing behavior without touching lib/api/idempotency.ts:
 // a completed key replays its stored response and never calls work() again,

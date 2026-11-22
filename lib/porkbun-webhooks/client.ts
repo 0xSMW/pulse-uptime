@@ -457,6 +457,7 @@ export class PorkbunWebhookClient {
           "X-Secret-API-Key": this.secretKey,
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        redirect: "manual",
         signal: AbortSignal.timeout(PORKBUN_TIMEOUT_MS),
       })
     } catch (error) {
@@ -470,6 +471,15 @@ export class PorkbunWebhookClient {
     }
 
     const requestId = response.headers.get("x-request-id")
+    if (response.status >= 300 && response.status < 400) {
+      return {
+        outcome: "failed",
+        reason: "http",
+        code: null,
+        httpStatus: response.status,
+        requestId,
+      }
+    }
     let text: string | null
     try {
       text = await readCappedBody(response)
