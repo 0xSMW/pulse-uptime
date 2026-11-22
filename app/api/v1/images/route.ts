@@ -15,6 +15,48 @@ export const AVATAR_UPLOAD_LIMIT = {
   windowSeconds: 300,
 } as const
 
+const MAX_UPLOAD_REQUEST_BYTES = 1024 * 1024
+
+/** Cap the entire multipart body before the form parser allocates its fields. */
+async function parseBoundedFormData(
+  request: Request
+): Promise<FormData | "too-large"> {
+  const declaredLength = request.headers.get("content-length")
+  if (
+    declaredLength &&
+    /^\d+$/.test(declaredLength) &&
+    Number(declaredLength) > MAX_UPLOAD_REQUEST_BYTES
+  ) {
+    return "too-large"
+  }
+
+  if (!request.body) {
+    return request.formData()
+  }
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) {
+        break
+      }
+      size += value.byteLength
+      if (size > MAX_UPLOAD_REQUEST_BYTES) {
+        await reader.cancel().catch(() => undefined)
+        return "too-large"
+      }
+      chunks.push(value)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  return new Response(Buffer.concat(chunks, size), {
+    headers: { "Content-Type": request.headers.get("content-type") ?? "" },
+  }).formData()
+}
+
 /**
  * Multipart image upload for status page branding and account avatars.
  * Branding kinds require config:write. Avatars are self-service, so any
@@ -27,7 +69,16 @@ export async function POST(request: Request) {
   }
   let form: FormData
   try {
-    form = await request.formData()
+    const parsed = await parseBoundedFormData(request)
+    if (parsed === "too-large") {
+      return apiError(
+        context.requestId,
+        413,
+        "IMAGE_TOO_LARGE",
+        "Upload request must be at most 1 MiB"
+      )
+    }
+    form = parsed
   } catch {
     return apiError(
       context.requestId,
@@ -93,6 +144,7 @@ export async function POST(request: Request) {
       kind,
       mimeType: file.type,
       bytes: Buffer.from(await file.arrayBuffer()),
+      principal: context.principal,
       uploadedByUserId:
         kind === "avatar" && context.principal.type === "human"
           ? context.principal.id
@@ -103,7 +155,12 @@ export async function POST(request: Request) {
     })
   } catch (error) {
     if (error instanceof ImageServiceError) {
-      return apiError(context.requestId, 400, error.code, error.message)
+      return apiError(
+        context.requestId,
+        error.code === "SCOPE_DENIED" ? 403 : 400,
+        error.code,
+        error.message
+      )
     }
     return routeError(error, context.requestId)
   }

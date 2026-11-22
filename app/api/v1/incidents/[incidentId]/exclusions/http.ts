@@ -7,6 +7,7 @@ import {
   objectEnvelope,
 } from "@/lib/api/envelopes"
 import { executeIdempotent } from "@/lib/api/idempotency"
+import { hasLiveScope } from "@/lib/api/live-authority"
 import type { ApiContext } from "@/lib/api/middleware"
 import { routeError } from "@/lib/api/route"
 import type { DatabaseHandle } from "@/lib/db/client"
@@ -50,6 +51,17 @@ export async function runExclusionMutation(
       body,
       mode: "atomic",
       work: async (tx, operation) => {
+        if (!(await hasLiveScope(tx, context.principal, "monitors:write"))) {
+          return {
+            status: 403,
+            body: errorEnvelope(
+              "SCOPE_DENIED",
+              "The credential no longer has the required scope",
+              context.requestId,
+              { scope: "monitors:write" }
+            ),
+          }
+        }
         try {
           const data = await work(tx, operation.operationId)
           monitorId = data.monitorId

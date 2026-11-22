@@ -4,7 +4,12 @@ import {
   configErrorCode,
   configurationService,
 } from "@/lib/api/config-service"
-import { apiError, apiJson, objectEnvelope } from "@/lib/api/envelopes"
+import {
+  apiError,
+  apiJson,
+  errorEnvelope,
+  objectEnvelope,
+} from "@/lib/api/envelopes"
 import { executeIdempotent } from "@/lib/api/idempotency"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
 import type { ConfigurationApplyRequest } from "@/lib/config"
@@ -17,7 +22,7 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as ConfigurationApplyRequest
     const idempotencyKey = request.headers.get("idempotency-key")?.trim() ?? ""
-    const result = await executeIdempotent({
+    const result = await executeIdempotent<unknown>({
       request,
       principalKey: context.principalKey,
       routeKey: "config.apply",
@@ -26,20 +31,38 @@ export async function POST(request: Request) {
       // Apply is keyed by principal + key and has its own durable operation
       // record, so a stale reclaim that re-runs apply is safe.
       mode: "replay_safe",
-      work: async () => ({
-        status: 202,
-        body: objectEnvelope(
-          "ConfigurationOperation",
-          await configurationService.apply({
+      work: async () => {
+        try {
+          const operation = await configurationService.apply({
+            principal: context.principal,
             principalKey: context.principalKey,
             requestId: context.requestId,
             idempotencyKey,
             ifMatch: request.headers.get("if-match"),
             request: body,
-          }),
-          context.requestId
-        ),
-      }),
+          })
+          return {
+            status: 202,
+            body: objectEnvelope(
+              "ConfigurationOperation",
+              operation,
+              context.requestId
+            ),
+          }
+        } catch (error) {
+          if (configErrorCode(error) === "AUTHORIZATION_REVOKED") {
+            return {
+              status: 403,
+              body: errorEnvelope(
+                "AUTHORIZATION_REVOKED",
+                "Configuration write authorization is no longer active",
+                context.requestId
+              ),
+            }
+          }
+          throw error
+        }
+      },
     })
     return apiJson(result.body, {
       status: result.status,
@@ -65,16 +88,18 @@ export async function POST(request: Request) {
     }
     const code = configErrorCode(error)
     const status =
-      code === "PRECONDITION_MISMATCH" ||
-      code === "TARGET_CONFIG_HASH_MISMATCH" ||
-      code === "PLAN_HASH_MISMATCH" ||
-      code === "DESTRUCTIVE_CONSENT_REQUIRED"
-        ? 400
-        : code === "CONFIG_VERSION_CONFLICT"
-          ? 409
-          : code === "EDGE_CONFIG_WRITE_FAILED"
-            ? 503
-            : 500
+      code === "AUTHORIZATION_REVOKED"
+        ? 403
+        : code === "PRECONDITION_MISMATCH" ||
+            code === "TARGET_CONFIG_HASH_MISMATCH" ||
+            code === "PLAN_HASH_MISMATCH" ||
+            code === "DESTRUCTIVE_CONSENT_REQUIRED"
+          ? 400
+          : code === "CONFIG_VERSION_CONFLICT"
+            ? 409
+            : code === "EDGE_CONFIG_WRITE_FAILED"
+              ? 503
+              : 500
     return apiError(
       context.requestId,
       status,

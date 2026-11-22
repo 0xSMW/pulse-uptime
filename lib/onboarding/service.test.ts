@@ -30,6 +30,13 @@ import {
   validateDraft,
 } from "./service"
 
+const ACTOR = {
+  userId: "user-1",
+  sessionId: "session-1",
+  email: "admin@example.com",
+  role: "admin" as const,
+}
+
 function successCheck(url = "https://example.com/"): CheckResult {
   return {
     mode: "manual",
@@ -80,6 +87,9 @@ interface Progress {
 }
 
 interface FakeWorld {
+  sessionActive: boolean
+  adminRole: boolean
+  activeTransactions: number
   progress: Progress
   accepted: { config: MonitoringConfig; hash: string } | null
   registry: {
@@ -124,13 +134,38 @@ function createFakeStore(world: FakeWorld): OnboardingMonitorStore {
     }
   }
 
-  const makeTx = (): OnboardingMonitorTx => ({
+  const makeTx = (onConfigurationLock: () => void): OnboardingMonitorTx => ({
+    assertActiveAdmin: async (actor) => {
+      if (
+        !(world.sessionActive && world.adminRole) ||
+        actor.userId !== ACTOR.userId ||
+        actor.sessionId !== ACTOR.sessionId
+      ) {
+        throw new OnboardingError(
+          "ADMIN_SESSION_REVOKED",
+          "Administrator session is no longer active"
+        )
+      }
+    },
+    assertActiveSession: async (userId, sessionId) => {
+      if (
+        !world.sessionActive ||
+        userId !== ACTOR.userId ||
+        sessionId !== ACTOR.sessionId
+      ) {
+        throw new OnboardingError(
+          "SESSION_REVOKED",
+          "The current session is no longer active"
+        )
+      }
+    },
     lockConfiguration: async () => {
       // Simulate exclusive critical section for concurrent callers sharing world.
       while (world.lockHeld) {
         await new Promise((resolve) => setTimeout(resolve, 5))
       }
       world.lockHeld = true
+      onConfigurationLock()
     },
     readProgress,
     readAccepted: async () => world.accepted,
@@ -230,10 +265,19 @@ function createFakeStore(world: FakeWorld): OnboardingMonitorStore {
     },
     readProgress,
     transaction: async (work) => {
+      let ownsConfigurationLock = false
+      world.activeTransactions += 1
       try {
-        return await work(makeTx())
+        return await work(
+          makeTx(() => {
+            ownsConfigurationLock = true
+          })
+        )
       } finally {
-        world.lockHeld = false
+        world.activeTransactions -= 1
+        if (ownsConfigurationLock) {
+          world.lockHeld = false
+        }
       }
     },
   }
@@ -241,6 +285,9 @@ function createFakeStore(world: FakeWorld): OnboardingMonitorStore {
 
 function freshWorld(overrides: Partial<Progress> = {}): FakeWorld {
   return {
+    sessionActive: true,
+    adminRole: true,
+    activeTransactions: 0,
     progress: {
       userId: "user-1",
       currentStep: "monitor",
@@ -333,7 +380,7 @@ describe("onboarding state machine", () => {
     expect(world.progress.currentStep).toBe("verify")
 
     const activated = await activateFirstMonitor(
-      "user-1",
+      ACTOR,
       { alertEmail: "admin@example.com" },
       {
         store,
@@ -358,9 +405,144 @@ describe("onboarding state machine", () => {
     expect(edgeWrites).toHaveLength(1)
     expect(edgeWrites[0]!.configVersion).toBe(1)
 
-    await completeOnboarding("user-1", { store })
+    await completeOnboarding(ACTOR, { store })
     expect(world.progress.completedAt).toBeInstanceOf(Date)
     expect(world.adminCompletedAt).toBeInstanceOf(Date)
+  })
+
+  it("runs database-backed readiness outside the authority transaction and the site probe inside it", async () => {
+    const world = freshWorld({
+      currentStep: "verify",
+      draftMonitor: { url: "https://example.com/", name: "Main" },
+    })
+    await activateFirstMonitor(
+      ACTOR,
+      {},
+      {
+        store: createFakeStore(world),
+        checkReadiness: async () => {
+          expect(world.activeTransactions).toBe(0)
+          return { canContinue: true }
+        },
+        runCheck: async () => {
+          expect(world.activeTransactions).toBe(1)
+          return successCheck()
+        },
+        writeEdgeConfig: async () => undefined,
+      }
+    )
+    expect(world.activeTransactions).toBe(0)
+  })
+
+  it.each(["revoked", "demoted"] as const)(
+    "rejects activation when the admitted admin session is %s after the probe",
+    async (change) => {
+      const world = freshWorld({
+        currentStep: "verify",
+        draftMonitor: { url: "https://example.com/", name: "Main" },
+      })
+      const store = createFakeStore(world)
+      const originalTransaction = store.transaction.bind(store)
+      let transactionCount = 0
+      store.transaction = async (work) => {
+        const result = await originalTransaction(work)
+        transactionCount += 1
+        if (transactionCount === 1) {
+          if (change === "revoked") {
+            world.sessionActive = false
+          } else {
+            world.adminRole = false
+          }
+        }
+        return result
+      }
+      const writeEdgeConfig = vi.fn(async () => undefined)
+
+      await expect(
+        activateFirstMonitor(
+          ACTOR,
+          {},
+          {
+            store,
+            checkReadiness: async () => ({ canContinue: true }),
+            runCheck: async () => successCheck(),
+            writeEdgeConfig,
+          }
+        )
+      ).rejects.toMatchObject({ code: "ADMIN_SESSION_REVOKED" })
+
+      expect(world.progress.currentStep).toBe("verify")
+      expect(world.snapshots).toEqual([])
+      expect(world.registry).toEqual([])
+      expect(world.accepted).toBeNull()
+      expect(writeEdgeConfig).not.toHaveBeenCalled()
+    }
+  )
+
+  it("does not run the site probe after the admitted admin session is revoked", async () => {
+    const world = freshWorld({
+      currentStep: "verify",
+      draftMonitor: { url: "https://example.com/", name: "Main" },
+    })
+    const store = createFakeStore(world)
+    const originalTransaction = store.transaction.bind(store)
+    store.transaction = async (work) => {
+      world.sessionActive = false
+      return originalTransaction(work)
+    }
+    const checkReadiness = vi.fn(async () => ({ canContinue: true }))
+    const runCheck = vi.fn(async () => successCheck())
+    const writeEdgeConfig = vi.fn(async () => undefined)
+
+    await expect(
+      activateFirstMonitor(
+        ACTOR,
+        {},
+        {
+          store,
+          checkReadiness,
+          runCheck,
+          writeEdgeConfig,
+        }
+      )
+    ).rejects.toMatchObject({ code: "ADMIN_SESSION_REVOKED" })
+
+    expect(checkReadiness).toHaveBeenCalledOnce()
+    expect(runCheck).not.toHaveBeenCalled()
+    expect(writeEdgeConfig).not.toHaveBeenCalled()
+    expect(world.progress.currentStep).toBe("verify")
+  })
+
+  it("does not probe a draft changed after admission", async () => {
+    const world = freshWorld({
+      currentStep: "verify",
+      draftMonitor: { url: "https://example.com/", name: "Main" },
+    })
+    const store = createFakeStore(world)
+    const originalTransaction = store.transaction.bind(store)
+    store.transaction = async (work) => {
+      world.progress.draftMonitor = {
+        url: "https://other.example/",
+        name: "Other",
+      }
+      return originalTransaction(work)
+    }
+    const runCheck = vi.fn(async () => successCheck())
+
+    await expect(
+      activateFirstMonitor(
+        ACTOR,
+        {},
+        {
+          store,
+          checkReadiness: async () => ({ canContinue: true }),
+          runCheck,
+        }
+      )
+    ).rejects.toMatchObject({ code: "ONBOARDING_STATE_CONFLICT" })
+    expect(runCheck).not.toHaveBeenCalled()
+    expect(world.progress.currentStep).toBe("verify")
+    expect(world.accepted).toBeNull()
   })
 
   it("rejects direct completion before activation (both rows stay incomplete)", async () => {
@@ -370,14 +552,44 @@ describe("onboarding state machine", () => {
     })
     const store = createFakeStore(world)
 
-    await expect(completeOnboarding("user-1", { store })).rejects.toMatchObject(
-      {
-        code: "ONBOARDING_STATE_CONFLICT",
-      }
-    )
+    await expect(completeOnboarding(ACTOR, { store })).rejects.toMatchObject({
+      code: "ONBOARDING_STATE_CONFLICT",
+    })
     expect(world.progress.completedAt).toBeNull()
     expect(world.adminCompletedAt).toBeNull()
     expect(world.progress.currentStep).toBe("verify")
+  })
+
+  it("rejects completion if the admitted human session is revoked before its transaction", async () => {
+    const world = freshWorld({
+      currentStep: "getting_started",
+      draftMonitor: { url: "https://example.com/", name: "Main" },
+    })
+    const config = baseConfig(1, [
+      createMonitorWithDefaults({
+        id: "main",
+        name: "Main",
+        url: "https://example.com/",
+      }),
+    ])
+    const hash = hashMonitoringConfig(config)
+    world.accepted = { config, hash }
+    world.registry = [
+      { id: "main", enabled: true, configHash: hash, archivedAt: null },
+    ]
+    const store = createFakeStore(world)
+    const originalTransaction = store.transaction.bind(store)
+    store.transaction = async (work) => {
+      world.sessionActive = false
+      return originalTransaction(work)
+    }
+
+    await expect(completeOnboarding(ACTOR, { store })).rejects.toMatchObject({
+      code: "SESSION_REVOKED",
+    })
+    expect(world.progress.completedAt).toBeNull()
+    expect(world.adminCompletedAt).toBeNull()
+    expect(world.progress.currentStep).toBe("getting_started")
   })
 
   it("rejects duplicate activation after step advanced", async () => {
@@ -393,9 +605,9 @@ describe("onboarding state machine", () => {
       writeEdgeConfig: async () => undefined,
     }
 
-    await activateFirstMonitor("user-1", { alertEmail: "a@example.com" }, deps)
+    await activateFirstMonitor(ACTOR, { alertEmail: "a@example.com" }, deps)
     await expect(
-      activateFirstMonitor("user-1", { alertEmail: "stale@example.com" }, deps)
+      activateFirstMonitor(ACTOR, { alertEmail: "stale@example.com" }, deps)
     ).rejects.toMatchObject({ code: "ONBOARDING_STATE_CONFLICT" })
 
     expect(world.progress.currentStep).toBe("getting_started")
@@ -439,7 +651,7 @@ describe("onboarding state machine", () => {
     }
 
     await expect(
-      activateFirstMonitor("user-1", { alertEmail: "a@example.com" }, deps)
+      activateFirstMonitor(ACTOR, { alertEmail: "a@example.com" }, deps)
     ).rejects.toThrow("Edge Config unavailable")
 
     expect(world.progress.currentStep).toBe("verify")
@@ -448,7 +660,7 @@ describe("onboarding state machine", () => {
     expect(world.snapshots).toEqual([])
 
     const activated = await activateFirstMonitor(
-      "user-1",
+      ACTOR,
       { alertEmail: "a@example.com" },
       deps
     )
@@ -478,7 +690,7 @@ describe("onboarding state machine", () => {
     }
 
     const first = activateFirstMonitor(
-      "user-1",
+      ACTOR,
       { alertEmail: "winner@example.com" },
       deps
     )
@@ -486,7 +698,7 @@ describe("onboarding state machine", () => {
     await new Promise((resolve) => setTimeout(resolve, 20))
 
     const second = activateFirstMonitor(
-      "user-1",
+      ACTOR,
       { alertEmail: "loser@example.com" },
       deps
     )
@@ -516,7 +728,7 @@ describe("onboarding state machine", () => {
     })
     const store = createFakeStore(world)
     const result = await activateFirstMonitor(
-      "user-1",
+      ACTOR,
       { alertEmail: "admin@example.com" },
       {
         store,
@@ -561,7 +773,7 @@ describe("onboarding state machine", () => {
 
     const store = createFakeStore(world)
     const result = await activateFirstMonitor(
-      "user-1",
+      ACTOR,
       { alertEmail: "admin@example.com" },
       {
         store,
@@ -588,9 +800,9 @@ describe("onboarding state machine", () => {
     const store = createFakeStore(world)
 
     // No accepted snapshot yet.
-    await expect(completeOnboarding("user-1", { store })).rejects.toMatchObject(
-      { code: "ONBOARDING_STATE_CONFLICT" }
-    )
+    await expect(completeOnboarding(ACTOR, { store })).rejects.toMatchObject({
+      code: "ONBOARDING_STATE_CONFLICT",
+    })
     expect(world.progress.completedAt).toBeNull()
     expect(world.adminCompletedAt).toBeNull()
 
@@ -612,14 +824,14 @@ describe("onboarding state machine", () => {
         archivedAt: null,
       },
     ]
-    await expect(completeOnboarding("user-1", { store })).rejects.toMatchObject(
-      { code: "ONBOARDING_STATE_CONFLICT" }
-    )
+    await expect(completeOnboarding(ACTOR, { store })).rejects.toMatchObject({
+      code: "ONBOARDING_STATE_CONFLICT",
+    })
     expect(world.progress.completedAt).toBeNull()
     expect(world.adminCompletedAt).toBeNull()
 
     world.registry[0]!.configHash = hash
-    await completeOnboarding("user-1", { store })
+    await completeOnboarding(ACTOR, { store })
     expect(world.progress.completedAt).toBeInstanceOf(Date)
     expect(world.adminCompletedAt).toBeInstanceOf(Date)
   })
@@ -633,7 +845,7 @@ describe("onboarding state machine", () => {
 
     await expect(
       activateFirstMonitor(
-        "user-1",
+        ACTOR,
         {},
         {
           store,
@@ -645,7 +857,7 @@ describe("onboarding state machine", () => {
 
     await expect(
       activateFirstMonitor(
-        "user-1",
+        ACTOR,
         {},
         {
           store,
@@ -664,7 +876,7 @@ describe("onboarding state machine", () => {
     })
     await expect(
       activateFirstMonitor(
-        "user-1",
+        ACTOR,
         {},
         {
           store: createFakeStore(world),
@@ -694,7 +906,7 @@ describe("onboarding state machine", () => {
       })
 
     await activateFirstMonitor(
-      "user-1",
+      ACTOR,
       { alertEmail: "admin@example.com" },
       {
         store,

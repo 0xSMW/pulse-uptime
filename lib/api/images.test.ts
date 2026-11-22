@@ -2,8 +2,13 @@ import { describe, expect, it, vi } from "vitest"
 
 vi.mock("server-only", () => ({}))
 vi.mock("@/lib/db/client", () => ({ db: { transaction: vi.fn() } }))
+vi.mock("@/lib/api/live-authority", () => ({
+  hasLiveScope: vi.fn().mockResolvedValue(true),
+}))
 
 import { PgDialect } from "drizzle-orm/pg-core"
+import { hasLiveScope } from "@/lib/api/live-authority"
+import type { Principal } from "@/lib/api/principal"
 import { db } from "@/lib/db/client"
 import {
   avatarUploadLockKey,
@@ -50,6 +55,14 @@ const ICO = Buffer.concat([
 const SVG = Buffer.from(
   '<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"></svg>'
 )
+const humanPrincipal: Principal = {
+  type: "human",
+  id: "user-1",
+  sessionId: "session-1",
+  email: "user@example.com",
+  role: "admin",
+  scopes: ["config:write", "monitors:read"],
+}
 
 describe("normalizeImageMimeType", () => {
   it("normalizes case, parameters, and the legacy ICO type", () => {
@@ -159,18 +172,22 @@ describe("createImage", () => {
           mimeType: "image/png",
           bytes: PNG,
           uploadedByUserId: "user-1",
+          principal: humanPrincipal,
         },
         { store, now: () => now }
       )
     ).resolves.toEqual({ id: "img-1" })
-    expect(store.insert).toHaveBeenCalledWith({
-      uploadedByUserId: "user-1",
-      kind: "avatar",
-      mimeType: "image/png",
-      bytes: PNG,
-      byteSize: PNG.length,
-      createdAt: now,
-    })
+    expect(store.insert).toHaveBeenCalledWith(
+      {
+        uploadedByUserId: "user-1",
+        kind: "avatar",
+        mimeType: "image/png",
+        bytes: PNG,
+        byteSize: PNG.length,
+        createdAt: now,
+      },
+      humanPrincipal
+    )
   })
 
   it("does not touch the store for invalid uploads", async () => {
@@ -181,7 +198,12 @@ describe("createImage", () => {
     }
     await expect(
       createImage(
-        { kind: "avatar", mimeType: "image/gif", bytes: PNG },
+        {
+          kind: "avatar",
+          mimeType: "image/gif",
+          bytes: PNG,
+          principal: humanPrincipal,
+        },
         { store }
       )
     ).rejects.toBeInstanceOf(ImageServiceError)
@@ -196,7 +218,12 @@ describe("createImage", () => {
     }
     await expect(
       createImage(
-        { kind: "avatar", mimeType: "image/png", bytes: PNG },
+        {
+          kind: "avatar",
+          mimeType: "image/png",
+          bytes: PNG,
+          principal: humanPrincipal,
+        },
         { store }
       )
     ).rejects.toMatchObject({ code: "OWNER_REQUIRED" })
@@ -205,6 +232,39 @@ describe("createImage", () => {
 })
 
 describe("databaseImageStore avatar replacement", () => {
+  it("does not replace or insert an avatar after live session access is revoked", async () => {
+    vi.mocked(hasLiveScope).mockResolvedValueOnce(false)
+    const execute = vi.fn()
+    const deleteFrom = vi.fn()
+    const insert = vi.fn()
+    vi.mocked(db.transaction).mockImplementationOnce(async (callback) =>
+      callback({ execute, delete: deleteFrom, insert } as never)
+    )
+
+    await expect(
+      databaseImageStore.insert(
+        {
+          uploadedByUserId: humanPrincipal.id,
+          kind: "avatar",
+          mimeType: "image/png",
+          bytes: PNG,
+          byteSize: PNG.length,
+          createdAt: new Date("2026-07-18T00:00:00Z"),
+        },
+        humanPrincipal
+      )
+    ).rejects.toMatchObject({ code: "SCOPE_DENIED" })
+
+    expect(hasLiveScope).toHaveBeenCalledWith(
+      expect.anything(),
+      humanPrincipal,
+      "monitors:read"
+    )
+    expect(execute).not.toHaveBeenCalled()
+    expect(deleteFrom).not.toHaveBeenCalled()
+    expect(insert).not.toHaveBeenCalled()
+  })
+
   it("serializes, removes only same-owner pending avatars, then inserts", async () => {
     const execute = vi.fn().mockResolvedValue(undefined)
     const where = vi.fn().mockResolvedValue(undefined)
@@ -218,14 +278,17 @@ describe("databaseImageStore avatar replacement", () => {
       callback({ execute, delete: deleteFrom, insert } as never)
     )
 
-    await databaseImageStore.insert({
-      uploadedByUserId: "11111111-1111-4111-8111-111111111111",
-      kind: "avatar",
-      mimeType: "image/png",
-      bytes: PNG,
-      byteSize: PNG.length,
-      createdAt: new Date("2026-07-18T00:00:00Z"),
-    })
+    await databaseImageStore.insert(
+      {
+        uploadedByUserId: "user-1",
+        kind: "avatar",
+        mimeType: "image/png",
+        bytes: PNG,
+        byteSize: PNG.length,
+        createdAt: new Date("2026-07-18T00:00:00Z"),
+      },
+      humanPrincipal
+    )
 
     expect(execute).toHaveBeenCalledOnce()
     expect(where).toHaveBeenCalledOnce()
@@ -234,10 +297,7 @@ describe("databaseImageStore avatar replacement", () => {
     expect(rendered.sql).toContain('"images"."kind" = $1')
     expect(rendered.sql).toContain('"images"."uploaded_by_user_id" = $2')
     expect(rendered.sql).toContain("admin_users.avatar_image_id")
-    expect(rendered.params.slice(0, 2)).toEqual([
-      "avatar",
-      "11111111-1111-4111-8111-111111111111",
-    ])
+    expect(rendered.params.slice(0, 2)).toEqual(["avatar", "user-1"])
     expect(execute.mock.invocationCallOrder[0]).toBeLessThan(
       where.mock.invocationCallOrder[0]!
     )

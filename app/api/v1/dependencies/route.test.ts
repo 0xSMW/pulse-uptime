@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("server-only", () => ({}))
 vi.mock("@/lib/db/client", () => ({ db: {} }))
+vi.mock("@/lib/api/live-authority", () => ({ hasLiveScope: vi.fn() }))
 vi.mock("@/lib/api/middleware", () => ({
   authorize: vi.fn(),
   isApiResponse: (value: unknown) => value instanceof Response,
@@ -43,6 +44,7 @@ vi.mock("@/lib/dependencies/service", async (importOriginal) => ({
 
 import { apiError } from "@/lib/api/envelopes"
 import { executeIdempotent } from "@/lib/api/idempotency"
+import { hasLiveScope } from "@/lib/api/live-authority"
 import { type ApiContext, authorize } from "@/lib/api/middleware"
 import {
   addDependency,
@@ -74,6 +76,7 @@ const dependency = {
 }
 
 beforeEach(() => {
+  vi.mocked(hasLiveScope).mockReset().mockResolvedValue(true)
   vi.mocked(authorize).mockReset().mockResolvedValue(context)
   vi.mocked(listDependencies)
     .mockReset()
@@ -120,6 +123,46 @@ describe("POST /api/v1/dependencies", () => {
       body: JSON.stringify(body),
     })
   }
+
+  it("rejects an install when authority is revoked while its JSON body is delayed", async () => {
+    let releaseBody: () => void = () => undefined
+    let bodyRequested: () => void = () => undefined
+    const gate = new Promise<void>((resolve) => {
+      releaseBody = resolve
+    })
+    const waitingForBody = new Promise<void>((resolve) => {
+      bodyRequested = resolve
+    })
+    const body = new ReadableStream<Uint8Array>(
+      {
+        async pull(controller) {
+          bodyRequested()
+          await gate
+          controller.enqueue(
+            new TextEncoder().encode('{"presetId":"vercel_runtime"}')
+          )
+          controller.close()
+        },
+      },
+      { highWaterMark: 0 }
+    )
+    const request = new Request("https://pulse.test/api/v1/dependencies", {
+      method: "POST",
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+      body,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" })
+
+    const pending = POST(request)
+    await waitingForBody
+    vi.mocked(hasLiveScope).mockResolvedValue(false)
+    releaseBody()
+    const response = await pending
+
+    expect(response.status).toBe(403)
+    expect((await response.json()).error.code).toBe("SCOPE_DENIED")
+    expect(addDependency).not.toHaveBeenCalled()
+  })
 
   it("requires the dependencies:write scope and returns 201 with the Dependency envelope", async () => {
     const response = await POST(postRequest({ presetId: "vercel_runtime" }))

@@ -2,6 +2,7 @@ import "server-only"
 
 import { z } from "zod"
 
+import type { DatabaseHandle } from "@/lib/db/client"
 import {
   DependencyApiError,
   DependencyInstallConflictError,
@@ -9,6 +10,27 @@ import {
 
 import { apiError, errorEnvelope } from "./envelopes"
 import type { StoredResponse } from "./idempotency"
+import { hasLiveScope } from "./live-authority"
+import type { ApiContext } from "./middleware"
+
+/** Recheck authority inside the mutation transaction before dependency writes. */
+export async function deniedDependencyWrite(
+  tx: DatabaseHandle,
+  context: ApiContext
+): Promise<StoredResponse | null> {
+  if (await hasLiveScope(tx, context.principal, "dependencies:write")) {
+    return null
+  }
+  return {
+    status: 403,
+    body: errorEnvelope(
+      "SCOPE_DENIED",
+      "The credential is no longer authorized",
+      context.requestId,
+      { scope: "dependencies:write" }
+    ),
+  }
+}
 
 /** Shared status map for the dependencies route family. */
 function dependencyErrorStatus(code: DependencyApiError["code"]): number {

@@ -7,6 +7,8 @@ import { statusGroupSlug } from "@/lib/reporting/queries/timeline"
 
 import { apiError, apiJson, errorEnvelope, objectEnvelope } from "./envelopes"
 import { executeIdempotent, type StoredResponse } from "./idempotency"
+import { hasLiveScope } from "./live-authority"
+import type { ApiContext } from "./middleware"
 import { routeError } from "./route"
 import {
   databaseStatusReportsStore,
@@ -106,7 +108,7 @@ interface MutationOutcome<T> {
  */
 export async function runStatusReportMutation<T>(input: {
   request: Request
-  context: { principalKey: string; requestId: string }
+  context: ApiContext
   routeKey: string
   body: unknown
   work: (
@@ -124,6 +126,17 @@ export async function runStatusReportMutation<T>(input: {
       body,
       mode: "atomic",
       work: async (tx, idempotencyContext) => {
+        if (!(await hasLiveScope(tx, context.principal, "reports:write"))) {
+          return {
+            status: 403,
+            body: errorEnvelope(
+              "SCOPE_DENIED",
+              "The credential is no longer authorized",
+              context.requestId,
+              { scope: "reports:write" }
+            ),
+          }
+        }
         try {
           const outcome = await work(tx, idempotencyContext)
           revalidatePaths = outcome.revalidatePaths ?? []

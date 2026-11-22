@@ -1,11 +1,18 @@
-import { apiError, apiJson, objectEnvelope } from "@/lib/api/envelopes"
+import {
+  apiError,
+  apiJson,
+  errorEnvelope,
+  objectEnvelope,
+} from "@/lib/api/envelopes"
 import { executeIdempotent } from "@/lib/api/idempotency"
+import { hasLiveScope } from "@/lib/api/live-authority"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
 import { routeError } from "@/lib/api/route"
 import {
   DatabaseHealthUnavailableError,
   refreshDatabaseHealth,
 } from "@/lib/database-health"
+import { db } from "@/lib/db/client"
 
 export async function POST(request: Request) {
   const context = await authorize(request, { scope: "config:write" })
@@ -13,20 +20,34 @@ export async function POST(request: Request) {
     return context
   }
   try {
-    const result = await executeIdempotent({
+    const result = await executeIdempotent<unknown>({
       request,
       principalKey: context.principalKey,
       routeKey: "/api/v1/database-health/refresh",
       body: {},
       mode: "conservative",
-      work: async () => ({
-        status: 200,
-        body: objectEnvelope(
-          "DatabaseHealth",
-          await refreshDatabaseHealth(),
-          context.requestId
-        ),
-      }),
+      work: async () =>
+        db.transaction(async (tx) => {
+          if (!(await hasLiveScope(tx, context.principal, "config:write"))) {
+            return {
+              status: 403,
+              body: errorEnvelope(
+                "SCOPE_DENIED",
+                "The credential is no longer authorized",
+                context.requestId,
+                { scope: "config:write" }
+              ),
+            }
+          }
+          return {
+            status: 200,
+            body: objectEnvelope(
+              "DatabaseHealth",
+              await refreshDatabaseHealth(),
+              context.requestId
+            ),
+          }
+        }),
     })
     return apiJson(result.body, {
       status: result.status,

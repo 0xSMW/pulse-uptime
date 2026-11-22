@@ -17,6 +17,9 @@ function statusFor(error: unknown): number {
   if (error.code === "ONBOARDING_STATE_CONFLICT") {
     return 409
   }
+  if (error.code === "ADMIN_SESSION_REVOKED") {
+    return 403
+  }
   return 400
 }
 
@@ -27,7 +30,7 @@ export async function POST(request: Request) {
   }
   try {
     const result = await activateFirstMonitor(
-      auth.session.userId,
+      auth.session,
       await request.json()
     )
     return NextResponse.json({

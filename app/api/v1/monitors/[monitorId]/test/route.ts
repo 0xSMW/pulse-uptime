@@ -1,9 +1,16 @@
-import { apiError, apiJson, objectEnvelope } from "@/lib/api/envelopes"
+import {
+  apiError,
+  apiJson,
+  errorEnvelope,
+  objectEnvelope,
+} from "@/lib/api/envelopes"
 import { executeIdempotent } from "@/lib/api/idempotency"
+import { hasLiveScope } from "@/lib/api/live-authority"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
 import { MonitorApiError, testMonitor } from "@/lib/api/monitors"
 import { enforceRateLimit } from "@/lib/api/rate-limit"
 import { routeError } from "@/lib/api/route"
+import { db } from "@/lib/db/client"
 
 export async function POST(
   request: Request,
@@ -38,21 +45,35 @@ export async function POST(
     return response
   }
   try {
-    const result = await executeIdempotent({
+    const result = await executeIdempotent<unknown>({
       request,
       principalKey: context.principalKey,
       routeKey: `/api/v1/monitors/${id}/test`,
       body: {},
       // External HTTP probe with no exactly-once boundary.
       mode: "conservative",
-      work: async () => ({
-        status: 200,
-        body: objectEnvelope(
-          "MonitorTest",
-          await testMonitor(id),
-          context.requestId
-        ),
-      }),
+      work: async () =>
+        db.transaction(async (tx) => {
+          if (!(await hasLiveScope(tx, context.principal, "monitors:write"))) {
+            return {
+              status: 403,
+              body: errorEnvelope(
+                "SCOPE_DENIED",
+                "The credential is no longer authorized",
+                context.requestId,
+                { scope: "monitors:write" }
+              ),
+            }
+          }
+          return {
+            status: 200,
+            body: objectEnvelope(
+              "MonitorTest",
+              await testMonitor(id),
+              context.requestId
+            ),
+          }
+        }),
     })
     return apiJson(result.body, { status: result.status })
   } catch (error) {

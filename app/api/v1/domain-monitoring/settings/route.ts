@@ -1,7 +1,8 @@
 import { z } from "zod"
 
-import { apiError, apiJson } from "@/lib/api/envelopes"
+import { apiError, apiJson, errorEnvelope } from "@/lib/api/envelopes"
 import { executeIdempotent } from "@/lib/api/idempotency"
+import { hasLiveScope } from "@/lib/api/live-authority"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
 import { routeError, storedSuccess } from "@/lib/api/route"
 import {
@@ -32,12 +33,33 @@ export async function PATCH(request: Request) {
       routeKey: "/api/v1/domain-monitoring/settings",
       body: parsed.data,
       mode: "atomic",
-      work: async (handle) =>
-        storedSuccess(
-          "DomainMonitoring",
-          await updateDomainMonitoringSettings(parsed.data, { handle }),
-          context.requestId
-        ),
+      work: async (handle) => {
+        if (!(await hasLiveScope(handle, context.principal, "config:write"))) {
+          return {
+            status: 403,
+            body: errorEnvelope(
+              "AUTHORIZATION_REVOKED",
+              "Configuration write authorization is no longer active",
+              context.requestId
+            ),
+          }
+        }
+        try {
+          return storedSuccess(
+            "DomainMonitoring",
+            await updateDomainMonitoringSettings(parsed.data, { handle }),
+            context.requestId
+          )
+        } catch (error) {
+          if (error instanceof DomainMonitoringError) {
+            return {
+              status: 409,
+              body: errorEnvelope(error.code, error.message, context.requestId),
+            }
+          }
+          throw error
+        }
+      },
     })
     return apiJson(result.body, {
       status: result.status,

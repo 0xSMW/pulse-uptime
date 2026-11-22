@@ -6,6 +6,7 @@ const { idempotencyRecords } = vi.hoisted(() => ({
 
 vi.mock("server-only", () => ({}))
 vi.mock("@/lib/db/client", () => ({ db: {} }))
+vi.mock("@/lib/api/live-authority", () => ({ hasLiveScope: vi.fn() }))
 vi.mock("@/lib/api/middleware", () => ({
   authorize: vi.fn(),
   isApiResponse: (value: unknown) => value instanceof Response,
@@ -44,6 +45,7 @@ vi.mock("@/lib/api/monitors", async (importOriginal) => ({
   setMonitorEnabled: vi.fn(),
 }))
 
+import { hasLiveScope } from "@/lib/api/live-authority"
 import { type ApiContext, authorize } from "@/lib/api/middleware"
 import { MonitorApiError, setMonitorEnabled } from "@/lib/api/monitors"
 
@@ -96,10 +98,23 @@ function request(key = crypto.randomUUID()) {
 beforeEach(() => {
   idempotencyRecords.clear()
   vi.mocked(authorize).mockReset().mockResolvedValue(context)
+  vi.mocked(hasLiveScope).mockReset().mockResolvedValue(true)
   vi.mocked(setMonitorEnabled).mockReset()
 })
 
 describe("POST /api/v1/monitors/{monitorId}/pause", () => {
+  it("stores a 403 and leaves the monitor unchanged when authority was revoked", async () => {
+    vi.mocked(hasLiveScope).mockResolvedValue(false)
+    const key = crypto.randomUUID()
+
+    const response = await POST(request(key), params)
+
+    expect(response.status).toBe(403)
+    expect((await response.json()).error.code).toBe("SCOPE_DENIED")
+    expect(idempotencyRecords.get(key)?.status).toBe(403)
+    expect(setMonitorEnabled).not.toHaveBeenCalled()
+  })
+
   it("pauses a monitor", async () => {
     vi.mocked(setMonitorEnabled).mockResolvedValue(monitor)
     const response = await POST(request(), params)

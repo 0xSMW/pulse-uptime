@@ -10,6 +10,9 @@ vi.mock("@/lib/api/middleware", () => ({
   authorize: vi.fn(),
   isApiResponse: (value: unknown) => value instanceof Response,
 }))
+vi.mock("@/lib/api/live-authority", () => ({
+  hasLiveScope: vi.fn(async () => true),
+}))
 // Mimics executeIdempotent's real completion semantics well enough to test
 // the routes' error-storing behavior without touching lib/api/idempotency.ts:
 // a completed key replays its stored response and never calls work() again,
@@ -46,6 +49,7 @@ vi.mock("@/lib/api/monitors", async (importOriginal) => ({
 }))
 
 import { executeIdempotent } from "@/lib/api/idempotency"
+import { hasLiveScope } from "@/lib/api/live-authority"
 import { type ApiContext, authorize } from "@/lib/api/middleware"
 import { createMonitor, MonitorApiError } from "@/lib/api/monitors"
 
@@ -99,9 +103,42 @@ beforeEach(() => {
   idempotencyRecords.clear()
   vi.mocked(authorize).mockReset().mockResolvedValue(context)
   vi.mocked(createMonitor).mockReset()
+  vi.mocked(hasLiveScope).mockReset().mockResolvedValue(true)
 })
 
 describe("POST /api/v1/monitors", () => {
+  it("denies a streamed body completed after the creator loses write authority", async () => {
+    let controller!: ReadableStreamDefaultController<Uint8Array>
+    const stream = new ReadableStream<Uint8Array>({
+      start(value) {
+        controller = value
+        value.enqueue(new TextEncoder().encode('{"id":"site-home",'))
+      },
+    })
+    const key = crypto.randomUUID()
+    const incoming = new Request("https://pulse.test/api/v1/monitors", {
+      method: "POST",
+      headers: { "Idempotency-Key": key, "content-type": "application/json" },
+      body: stream,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" })
+    const pending = POST(incoming)
+    await vi.waitFor(() => expect(authorize).toHaveBeenCalledOnce())
+    expect(hasLiveScope).not.toHaveBeenCalled()
+
+    vi.mocked(hasLiveScope).mockResolvedValue(false)
+    controller.enqueue(
+      new TextEncoder().encode('"name":"Site","url":"https://example.com"}')
+    )
+    controller.close()
+    const response = await pending
+
+    expect(response.status).toBe(403)
+    expect((await response.json()).error.code).toBe("SCOPE_DENIED")
+    expect(createMonitor).not.toHaveBeenCalled()
+    expect(idempotencyRecords.get(key)?.status).toBe(403)
+  })
+
   it("creates a monitor", async () => {
     vi.mocked(createMonitor).mockResolvedValue(monitor)
     const response = await POST(

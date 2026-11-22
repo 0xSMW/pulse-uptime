@@ -1,7 +1,9 @@
-import { apiError, apiJson } from "@/lib/api/envelopes"
+import { apiError, apiJson, errorEnvelope } from "@/lib/api/envelopes"
 import { executeIdempotent } from "@/lib/api/idempotency"
+import { hasLiveScope } from "@/lib/api/live-authority"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
 import { routeError, storedSuccess } from "@/lib/api/route"
+import { db } from "@/lib/db/client"
 import {
   checkPorkbunConnection,
   DomainMonitoringError,
@@ -20,11 +22,37 @@ export async function POST(request: Request) {
       body: {},
       mode: "conservative",
       work: async () =>
-        storedSuccess(
-          "DomainMonitoring",
-          await checkPorkbunConnection(),
-          context.requestId
-        ),
+        await db.transaction(async (tx) => {
+          if (!(await hasLiveScope(tx, context.principal, "config:write"))) {
+            return {
+              status: 403,
+              body: errorEnvelope(
+                "AUTHORIZATION_REVOKED",
+                "Configuration write authorization is no longer active",
+                context.requestId
+              ),
+            }
+          }
+          try {
+            return storedSuccess(
+              "DomainMonitoring",
+              await checkPorkbunConnection({ handle: tx }),
+              context.requestId
+            )
+          } catch (error) {
+            if (error instanceof DomainMonitoringError) {
+              return {
+                status: 503,
+                body: errorEnvelope(
+                  error.code,
+                  error.message,
+                  context.requestId
+                ),
+              }
+            }
+            throw error
+          }
+        }),
     })
     return apiJson(result.body, {
       status: result.status,
