@@ -1,3 +1,5 @@
+import { createServer } from "node:http"
+import type { AddressInfo } from "node:net"
 import { describe, expect, it, vi } from "vitest"
 
 import {
@@ -46,6 +48,51 @@ function client(fetcher: PorkbunWebhookFetcher) {
 }
 
 describe("PorkbunWebhookClient", () => {
+  it("does not forward API credentials through a provider redirect", async () => {
+    let redirectedRequests = 0
+    let forwardedApiKey: string | undefined
+    let forwardedSecret: string | undefined
+    const destination = createServer((request, reply) => {
+      redirectedRequests += 1
+      forwardedApiKey = request.headers["x-api-key"] as string | undefined
+      forwardedSecret = request.headers["x-secret-api-key"] as
+        | string
+        | undefined
+      reply.setHeader("content-type", "application/json")
+      reply.end(JSON.stringify({ endpoints: [], status: "SUCCESS" }))
+    })
+    await new Promise<void>((resolve) =>
+      destination.listen(0, "127.0.0.1", resolve)
+    )
+    const destinationUrl = `http://127.0.0.1:${(destination.address() as AddressInfo).port}`
+    const provider = createServer((_request, reply) => {
+      reply.writeHead(302, {
+        location: destinationUrl,
+        "content-type": "application/json",
+      })
+      reply.end(JSON.stringify({ code: "REDIRECTED", status: "ERROR" }))
+    })
+    await new Promise<void>((resolve) =>
+      provider.listen(0, "127.0.0.1", resolve)
+    )
+    const providerUrl = `http://127.0.0.1:${(provider.address() as AddressInfo).port}`
+
+    try {
+      const result = await client((_url, init) =>
+        fetch(providerUrl, init)
+      ).listEndpoints()
+      expect(result.outcome).toBe("failed")
+      expect(redirectedRequests).toBe(0)
+      expect(forwardedApiKey).toBeUndefined()
+      expect(forwardedSecret).toBeUndefined()
+    } finally {
+      await Promise.all([
+        new Promise<void>((resolve) => provider.close(() => resolve())),
+        new Promise<void>((resolve) => destination.close(() => resolve())),
+      ])
+    }
+  })
+
   it("creates a HTTPS endpoint subscribed only to domain renewal and expiry", async () => {
     const fetcher = vi.fn<PorkbunWebhookFetcher>(async () =>
       response({ endpoint: endpoint(), status: "SUCCESS" }, 200, {

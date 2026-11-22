@@ -12,12 +12,29 @@ import { TimezoneProvider } from "@/components/dashboard/timezone-provider"
 
 import { OnboardingFlow } from "./onboarding-flow"
 
-function renderAccountStep() {
-  return render(
+const setupToken = "operator-setup-token-1234567890"
+
+async function renderAccountStep() {
+  render(
     <TimezoneProvider>
-      <OnboardingFlow initialStep="account" />
+      <OnboardingFlow initialStep="readiness" />
     </TimezoneProvider>
   )
+  expect(globalThis.fetch).not.toHaveBeenCalled()
+  fireEvent.change(screen.getByLabelText("Setup Token"), {
+    target: { value: setupToken },
+  })
+  fireEvent.click(screen.getByRole("button", { name: "Check Readiness" }))
+  await waitFor(
+    () => {
+      expect(
+        screen.getByRole("button", { name: "Continue to Account" })
+      ).not.toHaveProperty("disabled", true)
+    },
+    { timeout: 2000 }
+  )
+  fireEvent.click(screen.getByRole("button", { name: "Continue to Account" }))
+  await screen.findByRole("heading", { name: "Create your admin account" })
 }
 
 afterEach(() => {
@@ -27,16 +44,92 @@ afterEach(() => {
 
 describe("onboarding account step", () => {
   beforeEach(() => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ nextStep: "monitor" }), {
-        status: 201,
-        headers: { "Content-Type": "application/json" },
-      })
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (path) =>
+      path === "/api/onboarding/readiness"
+        ? new Response(
+            JSON.stringify({
+              canContinue: true,
+              checks: [
+                { system: "vercel", state: "ready" },
+                { system: "database", state: "ready" },
+                { system: "edge", state: "ready" },
+                { system: "email", state: "ready" },
+              ],
+            }),
+            { status: 200 }
+          )
+        : new Response(JSON.stringify({ nextStep: "monitor" }), {
+            status: 201,
+            headers: { "Content-Type": "application/json" },
+          })
     )
   })
 
-  it("shows an optional name field above the email field", () => {
-    renderAccountStep()
+  it("proves the setup token before readiness and reuses it for account creation", async () => {
+    await renderAccountStep()
+    const readinessCall = vi
+      .mocked(globalThis.fetch)
+      .mock.calls.find(([path]) => path === "/api/onboarding/readiness")
+    expect(readinessCall).toBeDefined()
+    expect(
+      new Headers(readinessCall![1]?.headers).get("x-pulse-bootstrap-token")
+    ).toBe(setupToken)
+    expect(screen.queryByLabelText("Setup Token")).toBeNull()
+  })
+
+  it("keeps a rejected setup token on the readiness step", async () => {
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ error: "A valid setup token is required" }),
+        {
+          status: 403,
+        }
+      )
+    )
+    render(
+      <TimezoneProvider>
+        <OnboardingFlow initialStep="readiness" />
+      </TimezoneProvider>
+    )
+    fireEvent.change(screen.getByLabelText("Setup Token"), {
+      target: { value: "incorrect-token" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Check Readiness" }))
+
+    expect(await screen.findByRole("alert")).toHaveProperty(
+      "textContent",
+      "Setup token is invalid"
+    )
+    expect(
+      screen.getByRole("button", { name: "Continue to Account" })
+    ).toHaveProperty("disabled", true)
+    expect(
+      screen.queryByRole("heading", { name: "Create your admin account" })
+    ).toBeNull()
+  })
+
+  it("rechecks readiness with the admin session after account creation", async () => {
+    render(
+      <TimezoneProvider>
+        <OnboardingFlow initialStep="monitor" />
+      </TimezoneProvider>
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Back" }))
+
+    await waitFor(() => {
+      const readinessCall = vi
+        .mocked(globalThis.fetch)
+        .mock.calls.find(([path]) => path === "/api/onboarding/readiness")
+      expect(readinessCall).toBeDefined()
+      expect(
+        new Headers(readinessCall![1]?.headers).has("x-pulse-bootstrap-token")
+      ).toBe(false)
+    })
+    expect(screen.queryByLabelText("Setup Token")).toBeNull()
+  })
+
+  it("shows an optional name field above the email field", async () => {
+    await renderAccountStep()
     const name = screen.getByLabelText("Name") as HTMLInputElement
     expect(name).toBeDefined()
     expect(name.required).toBe(false)
@@ -49,7 +142,7 @@ describe("onboarding account step", () => {
   })
 
   it("submits the trimmed name with the account payload", async () => {
-    renderAccountStep()
+    await renderAccountStep()
     fireEvent.change(screen.getByLabelText("Name"), {
       target: { value: "  Ada Lovelace  " },
     })
@@ -62,9 +155,6 @@ describe("onboarding account step", () => {
     fireEvent.change(screen.getByLabelText("Confirm Password"), {
       target: { value: "correct-horse-battery" },
     })
-    fireEvent.change(screen.getByLabelText("Setup Token"), {
-      target: { value: "setup-token" },
-    })
     fireEvent.click(screen.getByRole("button", { name: "Create Account" }))
 
     await waitFor(() => {
@@ -75,11 +165,12 @@ describe("onboarding account step", () => {
       const body = JSON.parse(String((accountCall![1] as RequestInit).body))
       expect(body.name).toBe("Ada Lovelace")
       expect(body.email).toBe("admin@example.com")
+      expect(body.bootstrapToken).toBe(setupToken)
     })
   })
 
   it("omits the name when the field is left blank", async () => {
-    renderAccountStep()
+    await renderAccountStep()
     fireEvent.change(screen.getByLabelText("Email"), {
       target: { value: "admin@example.com" },
     })
@@ -88,9 +179,6 @@ describe("onboarding account step", () => {
     })
     fireEvent.change(screen.getByLabelText("Confirm Password"), {
       target: { value: "correct-horse-battery" },
-    })
-    fireEvent.change(screen.getByLabelText("Setup Token"), {
-      target: { value: "setup-token" },
     })
     fireEvent.click(screen.getByRole("button", { name: "Create Account" }))
 

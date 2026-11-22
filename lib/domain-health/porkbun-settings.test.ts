@@ -88,6 +88,30 @@ describe("Porkbun settings service", () => {
     expect(query!.queryChunks).toContain(PORKBUN_WEBHOOK_PROVISIONING_LOCK_KEY)
   })
 
+  it("reuses a caller transaction and takes the provisioning lock before provider work", async () => {
+    const events: string[] = []
+    const execute = vi.fn(async (_query: SQL) => {
+      events.push("provisioning lock")
+    })
+    const transaction = vi.fn()
+    const handle = {
+      execute,
+      rollback: vi.fn(),
+      transaction,
+    } as unknown as DatabaseHandle
+
+    await withPorkbunWebhookProvisioningLock(async (workHandle) => {
+      expect(workHandle).toBe(handle)
+      events.push("provider work")
+    }, handle)
+
+    expect(events).toEqual(["provisioning lock", "provider work"])
+    expect(transaction).not.toHaveBeenCalled()
+    expect(execute.mock.calls[0]?.[0].queryChunks).toContain(
+      PORKBUN_WEBHOOK_PROVISIONING_LOCK_KEY
+    )
+  })
+
   it("serializes only safe integration state", async () => {
     await expect(
       getDomainMonitoringData({
@@ -152,6 +176,32 @@ describe("Porkbun settings service", () => {
       providerLastErrorCode: null,
       providerLastSuccessAt: new Date("2026-07-26T12:00:00.000Z"),
     })
+  })
+
+  it("uses the authority transaction for check reads and its persisted result", async () => {
+    const readIntegration = vi.fn(async () => connected)
+    const loadMonitors = vi.fn(async () => [])
+    const upsertIntegration = vi.fn(async (update) => ({
+      ...connected,
+      ...update,
+    }))
+
+    await checkPorkbunConnection({
+      handle: lockHandle,
+      dependencies: {
+        fetchAccountDomains: async () => ({ domains: [], outcome: "resolved" }),
+        loadMonitors,
+        readIntegration,
+        upsertIntegration,
+      },
+    })
+
+    expect(readIntegration).toHaveBeenCalledWith(lockHandle)
+    expect(loadMonitors).toHaveBeenCalledWith(lockHandle)
+    expect(upsertIntegration).toHaveBeenCalledWith(
+      expect.objectContaining({ providerLastErrorCode: null }),
+      { handle: lockHandle }
+    )
   })
 
   it("does not permit expiry alerts before the account is connected", async () => {
@@ -489,6 +539,42 @@ describe("Porkbun settings service", () => {
     } finally {
       process.env.NEXT_PUBLIC_APP_URL = previous
     }
+  })
+
+  it("passes the authority transaction to webhook provisioning", async () => {
+    const lockHandles: DatabaseHandle[] = []
+    const withWebhookProvisioningLock = async <T>(
+      work: (handle: DatabaseHandle) => Promise<T>,
+      handle?: DatabaseHandle
+    ): Promise<T> => {
+      if (handle) {
+        lockHandles.push(handle)
+      }
+      return await work(lockHandle)
+    }
+    const testEndpoint = vi.fn(async () => ({
+      outcome: "ok" as const,
+      data: { eventId: "event-1" },
+      requestId: null,
+    }))
+
+    await managePorkbunWebhook("test", {
+      handle: lockHandle,
+      dependencies: {
+        readIntegration: async () => ({ ...connected, webhookId: 9 }),
+        withWebhookProvisioningLock,
+        webhookClient: {
+          createEndpoint: vi.fn(),
+          inspectDeliveryHealth: vi.fn(),
+          listEndpoints: vi.fn(),
+          testEndpoint,
+          updateEndpoint: vi.fn(),
+        },
+      },
+    })
+
+    expect(lockHandles).toEqual([lockHandle])
+    expect(testEndpoint).toHaveBeenCalledWith(9)
   })
 
   it("recovers a confirmed missing stored endpoint under the lock", async () => {

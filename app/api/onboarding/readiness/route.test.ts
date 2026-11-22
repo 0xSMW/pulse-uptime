@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const {
   authenticateCurrentSession,
@@ -26,9 +26,17 @@ vi.mock("@/lib/onboarding/readiness", () => ({
 
 import { GET, resetReadinessAdmissionForTests } from "./route"
 
-function request(ip = "203.0.113.20"): Request {
+const setupToken = "operator-setup-token-1234567890"
+
+function request(
+  ip = "203.0.113.20",
+  token: string | null = setupToken
+): Request {
   return new Request("https://pulse.example/api/onboarding/readiness", {
-    headers: { "x-real-ip": ip },
+    headers: {
+      "x-real-ip": ip,
+      ...(token === null ? {} : { "x-pulse-bootstrap-token": token }),
+    },
   })
 }
 
@@ -41,8 +49,11 @@ const readyReport = {
 }
 
 describe("GET /api/onboarding/readiness", () => {
+  afterEach(() => vi.unstubAllEnvs())
+
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubEnv("PULSE_BOOTSTRAP_TOKEN", setupToken)
     resetReadinessAdmissionForTests()
     hasAdministrator.mockResolvedValue(false)
     authenticateCurrentSession.mockResolvedValue(null)
@@ -53,6 +64,19 @@ describe("GET /api/onboarding/readiness", () => {
     })
     getOnboardingReadiness.mockResolvedValue(readyReport)
   })
+
+  it.each([null, "wrong-setup-token-1234567890"])(
+    "rejects missing or invalid bootstrap proof before readiness work (%s)",
+    async (token) => {
+      const response = await GET(request("203.0.113.20", token))
+
+      expect(response.status).toBe(403)
+      expect(response.headers.get("cache-control")).toBe("no-store")
+      expect(hasAdministrator).not.toHaveBeenCalled()
+      expect(enforceRateLimit).not.toHaveBeenCalled()
+      expect(getOnboardingReadiness).not.toHaveBeenCalled()
+    }
+  )
 
   it("preserves the successful readiness response contract", async () => {
     const response = await GET(request())
@@ -84,12 +108,32 @@ describe("GET /api/onboarding/readiness", () => {
     hasAdministrator.mockResolvedValue(true)
     authenticateCurrentSession.mockResolvedValue({ role: "admin" })
 
-    const response = await GET(request())
+    const response = await GET(request("203.0.113.20", null))
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual(readyReport)
     expect(enforceRateLimit).toHaveBeenCalledTimes(1)
     expect(getOnboardingReadiness).toHaveBeenCalledTimes(1)
+  })
+
+  it("rejects an anonymous caller after an administrator claims the install", async () => {
+    hasAdministrator.mockResolvedValue(true)
+
+    const response = await GET(request())
+
+    expect(response.status).toBe(410)
+    expect(enforceRateLimit).not.toHaveBeenCalled()
+    expect(getOnboardingReadiness).not.toHaveBeenCalled()
+  })
+
+  it("fails closed when the setup token is unconfigured", async () => {
+    vi.stubEnv("PULSE_BOOTSTRAP_TOKEN", "")
+
+    const response = await GET(request())
+
+    expect(response.status).toBe(403)
+    expect(hasAdministrator).not.toHaveBeenCalled()
+    expect(getOnboardingReadiness).not.toHaveBeenCalled()
   })
 
   it("rejects an abusive source before any Postgres-backed check", async () => {
