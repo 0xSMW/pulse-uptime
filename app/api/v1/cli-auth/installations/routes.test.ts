@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("server-only", () => ({}))
+vi.mock("@/lib/api/live-authority", () => ({ hasLiveScope: vi.fn() }))
 vi.mock("@/lib/api/middleware", () => ({
   authorize: vi.fn(),
   isApiResponse: (value: unknown) => value instanceof Response,
@@ -10,7 +11,7 @@ vi.mock("@/lib/api/idempotency", () => ({
     async (input: {
       work: (tx: unknown) => Promise<{ status: number; body: unknown }>
     }) => ({
-      ...(await input.work({})),
+      ...(await input.work({ rollback: vi.fn() })),
       replayed: false,
     })
   ),
@@ -24,6 +25,7 @@ import {
   revokeAllMachineCredentials,
   revokeCliInstallationById,
 } from "@/lib/api/device-authorization"
+import { hasLiveScope } from "@/lib/api/live-authority"
 import { type ApiContext, authorize } from "@/lib/api/middleware"
 
 import { DELETE } from "./[installationId]/route"
@@ -45,11 +47,47 @@ const humanContext: ApiContext = {
 
 beforeEach(() => {
   vi.mocked(authorize).mockResolvedValue(humanContext)
+  vi.mocked(hasLiveScope).mockReset().mockResolvedValue(true)
   vi.mocked(revokeCliInstallationById).mockReset()
   vi.mocked(revokeAllMachineCredentials).mockReset()
 })
 
 describe("administrator machine credential revocation", () => {
+  it("blocks a revoked administrator before revoking one installation", async () => {
+    vi.mocked(hasLiveScope).mockResolvedValue(false)
+
+    const response = await DELETE(
+      new Request(
+        `https://pulse.test/api/v1/cli-auth/installations/${installationId}`,
+        {
+          method: "DELETE",
+        }
+      ),
+      { params: Promise.resolve({ installationId }) }
+    )
+
+    expect(response.status).toBe(403)
+    expect((await response.json()).error.code).toBe("SCOPE_DENIED")
+    expect(revokeCliInstallationById).not.toHaveBeenCalled()
+  })
+
+  it("blocks a revoked administrator before emergency revocation", async () => {
+    vi.mocked(hasLiveScope).mockResolvedValue(false)
+
+    const response = await POST(
+      new Request(
+        "https://pulse.test/api/v1/cli-auth/installations/revoke-all",
+        {
+          method: "POST",
+        }
+      )
+    )
+
+    expect(response.status).toBe(403)
+    expect((await response.json()).error.code).toBe("SCOPE_DENIED")
+    expect(revokeAllMachineCredentials).not.toHaveBeenCalled()
+  })
+
   it("requires a human dashboard session", async () => {
     vi.mocked(authorize).mockResolvedValue({
       ...humanContext,

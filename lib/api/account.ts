@@ -1,7 +1,11 @@
 import "server-only"
 
-import { and, eq, isNull, ne, sql } from "drizzle-orm"
-import { revokeUserMachineCredentials } from "@/lib/api/credential-revocation"
+import { and, eq, gt, isNull, ne, sql } from "drizzle-orm"
+import {
+  revokeHumanSessionIssuedCredentials,
+  revokeUserMachineCredentials,
+  revokeUserPendingInvites,
+} from "@/lib/api/credential-revocation"
 import { avatarUploadLockKey } from "@/lib/api/images"
 import { lockMachineCredentialChanges } from "@/lib/api/machine-credential-lock"
 import {
@@ -17,7 +21,7 @@ import {
   verifyPassword,
 } from "@/lib/auth/credentials"
 import { LOGIN_RATE_LIMIT_POLICY, loginRateLimitKey } from "@/lib/auth/service"
-import { db } from "@/lib/db/client"
+import { type DatabaseTransaction, db } from "@/lib/db/client"
 import {
   adminUsers,
   cliInstallations,
@@ -45,6 +49,7 @@ export class AccountServiceError extends Error {
       | "PASSWORD_POLICY"
       | "RATE_LIMITED"
       | "SESSION_NOT_FOUND"
+      | "SESSION_REVOKED"
       | "CURRENT_SESSION"
       | "IMAGE_NOT_FOUND"
       | "ACCOUNT_NOT_FOUND"
@@ -59,6 +64,43 @@ export class AccountServiceError extends Error {
 
 /** Outcome of a compare-and-set account mutation under concurrency. */
 export type AccountCasResult = "applied" | "conflict"
+
+/** Hold the exact acting session through the account write transaction. */
+async function requireCurrentHumanSession(
+  tx: DatabaseTransaction,
+  userId: string,
+  sessionId: string
+): Promise<void> {
+  if (!sessionId) {
+    throw new AccountServiceError(
+      "SESSION_REVOKED",
+      "The current session is no longer active"
+    )
+  }
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtext('pulse:team-roles'))`
+  )
+  await lockMachineCredentialChanges(tx)
+  const [session] = await tx
+    .select({ id: humanSessions.id })
+    .from(humanSessions)
+    .where(
+      and(
+        eq(humanSessions.id, sessionId),
+        eq(humanSessions.userId, userId),
+        isNull(humanSessions.revokedAt),
+        gt(humanSessions.expiresAt, new Date())
+      )
+    )
+    .for("update")
+    .limit(1)
+  if (!session) {
+    throw new AccountServiceError(
+      "SESSION_REVOKED",
+      "The current session is no longer active"
+    )
+  }
+}
 
 export interface ProfilePatch {
   name?: string
@@ -160,6 +202,7 @@ export interface ProfileUpdateStore {
   ) => Promise<{ kind: string } | null>
   applyProfileUpdate: (input: {
     userId: string
+    currentSessionId: string
     patch: ProfilePatch
     now: Date
   }) => Promise<
@@ -183,6 +226,7 @@ export interface ProfileUpdateDependencies {
 export async function updateAccountProfile(
   userId: string,
   patch: ProfilePatch,
+  currentSessionId: string,
   dependencies: ProfileUpdateDependencies = {}
 ): Promise<AccountProfile> {
   const store = dependencies.store ?? databaseProfileUpdateStore
@@ -197,6 +241,7 @@ export async function updateAccountProfile(
   }
   const result = await store.applyProfileUpdate({
     userId,
+    currentSessionId,
     patch,
     now: dependencies.now?.() ?? new Date(),
   })
@@ -234,8 +279,9 @@ export const databaseProfileUpdateStore: ProfileUpdateStore = {
       .limit(1)
     return row ?? null
   },
-  async applyProfileUpdate({ userId, patch, now }) {
+  async applyProfileUpdate({ userId, currentSessionId, patch, now }) {
     return db.transaction(async (tx) => {
+      await requireCurrentHumanSession(tx, userId, currentSessionId)
       if ("avatarImageId" in patch) {
         // Use the same per-user lock as avatar upload replacement. Ownership
         // and kind are revalidated after locking to close the attach race.
@@ -359,8 +405,8 @@ export interface EmailChangeDependencies {
  * current-password guesses count against the same 5-per-15-minutes budget as
  * sign-in attempts (mirroring changeAccountPassword). Compare-and-sets against
  * the verified previous email so concurrent changes have a single winner.
- * Revokes every *other* human session and rewrites denormalized CLI email
- * copies in the same transaction. Machine credentials are not revoked.
+ * Revokes every *other* human session and credentials issued by those
+ * sessions, then rewrites denormalized CLI email copies in the same transaction.
  */
 export async function changeAccountEmail(
   input: EmailChangeInput & {
@@ -480,6 +526,7 @@ export interface PasswordChangeStore {
   ) => Promise<{ email: string; passwordDigest: string } | null>
   applyPasswordChange: (input: {
     userId: string
+    currentSessionId: string
     expectedPasswordDigest: string
     passwordDigest: string
     now: Date
@@ -561,6 +608,7 @@ export async function changeAccountPassword(
   )
   const cas = await store.applyPasswordChange({
     userId: input.userId,
+    currentSessionId: input.currentSessionId,
     expectedPasswordDigest: user.passwordDigest,
     passwordDigest,
     now,
@@ -588,12 +636,13 @@ const databasePasswordChangeStore: PasswordChangeStore = {
   },
   async applyPasswordChange({
     userId,
+    currentSessionId,
     expectedPasswordDigest,
     passwordDigest,
     now,
   }) {
     return db.transaction(async (tx) => {
-      await lockMachineCredentialChanges(tx)
+      await requireCurrentHumanSession(tx, userId, currentSessionId)
       const updated = await tx
         .update(adminUsers)
         .set({
@@ -631,6 +680,7 @@ export interface SessionRevocationStore {
   revokeSession: (input: {
     userId: string
     sessionId: string
+    currentSessionId: string
     now: Date
   }) => Promise<boolean>
   revokeOtherSessions: (input: {
@@ -660,12 +710,13 @@ export async function revokeAccountSession(
   const revoked = await store.revokeSession({
     userId: input.userId,
     sessionId: input.sessionId,
+    currentSessionId: input.currentSessionId,
     now: dependencies.now?.() ?? new Date(),
   })
   if (!revoked) {
     throw new AccountServiceError(
       "SESSION_NOT_FOUND",
-      "The session was not found or is already signed out"
+      "The session was not found"
     )
   }
 }
@@ -685,33 +736,65 @@ export async function revokeOtherAccountSessions(
 }
 
 const databaseSessionRevocationStore: SessionRevocationStore = {
-  async revokeSession({ userId, sessionId, now }) {
-    const rows = await db
-      .update(humanSessions)
-      .set({ revokedAt: now })
-      .where(
-        and(
-          eq(humanSessions.id, sessionId),
-          eq(humanSessions.userId, userId),
-          isNull(humanSessions.revokedAt)
+  async revokeSession({ userId, sessionId, currentSessionId, now }) {
+    return db.transaction(async (tx) => {
+      await requireCurrentHumanSession(tx, userId, currentSessionId)
+      const [target] = await tx
+        .select({ id: humanSessions.id })
+        .from(humanSessions)
+        .where(
+          and(eq(humanSessions.id, sessionId), eq(humanSessions.userId, userId))
         )
-      )
-      .returning({ id: humanSessions.id })
-    return rows.length > 0
+        .for("update")
+        .limit(1)
+      if (!target) {
+        return false
+      }
+      await tx
+        .update(humanSessions)
+        .set({ revokedAt: now })
+        .where(
+          and(
+            eq(humanSessions.id, sessionId),
+            eq(humanSessions.userId, userId),
+            isNull(humanSessions.revokedAt)
+          )
+        )
+      await revokeHumanSessionIssuedCredentials(tx, [target.id], now)
+      return true
+    })
   },
   async revokeOtherSessions({ userId, currentSessionId, now }) {
-    const rows = await db
-      .update(humanSessions)
-      .set({ revokedAt: now })
-      .where(
-        and(
-          eq(humanSessions.userId, userId),
-          ne(humanSessions.id, currentSessionId),
-          isNull(humanSessions.revokedAt)
+    return db.transaction(async (tx) => {
+      await requireCurrentHumanSession(tx, userId, currentSessionId)
+      const otherSessions = await tx
+        .select({ id: humanSessions.id })
+        .from(humanSessions)
+        .where(
+          and(
+            eq(humanSessions.userId, userId),
+            ne(humanSessions.id, currentSessionId)
+          )
         )
+        .for("update")
+      const rows = await tx
+        .update(humanSessions)
+        .set({ revokedAt: now })
+        .where(
+          and(
+            eq(humanSessions.userId, userId),
+            ne(humanSessions.id, currentSessionId),
+            isNull(humanSessions.revokedAt)
+          )
+        )
+        .returning({ id: humanSessions.id })
+      await revokeHumanSessionIssuedCredentials(
+        tx,
+        otherSessions.map((session) => session.id),
+        now
       )
-      .returning({ id: humanSessions.id })
-    return rows.length
+      return rows.length
+    })
   },
 }
 
@@ -735,13 +818,9 @@ const databaseEmailChangeStore: EmailChangeStore = {
     now,
   }) {
     return db.transaction(async (tx) => {
-      // Team removals and demotions revoke CLI credentials by email under this
-      // lock. Renaming the email must serialize with them or a rename that
-      // commits mid-removal strands live CLI sessions under the new address.
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtext('pulse:team-roles'))`
-      )
-      await lockMachineCredentialChanges(tx)
+      // The acting session must still be active after password verification.
+      // Team removals and demotions also serialize with the CLI email rewrite.
+      await requireCurrentHumanSession(tx, userId, currentSessionId)
       const updated = await tx
         .update(adminUsers)
         .set({ email, updatedAt: now })
@@ -752,6 +831,21 @@ const databaseEmailChangeStore: EmailChangeStore = {
       if (updated.length === 0) {
         return "conflict"
       }
+      await revokeUserPendingInvites(tx, {
+        userId,
+        userEmail: previousEmail,
+        now,
+      })
+      const otherSessions = await tx
+        .select({ id: humanSessions.id })
+        .from(humanSessions)
+        .where(
+          and(
+            eq(humanSessions.userId, userId),
+            ne(humanSessions.id, currentSessionId)
+          )
+        )
+        .for("update")
       await tx
         .update(humanSessions)
         .set({ revokedAt: now })
@@ -762,6 +856,11 @@ const databaseEmailChangeStore: EmailChangeStore = {
             isNull(humanSessions.revokedAt)
           )
         )
+      await revokeHumanSessionIssuedCredentials(
+        tx,
+        otherSessions.map((session) => session.id),
+        now
+      )
       await tx
         .update(cliInstallations)
         .set({ userEmail: email })

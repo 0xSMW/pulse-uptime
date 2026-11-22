@@ -981,6 +981,9 @@ export const userInvites = pgTable(
     // Principal key of the creator ("human:<id>"), text like api_tokens so a
     // later removal of the creator never breaks the row.
     createdByPrincipal: text("created_by_principal").notNull(),
+    // Exact human session provenance for explicit session-revocation cleanup.
+    // Legacy invites and machine-created invites have no issuing human session.
+    issuedByHumanSessionId: uuid("issued_by_human_session_id"),
     createdAt: timestamptz("created_at").notNull(),
     expiresAt: timestamptz("expires_at").notNull(),
     acceptedAt: timestamptz("accepted_at"),
@@ -988,6 +991,11 @@ export const userInvites = pgTable(
     revokedAt: timestamptz("revoked_at"),
   },
   (table) => [
+    index("user_invites_pending_issuer_session")
+      .on(table.issuedByHumanSessionId)
+      .where(
+        sql`${table.acceptedAt} is null and ${table.revokedAt} is null and ${table.issuedByHumanSessionId} is not null`
+      ),
     check("user_invites_role", sql`${table.role} in ('admin', 'viewer')`),
     check(
       "user_invites_expiry_order",
@@ -1044,6 +1052,7 @@ export const apiTokens = pgTable(
     scopes: text("scopes").array().notNull(),
     createdAt: timestamptz("created_at").notNull(),
     createdByPrincipal: text("created_by_principal").notNull(),
+    issuedByHumanSessionId: uuid("issued_by_human_session_id"),
     credentialOwnerUserId: uuid("credential_owner_user_id").references(
       () => adminUsers.id,
       { onDelete: "set null" }
@@ -1057,6 +1066,9 @@ export const apiTokens = pgTable(
     index("api_tokens_active_creator")
       .on(table.createdByPrincipal)
       .where(sql`${table.revokedAt} is null`),
+    index("api_tokens_issuer_session")
+      .on(table.issuedByHumanSessionId)
+      .where(sql`${table.issuedByHumanSessionId} is not null`),
     check(
       "api_tokens_expiry_order",
       sql`${table.expiresAt} > ${table.createdAt}`
@@ -1077,6 +1089,7 @@ export const cliInstallations = pgTable(
     userId: uuid("user_id").references(() => adminUsers.id, {
       onDelete: "set null",
     }),
+    authorizedByHumanSessionId: uuid("authorized_by_human_session_id"),
     credentialEpoch: integer("credential_epoch").notNull().default(0),
     displayName: text("display_name").notNull(),
     platform: text("platform").notNull(),
@@ -1088,6 +1101,9 @@ export const cliInstallations = pgTable(
     revokedAt: timestamptz("revoked_at"),
   },
   (table) => [
+    index("cli_installations_authorizer_session")
+      .on(table.authorizedByHumanSessionId)
+      .where(sql`${table.authorizedByHumanSessionId} is not null`),
     check(
       "cli_installations_link_order",
       sql`${table.linkedAt} >= ${table.createdAt}`

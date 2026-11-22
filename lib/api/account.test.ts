@@ -98,11 +98,9 @@ describe("updateAccountProfile", () => {
       findAvatarImage: vi.fn().mockResolvedValue(null),
     })
     await expect(
-      updateAccountProfile(
-        "usr_1",
-        { avatarImageId: NEW_AVATAR_ID },
-        { store: missing }
-      )
+      updateAccountProfile("usr_1", { avatarImageId: NEW_AVATAR_ID }, "ses_1", {
+        store: missing,
+      })
     ).rejects.toMatchObject({ code: "IMAGE_NOT_FOUND" })
     expect(missing.applyProfileUpdate).not.toHaveBeenCalled()
 
@@ -110,11 +108,9 @@ describe("updateAccountProfile", () => {
       findAvatarImage: vi.fn().mockResolvedValue({ kind: "logo-light" }),
     })
     await expect(
-      updateAccountProfile(
-        "usr_1",
-        { avatarImageId: NEW_AVATAR_ID },
-        { store: wrongKind }
-      )
+      updateAccountProfile("usr_1", { avatarImageId: NEW_AVATAR_ID }, "ses_1", {
+        store: wrongKind,
+      })
     ).rejects.toMatchObject({ code: "IMAGE_NOT_FOUND" })
   })
 
@@ -124,6 +120,7 @@ describe("updateAccountProfile", () => {
     const profile = await updateAccountProfile(
       "usr_1",
       { avatarImageId: NEW_AVATAR_ID },
+      "ses_1",
       { store, now: () => now }
     )
     expect(profile).toEqual({
@@ -134,6 +131,7 @@ describe("updateAccountProfile", () => {
     })
     expect(store.applyProfileUpdate).toHaveBeenCalledWith({
       userId: "usr_1",
+      currentSessionId: "ses_1",
       patch: { avatarImageId: NEW_AVATAR_ID },
       now,
     })
@@ -150,7 +148,9 @@ describe("updateAccountProfile", () => {
         previousAvatarImageId: OLD_AVATAR_ID,
       }),
     })
-    await updateAccountProfile("usr_1", { name: "Renamed" }, { store })
+    await updateAccountProfile("usr_1", { name: "Renamed" }, "ses_1", {
+      store,
+    })
     expect(store.findAvatarImage).not.toHaveBeenCalled()
     expect(store.deleteAvatarImage).not.toHaveBeenCalled()
   })
@@ -165,7 +165,9 @@ describe("updateAccountProfile", () => {
         previousAvatarImageId: OLD_AVATAR_ID,
       }),
     })
-    await updateAccountProfile("usr_1", { avatarImageId: null }, { store })
+    await updateAccountProfile("usr_1", { avatarImageId: null }, "ses_1", {
+      store,
+    })
     expect(store.findAvatarImage).not.toHaveBeenCalled()
     expect(store.deleteAvatarImage).toHaveBeenCalledWith(OLD_AVATAR_ID, "usr_1")
   })
@@ -175,13 +177,16 @@ describe("updateAccountProfile", () => {
       applyProfileUpdate: vi.fn().mockResolvedValue(null),
     })
     await expect(
-      updateAccountProfile("usr_1", { name: "Stephen" }, { store })
+      updateAccountProfile("usr_1", { name: "Stephen" }, "ses_1", { store })
     ).rejects.toMatchObject({ code: "ACCOUNT_NOT_FOUND" })
   })
 })
 
 describe("database profile avatar attachment", () => {
   it("locks the owned candidate through the profile update", async () => {
+    const sessionLimit = vi.fn().mockResolvedValue([{ id: "ses_1" }])
+    const sessionFor = vi.fn().mockReturnValue({ limit: sessionLimit })
+    const sessionWhere = vi.fn().mockReturnValue({ for: sessionFor })
     const forUpdate = vi.fn().mockResolvedValue([{ kind: "avatar" }])
     const avatarLimit = vi.fn().mockReturnValue({ for: forUpdate })
     const avatarWhere = vi.fn().mockReturnValue({ limit: avatarLimit })
@@ -189,6 +194,9 @@ describe("database profile avatar attachment", () => {
     const currentWhere = vi.fn().mockReturnValue({ limit: currentLimit })
     const select = vi
       .fn()
+      .mockReturnValueOnce({
+        from: vi.fn().mockReturnValue({ where: sessionWhere }),
+      })
       .mockReturnValueOnce({
         from: vi.fn().mockReturnValue({ where: avatarWhere }),
       })
@@ -213,6 +221,7 @@ describe("database profile avatar attachment", () => {
 
     await databaseProfileUpdateStore.applyProfileUpdate({
       userId: "usr_1",
+      currentSessionId: "ses_1",
       patch: { avatarImageId: NEW_AVATAR_ID },
       now: new Date("2026-07-18T00:00:00Z"),
     })
@@ -569,6 +578,7 @@ describe("changeAccountPassword", () => {
     ).resolves.toEqual({ changed: true })
     expect(store.applyPasswordChange).toHaveBeenCalledWith({
       userId: "usr_1",
+      currentSessionId: "ses_1",
       expectedPasswordDigest: "digest",
       passwordDigest: "argon2id:a-long-enough-password",
       now,
@@ -739,11 +749,12 @@ describe("session revocation", () => {
     expect(store.revokeSession).toHaveBeenCalledWith({
       userId: "usr_1",
       sessionId: "ses_2",
+      currentSessionId: "ses_1",
       now,
     })
   })
 
-  it("reports sessions that are gone or already signed out", async () => {
+  it("reports sessions that do not belong to the account", async () => {
     const store = fakeSessionStore({
       revokeSession: vi.fn().mockResolvedValue(false),
     })

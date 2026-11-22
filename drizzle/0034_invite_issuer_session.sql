@@ -1,0 +1,2 @@
+ALTER TABLE "user_invites" ADD COLUMN "issued_by_human_session_id" uuid;--> statement-breakpoint
+CREATE INDEX "user_invites_pending_issuer_session" ON "user_invites" USING btree ("issued_by_human_session_id") WHERE "user_invites"."accepted_at" is null and "user_invites"."revoked_at" is null and "user_invites"."issued_by_human_session_id" is not null;

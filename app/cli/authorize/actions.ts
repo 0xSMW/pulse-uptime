@@ -111,6 +111,7 @@ export async function denyAuthorization(
   try {
     await denyDeviceAuthorization(userCode, {
       id: session.userId,
+      sessionId: session.sessionId,
       email: session.email,
     })
     return { ok: true, state: "denied" }

@@ -1,6 +1,6 @@
 import "server-only"
 
-import { and, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm"
+import { and, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm"
 
 import { trackEvent } from "@/lib/analytics-server"
 import {
@@ -16,6 +16,7 @@ import {
   cliSessions,
   deviceAuthorizations,
   humanSessions,
+  userInvites,
 } from "@/lib/db/schema"
 import { revokeCliTokenSubtrees } from "./credential-revocation"
 import { lockMachineCredentialChanges } from "./machine-credential-lock"
@@ -129,31 +130,7 @@ export async function approveDeviceAuthorization(
   const normalized = normalizeUserCode(userCode)
   return db.transaction(async (tx) => {
     await lockMachineCredentialChanges(tx)
-    const [activeHuman] = await tx
-      .select({
-        email: adminUsers.email,
-        userId: adminUsers.id,
-        credentialEpoch: adminUsers.credentialEpoch,
-      })
-      .from(humanSessions)
-      .innerJoin(adminUsers, eq(adminUsers.id, humanSessions.userId))
-      .where(
-        and(
-          eq(humanSessions.id, human.sessionId),
-          eq(humanSessions.userId, human.id),
-          isNull(humanSessions.revokedAt),
-          gt(humanSessions.expiresAt, now),
-          eq(adminUsers.role, "admin")
-        )
-      )
-      .for("update")
-      .limit(1)
-    if (!activeHuman) {
-      throw new DeviceAuthorizationError(
-        "access_denied",
-        "Administrator session is no longer active"
-      )
-    }
+    const activeHuman = await requireLiveAdminSession(tx, human, now)
     const [authorization] = await tx
       .update(deviceAuthorizations)
       .set({
@@ -186,6 +163,20 @@ export async function approveDeviceAuthorization(
         "Authorization request is no longer available"
       )
     }
+    // An installation key can be reapproved under another human session.
+    // Retire every prior CLI session and its descendants before transferring
+    // the installation's authorizer provenance to the new session.
+    const [priorInstallation] = await tx
+      .select({ id: cliInstallations.id })
+      .from(cliInstallations)
+      .where(
+        eq(cliInstallations.installationKey, authorization.installationKey)
+      )
+      .for("update")
+      .limit(1)
+    if (priorInstallation) {
+      await revokeInstallationInTransaction(tx, priorInstallation.id, now)
+    }
     await tx
       .insert(cliInstallations)
       .values({
@@ -193,6 +184,7 @@ export async function approveDeviceAuthorization(
         installationKey: authorization.installationKey,
         userEmail: activeHuman.email,
         userId: activeHuman.userId,
+        authorizedByHumanSessionId: human.sessionId,
         credentialEpoch: activeHuman.credentialEpoch,
         displayName: authorization.installationName,
         platform: authorization.platform,
@@ -206,6 +198,7 @@ export async function approveDeviceAuthorization(
         set: {
           userEmail: activeHuman.email,
           userId: activeHuman.userId,
+          authorizedByHumanSessionId: human.sessionId,
           credentialEpoch: activeHuman.credentialEpoch,
           displayName: authorization.installationName,
           platform: authorization.platform,
@@ -233,27 +226,64 @@ export async function approveDeviceAuthorization(
 
 export async function denyDeviceAuthorization(
   userCode: string,
-  _human: Pick<HumanPrincipal, "id" | "email">,
+  human: Pick<HumanPrincipal, "id" | "sessionId" | "email">,
   now = new Date()
 ): Promise<boolean> {
-  const rows = await db
-    .update(deviceAuthorizations)
-    .set({ state: "denied", deniedAt: now })
+  return db.transaction(async (tx) => {
+    await lockMachineCredentialChanges(tx)
+    await requireLiveAdminSession(tx, human, now)
+    const rows = await tx
+      .update(deviceAuthorizations)
+      .set({ state: "denied", deniedAt: now })
+      .where(
+        and(
+          sql`lower(${deviceAuthorizations.userCode}) = lower(${normalizeUserCode(userCode)})`,
+          eq(deviceAuthorizations.state, "pending"),
+          gt(deviceAuthorizations.expiresAt, now)
+        )
+      )
+      .returning({ id: deviceAuthorizations.id })
+    if (rows.length === 0) {
+      throw new DeviceAuthorizationError(
+        "expired_token",
+        "Authorization request is no longer available"
+      )
+    }
+    return true
+  })
+}
+
+async function requireLiveAdminSession(
+  tx: DatabaseTransaction,
+  human: Pick<HumanPrincipal, "id" | "sessionId">,
+  now: Date
+) {
+  const [activeHuman] = await tx
+    .select({
+      email: adminUsers.email,
+      userId: adminUsers.id,
+      credentialEpoch: adminUsers.credentialEpoch,
+    })
+    .from(humanSessions)
+    .innerJoin(adminUsers, eq(adminUsers.id, humanSessions.userId))
     .where(
       and(
-        sql`lower(${deviceAuthorizations.userCode}) = lower(${normalizeUserCode(userCode)})`,
-        eq(deviceAuthorizations.state, "pending"),
-        gt(deviceAuthorizations.expiresAt, now)
+        eq(humanSessions.id, human.sessionId),
+        eq(humanSessions.userId, human.id),
+        isNull(humanSessions.revokedAt),
+        gt(humanSessions.expiresAt, now),
+        eq(adminUsers.role, "admin")
       )
     )
-    .returning({ id: deviceAuthorizations.id })
-  if (rows.length === 0) {
+    .for("update")
+    .limit(1)
+  if (!activeHuman) {
     throw new DeviceAuthorizationError(
-      "expired_token",
-      "Authorization request is no longer available"
+      "access_denied",
+      "Administrator session is no longer active"
     )
   }
-  return true
+  return activeHuman
 }
 
 export async function startDeviceAuthorization(
@@ -633,6 +663,19 @@ export async function revokeAllMachineCredentials(
       .set({ revokedAt: now })
       .where(isNull(apiTokens.revokedAt))
       .returning({ id: apiTokens.id })
+    await tx
+      .update(userInvites)
+      .set({ revokedAt: now })
+      .where(
+        and(
+          isNull(userInvites.acceptedAt),
+          isNull(userInvites.revokedAt),
+          or(
+            sql`${userInvites.createdByPrincipal} like 'api_token:%'`,
+            sql`${userInvites.createdByPrincipal} like 'cli_session:%'`
+          )
+        )
+      )
 
     return {
       installations: revokedInstallations.length,

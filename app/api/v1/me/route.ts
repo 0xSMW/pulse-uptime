@@ -42,7 +42,11 @@ export async function PATCH(request: Request) {
   }
   try {
     const patch = validateProfilePatch(await request.json())
-    const profile = await updateAccountProfile(context.principal.id, patch)
+    const profile = await updateAccountProfile(
+      context.principal.id,
+      patch,
+      context.principal.sessionId
+    )
     return apiJson(
       objectEnvelope(
         "Me",
@@ -54,7 +58,11 @@ export async function PATCH(request: Request) {
     if (error instanceof AccountServiceError) {
       return apiError(
         context.requestId,
-        error.code === "ACCOUNT_NOT_FOUND" ? 404 : 400,
+        error.code === "SESSION_REVOKED"
+          ? 401
+          : error.code === "ACCOUNT_NOT_FOUND"
+            ? 404
+            : 400,
         error.code,
         error.message
       )

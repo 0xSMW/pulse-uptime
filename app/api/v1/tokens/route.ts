@@ -111,7 +111,7 @@ export async function POST(request: Request) {
       persistBody: persistCreatedToken,
       replayBody: async (stored, { operationId }) => {
         const persisted = stored as PersistedCreatedTokenData
-        await requireReplayableApiToken(persisted.id)
+        await requireReplayableApiToken(persisted.id, context.principal)
         return replayCreatedToken(
           persisted,
           deriveBearerToken(

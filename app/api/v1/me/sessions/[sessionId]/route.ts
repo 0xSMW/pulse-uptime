@@ -55,11 +55,13 @@ export async function DELETE(
   } catch (error) {
     if (error instanceof AccountServiceError) {
       const status =
-        error.code === "CURRENT_SESSION"
-          ? 409
-          : error.code === "SESSION_NOT_FOUND"
-            ? 404
-            : 400
+        error.code === "SESSION_REVOKED"
+          ? 401
+          : error.code === "CURRENT_SESSION"
+            ? 409
+            : error.code === "SESSION_NOT_FOUND"
+              ? 404
+              : 400
       return apiError(context.requestId, status, error.code, error.message)
     }
     return routeError(error, context.requestId)

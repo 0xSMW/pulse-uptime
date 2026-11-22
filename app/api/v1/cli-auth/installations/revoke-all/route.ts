@@ -1,6 +1,7 @@
 import { revokeAllMachineCredentials } from "@/lib/api/device-authorization"
 import { apiError, apiJson, objectEnvelope } from "@/lib/api/envelopes"
 import { executeIdempotent } from "@/lib/api/idempotency"
+import { hasLiveScope } from "@/lib/api/live-authority"
 import { authorize, isApiResponse } from "@/lib/api/middleware"
 import { routeError } from "@/lib/api/route"
 
@@ -24,11 +25,28 @@ export async function POST(request: Request) {
       routeKey: "machine-credentials-revoke-all",
       body: {},
       mode: "atomic",
-      work: async (tx) => ({
-        status: 200,
-        body: await revokeAllMachineCredentials(new Date(), tx),
-      }),
+      work: async (tx) => {
+        if (!(await hasLiveScope(tx, context.principal, "tokens:manage"))) {
+          return {
+            status: 403,
+            body: { installations: 0, sessions: 0, tokens: 0 },
+          }
+        }
+        return {
+          status: 200,
+          body: await revokeAllMachineCredentials(new Date(), tx),
+        }
+      },
     })
+    if (result.status === 403) {
+      return apiError(
+        context.requestId,
+        403,
+        "SCOPE_DENIED",
+        "The credential is no longer authorized",
+        { scope: "tokens:manage" }
+      )
+    }
     return apiJson(
       objectEnvelope(
         "MachineCredentialRevocation",
